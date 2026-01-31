@@ -5,25 +5,34 @@ FROM python:3.11-slim as builder
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+# Use Chinese PyPI mirror for faster downloads
+ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+# Increase pip timeout for slow networks
+ENV PIP_DEFAULT_TIMEOUT=300
 
-# Install system dependencies
+# Install system dependencies with build tools
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     postgresql-client \
     curl \
+    build-essential \
+    libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Create virtual environment
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy requirements
-COPY pyproject.toml ./
+# Upgrade pip and install build tools FIRST (separate layer for caching)
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -e .
+# Copy requirements file for better caching
+COPY requirements.txt ./
+
+# Install Python dependencies from requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Stage 2: Runtime
 FROM python:3.11-slim as runtime
@@ -37,6 +46,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN apt-get update && apt-get install -y \
     postgresql-client \
     curl \
+    libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
