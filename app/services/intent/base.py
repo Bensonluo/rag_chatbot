@@ -5,7 +5,7 @@ Provides abstract classes and data structures for intent classifiers.
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 
 from app.models.enums.intent import Intent
 
@@ -22,7 +22,7 @@ class IntentResult:
     """
     intent: Intent
     confidence: float = 0.0
-    metadata: Optional[Dict[str, any]] = None
+    metadata: Optional[dict] = None
 
 
 class IntentDetector(ABC):

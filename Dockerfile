@@ -42,11 +42,12 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Install runtime dependencies
+# Install runtime dependencies (including netcat for health checks)
 RUN apt-get update && apt-get install -y \
     postgresql-client \
     curl \
     libpq5 \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
@@ -73,5 +74,13 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Run application
-CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+# Copy entrypoint script
+COPY --chown=appuser:appuser scripts/entrypoint.sh /home/appuser/app/scripts/entrypoint.sh
+
+# Make entrypoint executable
+USER root
+RUN chmod +x /home/appuser/app/scripts/entrypoint.sh
+USER appuser
+
+# Run application via entrypoint
+CMD ["/home/appuser/app/scripts/entrypoint.sh"]

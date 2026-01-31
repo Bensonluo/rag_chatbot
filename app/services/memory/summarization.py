@@ -5,10 +5,10 @@ Periodically summarizes old messages to retain important context.
 """
 from typing import Optional, List
 
-from app.services.memory.base import MemoryStrategy, MemoryContent
+from app.services.memory.base import MemoryStrategy, MemoryContent, MessageContent
 from app.services.llm.base import LLMServiceBase, LLMMessage
 from app.services.llm.prompt_templates import PromptTemplates
-from app.models.schemas.chat import MessageContent
+from app.services.memory.base import MessageContent
 from app.repositories.message_repository import MessageRepository
 
 

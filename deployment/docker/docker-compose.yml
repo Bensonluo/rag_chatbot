@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   app:
@@ -12,9 +11,16 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - ENVIRONMENT=development
       - DEBUG=true
+      - GLM_API_KEY=951a05b4ed8c49df996c39ffc38e071c.08KUDBXaZ3u76zZ3
+      - GLM_MODEL=glm-4.5-air
+      - VECTOR_DB_URL=http://qdrant:6333
+      - EMBEDDING_PROVIDER=local
+      - EMBEDDING_MODEL=bge-m3-v2-zh
+      - MEMORY_TYPE=optimized
     depends_on:
       - db
       - redis
+      - qdrant
     volumes:
       - ./../../app:/app/app
       - ./../../migrations:/app/migrations
@@ -50,16 +56,15 @@ services:
       timeout: 5s
       retries: 5
 
-  # Vector service (placeholder for future implementation)
-  # qdrant:
-  #   image: qdrant/qdrant:latest
-  #   ports:
-  #     - "6333:6333"
-  #   volumes:
-  #     - qdrant_data:/qdrant/storage
-  #   restart: unless-stopped
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
 
 volumes:
   postgres_data:
   redis_data:
-  # qdrant_data:
+  qdrant_data:

@@ -272,7 +272,18 @@ class OptimizedContextBuilder(MemoryStrategy):
         message: MessageContent
     ) -> None:
         """Add a message to the repository."""
-        await self.message_repo.add_message(session_id, message)
+        # Create message in database
+        from app.models.database.message import Message
+        from app.models.enums.message import MessageRole, MessageStatus
+
+        db_message = Message(
+            session_id=session_id,
+            role=MessageRole(message["role"]),
+            content=message["content"],
+            status=MessageStatus.COMPLETED,
+        )
+
+        await self.message_repo.create(db_message)
 
     async def clear_session(self, session_id: int) -> None:
         """Clear all messages for a session."""

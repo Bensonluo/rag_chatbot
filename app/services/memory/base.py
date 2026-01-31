@@ -5,9 +5,13 @@ Provides abstract classes for conversation memory management.
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
-from app.models.schemas.chat import MessageContent
+from app.models.database.message import Message
+
+
+# Type alias for MessageContent - could be a Message object or dict
+MessageContent = dict
 
 
 @dataclass
@@ -20,7 +24,7 @@ class MemoryContent:
         summary: Optional summary of the content
         metadata: Optional additional metadata
     """
-    messages: List[MessageContent] = field(default_factory=list)
+    messages: List[Message] = field(default_factory=list)
     summary: Optional[str] = None
     metadata: Optional[dict] = None
 

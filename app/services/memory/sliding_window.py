@@ -6,8 +6,8 @@ Simple, fast, and predictable.
 """
 from typing import Optional, List
 
-from app.services.memory.base import MemoryStrategy, MemoryContent
-from app.models.schemas.chat import MessageContent
+from app.services.memory.base import MemoryStrategy, MemoryContent, MessageContent
+from app.services.memory.base import MessageContent
 from app.repositories.message_repository import MessageRepository
 
 
@@ -94,8 +94,8 @@ class SlidingWindowMemory(MemoryStrategy):
 
         db_message = Message(
             session_id=session_id,
-            role=MessageRole(message.role),
-            content=message.content,
+            role=MessageRole(message["role"]),
+            content=message["content"],
             status=MessageStatus.COMPLETED,
         )
 

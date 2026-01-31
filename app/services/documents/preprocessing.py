@@ -4,7 +4,7 @@ Document preprocessing utilities.
 Handles text cleaning, normalization, and preparation before chunking.
 """
 import re
-from typing import List
+from typing import List, Tuple
 
 
 class TextPreprocessor:

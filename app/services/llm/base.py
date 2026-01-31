@@ -60,7 +60,7 @@ class LLMResponse:
     content: str
     model: str
     finish_reason: Optional[str] = None
-    usage: Optional[Dict[str, int]] = None
+    usage: Optional[dict] = None
 
 
 class LLMServiceBase(ABC):

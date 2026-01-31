@@ -3,7 +3,7 @@ Prompt templates for LLM interactions.
 
 Provides reusable prompt templates for different use cases.
 """
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 
 class PromptTemplates:

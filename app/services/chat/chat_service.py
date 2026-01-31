@@ -82,7 +82,6 @@ class ChatService:
         Intent.COMPARISON,
         Intent.DEFINITION,
         Intent.RECOMMENDATION,
-        Intent.CLARIFICATION,
     }
 
     def __init__(

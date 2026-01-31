@@ -3,7 +3,7 @@ Authentication service for user authentication and authorization.
 
 Handles user registration, login, token creation, and token verification.
 """
-from typing import Dict
+from typing import Dict, Any
 
 from app.repositories.user_repository import UserRepository
 from app.models.database.user import User
@@ -164,7 +164,7 @@ class AuthenticationService:
         refresh_token = create_jwt_refresh_token(token_data)
         return refresh_token
 
-    async def verify_token(self, token: str) -> Dict[str, any]:
+    async def verify_token(self, token: str) -> Dict[str, Any]:
         """
         Verify and decode an access token.
 

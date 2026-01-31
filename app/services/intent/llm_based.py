@@ -159,7 +159,7 @@ Guidelines:
 
 New query: {query}
 
-Intent:""
+Intent:"""
 
         return prompt
 

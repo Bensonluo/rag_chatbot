@@ -3,33 +3,13 @@ GLM (Zhipu AI) LLM client implementation.
 
 Provides integration with GLM models from Zhipu AI.
 """
-from typing import AsyncGenerator, Optional, List
+from typing import AsyncGenerator, Optional, List, Dict, Any
 
 import httpx
-from pydantic import BaseModel
 
 from app.services.llm.base import LLMServiceBase, LLMMessage, LLMResponse
 from app.services.llm.token_counter import TokenCounter
 from app.core.exceptions import ExternalServiceError
-
-
-class GLMChatCompletion(BaseModel):
-    """GLM chat completion response model."""
-
-    id: str
-    created: int
-    model: str
-    choices: List[dict]
-    usage: dict
-
-
-class GLMStreamChunk(BaseModel):
-    """GLM streaming chunk model."""
-
-    id: str
-    created: int
-    model: str
-    choices: List[dict]
 
 
 class GLMClient(LLMServiceBase):

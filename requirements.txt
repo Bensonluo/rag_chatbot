@@ -8,6 +8,7 @@ pydantic-settings>=2.1.0
 sqlalchemy[asyncio]>=2.0.25
 asyncpg>=0.29.0
 alembic>=1.13.0
+qdrant-client>=1.7.0
 
 # Cache
 redis>=5.0.1
@@ -15,7 +16,8 @@ hiredis>=2.3.2
 
 # Authentication & Security
 python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
+passlib>=1.7.4
+bcrypt<4.0.0  # Pin bcrypt for passlib compatibility
 python-multipart>=0.0.6
 
 # HTTP Client

@@ -5,7 +5,7 @@ Automatically switches strategies based on conversation length.
 """
 from typing import Optional, List
 
-from app.services.memory.base import MemoryStrategy, MemoryContent
+from app.services.memory.base import MemoryStrategy, MemoryContent, MessageContent
 from app.services.memory.sliding_window import SlidingWindowMemory
 from app.services.memory.summarization import SummarizationMemory
 

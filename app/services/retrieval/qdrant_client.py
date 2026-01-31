@@ -285,8 +285,6 @@ class QdrantClient(VectorClient):
                 details={"filter": filter}
             ) from e
 
-    async def delete(
-
     async def update(
         self,
         document: Document,

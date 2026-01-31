@@ -82,10 +82,10 @@ async def create_session(
     summary="List user's chat sessions",
 )
 async def list_sessions(
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     current_user: Annotated[User, Depends(get_current_user)],
     session_service: Annotated[SessionService, Depends(get_session_service)],
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
 ) -> dict:
     """
     List all chat sessions for the authenticated user with pagination.

@@ -100,6 +100,42 @@ class RateLimiterMiddleware:
         # Calculate refill rate (tokens per second)
         self.refill_rate = requests_per_minute / 60.0
 
+    async def __call__(self, scope, receive, send):
+        """
+        ASGI middleware entry point.
+
+        Args:
+            scope: ASGI scope
+            receive: ASGI receive callable
+            send: ASGI send callable
+        """
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Get request path
+        path = scope.get("path", "")
+
+        # Skip whitelisted paths
+        if path in self.whitelist_paths:
+            await self.app(scope, receive, send)
+            return
+
+        # Get client IP
+        client_ip = scope.get("client", ["unknown"])[0]
+
+        # Get or create bucket for this IP
+        bucket = self._get_bucket(client_ip)
+
+        # Try to consume token
+        if bucket.consume():
+            # Request allowed - pass through
+            await self.app(scope, receive, send)
+        else:
+            # Rate limit exceeded
+            response = self._rate_limit_response(bucket, client_ip)
+            await response(scope, receive, send)
+
     async def dispatch(self, request: Request, call_next):
         """
         Process request and enforce rate limit.

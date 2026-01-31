@@ -64,3 +64,11 @@ class ExternalServiceError(AppException):
 
     def __init__(self, service: str, message: str = "External service error"):
         super().__init__(f"{service}: {message}", code="EXTERNAL_SERVICE_ERROR")
+
+
+class BaseServiceError(AppException):
+    """Base exception for service layer errors"""
+
+    def __init__(self, message: str, details: dict | None = None):
+        self.details = details or {}
+        super().__init__(message, code="SERVICE_ERROR")

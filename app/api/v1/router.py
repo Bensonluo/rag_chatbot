@@ -15,4 +15,5 @@ api_router.include_router(auth.router)
 api_router.include_router(sessions.router)
 api_router.include_router(documents.router)
 api_router.include_router(chat.router)
-api_router.include_router(openapi.router)
+# Note: openapi module provides configuration functions, not a router
+# It is used via app.openapi = custom_openapi in main app setup

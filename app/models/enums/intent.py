@@ -8,6 +8,7 @@ class Intent(str, Enum):
     COMPARISON = "comparison"
     HOW_TO = "how_to"
     DEFINITION = "definition"
+    RECOMMENDATION = "recommendation"
     SUMMARY = "summary"
     CODE_HELP = "code_help"
     CREATIVE = "creative"

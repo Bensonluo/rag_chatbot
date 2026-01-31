@@ -4,7 +4,7 @@ Text processing utilities.
 Common text processing functions for cleaning and normalizing text.
 """
 import re
-from typing import str, List, Dict
+from typing import List, Dict
 
 
 def clean_text(text: str) -> str:
