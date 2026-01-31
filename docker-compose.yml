@@ -1,0 +1,163 @@
+# Docker Compose for RAG Chatbot Development
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: rag-chatbot-db
+    environment:
+      POSTGRES_DB: rag_chatbot
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-network
+
+  # Redis (caching and sessions)
+  redis:
+    image: redis:7-alpine
+    container_name: rag-chatbot-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rag-network
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:v1.7.4
+    container_name: rag-chatbot-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    networks:
+      - rag-network
+
+  # RAG Chatbot API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-chatbot-api
+    environment:
+      # Database
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/rag_chatbot
+
+      # Redis
+      REDIS_URL: redis://redis:6379/0
+
+      # Qdrant
+      VECTOR_DB_URL: http://qdrant:6333
+      VECTOR_COLLECTION_NAME: documents
+
+      # LLM API
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GLM_API_KEY: ${GLM_API_KEY:-}
+      GLM_MODEL: ${GLM_MODEL:-glm-4.5-air}
+
+      # Embedding Models
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3-v2-zh}
+      EMBEDDING_CACHE_TTL: ${EMBEDDING_CACHE_TTL:-604800}
+      EMBEDDING_DEVICE: ${EMBEDDING_DEVICE:-cpu}
+
+      # Security
+      SECRET_KEY: ${SECRET_KEY:-development-secret-key-change-in-production}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+
+      # CORS
+      CORS_ORIGINS: http://localhost:3000,http://localhost:8000
+
+      # Logging
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - rag-network
+    restart: unless-stopped
+
+  # Prometheus (Metrics)
+  prometheus:
+    image: prom/prometheus:v2.47.2
+    container_name: rag-chatbot-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - rag-network
+    profiles:
+      - monitoring
+
+  # Grafana (Visualization)
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: rag-chatbot-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./deploy/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./deploy/grafana/datasources:/etc/grafana/provisioning/datasources
+    networks:
+      - rag-network
+    profiles:
+      - monitoring
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  qdrant_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  rag-network:
+    driver: bridge
