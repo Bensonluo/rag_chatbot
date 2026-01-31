@@ -4,7 +4,7 @@ Base repository with common CRUD operations.
 Provides generic database operations using SQLAlchemy async.
 All repositories should inherit from this base class.
 """
-from typing import TypeVar, Type, Generic
+from typing import TypeVar, Type, Generic, List, Dict, Any
 
 from pydantic import BaseModel
 from sqlalchemy import select, delete, func
@@ -66,7 +66,7 @@ class BaseRepository(Generic[ModelType]):
         model: Type[ModelType],
         skip: int = 0,
         limit: int = 100,
-    ) -> list[ModelType]:
+    ) -> List[ModelType]:
         """
         Get all entities with pagination.
 
@@ -76,7 +76,7 @@ class BaseRepository(Generic[ModelType]):
             limit: Maximum number of records to return
 
         Returns:
-            list[ModelType]: List of entities
+            List[ModelType]: List of entities
         """
         stmt = select(model).offset(skip).limit(limit)
         result = await self.session.execute(stmt)

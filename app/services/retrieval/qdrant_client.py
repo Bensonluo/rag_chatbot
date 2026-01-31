@@ -3,7 +3,7 @@ Qdrant vector database client implementation.
 
 Provides async client for Qdrant vector database operations.
 """
-from typing import Optional
+from typing import Optional, List
 from app.services.retrieval.vector_base import (
     VectorClient,
     Document,
@@ -62,8 +62,8 @@ class QdrantClient(VectorClient):
 
     async def add_documents(
         self,
-        documents: list[Document],
-    ) -> list[str]:
+        documents: List[Document],
+    ) -> List[str]:
         """
         Add documents to Qdrant collection.
 
@@ -71,7 +71,7 @@ class QdrantClient(VectorClient):
             documents: List of documents to add
 
         Returns:
-            list[str]: List of document IDs
+            List[str]: List of document IDs
 
         Raises:
             VectorClientError: If operation fails
@@ -117,7 +117,7 @@ class QdrantClient(VectorClient):
     async def search(
         self,
         request: VectorSearchRequest,
-    ) -> list[SearchResult]:
+    ) -> List[SearchResult]:
         """
         Search for similar documents in Qdrant.
 
@@ -125,7 +125,7 @@ class QdrantClient(VectorClient):
             request: Search request with query and parameters
 
         Returns:
-            list[SearchResult]: List of search results sorted by score
+            List[SearchResult]: List of search results sorted by score
 
         Raises:
             VectorClientError: If operation fails
@@ -169,7 +169,7 @@ class QdrantClient(VectorClient):
 
     async def delete(
         self,
-        document_ids: list[str],
+        document_ids: List[str],
     ) -> None:
         """
         Delete documents from Qdrant.
@@ -198,9 +198,9 @@ class QdrantClient(VectorClient):
 
     async def add(
         self,
-        ids: list[str],
-        vectors: list[list[float]],
-        payloads: list[dict],
+        ids: List[str],
+        vectors: List[List[float]],
+        payloads: List[dict],
     ) -> None:
         """
         Add points with pre-computed vectors to Qdrant.
@@ -313,7 +313,7 @@ class QdrantClient(VectorClient):
                 vector=embedding,
                 payload={
                     "content": document.content,
-                    "metadata": document.metadata or {},
+                    "metadata": document.doc_metadata or {},
                 }
             )
 
@@ -366,7 +366,7 @@ class QdrantClient(VectorClient):
                 details={"document_id": document_id}
             ) from e
 
-    async def _generate_embedding(self, text: str) -> list[float]:
+    async def _generate_embedding(self, text: str) -> List[float]:
         """
         Generate embedding for text using the configured embedding service.
 
@@ -374,7 +374,7 @@ class QdrantClient(VectorClient):
             text: Text to embed
 
         Returns:
-            list[float]: Vector embedding
+            List[float]: Vector embedding
 
         Raises:
             VectorClientError: If no embedding service configured or generation fails

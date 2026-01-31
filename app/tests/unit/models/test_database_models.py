@@ -370,4 +370,4 @@ class TestDocumentModel:
         # Assert
         assert document.chunk_count == 0
         assert document.is_active is True
-        assert document.metadata is None
+        assert document.doc_metadata is None

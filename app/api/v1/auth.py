@@ -4,7 +4,7 @@ Authentication API endpoints.
 Provides endpoints for user registration, login, token refresh,
 and getting current user information.
 """
-from typing import Annotated
+from typing import Annotated, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -69,7 +69,7 @@ async def register(
 async def login(
     user_credentials: UserLogin,
     auth_service: Annotated[AuthenticationService, Depends(get_auth_service)],
-) -> dict[str, str | int]:
+) -> Dict[str, str | int]:
     """
     Authenticate a user and return access and refresh tokens.
 
@@ -110,7 +110,7 @@ async def login(
 async def refresh_token(
     token_data: RefreshTokenRequest,
     auth_service: Annotated[AuthenticationService, Depends(get_auth_service)],
-) -> dict[str, str | int]:
+) -> Dict[str, str | int]:
     """
     Refresh an access token using a refresh token.
 

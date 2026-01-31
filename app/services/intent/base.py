@@ -5,7 +5,7 @@ Provides abstract classes and data structures for intent classifiers.
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional, dict
+from typing import Optional, Dict, List
 
 from app.models.enums.intent import Intent
 
@@ -22,7 +22,7 @@ class IntentResult:
     """
     intent: Intent
     confidence: float = 0.0
-    metadata: Optional[dict[str, any]] = None
+    metadata: Optional[Dict[str, any]] = None
 
 
 class IntentDetector(ABC):
@@ -93,7 +93,7 @@ class IntentDetector(ABC):
 
         return normalized
 
-    def _contains_any(self, text: str, keywords: list[str]) -> bool:
+    def _contains_any(self, text: str, keywords: List[str]) -> bool:
         """
         Check if text contains any of the keywords.
 
@@ -106,7 +106,7 @@ class IntentDetector(ABC):
         """
         return any(keyword in text for keyword in keywords)
 
-    def _count_matches(self, text: str, keywords: list[str]) -> int:
+    def _count_matches(self, text: str, keywords: List[str]) -> int:
         """
         Count how many keywords appear in text.
 

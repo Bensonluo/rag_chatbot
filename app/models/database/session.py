@@ -1,5 +1,7 @@
 """Chat session database model"""
-from sqlalchemy import ForeignKey, String, Integer
+from typing import List
+
+from sqlalchemy import ForeignKey, String, Integer, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.database.base import Base, TimestampMixin
@@ -42,13 +44,13 @@ class ChatSession(Base, TimestampMixin):
         default=10,
         nullable=False,
     )
-    metadata: Mapped[dict | None] = mapped_column(default=None)
+    session_metadata: Mapped[dict | None] = mapped_column(JSON, default=None)
 
     # Relationships
     user: Mapped["User"] = relationship(
         back_populates="sessions",
     )
-    messages: Mapped[list["Message"]] = relationship(
+    messages: Mapped[List["Message"]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
         order_by="Message.created_at",

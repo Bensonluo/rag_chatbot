@@ -4,7 +4,7 @@ Hybrid search service combining vector and keyword search.
 Implements Reciprocal Rank Fusion (RRF) to combine results from
 vector similarity search and keyword-based search.
 """
-from typing import Optional
+from typing import Optional, List, Dict
 import re
 from collections import defaultdict
 
@@ -26,12 +26,12 @@ class KeywordSearch:
 
     def __init__(self) -> None:
         """Initialize keyword search."""
-        self.documents: dict[str, dict] = {}
-        self.document_terms: dict[str, set[str]] = {}
+        self.documents: Dict[str, dict] = {}
+        self.document_terms: Dict[str, set[str]] = {}
 
     async def add_documents(
         self,
-        documents: list[dict],
+        documents: List[dict],
     ) -> None:
         """
         Add documents to keyword search index.
@@ -48,7 +48,7 @@ class KeywordSearch:
     async def search(
         self,
         request: VectorSearchRequest,
-    ) -> list[SearchResult]:
+    ) -> List[SearchResult]:
         """
         Search documents by keyword matching.
 
@@ -56,7 +56,7 @@ class KeywordSearch:
             request: Search request
 
         Returns:
-            list[SearchResult]: Ranked search results
+            List[SearchResult]: Ranked search results
         """
         if not request.query.strip():
             # Return all documents with zero score for empty query
@@ -174,7 +174,7 @@ class HybridSearchService:
     async def search(
         self,
         request: VectorSearchRequest,
-    ) -> list[SearchResult]:
+    ) -> List[SearchResult]:
         """
         Perform hybrid search combining vector and keyword results.
 
@@ -182,7 +182,7 @@ class HybridSearchService:
             request: Search request
 
         Returns:
-            list[SearchResult]: Combined and reranked results
+            List[SearchResult]: Combined and reranked results
 
         Raises:
             VectorClientError: If both search methods fail
@@ -221,10 +221,10 @@ class HybridSearchService:
 
     def _reciprocal_rank_fusion(
         self,
-        vector_results: list[SearchResult],
-        keyword_results: list[SearchResult],
+        vector_results: List[SearchResult],
+        keyword_results: List[SearchResult],
         k: int = 60,
-    ) -> list[SearchResult]:
+    ) -> List[SearchResult]:
         """
         Combine rankings using Reciprocal Rank Fusion (RRF).
 
@@ -236,11 +236,11 @@ class HybridSearchService:
             k: RRF constant (default: 60)
 
         Returns:
-            list[SearchResult]: Fused and reranked results
+            List[SearchResult]: Fused and reranked results
         """
         # Accumulate RRF scores
-        scores: dict[str, float] = defaultdict(float)
-        doc_data: dict[str, dict] = {}
+        scores: Dict[str, float] = defaultdict(float)
+        doc_data: Dict[str, dict] = {}
 
         # Process vector results
         for rank, result in enumerate(vector_results, start=1):

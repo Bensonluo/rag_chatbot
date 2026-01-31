@@ -4,7 +4,7 @@ Validation utilities.
 Custom validators for common validation scenarios.
 """
 import re
-from typing import Any
+from typing import Any, Dict
 
 
 def validate_email(email: str) -> bool:
@@ -24,7 +24,7 @@ def validate_email(email: str) -> bool:
     return re.match(pattern, email) is not None
 
 
-def validate_password_strength(password: str) -> dict[str, Any]:
+def validate_password_strength(password: str) -> Dict[str, Any]:
     """
     Validate password strength.
 
@@ -57,7 +57,7 @@ def validate_password_strength(password: str) -> dict[str, Any]:
     }
 
 
-def validate_message_content(content: str, min_length: int = 1, max_length: int = 5000) -> dict[str, Any]:
+def validate_message_content(content: str, min_length: int = 1, max_length: int = 5000) -> Dict[str, Any]:
     """
     Validate message content.
 

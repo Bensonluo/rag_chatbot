@@ -4,7 +4,7 @@ Rule-based intent detector using keyword matching and patterns.
 Fast, lightweight intent detection using predefined rules.
 """
 import re
-from typing import Optional, dict, list
+from typing import Optional, Dict, List
 
 from app.services.intent.base import IntentDetector, IntentResult
 from app.models.enums.intent import Intent
@@ -22,7 +22,7 @@ class RuleBasedIntentDetector(IntentDetector):
         """Initialize the detector with default rules."""
         self.rules = self._build_rules()
 
-    def _build_rules(self) -> dict[Intent, list[dict]]:
+    def _build_rules(self) -> Dict[Intent, List[dict]]:
         """
         Build detection rules for each intent.
 

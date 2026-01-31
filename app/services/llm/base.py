@@ -4,7 +4,7 @@ Base LLM service interface and data structures.
 Provides abstract interfaces for LLM providers to implement.
 """
 from abc import ABC, abstractmethod
-from typing import Optional, AsyncGenerator
+from typing import Optional, AsyncGenerator, List, Dict, Any
 from dataclasses import dataclass
 
 
@@ -20,7 +20,7 @@ class LLMMessage:
     role: str
     content: str
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> Dict[str, str]:
         """
         Convert message to dictionary format.
 
@@ -33,7 +33,7 @@ class LLMMessage:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, str]) -> "LLMMessage":
+    def from_dict(cls, data: Dict[str, str]) -> "LLMMessage":
         """
         Create message from dictionary.
 
@@ -60,7 +60,7 @@ class LLMResponse:
     content: str
     model: str
     finish_reason: Optional[str] = None
-    usage: Optional[dict[str, int]] = None
+    usage: Optional[Dict[str, int]] = None
 
 
 class LLMServiceBase(ABC):
@@ -95,7 +95,7 @@ class LLMServiceBase(ABC):
     @abstractmethod
     async def generate(
         self,
-        messages: list[LLMMessage],
+        messages: List[LLMMessage],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         **kwargs,
@@ -120,7 +120,7 @@ class LLMServiceBase(ABC):
     @abstractmethod
     async def generate_stream(
         self,
-        messages: list[LLMMessage],
+        messages: List[LLMMessage],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         **kwargs,
@@ -159,7 +159,7 @@ class LLMServiceBase(ABC):
         raise NotImplementedError("estimate_tokens() must be implemented by subclass")
 
     @abstractmethod
-    async def count_tokens(self, messages: list[LLMMessage]) -> int:
+    async def count_tokens(self, messages: List[LLMMessage]) -> int:
         """
         Count the actual number of tokens in messages.
 
@@ -216,7 +216,7 @@ class LLMServiceBase(ABC):
 
         return temperature
 
-    def _format_messages(self, messages: list[LLMMessage]) -> list[dict[str, str]]:
+    def _format_messages(self, messages: List[LLMMessage]) -> List[Dict[str, str]]:
         """
         Format messages for API request.
 
@@ -224,6 +224,6 @@ class LLMServiceBase(ABC):
             messages: List of LLM messages
 
         Returns:
-            list[dict]: Formatted messages
+            List[dict]: Formatted messages
         """
         return [msg.to_dict() for msg in messages]

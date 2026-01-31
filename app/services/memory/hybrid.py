@@ -3,7 +3,7 @@ Hybrid memory strategy combining sliding window and summarization.
 
 Automatically switches strategies based on conversation length.
 """
-from typing import Optional, list
+from typing import Optional, List
 
 from app.services.memory.base import MemoryStrategy, MemoryContent
 from app.services.memory.sliding_window import SlidingWindowMemory
@@ -44,7 +44,7 @@ class HybridMemory(MemoryStrategy):
         self,
         session_id: int,
         max_tokens: Optional[int] = None,
-    ) -> list[MessageContent]:
+    ) -> List[MessageContent]:
         """
         Retrieve context using the appropriate strategy.
 
@@ -53,7 +53,7 @@ class HybridMemory(MemoryStrategy):
             max_tokens: Optional maximum tokens to include
 
         Returns:
-            list[MessageContent]: List of messages for context
+            List[MessageContent]: List of messages for context
         """
         # Check message count to determine strategy
         count = await self.sliding_window.message_repo.count_messages(session_id)
@@ -97,7 +97,7 @@ class HybridMemory(MemoryStrategy):
         # Either strategy works - use sliding_window for simplicity
         await self.sliding_window.message_repo.delete_by_session(session_id)
 
-    async def estimate_tokens(self, messages: list[MessageContent]) -> int:
+    async def estimate_tokens(self, messages: List[MessageContent]) -> int:
         """
         Estimate the number of tokens in messages.
 
@@ -111,9 +111,9 @@ class HybridMemory(MemoryStrategy):
 
     async def truncate_by_tokens(
         self,
-        messages: list[MessageContent],
+        messages: List[MessageContent],
         max_tokens: int,
-    ) -> list[MessageContent]:
+    ) -> List[MessageContent]:
         """
         Truncate messages to fit within token limit.
 
@@ -122,6 +122,6 @@ class HybridMemory(MemoryStrategy):
             max_tokens: Maximum tokens allowed
 
         Returns:
-            list[MessageContent]: Truncated list of messages
+            List[MessageContent]: Truncated list of messages
         """
         return await self.sliding_window.truncate_by_tokens(messages, max_tokens)

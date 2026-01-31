@@ -131,7 +131,7 @@ class DocumentIngestionService:
             metadata=metadata
         )
         document.content = processed_text
-        document.metadata.update(enhanced_metadata)
+        document.doc_metadata.update(enhanced_metadata)
 
         # Chunk document
         chunks = await self.chunking.chunk(

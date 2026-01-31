@@ -3,7 +3,7 @@ Prompt templates for LLM interactions.
 
 Provides reusable prompt templates for different use cases.
 """
-from typing import Optional, list
+from typing import Optional, List, Dict
 
 
 class PromptTemplates:
@@ -70,7 +70,7 @@ Guidelines:
     @staticmethod
     def format_rag_prompt(
         query: str,
-        retrieved_docs: list[dict[str, str]],
+        retrieved_docs: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
     ) -> str:
         """
@@ -135,7 +135,7 @@ Summary:"""
     @staticmethod
     def get_intent_detection_prompt(
         query: str,
-        intents: list[str],
+        intents: List[str],
     ) -> str:
         """
         Get an intent detection prompt.
@@ -220,7 +220,7 @@ Code:"""
 
     @staticmethod
     def get_few_shot_prompt(
-        examples: list[dict[str, str]],
+        examples: List[Dict[str, str]],
         test_input: str,
         task_description: Optional[str] = None,
     ) -> str:
@@ -271,7 +271,7 @@ Reasoning:"""
 
     @staticmethod
     def get_multi_turn_prompt(
-        turns: list[tuple[str, str]],
+        turns: List[Tuple[str, str]],
         current_user_message: str,
     ) -> str:
         """

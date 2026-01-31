@@ -5,7 +5,7 @@ Provides abstract classes for conversation memory management.
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional, list
+from typing import Optional, List
 
 from app.models.schemas.chat import MessageContent
 
@@ -20,7 +20,7 @@ class MemoryContent:
         summary: Optional summary of the content
         metadata: Optional additional metadata
     """
-    messages: list[MessageContent] = field(default_factory=list)
+    messages: List[MessageContent] = field(default_factory=list)
     summary: Optional[str] = None
     metadata: Optional[dict] = None
 
@@ -47,7 +47,7 @@ class MemoryStrategy(ABC):
         self,
         session_id: int,
         max_tokens: Optional[int] = None,
-    ) -> list[MessageContent]:
+    ) -> List[MessageContent]:
         """
         Retrieve relevant context for the session.
 
@@ -56,7 +56,7 @@ class MemoryStrategy(ABC):
             max_tokens: Optional maximum tokens to include
 
         Returns:
-            list[MessageContent]: List of messages for context
+            List[MessageContent]: List of messages for context
 
         Raises:
             NotImplementedError: Must be implemented by subclass
@@ -94,7 +94,7 @@ class MemoryStrategy(ABC):
         """
         raise NotImplementedError("clear_session() must be implemented by subclass")
 
-    async def estimate_tokens(self, messages: list[MessageContent]) -> int:
+    async def estimate_tokens(self, messages: List[MessageContent]) -> int:
         """
         Estimate the number of tokens in messages.
 
@@ -109,9 +109,9 @@ class MemoryStrategy(ABC):
 
     async def truncate_by_tokens(
         self,
-        messages: list[MessageContent],
+        messages: List[MessageContent],
         max_tokens: int,
-    ) -> list[MessageContent]:
+    ) -> List[MessageContent]:
         """
         Truncate messages to fit within token limit.
 
@@ -122,7 +122,7 @@ class MemoryStrategy(ABC):
             max_tokens: Maximum tokens allowed
 
         Returns:
-            list[MessageContent]: Truncated list of messages
+            List[MessageContent]: Truncated list of messages
         """
         if not messages:
             return []

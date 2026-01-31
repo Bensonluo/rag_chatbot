@@ -3,7 +3,7 @@ Summarization memory strategy.
 
 Periodically summarizes old messages to retain important context.
 """
-from typing import Optional, list
+from typing import Optional, List
 
 from app.services.memory.base import MemoryStrategy, MemoryContent
 from app.services.llm.base import LLMServiceBase, LLMMessage
@@ -52,7 +52,7 @@ class SummarizationMemory(MemoryStrategy):
         self,
         session_id: int,
         max_tokens: Optional[int] = None,
-    ) -> list[MessageContent]:
+    ) -> List[MessageContent]:
         """
         Retrieve context with latest summary and recent messages.
 
@@ -61,7 +61,7 @@ class SummarizationMemory(MemoryStrategy):
             max_tokens: Optional maximum tokens to include
 
         Returns:
-            list[MessageContent]: List of messages for context
+            List[MessageContent]: List of messages for context
         """
         # Get latest summary
         summary_msg = await self.message_repo.get_latest_summary(session_id)

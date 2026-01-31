@@ -3,7 +3,7 @@ User repository for user data access.
 
 Provides database operations specific to the User model.
 """
-from typing import list
+from typing import List
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,7 +59,7 @@ class UserRepository(BaseRepository[User]):
         self,
         skip: int = 0,
         limit: int = 100,
-    ) -> list[User]:
+    ) -> List[User]:
         """
         List all users with pagination.
 
@@ -68,7 +68,7 @@ class UserRepository(BaseRepository[User]):
             limit: Maximum number of users to return
 
         Returns:
-            list[User]: List of users
+            List[User]: List of users
         """
         stmt = (
             select(User)

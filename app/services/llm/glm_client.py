@@ -3,7 +3,7 @@ GLM (Zhipu AI) LLM client implementation.
 
 Provides integration with GLM models from Zhipu AI.
 """
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, List
 
 import httpx
 from pydantic import BaseModel
@@ -19,7 +19,7 @@ class GLMChatCompletion(BaseModel):
     id: str
     created: int
     model: str
-    choices: list[dict]
+    choices: List[dict]
     usage: dict
 
 
@@ -29,7 +29,7 @@ class GLMStreamChunk(BaseModel):
     id: str
     created: int
     model: str
-    choices: list[dict]
+    choices: List[dict]
 
 
 class GLMClient(LLMServiceBase):
@@ -84,7 +84,7 @@ class GLMClient(LLMServiceBase):
 
     async def generate(
         self,
-        messages: list[LLMMessage],
+        messages: List[LLMMessage],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         **kwargs,
@@ -155,7 +155,7 @@ class GLMClient(LLMServiceBase):
 
     async def generate_stream(
         self,
-        messages: list[LLMMessage],
+        messages: List[LLMMessage],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         **kwargs,
@@ -240,7 +240,7 @@ class GLMClient(LLMServiceBase):
         """
         return TokenCounter.estimate(text)
 
-    async def count_tokens(self, messages: list[LLMMessage]) -> int:
+    async def count_tokens(self, messages: List[LLMMessage]) -> int:
         """
         Count actual tokens in messages.
 

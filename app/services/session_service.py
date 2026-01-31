@@ -3,7 +3,7 @@ Session service for chat session management.
 
 Handles session creation, retrieval, updating, and deletion.
 """
-from typing import Optional
+from typing import Optional, List
 
 from app.repositories.session_repository import SessionRepository
 from app.models.database.session import ChatSession
@@ -77,7 +77,7 @@ class SessionService:
         user_id: int,
         skip: int = 0,
         limit: int = 100,
-    ) -> list[ChatSession]:
+    ) -> List[ChatSession]:
         """
         Get all sessions for a user with pagination.
 
@@ -87,7 +87,7 @@ class SessionService:
             limit: Maximum number of sessions to return
 
         Returns:
-            list[ChatSession]: List of user's sessions
+            List[ChatSession]: List of user's sessions
         """
         return await self.session_repository.get_by_user_id(user_id, skip, limit)
 

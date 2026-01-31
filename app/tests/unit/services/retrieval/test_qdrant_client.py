@@ -231,7 +231,7 @@ class TestQdrantClient:
         assert document.id == "doc1"
         assert document.content == "Test content"
         assert document.embedding == [0.1, 0.2, 0.3]
-        assert document.metadata == {"category": "test"}
+        assert document.doc_metadata == {"category": "test"}
 
     @pytest.mark.asyncio
     async def test_get_document_not_found(self):

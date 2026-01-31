@@ -4,7 +4,7 @@ Result reranking service for improving search results.
 Provides LLM-based and no-op reranking strategies to optimize
 search result ordering based on query relevance and diversity.
 """
-from typing import Optional
+from typing import Optional, List
 import json
 
 from app.services.retrieval.vector_base import (
@@ -23,9 +23,9 @@ class NoOpReranker:
 
     async def rerank(
         self,
-        results: list[SearchResult],
+        results: List[SearchResult],
         request: VectorSearchRequest,
-    ) -> list[SearchResult]:
+    ) -> List[SearchResult]:
         """
         Return results unchanged (no reranking).
 
@@ -34,7 +34,7 @@ class NoOpReranker:
             request: Original search request
 
         Returns:
-            list[SearchResult]: Same results (unchanged)
+            List[SearchResult]: Same results (unchanged)
         """
         return results
 
@@ -64,9 +64,9 @@ class RerankingService:
 
     async def rerank(
         self,
-        results: list[SearchResult],
+        results: List[SearchResult],
         request: VectorSearchRequest,
-    ) -> list[SearchResult]:
+    ) -> List[SearchResult]:
         """
         Rerank search results using LLM.
 
@@ -75,7 +75,7 @@ class RerankingService:
             request: Original search request
 
         Returns:
-            list[SearchResult]: Reranked results (limited to top_n)
+            List[SearchResult]: Reranked results (limited to top_n)
         """
         if not results:
             return []
@@ -109,7 +109,7 @@ class RerankingService:
     def _build_reranking_prompt(
         self,
         query: str,
-        results: list[SearchResult],
+        results: List[SearchResult],
     ) -> str:
         """
         Build prompt for LLM reranking.
@@ -158,8 +158,8 @@ Only rerank the top {self.top_n} results."""
     def _parse_reranking_response(
         self,
         response: str,
-        original_results: list[SearchResult],
-    ) -> list[SearchResult]:
+        original_results: List[SearchResult],
+    ) -> List[SearchResult]:
         """
         Parse LLM reranking response.
 
@@ -168,7 +168,7 @@ Only rerank the top {self.top_n} results."""
             original_results: Original search results
 
         Returns:
-            list[SearchResult]: Reranked results
+            List[SearchResult]: Reranked results
         """
         try:
             # Parse JSON response

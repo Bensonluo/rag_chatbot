@@ -6,7 +6,7 @@ streaming responses, and history management.
 """
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel, Field
 
 from app.services.chat.chat_service import ChatService, ChatResponse as ServiceChatResponse
@@ -32,7 +32,7 @@ class ChatResponse(BaseModel):
     content: str
     session_id: int
     intent: str
-    sources: Optional[list[str]] = None
+    sources: Optional[List[str]] = None
     metadata: Optional[dict] = None
 
 
@@ -45,7 +45,7 @@ class ChatMessageResponse(BaseModel):
 
 class ChatHistoryResponse(BaseModel):
     """Chat history response."""
-    messages: list[ChatMessageResponse]
+    messages: List[ChatMessageResponse]
     session_id: int
 
 

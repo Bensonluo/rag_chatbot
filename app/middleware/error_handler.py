@@ -6,7 +6,7 @@ Catches and formats exceptions into proper HTTP responses.
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from typing import Optional, list
+from typing import Optional, List
 import traceback
 import logging
 
@@ -21,7 +21,7 @@ class ErrorResponse(BaseModel):
     status_code: int = Field(..., description="HTTP status code")
     message: str = Field(..., description="Error message")
     detail: Optional[str] = Field(None, description="Detailed error information")
-    errors: Optional[list[dict]] = Field(None, description="Validation errors")
+    errors: Optional[List[dict]] = Field(None, description="Validation errors")
     path: Optional[str] = Field(None, description="Request path")
 
 

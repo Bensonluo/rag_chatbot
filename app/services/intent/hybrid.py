@@ -3,7 +3,7 @@ Hybrid intent detector combining rule-based and LLM approaches.
 
 Uses fast rule-based detection when confident, falls back to LLM for complex queries.
 """
-from typing import Optional, dict
+from typing import Optional, Dict
 
 from app.services.intent.base import IntentDetector, IntentResult
 from app.services.intent.rule_based import RuleBasedIntentDetector

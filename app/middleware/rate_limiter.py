@@ -5,7 +5,7 @@ Provides IP-based rate limiting for API endpoints.
 """
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
-from typing import Dict, Optional, list
+from typing import Dict, Optional, List
 import time
 import logging
 
@@ -78,7 +78,7 @@ class RateLimiterMiddleware:
         app,
         requests_per_minute: int = 60,
         bucket_size: Optional[int] = None,
-        whitelist_paths: Optional[list[str]] = None,
+        whitelist_paths: Optional[List[str]] = None,
     ):
         """
         Initialize rate limiter middleware.

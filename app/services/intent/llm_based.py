@@ -5,7 +5,7 @@ Accurate intent detection by leveraging LLM understanding.
 """
 import json
 import re
-from typing import Optional, dict
+from typing import Optional, Dict
 
 from app.services.intent.base import IntentDetector, IntentResult
 from app.models.enums.intent import Intent

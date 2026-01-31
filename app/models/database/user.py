@@ -1,4 +1,6 @@
 """User database model"""
+from typing import List
+
 from sqlalchemy import String, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,7 +38,7 @@ class User(Base, TimestampMixin):
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships
-    sessions: Mapped[list["ChatSession"]] = relationship(
+    sessions: Mapped[List["ChatSession"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )

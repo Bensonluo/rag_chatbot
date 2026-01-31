@@ -5,7 +5,7 @@ Integrates LLM, memory, intent detection, and retrieval to provide
 intelligent chat responses with context awareness.
 """
 from dataclasses import dataclass, field
-from typing import Optional, list, AsyncGenerator
+from typing import Optional, List, AsyncGenerator
 from enum import Enum
 
 from app.services.llm.base import (
@@ -48,7 +48,7 @@ class ChatResponse:
     content: str
     session_id: int
     intent: str
-    sources: Optional[list[str]] = None
+    sources: Optional[List[str]] = None
     metadata: Optional[dict] = None
 
 
@@ -254,7 +254,7 @@ class ChatService:
         self,
         session_id: int,
         limit: int = 50,
-    ) -> list[ChatMessage]:
+    ) -> List[ChatMessage]:
         """
         Get chat history for a session.
 
@@ -263,7 +263,7 @@ class ChatService:
             limit: Maximum number of messages
 
         Returns:
-            list[ChatMessage]: List of chat messages
+            List[ChatMessage]: List of chat messages
         """
         context = await self.memory_strategy.get_context(
             session_id=session_id,
@@ -302,7 +302,7 @@ class ChatService:
         self,
         query: str,
         top_k: int = 3,
-    ) -> list[SearchResult]:
+    ) -> List[SearchResult]:
         """
         Retrieve relevant documents using retrieval pipeline.
 
@@ -311,7 +311,7 @@ class ChatService:
             top_k: Number of documents to retrieve
 
         Returns:
-            list[SearchResult]: Retrieved documents
+            List[SearchResult]: Retrieved documents
         """
         if not self.retrieval_pipeline:
             return []
@@ -344,9 +344,9 @@ class ChatService:
     async def _build_messages(
         self,
         user_message: str,
-        context: list[MessageContent],
-        retrieved_docs: list[SearchResult],
-    ) -> list[LLMMessage]:
+        context: List[MessageContent],
+        retrieved_docs: List[SearchResult],
+    ) -> List[LLMMessage]:
         """
         Build messages for LLM generation.
 
@@ -356,7 +356,7 @@ class ChatService:
             retrieved_docs: Retrieved documents
 
         Returns:
-            list[LLMMessage]: Messages for LLM
+            List[LLMMessage]: Messages for LLM
         """
         messages = []
 
@@ -375,7 +375,7 @@ class ChatService:
 
         return messages
 
-    def _build_system_prompt(self, retrieved_docs: list[SearchResult]) -> str:
+    def _build_system_prompt(self, retrieved_docs: List[SearchResult]) -> str:
         """
         Build system prompt with retrieved context.
 
@@ -430,7 +430,7 @@ class ChatService:
         self,
         query: str,
         top_k: int = 3,
-    ) -> list[str]:
+    ) -> List[str]:
         """
         Build context from retrieved documents.
 
@@ -439,7 +439,7 @@ class ChatService:
             top_k: Number of documents
 
         Returns:
-            list[str]: Retrieved document contents
+            List[str]: Retrieved document contents
         """
         docs = await self._retrieve_documents(query=query, top_k=top_k)
         return [doc.content for doc in docs]

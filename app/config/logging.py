@@ -5,7 +5,8 @@ Provides JSON logging for production and console logging for development.
 """
 import logging
 import sys
-from typing import Any
+from functools import lru_cache
+from typing import Any, List
 
 import structlog
 from structlog.types import EventDict, Processor
@@ -49,7 +50,7 @@ def configure_logging() -> structlog.stdlib.BoundLogger:
     )
 
     # Shared processors
-    shared_processors: list[Processor] = [
+    shared_processors: List[Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
@@ -62,7 +63,7 @@ def configure_logging() -> structlog.stdlib.BoundLogger:
     # Development configuration
     if settings.DEBUG:
         # Console-friendly output with colors
-        processors: list[Processor] = shared_processors + [
+        processors: List[Processor] = shared_processors + [
             structlog.dev.ConsoleRenderer(colors=True),
         ]
     else:
@@ -96,9 +97,6 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     """
     return structlog.get_logger(name)
 
-
-# Import lru_cache
-from functools import lru_cache
 
 # Configure logging on module import
 logger = configure_logging()

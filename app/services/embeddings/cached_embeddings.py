@@ -3,7 +3,7 @@ Cached embedding service wrapper using Redis.
 
 Caches embeddings to reduce redundant API calls and computation.
 """
-from typing import List
+from typing import List, Dict
 import json
 import hashlib
 
@@ -90,7 +90,7 @@ class CachedEmbeddingService(EmbeddingServiceBase):
     async def _get_cached_embeddings(
         self,
         texts: List[str]
-    ) -> dict[str, List[float] | None]:
+    ) -> Dict[str, List[float] | None]:
         """
         Get cached embeddings for multiple texts.
 

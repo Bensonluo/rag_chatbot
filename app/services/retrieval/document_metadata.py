@@ -6,7 +6,7 @@ document metadata (title, author, category, tags, etc.).
 """
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict
 from sqlalchemy import select, String, DateTime, Text
 from sqlalchemy.orm import mapped_column, Mapped
 
@@ -35,7 +35,7 @@ class DocumentMetadata:
     title: Optional[str] = None
     author: Optional[str] = None
     category: Optional[str] = None
-    tags: Optional[list[str]] = None
+    tags: Optional[List[str]] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     source: Optional[str] = None
@@ -56,7 +56,7 @@ class DocumentMetadataModel:
         title: Optional[str] = None,
         author: Optional[str] = None,
         category: Optional[str] = None,
-        tags: Optional[list[str]] = None,
+        tags: Optional[List[str]] = None,
         source: Optional[str] = None,
         language: Optional[str] = None,
         id: Optional[int] = None,
@@ -89,7 +89,7 @@ class DocumentMetadataRepository(BaseRepository):
             session: Database session
         """
         self.session = session
-        self._storage: dict[str, DocumentMetadata] = {}
+        self._storage: Dict[str, DocumentMetadata] = {}
 
     async def create(
         self,
@@ -139,8 +139,8 @@ class DocumentMetadataRepository(BaseRepository):
 
     async def get_by_document_ids(
         self,
-        document_ids: list[str],
-    ) -> dict[str, DocumentMetadata]:
+        document_ids: List[str],
+    ) -> Dict[str, DocumentMetadata]:
         """
         Get metadata for multiple documents.
 
@@ -148,7 +148,7 @@ class DocumentMetadataRepository(BaseRepository):
             document_ids: List of document IDs
 
         Returns:
-            dict[str, DocumentMetadata]: Mapping of document ID to metadata
+            Dict[str, DocumentMetadata]: Mapping of document ID to metadata
         """
         result = {}
         for doc_id in document_ids:
@@ -196,7 +196,7 @@ class DocumentMetadataRepository(BaseRepository):
     async def get_by_category(
         self,
         category: str,
-    ) -> list[DocumentMetadata]:
+    ) -> List[DocumentMetadata]:
         """
         Get metadata by category.
 
@@ -204,7 +204,7 @@ class DocumentMetadataRepository(BaseRepository):
             category: Category name
 
         Returns:
-            list[DocumentMetadata]: List of metadata with matching category
+            List[DocumentMetadata]: List of metadata with matching category
         """
         return [
             m for m in self._storage.values()
@@ -213,8 +213,8 @@ class DocumentMetadataRepository(BaseRepository):
 
     async def get_by_tags(
         self,
-        tags: list[str],
-    ) -> list[DocumentMetadata]:
+        tags: List[str],
+    ) -> List[DocumentMetadata]:
         """
         Get metadata by tags.
 
@@ -222,7 +222,7 @@ class DocumentMetadataRepository(BaseRepository):
             tags: List of tags to match
 
         Returns:
-            list[DocumentMetadata]: List of metadata with matching tags
+            List[DocumentMetadata]: List of metadata with matching tags
         """
         result = []
         for metadata in self._storage.values():
@@ -309,8 +309,8 @@ class DocumentMetadataService:
 
     async def get_metadata_batch(
         self,
-        document_ids: list[str],
-    ) -> dict[str, DocumentMetadata]:
+        document_ids: List[str],
+    ) -> Dict[str, DocumentMetadata]:
         """
         Get metadata for multiple documents.
 
@@ -318,7 +318,7 @@ class DocumentMetadataService:
             document_ids: List of document IDs
 
         Returns:
-            dict[str, DocumentMetadata]: Mapping of document ID to metadata
+            Dict[str, DocumentMetadata]: Mapping of document ID to metadata
         """
         return await self.repository.get_by_document_ids(document_ids)
 
@@ -352,7 +352,7 @@ class DocumentMetadataService:
     async def search_by_category(
         self,
         category: str,
-    ) -> list[DocumentMetadata]:
+    ) -> List[DocumentMetadata]:
         """
         Search documents by category.
 
@@ -360,14 +360,14 @@ class DocumentMetadataService:
             category: Category name
 
         Returns:
-            list[DocumentMetadata]: List of matching metadata
+            List[DocumentMetadata]: List of matching metadata
         """
         return await self.repository.get_by_category(category)
 
     async def search_by_tags(
         self,
-        tags: list[str],
-    ) -> list[DocumentMetadata]:
+        tags: List[str],
+    ) -> List[DocumentMetadata]:
         """
         Search documents by tags.
 
@@ -375,7 +375,7 @@ class DocumentMetadataService:
             tags: List of tags to match
 
         Returns:
-            list[DocumentMetadata]: List of matching metadata
+            List[DocumentMetadata]: List of matching metadata
         """
         return await self.repository.get_by_tags(tags)
 

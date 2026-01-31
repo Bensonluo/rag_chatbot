@@ -4,7 +4,7 @@ Async helper utilities.
 Common async utility functions used throughout the application.
 """
 import asyncio
-from typing import TypeVar, Callable, Awaitable, Any
+from typing import TypeVar, Callable, Awaitable, Any, List
 
 T = TypeVar("T")
 
@@ -30,7 +30,7 @@ async def run_in_threadpool(func: Callable[..., T], *args: Any, **kwargs: Any) -
 async def gather_with_concurrency(
     *coroutines: Awaitable[T],
     concurrency: int = 10,
-) -> list[T]:
+) -> List[T]:
     """
     Run coroutines with a limit on concurrent executions.
 
@@ -39,7 +39,7 @@ async def gather_with_concurrency(
         concurrency: Maximum number of concurrent operations
 
     Returns:
-        list[T]: Results from all coroutines in order
+        List[T]: Results from all coroutines in order
     """
     semaphore = asyncio.Semaphore(concurrency)
 

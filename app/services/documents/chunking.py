@@ -67,7 +67,7 @@ class FixedSizeChunking(ChunkingStrategy):
                 index=index,
                 content=chunk_content,
                 metadata={
-                    **document.metadata,
+                    **document.doc_metadata,
                     "title": document.title,
                     "file_type": document.file_type,
                     "start_pos": start,
@@ -215,7 +215,7 @@ class SemanticChunking(ChunkingStrategy):
             index=index,
             content=content,
             metadata={
-                **document.metadata,
+                **document.doc_metadata,
                 "title": document.title,
                 "file_type": document.file_type,
                 "start_pos": start,
@@ -276,7 +276,7 @@ class RecursiveCharacterChunking(ChunkingStrategy):
                 index=index,
                 content=chunk_content,
                 metadata={
-                    **document.metadata,
+                    **document.doc_metadata,
                     "title": document.title,
                     "file_type": document.file_type,
                     "start_pos": position,

@@ -4,7 +4,7 @@ Sliding window memory strategy.
 Keeps the last N messages in conversation context.
 Simple, fast, and predictable.
 """
-from typing import Optional, list
+from typing import Optional, List
 
 from app.services.memory.base import MemoryStrategy, MemoryContent
 from app.models.schemas.chat import MessageContent
@@ -43,7 +43,7 @@ class SlidingWindowMemory(MemoryStrategy):
         self,
         session_id: int,
         max_tokens: Optional[int] = None,
-    ) -> list[MessageContent]:
+    ) -> List[MessageContent]:
         """
         Retrieve recent messages within the window size.
 
@@ -52,7 +52,7 @@ class SlidingWindowMemory(MemoryStrategy):
             max_tokens: Optional maximum tokens to include
 
         Returns:
-            list[MessageContent]: List of messages for context
+            List[MessageContent]: List of messages for context
         """
         # Get recent messages from database
         messages = await self.message_repo.get_recent_messages(

@@ -3,7 +3,7 @@ Session repository for chat session data access.
 
 Provides database operations specific to the ChatSession model.
 """
-from typing import list
+from typing import List
 
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
@@ -34,7 +34,7 @@ class SessionRepository(BaseRepository[ChatSession]):
         user_id: int,
         skip: int = 0,
         limit: int = 100,
-    ) -> list[ChatSession]:
+    ) -> List[ChatSession]:
         """
         Get all sessions for a user with pagination.
 
@@ -44,7 +44,7 @@ class SessionRepository(BaseRepository[ChatSession]):
             limit: Maximum number of sessions to return
 
         Returns:
-            list[ChatSession]: List of user's sessions
+            List[ChatSession]: List of user's sessions
         """
         stmt = (
             select(ChatSession)

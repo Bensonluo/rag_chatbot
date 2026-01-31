@@ -5,7 +5,7 @@ Provides abstract interface for vector database operations and common data model
 """
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, List
 
 
 @dataclass
@@ -21,7 +21,7 @@ class Document:
     """
     id: str
     content: str
-    embedding: Optional[list[float]] = None
+    embedding: Optional[List[float]] = None
     metadata: Optional[dict] = None
 
 
@@ -67,8 +67,8 @@ class VectorClient(ABC):
     @abstractmethod
     async def add_documents(
         self,
-        documents: list[Document],
-    ) -> list[str]:
+        documents: List[Document],
+    ) -> List[str]:
         """
         Add documents to vector database.
 
@@ -76,7 +76,7 @@ class VectorClient(ABC):
             documents: List of documents to add
 
         Returns:
-            list[str]: List of document IDs
+            List[str]: List of document IDs
 
         Raises:
             VectorClientError: If operation fails
@@ -87,7 +87,7 @@ class VectorClient(ABC):
     async def search(
         self,
         request: VectorSearchRequest,
-    ) -> list[SearchResult]:
+    ) -> List[SearchResult]:
         """
         Search for similar documents.
 
@@ -95,7 +95,7 @@ class VectorClient(ABC):
             request: Search request with query and parameters
 
         Returns:
-            list[SearchResult]: List of search results sorted by score
+            List[SearchResult]: List of search results sorted by score
 
         Raises:
             VectorClientError: If operation fails
@@ -105,7 +105,7 @@ class VectorClient(ABC):
     @abstractmethod
     async def delete(
         self,
-        document_ids: list[str],
+        document_ids: List[str],
     ) -> None:
         """
         Delete documents from vector database.

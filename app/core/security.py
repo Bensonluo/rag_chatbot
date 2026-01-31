@@ -6,7 +6,7 @@ and password validation.
 """
 import re
 from datetime import datetime, timedelta
-from typing import Any, dict
+from typing import Any, Dict
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -45,7 +45,7 @@ def hash_password(password: str) -> str:
 
 
 def create_access_token(
-    data: dict[str, Any],
+    data: Dict[str, Any],
     expires_delta: timedelta | None = None,
 ) -> str:
     """
@@ -72,7 +72,7 @@ def create_access_token(
 
 
 def create_refresh_token(
-    data: dict[str, Any],
+    data: Dict[str, Any],
     expires_delta: timedelta | None = None,
 ) -> str:
     """
@@ -98,7 +98,7 @@ def create_refresh_token(
     return encoded_jwt
 
 
-def decode_access_token(token: str) -> dict[str, Any]:
+def decode_access_token(token: str) -> Dict[str, Any]:
     """
     Decode and verify a JWT access token.
 
@@ -118,7 +118,7 @@ def decode_access_token(token: str) -> dict[str, Any]:
         raise JWTError(f"Invalid token: {str(e)}") from e
 
 
-def validate_password(password: str) -> dict[str, Any]:
+def validate_password(password: str) -> Dict[str, Any]:
     """
     Validate password strength.
 

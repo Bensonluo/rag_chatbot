@@ -3,7 +3,7 @@ Anthropic LLM client implementation.
 
 Provides integration with Anthropic's Claude models.
 """
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, List
 
 from anthropic import AsyncAnthropic
 
@@ -50,7 +50,7 @@ class AnthropicClient(LLMServiceBase):
 
     async def generate(
         self,
-        messages: list[LLMMessage],
+        messages: List[LLMMessage],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         **kwargs,
@@ -133,7 +133,7 @@ class AnthropicClient(LLMServiceBase):
 
     async def generate_stream(
         self,
-        messages: list[LLMMessage],
+        messages: List[LLMMessage],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         **kwargs,
@@ -208,7 +208,7 @@ class AnthropicClient(LLMServiceBase):
         """
         return TokenCounter.estimate(text)
 
-    async def count_tokens(self, messages: list[LLMMessage]) -> int:
+    async def count_tokens(self, messages: List[LLMMessage]) -> int:
         """
         Count actual tokens in messages.
 

@@ -4,7 +4,7 @@ Token counting utilities for LLM interactions.
 Provides token estimation and counting for different LLM providers.
 """
 import re
-from typing import list
+from typing import List
 
 try:
     import tiktoken

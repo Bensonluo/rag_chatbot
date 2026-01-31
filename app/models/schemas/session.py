@@ -1,6 +1,6 @@
 """Session-related Pydantic schemas"""
 from pydantic import BaseModel, Field, ConfigDict, field_validator
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 
@@ -36,7 +36,7 @@ class SessionResponse(SessionBase):
 
 class SessionListResponse(BaseModel):
     """Schema for paginated session list"""
-    items: list[SessionResponse]
+    items: List[SessionResponse]
     total: int
     page: int
     page_size: int

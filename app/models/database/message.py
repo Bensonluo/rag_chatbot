@@ -1,5 +1,5 @@
 """Message database model"""
-from sqlalchemy import ForeignKey, String, Text, Integer, Enum as SQLEnum
+from sqlalchemy import ForeignKey, String, Text, Integer, JSON, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.database.base import Base, TimestampMixin
@@ -45,7 +45,7 @@ class Message(Base, TimestampMixin):
         nullable=False,
     )
     token_count: Mapped[int | None] = mapped_column(Integer, default=None)
-    metadata: Mapped[dict | None] = mapped_column(default=None)
+    message_metadata: Mapped[dict | None] = mapped_column(JSON, default=None)
 
     # Relationships
     session: Mapped["ChatSession"] = relationship(

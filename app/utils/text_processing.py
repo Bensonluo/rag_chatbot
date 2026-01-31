@@ -4,7 +4,7 @@ Text processing utilities.
 Common text processing functions for cleaning and normalizing text.
 """
 import re
-from typing import str
+from typing import str, List, Dict
 
 
 def clean_text(text: str) -> str:
@@ -93,7 +93,7 @@ def sanitize_html(text: str) -> str:
     return clean.strip()
 
 
-def extract_code_blocks(text: str) -> list[dict[str, str]]:
+def extract_code_blocks(text: str) -> List[Dict[str, str]]:
     """
     Extract code blocks from markdown text.
 
@@ -101,7 +101,7 @@ def extract_code_blocks(text: str) -> list[dict[str, str]]:
         text: Markdown text potentially containing code blocks
 
     Returns:
-        list[dict]: List of code blocks with 'language' and 'code' keys
+        List[dict]: List of code blocks with 'language' and 'code' keys
     """
     pattern = r"```(\w*)\n(.*?)```"
     matches = re.findall(pattern, text, re.DOTALL)

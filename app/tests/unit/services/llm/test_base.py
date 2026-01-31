@@ -1,7 +1,7 @@
 """Tests for LLM base interface and service"""
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
-from typing import list
+from typing import List
 
 
 class TestLLMMessage:

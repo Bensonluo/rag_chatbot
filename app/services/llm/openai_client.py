@@ -3,7 +3,7 @@ OpenAI LLM client implementation.
 
 Provides integration with OpenAI's GPT models.
 """
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, List
 
 from openai import AsyncOpenAI
 
@@ -51,7 +51,7 @@ class OpenAIClient(LLMServiceBase):
 
     async def generate(
         self,
-        messages: list[LLMMessage],
+        messages: List[LLMMessage],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         **kwargs,
@@ -114,7 +114,7 @@ class OpenAIClient(LLMServiceBase):
 
     async def generate_stream(
         self,
-        messages: list[LLMMessage],
+        messages: List[LLMMessage],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
         **kwargs,
@@ -176,7 +176,7 @@ class OpenAIClient(LLMServiceBase):
         """
         return TokenCounter.estimate(text)
 
-    async def count_tokens(self, messages: list[LLMMessage]) -> int:
+    async def count_tokens(self, messages: List[LLMMessage]) -> int:
         """
         Count actual tokens in messages.
 

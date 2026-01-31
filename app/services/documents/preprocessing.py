@@ -229,7 +229,7 @@ class DocumentPreprocessor:
         self,
         text: str,
         metadata: dict = None
-    ) -> tuple[str, dict]:
+    ) -> Tuple[str, dict]:
         """
         Process text through the preprocessing pipeline.
 

@@ -3,6 +3,7 @@ Message repository for message data access.
 
 Provides database operations specific to the Message model.
 """
+from typing import List
 
 from sqlalchemy import select, desc
 from sqlalchemy.orm import selectinload
@@ -31,7 +32,7 @@ class MessageRepository(BaseRepository[Message]):
         self,
         session_id: int,
         limit: int = 50,
-    ) -> list[Message]:
+    ) -> List[Message]:
         """
         Get recent messages for a session.
 
@@ -40,7 +41,7 @@ class MessageRepository(BaseRepository[Message]):
             limit: Maximum number of messages to return
 
         Returns:
-            list[Message]: List of recent messages ordered by creation time
+            List[Message]: List of recent messages ordered by creation time
         """
         stmt = (
             select(Message)
@@ -56,7 +57,7 @@ class MessageRepository(BaseRepository[Message]):
         session_id: int,
         skip: int = 0,
         limit: int = 100,
-    ) -> list[Message]:
+    ) -> List[Message]:
         """
         Get all messages for a session with pagination.
 
@@ -66,7 +67,7 @@ class MessageRepository(BaseRepository[Message]):
             limit: Maximum number of messages to return
 
         Returns:
-            list[Message]: List of messages
+            List[Message]: List of messages
         """
         stmt = (
             select(Message)
@@ -107,7 +108,7 @@ class MessageRepository(BaseRepository[Message]):
         self,
         session_id: int,
         limit: int = 20,
-    ) -> list[Message]:
+    ) -> List[Message]:
         """
         Get messages before the latest summary.
 
@@ -116,7 +117,7 @@ class MessageRepository(BaseRepository[Message]):
             limit: Maximum number of messages to return
 
         Returns:
-            list[Message]: Messages before the latest summary
+            List[Message]: Messages before the latest summary
         """
         # Get latest summary first
         summary = await self.get_latest_summary(session_id)
@@ -170,8 +171,8 @@ class MessageRepository(BaseRepository[Message]):
 
         # Mark as archived (you could use a separate table for this)
         for message in messages:
-            message.metadata = message.metadata or {}
-            message.metadata["archived"] = True
+            message.message_metadata = message.message_metadata or {}
+            message.message_metadata["archived"] = True
             await self.update(message)
 
     async def delete_by_session(

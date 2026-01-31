@@ -1,5 +1,5 @@
 """Document database model"""
-from sqlalchemy import String, Text, Integer, Boolean
+from sqlalchemy import String, Text, Integer, Boolean, JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.database.base import Base, TimestampMixin
@@ -48,7 +48,7 @@ class Document(Base, TimestampMixin):
         default=0,
         nullable=False,
     )
-    metadata: Mapped[dict | None] = mapped_column(default=None)
+    doc_metadata: Mapped[dict | None] = mapped_column(JSON, default=None)
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         default=True,
