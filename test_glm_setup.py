@@ -35,7 +35,7 @@ async def test_glm_client():
     print(f"📝 Model: {settings.GLM_MODEL}")
 
     try:
-        # Create client
+        # Create client 
         print("\n🔧 Initializing GLM client...")
         client = GLMClient(
             api_key=settings.GLM_API_KEY,
@@ -142,5 +142,6 @@ async def main():
 
 
 if __name__ == "__main__":
+    ## create an event loop and run the main function
     exit_code = asyncio.run(main())
     sys.exit(exit_code)

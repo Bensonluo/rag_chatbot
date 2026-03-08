@@ -40,6 +40,7 @@ env/
 .env
 .env.local
 .env.*.local
+.env.production
 
 # Database
 *.db
@@ -92,3 +93,17 @@ tmp/
 
 # Alembic
 migrations/versions/*.pyc
+.claude/settings.local.json
+CLAUDE.md
+docs/phase1-summary.md
+docs/phase2-summary.md
+docs/phase3-summary.md
+docs/phase4-summary.md
+docs/phase5-summary.md
+docs/phase6-summary.md
+docs/phase7-summary.md
+docs/phase8-summary.md
+docs/phase9-summary.md
+GLM_QUICKSTART.md
+IMPLEMENTATION_SUMMARY.md
+TOKEN_OPTIMIZATION_COMPLETE.md
