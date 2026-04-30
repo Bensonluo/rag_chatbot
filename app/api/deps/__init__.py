@@ -112,7 +112,7 @@ async def get_current_user(
             )
 
         user_repo = auth_service.user_repository
-        user = await user_repo.get_by_id(user_id)
+        user = await user_repo.get_by_id(user_id, User)
 
         if user is None:
             raise HTTPException(

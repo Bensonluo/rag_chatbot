@@ -3,13 +3,40 @@ GLM (Zhipu AI) LLM client implementation.
 
 Provides integration with GLM models from Zhipu AI.
 """
+import time
 from typing import AsyncGenerator, Optional, List, Dict, Any
 
 import httpx
+import jwt
 
 from app.services.llm.base import LLMServiceBase, LLMMessage, LLMResponse
 from app.services.llm.token_counter import TokenCounter
 from app.core.exceptions import ExternalServiceError
+
+
+def _generate_token(api_key: str, exp_seconds: int = 3600) -> str:
+    """Generate JWT token for Zhipu AI API authentication.
+
+    Zhipu AI API keys are in '{id}.{secret}' format.
+    A JWT must be generated and signed with the secret.
+    """
+    try:
+        api_id, api_secret = api_key.split(".")
+    except ValueError:
+        return api_key
+
+    now = int(time.time())
+    payload = {
+        "api_key": api_id,
+        "exp": now + exp_seconds,
+        "timestamp": now,
+    }
+    return jwt.encode(
+        payload,
+        api_secret,
+        algorithm="HS256",
+        headers={"alg": "HS256", "sign_type": "SIGN"},
+    )
 
 
 class GLMClient(LLMServiceBase):
@@ -21,6 +48,7 @@ class GLMClient(LLMServiceBase):
 
     # Available GLM models
     MODELS = [
+        "glm-5.1",
         "glm-4-plus",
         "glm-4-0520",
         "glm-4",
@@ -32,12 +60,12 @@ class GLMClient(LLMServiceBase):
     ]
 
     # GLM API base URL
-    API_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
+    API_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4/"
 
     def __init__(
         self,
         api_key: str,
-        model: str = "glm-4.5-air",
+        model: str = "glm-5.1",
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
     ) -> None:
@@ -45,22 +73,21 @@ class GLMClient(LLMServiceBase):
         Initialize GLM client.
 
         Args:
-            api_key: Zhipu AI API key
-            model: Model name (default: glm-4-plus)
+            api_key: Zhipu AI API key (format: {id}.{secret})
+            model: Model name (default: glm-4.5-air)
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
         """
         super().__init__(api_key, model, max_tokens, temperature)
 
-        # Initialize async HTTP client with custom headers for JWT authentication
         self.client = httpx.AsyncClient(
             base_url=self.API_BASE_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
+            headers={"Content-Type": "application/json"},
             timeout=120.0,
         )
+
+    def _auth_headers(self) -> Dict[str, str]:
+        return {"Authorization": _generate_token(self.api_key)}
 
     async def generate(
         self,
@@ -100,7 +127,9 @@ class GLMClient(LLMServiceBase):
             params = {k: v for k, v in params.items() if v is not None}
 
             # Call GLM API
-            response = await self.client.post("chat/completions", json=params)
+            response = await self.client.post(
+                "chat/completions", json=params, headers=self._auth_headers()
+            )
             response.raise_for_status()
 
             data = response.json()
@@ -172,7 +201,9 @@ class GLMClient(LLMServiceBase):
             params = {k: v for k, v in params.items() if v is not None}
 
             # Call GLM API with streaming
-            async with self.client.stream("POST", "chat/completions", json=params) as response:
+            async with self.client.stream(
+                "POST", "chat/completions", json=params, headers=self._auth_headers()
+            ) as response:
                 response.raise_for_status()
 
                 # Parse server-sent events
@@ -241,6 +272,7 @@ class GLMClient(LLMServiceBase):
             int: Maximum tokens in context window
         """
         context_windows = {
+            "glm-5.1": 128000,
             "glm-4-plus": 128000,
             "glm-4-0520": 128000,
             "glm-4": 128000,

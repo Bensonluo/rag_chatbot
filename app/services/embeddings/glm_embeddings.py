@@ -3,11 +3,35 @@ GLM (Zhipu AI) embedding service implementation.
 
 Provides integration with GLM embedding models via API.
 """
+import time
 from typing import List
+
 import httpx
+import jwt
 
 from app.services.embeddings.base import EmbeddingServiceBase, EmbeddingResult
 from app.core.exceptions import ExternalServiceError
+
+
+def _generate_token(api_key: str, exp_seconds: int = 3600) -> str:
+    """Generate JWT token for Zhipu AI API authentication."""
+    try:
+        api_id, api_secret = api_key.split(".")
+    except ValueError:
+        return api_key
+
+    now = int(time.time())
+    payload = {
+        "api_key": api_id,
+        "exp": now + exp_seconds,
+        "timestamp": now,
+    }
+    return jwt.encode(
+        payload,
+        api_secret,
+        algorithm="HS256",
+        headers={"alg": "HS256", "sign_type": "SIGN"},
+    )
 
 
 class GLMEmbeddingService(EmbeddingServiceBase):
@@ -24,7 +48,7 @@ class GLMEmbeddingService(EmbeddingServiceBase):
     }
 
     # GLM API base URL
-    API_BASE_URL = "https://open.bigmodel.cn/api/paas/v4/"
+    API_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4/"
 
     def __init__(
         self,
@@ -36,30 +60,28 @@ class GLMEmbeddingService(EmbeddingServiceBase):
         Initialize GLM embedding client.
 
         Args:
-            api_key: Zhipu AI API key
+            api_key: Zhipu AI API key (format: {id}.{secret})
             model: Model name (default: embedding-2)
             dimensions: Override dimensions (auto-detected if not provided)
         """
-        # Auto-detect dimensions if not provided
         if dimensions is None:
             if model in self.MODELS:
                 dimensions = self.MODELS[model]
             else:
-                dimensions = 1024  # Default for GLM embeddings
+                dimensions = 1024
 
         super().__init__(model=model, dimensions=dimensions)
 
         self.api_key = api_key
 
-        # Initialize async HTTP client
         self.client = httpx.AsyncClient(
             base_url=self.API_BASE_URL,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
+            headers={"Content-Type": "application/json"},
             timeout=60.0,
         )
+
+    def _auth_headers(self) -> dict:
+        return {"Authorization": _generate_token(self.api_key)}
 
     async def embed(self, texts: List[str]) -> EmbeddingResult:
         """
@@ -90,7 +112,9 @@ class GLMEmbeddingService(EmbeddingServiceBase):
             }
 
             # Call GLM embedding API
-            response = await self.client.post("embeddings", json=payload)
+            response = await self.client.post(
+                "embeddings", json=payload, headers=self._auth_headers()
+            )
             response.raise_for_status()
 
             data = response.json()

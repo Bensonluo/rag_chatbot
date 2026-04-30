@@ -107,3 +107,12 @@ docs/phase9-summary.md
 GLM_QUICKSTART.md
 IMPLEMENTATION_SUMMARY.md
 TOKEN_OPTIMIZATION_COMPLETE.md
+.omc/state/subagent-tracking.json
+.omc/state/last-tool-error.json
+.omc/state/idle-notif-cooldown.json
+.omc/state/hud-stdin-cache.json
+.omc/state/hud-state.json
+.omc/state/checkpoints/checkpoint-2026-03-26T05-25-19-190Z.json
+.omc/state/agent-replay-8cccc95e-b9de-40db-a203-8c24e4c178c6.jsonl
+.omc/sessions/e8adc3f3-8e2e-4028-9523-0459afda8d67.json
+.omc/project-memory.json
