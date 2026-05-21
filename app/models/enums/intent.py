@@ -15,3 +15,6 @@ class Intent(str, Enum):
     CHITCHAT = "chitchat"
     TASK = "task"
     UNKNOWN = "unknown"
+    RELATIONSHIP_QUERY = "relationship_query"
+    GLOBAL_SUMMARY = "global_summary"
+    ENTITY_LOOKUP = "entity_lookup"

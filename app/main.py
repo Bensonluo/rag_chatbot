@@ -28,6 +28,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         environment=settings.ENVIRONMENT,
         debug=settings.DEBUG,
     )
+
+    # Initialize chat service
+    try:
+        from app.api.database import async_session_maker
+        from app.api.v1.chat import initialize_chat_service
+        async with async_session_maker() as db:
+            await initialize_chat_service(db)
+        logger.info("Chat service initialized successfully")
+    except Exception as e:
+        logger.warning("Failed to initialize chat service: %s", e)
+
     yield
     # Shutdown
     logger.info("Shutting down RAG Chatbot")
@@ -58,6 +69,20 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Request ID middleware
+    from app.middleware.request_id import RequestIDMiddleware
+    app.add_middleware(RequestIDMiddleware)
+
+    # Prometheus metrics middleware
+    if settings.ENABLE_METRICS:
+        from app.middleware.metrics import PrometheusMiddleware
+        app.add_middleware(PrometheusMiddleware)
+
+    # OpenTelemetry tracing
+    if settings.ENABLE_TRACING:
+        from app.middleware.tracing import setup_tracing
+        setup_tracing(app=app, endpoint=settings.OTEL_ENDPOINT)
+
     # Include API v1 router
     from app.api.v1.router import api_router
     app.include_router(api_router, prefix=settings.API_PREFIX)
@@ -70,6 +95,11 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "environment": settings.ENVIRONMENT,
         }
+
+    # Prometheus metrics endpoint
+    if settings.ENABLE_METRICS:
+        from app.middleware.metrics import metrics_endpoint
+        app.add_route("/metrics", metrics_endpoint)
 
     # Root endpoint
     @app.get("/")

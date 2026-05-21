@@ -44,6 +44,8 @@ class DocumentIngestionService:
         chunking_strategy: str = "semantic",
         max_chunk_size: int = 512,
         chunk_overlap: int = 50,
+        graph_client=None,
+        entity_extractor=None,
     ) -> None:
         """
         Initialize document ingestion service.
@@ -54,12 +56,16 @@ class DocumentIngestionService:
             chunking_strategy: Strategy for chunking (fixed, semantic, recursive)
             max_chunk_size: Maximum size of each chunk
             chunk_overlap: Overlap between chunks
+            graph_client: Optional graph client for entity storage
+            entity_extractor: Optional entity extractor for graph extraction
         """
         self.qdrant_client = qdrant_client
         self.embedding_provider = embedding_provider
         self.chunking_strategy = chunking_strategy
         self.max_chunk_size = max_chunk_size
         self.chunk_overlap = chunk_overlap
+        self.graph_client = graph_client
+        self.entity_extractor = entity_extractor
 
         # Initialize embedding service
         self.embedding_service = EmbeddingFactory.create(
@@ -167,13 +173,65 @@ class DocumentIngestionService:
             payloads=payloads
         )
 
-        return {
+        # Extract entities for knowledge graph (if configured)
+        graph_entities_count = 0
+        graph_relations_count = 0
+        if self.graph_client and self.entity_extractor:
+            import uuid as _uuid
+            from app.services.graph.base import GraphEntity, GraphRelation
+
+            for chunk in chunks:
+                try:
+                    extraction = await self.entity_extractor.extract(chunk.content)
+                    if extraction.entities:
+                        graph_ents = [
+                            GraphEntity(
+                                id=str(_uuid.uuid4()),
+                                name=e["name"],
+                                type=e["type"],
+                                properties=e.get("properties", {}),
+                                description=e.get("description"),
+                            )
+                            for e in extraction.entities
+                        ]
+                        await self.graph_client.add_entities(graph_ents)
+                        graph_entities_count += len(graph_ents)
+
+                    if extraction.relations:
+                        # Resolve entity IDs by name
+                        name_to_id = {
+                            e["name"]: f"{e['type']}_{e['name']}"
+                            for e in extraction.entities
+                        }
+                        graph_rels = [
+                            GraphRelation(
+                                id=str(_uuid.uuid4()),
+                                source_entity_id=name_to_id.get(r["source"], r["source"]),
+                                target_entity_id=name_to_id.get(r["target"], r["target"]),
+                                relation_type=r["type"],
+                                properties=r.get("properties", {}),
+                            )
+                            for r in extraction.relations
+                            if name_to_id.get(r["source"]) and name_to_id.get(r["target"])
+                        ]
+                        if graph_rels:
+                            await self.graph_client.add_relations(graph_rels)
+                            graph_relations_count += len(graph_rels)
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "Graph extraction failed for chunk %s: %s", chunk.chunk_id, e
+                    )
+
+        result = {
             "document_id": document_id,
             "title": title,
             "chunks_count": len(chunks),
             "total_tokens": embedding_result.tokens_used,
             "embedding_model": embedding_result.model,
             "chunking_strategy": self.chunking_strategy,
+            "graph_entities_extracted": graph_entities_count,
+            "graph_relations_extracted": graph_relations_count,
         }
 
     async def ingest_file(

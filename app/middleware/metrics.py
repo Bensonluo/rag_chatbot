@@ -4,6 +4,7 @@ Prometheus metrics middleware.
 Collects and exposes metrics for monitoring.
 """
 from fastapi import Request, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 from prometheus_client import Counter, Histogram, Gauge, generate_latest, REGISTRY
 from prometheus_client.openmetrics.exposition import generate_latest as generate_latest_openmetrics
 from typing import Dict
@@ -14,7 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class PrometheusMiddleware:
+class PrometheusMiddleware(BaseHTTPMiddleware):
     """
     Middleware to collect Prometheus metrics.
 
@@ -25,14 +26,7 @@ class PrometheusMiddleware:
     """
 
     def __init__(self, app, app_name: str = "rag_chatbot"):
-        """
-        Initialize Prometheus middleware.
-
-        Args:
-            app: FastAPI application
-            app_name: Application name for metrics
-        """
-        self.app = app
+        super().__init__(app)
         self.app_name = app_name
 
         # Define metrics
@@ -102,7 +96,7 @@ class PrometheusMiddleware:
             self.active_requests.dec()
 
 
-def metrics_endpoint():
+def metrics_endpoint(request: Request):
     """
     FastAPI endpoint to expose Prometheus metrics.
 

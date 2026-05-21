@@ -46,6 +46,8 @@ class Message(Base, TimestampMixin):
     )
     token_count: Mapped[int | None] = mapped_column(Integer, default=None)
     message_metadata: Mapped[dict | None] = mapped_column(JSON, default=None)
+    user_rating: Mapped[int | None] = mapped_column(Integer, default=None)
+    feedback_text: Mapped[str | None] = mapped_column(Text, default=None)
 
     # Relationships
     session: Mapped["ChatSession"] = relationship(

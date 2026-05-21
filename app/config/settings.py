@@ -85,6 +85,66 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = Field(default=60, description="Rate limit per minute")
     RATE_LIMIT_PER_HOUR: int = Field(default=1000, description="Rate limit per hour")
 
+    # Neo4j Graph Database
+    NEO4J_URI: str = Field(default="bolt://localhost:7687", description="Neo4j bolt URI")
+    NEO4J_USER: str = Field(default="neo4j", description="Neo4j username")
+    NEO4J_PASSWORD: str = Field(default="password", description="Neo4j password")
+    NEO4J_DATABASE: str = Field(default="neo4j", description="Neo4j database name")
+    NEO4J_MAX_CONNECTION_POOL_SIZE: int = Field(
+        default=50, description="Neo4j connection pool size"
+    )
+    NEO4J_CONNECTION_TIMEOUT: float = Field(
+        default=30.0, description="Neo4j connection timeout seconds"
+    )
+
+    # GraphRAG Feature Flags
+    GRAPH_RAG_ENABLED: bool = Field(
+        default=False, description="Enable GraphRAG features"
+    )
+    GRAPH_RAG_EXTRACTION_ENABLED: bool = Field(
+        default=True, description="Enable entity extraction during ingestion"
+    )
+    GRAPH_RAG_COMMUNITY_ENABLED: bool = Field(
+        default=False, description="Enable community detection and summarization"
+    )
+    GRAPH_RAG_COMMUNITY_MIN_SIZE: int = Field(
+        default=3, description="Minimum community size for Leiden"
+    )
+    GRAPH_RAG_COMMUNITY_MAX_LEVELS: int = Field(
+        default=5, description="Max hierarchy levels for community detection"
+    )
+    GRAPH_RAG_FUSION_WEIGHT: float = Field(
+        default=0.5, description="Weight for graph results in fusion (0.0-1.0)"
+    )
+    GRAPH_RAG_TEXT_TO_CYPHER_ENABLED: bool = Field(
+        default=True, description="Enable Text-to-Cypher query mode"
+    )
+    GRAPH_RAG_MAX_HOPS: int = Field(
+        default=3, description="Maximum traversal depth for graph queries"
+    )
+
+    # Slot Filling
+    SLOT_FILLING_ENABLED: bool = Field(
+        default=True, description="Enable slot filling after intent detection"
+    )
+    SLOT_FILLING_TYPE: str = Field(
+        default="hybrid", description="Slot filler type: rule_based, hybrid"
+    )
+
+    # Guardrails
+    GUARDRAILS_ENABLED: bool = Field(
+        default=True, description="Enable input/output guardrails"
+    )
+    GUARDRAILS_INPUT_ENABLED: bool = Field(
+        default=True, description="Enable input guardrail (injection detection, PII redaction)"
+    )
+    GUARDRAILS_OUTPUT_ENABLED: bool = Field(
+        default=True, description="Enable output guardrail (PII redaction in responses)"
+    )
+    GUARDRAILS_PII_REDACTION_ENABLED: bool = Field(
+        default=True, description="Enable PII redaction in input and output"
+    )
+
     # Monitoring
     ENABLE_METRICS: bool = Field(default=True, description="Enable Prometheus metrics")
     METRICS_PORT: int = Field(default=9090, description="Metrics port")

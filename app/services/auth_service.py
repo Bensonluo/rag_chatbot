@@ -214,7 +214,7 @@ class AuthenticationService:
             if not user_id:
                 raise AuthenticationError("Invalid token payload")
 
-            user = await self.user_repository.get_by_id(user_id)
+            user = await self.user_repository.get_by_id(user_id, User)
             if not user:
                 raise AuthenticationError("User not found")
 

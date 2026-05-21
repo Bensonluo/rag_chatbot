@@ -29,23 +29,11 @@ class ChatServiceFactory:
         memory_strategy: MemoryStrategy,
         intent_detector: IntentDetector,
         retrieval_pipeline: Optional[dict] = None,
+        graph_retrieval_service=None,
+        global_search_service=None,
+        multi_path_fusion=None,
+        slot_filler=None,
     ) -> ChatService:
-        """
-        Create a chat service instance.
-
-        Args:
-            llm_service: LLM service for generation
-            memory_strategy: Memory strategy for context
-            intent_detector: Intent detection service
-            retrieval_pipeline: Optional retrieval pipeline
-
-        Returns:
-            ChatService: Configured chat service
-
-        Raises:
-            ValidationError: If required parameters are missing
-        """
-        # Validate required parameters
         if llm_service is None:
             raise ValidationError("llm_service is required")
 
@@ -60,6 +48,10 @@ class ChatServiceFactory:
             memory_strategy=memory_strategy,
             intent_detector=intent_detector,
             retrieval_pipeline=retrieval_pipeline,
+            graph_retrieval_service=graph_retrieval_service,
+            global_search_service=global_search_service,
+            multi_path_fusion=multi_path_fusion,
+            slot_filler=slot_filler,
         )
 
     @staticmethod
@@ -70,6 +62,10 @@ class ChatServiceFactory:
         memory_type: str = "optimized",
         intent_type: str = "hybrid",
         retrieval_pipeline: Optional[dict] = None,
+        graph_retrieval_service=None,
+        global_search_service=None,
+        multi_path_fusion=None,
+        slot_filler=None,
         **memory_kwargs,
     ) -> ChatService:
         """
@@ -114,4 +110,8 @@ class ChatServiceFactory:
             memory_strategy=memory_strategy,
             intent_detector=intent_detector,
             retrieval_pipeline=retrieval_pipeline,
+            graph_retrieval_service=graph_retrieval_service,
+            global_search_service=global_search_service,
+            multi_path_fusion=multi_path_fusion,
+            slot_filler=slot_filler,
         )

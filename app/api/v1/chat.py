@@ -4,12 +4,14 @@ Chat API endpoints.
 Provides REST API for chat interactions including message processing,
 streaming responses, and history management.
 """
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from fastapi.responses import StreamingResponse
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
-from app.api.deps import get_current_user, get_db, get_user_repository, get_session_repository
+from app.api.deps import get_current_user
 from app.api.rate_limit import check_rate_limit
 from app.models.database.user import User
 from app.services.chat.chat_service import ChatService
@@ -19,65 +21,25 @@ from app.services.embeddings import EmbeddingFactory
 from app.services.retrieval import RetrievalFactory
 from sqlalchemy.ext.asyncio import AsyncSession
 
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
-
-
-@router.on_event("startup")
-async def startup_event():
-    """Initialize chat service on startup."""
-    from app.api.database import get_db as _get_db
-
-    async for db in _get_db():
-        try:
-            await initialize_chat_service(db)
-        except Exception as e:
-            import logging
-            logging.error(f"Failed to initialize chat service: {e}")
-        break  # Only need one db connection
 
 # Global chat service instance (initialized on startup)
 _chat_service: Optional[ChatService] = None
 
 
-def get_chat_service() -> ChatService:
-    """
-    Get chat service instance (singleton).
-
-    Returns:
-        ChatService: Configured chat service
-
-    Raises:
-        HTTPException: If service not initialized
-    """
-    global _chat_service
-    if _chat_service is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Chat service not initialized. Please ensure all dependencies are configured.",
-        )
-    return _chat_service
-
-
 async def initialize_chat_service(db: AsyncSession):
-    """
-    Initialize the RAG chat service with all dependencies.
-
-    Call this during application startup.
-    """
+    """Initialize the RAG chat service with all dependencies."""
     global _chat_service
 
-    # Create LLM service
     llm_service = LLMFactory.create_from_settings()
 
-    # Create repositories
     from app.repositories.message_repository import MessageRepository
     from app.repositories.session_repository import SessionRepository
-
     message_repo = MessageRepository(db)
     session_repo = SessionRepository(db)
 
-    # Create retrieval pipeline (optional - will work without documents)
     try:
         embedding_service = EmbeddingFactory.create_from_settings()
         qdrant_client = RetrievalFactory.create_vector_client(
@@ -86,19 +48,15 @@ async def initialize_chat_service(db: AsyncSession):
             collection_name="documents",
             embedding_service=embedding_service,
         )
-
         retrieval_pipeline = {
             "hybrid_search": RetrievalFactory.create_hybrid_search(
                 vector_client=qdrant_client,
             ),
         }
     except Exception as e:
-        # Log but don't fail - chat will work without retrieval
-        import logging
-        logging.warning(f"Failed to initialize retrieval pipeline: {e}")
+        logger.warning("Failed to initialize retrieval pipeline: %s", e)
         retrieval_pipeline = None
 
-    # Create chat service with all dependencies
     _chat_service = ChatServiceFactory.create_with_defaults(
         llm_service=llm_service,
         message_repo=message_repo,
@@ -107,6 +65,93 @@ async def initialize_chat_service(db: AsyncSession):
         intent_type="hybrid",
         retrieval_pipeline=retrieval_pipeline,
     )
+
+    # Initialize GraphRAG services if enabled
+    try:
+        from app.config.settings import get_settings
+        settings = get_settings()
+        if settings.GRAPH_RAG_ENABLED:
+            from app.services.graph import GraphFactory
+            from app.services.graph.retrieval import (
+                GraphRetrievalService,
+                MultiPathRetrievalFusion,
+            )
+
+            graph_client = GraphFactory.create_from_settings()
+            if graph_client:
+                await graph_client.connect()
+
+                graph_retrieval_service = GraphRetrievalService(
+                    text_to_cypher=None,
+                    graph_embedding_search=None,
+                )
+                global_search_service = None
+                multi_path_fusion = MultiPathRetrievalFusion(
+                    vector_weight=1.0 - settings.GRAPH_RAG_FUSION_WEIGHT,
+                    graph_weight=settings.GRAPH_RAG_FUSION_WEIGHT,
+                )
+
+                if settings.GRAPH_RAG_TEXT_TO_CYPHER_ENABLED:
+                    from app.services.graph.retrieval import TextToCypherService
+                    graph_retrieval_service._cypher = TextToCypherService(
+                        llm_service=llm_service,
+                        graph_client=graph_client,
+                    )
+
+                from app.services.graph.retrieval import GraphEmbeddingSearch
+                graph_embedding = GraphEmbeddingSearch(
+                    graph_client=graph_client,
+                    embedding_service=embedding_service,
+                    max_hops=settings.GRAPH_RAG_MAX_HOPS,
+                )
+                graph_retrieval_service._embedding_search = graph_embedding
+
+                if settings.GRAPH_RAG_COMMUNITY_ENABLED:
+                    from app.services.graph.community import GlobalSearchService
+                    global_search_service = GlobalSearchService(
+                        graph_client=graph_client,
+                        embedding_service=embedding_service,
+                    )
+
+                _chat_service.graph_retrieval_service = graph_retrieval_service
+                _chat_service.global_search_service = global_search_service
+                _chat_service.multi_path_fusion = multi_path_fusion
+    except Exception as e:
+        logger.warning("Failed to initialize GraphRAG services: %s", e)
+
+    # Initialize slot filling
+    try:
+        from app.config.settings import get_settings
+        settings = get_settings()
+        if settings.SLOT_FILLING_ENABLED:
+            from app.services.slot_filling.factory import SlotFillerFactory
+            slot_filler = SlotFillerFactory.create(
+                filler_type=settings.SLOT_FILLING_TYPE,
+                llm_service=llm_service,
+            )
+            _chat_service.slot_filler = slot_filler
+    except Exception as e:
+        logger.warning("Failed to initialize slot filling: %s", e)
+
+    # Initialize guardrails
+    try:
+        from app.services.guardrails.factory import GuardrailFactory
+        guardrail_service = GuardrailFactory.create_from_settings()
+        if guardrail_service:
+            _chat_service.guardrail_service = guardrail_service
+    except Exception as e:
+        logger.warning("Failed to initialize guardrails: %s", e)
+
+
+def get_chat_service() -> ChatService:
+    """Get chat service instance. Raises 503 if not initialized."""
+    global _chat_service
+    if _chat_service is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Chat service not initialized. Please ensure all dependencies are configured.",
+        )
+    return _chat_service
 
 
 # Request/Response Schemas
@@ -140,16 +185,6 @@ class ChatHistoryResponse(BaseModel):
     session_id: int
 
 
-# Dependency
-def get_chat_service() -> ChatService:
-    """
-    Get chat service instance (demo mode).
-
-    Returns demo chat service for open API testing without authentication.
-    """
-    return _chat_service
-
-
 @router.post("", response_model=ChatResponse, status_code=status.HTTP_200_OK)
 async def chat(
     request: ChatRequest,
@@ -157,48 +192,16 @@ async def chat(
     current_user: Optional[User] = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    """
-    Process a chat message and generate response.
-
-    Rate limited: 10 requests per minute per IP.
-
-    Args:
-        request: Chat message request
-        http_req: HTTP request (for rate limiting)
-        current_user: Optional authenticated user
-        chat_service: Chat service instance
-
-    Returns:
-        ChatResponse: Generated response
-
-    Raises:
-        HTTPException: If processing fails or rate limit exceeded
-    """
-    # Check rate limit
+    """Process a chat message and generate response."""
     check_rate_limit(http_req)
-    """
-    Process a chat message and generate response.
 
-    Args:
-        request: Chat message request
-        current_user: Optional authenticated user
-        chat_service: Chat service instance
-
-    Returns:
-        ChatResponse: Generated response
-
-    Raises:
-        HTTPException: If processing fails
-    """
     try:
-        # Use authenticated user ID if available, otherwise use request user_id
         user_id = current_user.id if current_user else request.user_id
 
-        # Process message
         response = await chat_service.process_message(
             session_id=request.session_id,
             message=request.message,
-            user_id=user_id or 0,  # Default to 0 if no user
+            user_id=user_id or 0,
             max_tokens=request.max_tokens,
         )
 
@@ -211,9 +214,10 @@ async def chat(
         )
 
     except Exception as e:
+        logger.error("Failed to process chat message: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process message: {str(e)}"
+            detail="Failed to process message",
         )
 
 
@@ -224,53 +228,19 @@ async def chat_stream(
     current_user: Optional[User] = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    """
-    Process a chat message with streaming response.
-
-    Rate limited: 10 requests per minute per IP.
-
-    Args:
-        request: Chat message request
-        http_req: HTTP request (for rate limiting)
-        current_user: Optional authenticated user
-        chat_service: Chat service instance
-
-    Returns:
-        StreamingResponse: Server-sent events stream
-
-    Raises:
-        HTTPException: If processing fails or rate limit exceeded
-    """
-    # Check rate limit
+    """Process a chat message with streaming response."""
     check_rate_limit(http_req)
-    """
-    Process a chat message with streaming response.
 
-    Args:
-        request: Chat message request
-        current_user: Optional authenticated user
-        chat_service: Chat service instance
-
-    Returns:
-        StreamingResponse: Server-sent events stream
-
-    Raises:
-        HTTPException: If processing fails
-    """
     try:
         user_id = current_user.id if current_user else request.user_id
 
         async def generate():
-            """Generate streaming response."""
             async for chunk in chat_service.process_message_stream(
                 session_id=request.session_id,
                 message=request.message,
                 user_id=user_id or 0,
             ):
-                # Send as server-sent event
                 yield f"data: {chunk}\n\n"
-
-            # Send completion signal
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(
@@ -279,9 +249,10 @@ async def chat_stream(
         )
 
     except Exception as e:
+        logger.error("Failed to process streaming message: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process message: {str(e)}"
+            detail="Failed to process message",
         )
 
 
@@ -292,21 +263,7 @@ async def get_chat_history(
     current_user: Optional[User] = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    """
-    Get chat history for a session.
-
-    Args:
-        session_id: Session ID
-        limit: Max messages to return
-        current_user: Optional authenticated user
-        chat_service: Chat service instance
-
-    Returns:
-        ChatHistoryResponse: Chat history
-
-    Raises:
-        HTTPException: If retrieval fails
-    """
+    """Get chat history for a session."""
     try:
         messages = await chat_service.get_chat_history(
             session_id=session_id,
@@ -326,9 +283,10 @@ async def get_chat_history(
         )
 
     except Exception as e:
+        logger.error("Failed to get chat history: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get history: {str(e)}"
+            detail="Failed to get history",
         )
 
 
@@ -338,22 +296,12 @@ async def clear_chat_history(
     current_user: Optional[User] = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    """
-    Clear chat history for a session.
-
-    Args:
-        session_id: Session ID
-        current_user: Optional authenticated user
-        chat_service: Chat service instance
-
-    Raises:
-        HTTPException: If deletion fails
-    """
+    """Clear chat history for a session."""
     try:
         await chat_service.clear_chat_history(session_id=session_id)
-
     except Exception as e:
+        logger.error("Failed to clear chat history: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to clear history: {str(e)}"
+            detail="Failed to clear history",
         )

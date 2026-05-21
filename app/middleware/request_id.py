@@ -4,6 +4,7 @@ Request ID middleware.
 Generates unique request IDs for tracing and debugging.
 """
 from fastapi import Request, Response
+from starlette.middleware.base import BaseHTTPMiddleware
 from typing import Optional
 import uuid
 import logging
@@ -25,24 +26,13 @@ def get_request_id(request: Request) -> Optional[str]:
     return request.state.get("request_id")
 
 
-class RequestIDMiddleware:
+class RequestIDMiddleware(BaseHTTPMiddleware):
     """
     Middleware to add unique request IDs.
-
-    Generates a UUID for each request and adds it to:
-    - Request state (for logging)
-    - Response headers (for client tracing)
     """
 
     def __init__(self, app, header_name: str = "X-Request-ID"):
-        """
-        Initialize request ID middleware.
-
-        Args:
-            app: FastAPI application
-            header_name: Header name for request ID
-        """
-        self.app = app
+        super().__init__(app)
         self.header_name = header_name
 
     async def dispatch(self, request: Request, call_next):

@@ -333,7 +333,6 @@ class TestDocumentMetadataRepository:
             DocumentMetadataRepository,
             DocumentMetadataModel,
         )
-from sqlalchemy import select
 
         mock_session = Mock()
         mock_model = DocumentMetadataModel(

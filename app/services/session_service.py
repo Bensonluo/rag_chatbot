@@ -109,7 +109,7 @@ class SessionService:
         Raises:
             NotFoundError: If session not found or user doesn't own it
         """
-        session = await self.session_repository.get_by_id(session_id)
+        session = await self.session_repository.get_by_id(session_id, ChatSession)
 
         if not session:
             raise NotFoundError("Session", str(session_id))

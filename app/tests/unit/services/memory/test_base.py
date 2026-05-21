@@ -7,20 +7,17 @@ from datetime import datetime
 class TestMemoryStrategy:
     """Test Memory strategy base class"""
 
-    def test_base_class_not_implemented_get_context(self):
+    async def test_base_class_not_implemented_get_context(self):
         """Test that get_context raises NotImplementedError"""
-        # Arrange
         from app.services.memory.base import MemoryStrategy
 
         strategy = MemoryStrategy(message_repo=Mock())
 
-        # Act & Assert
         with pytest.raises(NotImplementedError):
             await strategy.get_context(session_id=1)
 
-    def test_base_class_not_implemented_add_message(self):
+    async def test_base_class_not_implemented_add_message(self):
         """Test that add_message raises NotImplementedError"""
-        # Arrange
         from app.services.memory.base import MemoryStrategy
         from app.models.schemas.chat import MessageContent
 
@@ -31,18 +28,15 @@ class TestMemoryStrategy:
             timestamp=datetime.now()
         )
 
-        # Act & Assert
         with pytest.raises(NotImplementedError):
             await strategy.add_message(session_id=1, message=message)
 
-    def test_base_class_not_implemented_clear_session(self):
+    async def test_base_class_not_implemented_clear_session(self):
         """Test that clear_session raises NotImplementedError"""
-        # Arrange
         from app.services.memory.base import MemoryStrategy
 
         strategy = MemoryStrategy(message_repo=Mock())
 
-        # Act & Assert
         with pytest.raises(NotImplementedError):
             await strategy.clear_session(session_id=1)
 

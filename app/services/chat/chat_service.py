@@ -71,17 +71,19 @@ class ChatService:
     """
     Chat orchestration service.
 
-    Coordinates intent detection, retrieval, memory, and LLM generation
-    to provide intelligent chat responses.
+    Coordinates intent detection, retrieval (vector + graph), memory,
+    and LLM generation to provide intelligent chat responses.
     """
 
-    # Intents that should trigger retrieval
     RETRIEVAL_INTENTS = {
         Intent.QUESTION,
         Intent.HOW_TO,
         Intent.COMPARISON,
         Intent.DEFINITION,
         Intent.RECOMMENDATION,
+        Intent.RELATIONSHIP_QUERY,
+        Intent.GLOBAL_SUMMARY,
+        Intent.ENTITY_LOOKUP,
     }
 
     def __init__(
@@ -90,20 +92,21 @@ class ChatService:
         memory_strategy: MemoryStrategy,
         intent_detector: IntentDetector,
         retrieval_pipeline: Optional[dict] = None,
+        graph_retrieval_service=None,
+        global_search_service=None,
+        multi_path_fusion=None,
+        slot_filler=None,
+        guardrail_service=None,
     ) -> None:
-        """
-        Initialize chat service.
-
-        Args:
-            llm_service: LLM service for generation
-            memory_strategy: Memory strategy for context
-            intent_detector: Intent detection service
-            retrieval_pipeline: Optional retrieval pipeline for RAG
-        """
         self.llm_service = llm_service
         self.memory_strategy = memory_strategy
         self.intent_detector = intent_detector
         self.retrieval_pipeline = retrieval_pipeline
+        self.graph_retrieval_service = graph_retrieval_service
+        self.global_search_service = global_search_service
+        self.multi_path_fusion = multi_path_fusion
+        self.slot_filler = slot_filler
+        self.guardrail_service = guardrail_service
 
     async def process_message(
         self,
@@ -128,9 +131,29 @@ class ChatService:
             BaseServiceError: If processing fails
         """
         try:
+            # 0. Input guardrail
+            if self.guardrail_service:
+                input_result = self.guardrail_service.check_input(message)
+                if input_result.was_blocked:
+                    return ChatResponse(
+                        content=input_result.safe_content,
+                        session_id=session_id,
+                        intent="blocked",
+                        sources=None,
+                        metadata={"guardrail_violations": input_result.violations},
+                    )
+                message = input_result.safe_content
+
             # 1. Detect intent
             intent_result = await self.intent_detector.detect_with_confidence(message)
             intent = intent_result.intent
+
+            # 1b. Fill slots
+            slot_result = None
+            if self.slot_filler:
+                slot_result = await self.slot_filler.fill_slots(
+                    query=message, intent=intent,
+                )
 
             # 2. Get conversation context from memory
             context = await self.memory_strategy.get_context(
@@ -142,10 +165,12 @@ class ChatService:
             retrieved_docs = []
             sources = None
 
-            if self._should_use_retrieval(intent) and self.retrieval_pipeline:
+            if self._should_use_retrieval(intent) and (self.retrieval_pipeline or self.graph_retrieval_service):
                 retrieved_docs = await self._retrieve_documents(
                     query=message,
                     top_k=3,
+                    intent=intent,
+                    slot_result=slot_result,
                 )
                 sources = [doc.document_id for doc in retrieved_docs] if retrieved_docs else None
 
@@ -162,11 +187,17 @@ class ChatService:
                 max_tokens=max_tokens,
             )
 
+            # 5b. Output guardrail
+            response_content = llm_response.content
+            if self.guardrail_service:
+                output_result = self.guardrail_service.check_output(response_content)
+                response_content = output_result.safe_content
+
             # 6. Store messages in memory
             await self._store_messages(
                 session_id=session_id,
                 user_message=message,
-                assistant_response=llm_response.content,
+                assistant_response=response_content,
             )
 
             # 7. Build response
@@ -176,7 +207,7 @@ class ChatService:
             }
 
             return ChatResponse(
-                content=llm_response.content,
+                content=response_content,
                 session_id=session_id,
                 intent=intent.value,
                 sources=sources,
@@ -208,6 +239,21 @@ class ChatService:
         # 1. Detect intent
         intent_result = await self.intent_detector.detect_with_confidence(message)
 
+        # 0b. Input guardrail for streaming
+        if self.guardrail_service:
+            input_result = self.guardrail_service.check_input(message)
+            if input_result.was_blocked:
+                yield input_result.safe_content
+                return
+            message = input_result.safe_content
+
+        # 1b. Fill slots
+        slot_result = None
+        if self.slot_filler:
+            slot_result = await self.slot_filler.fill_slots(
+                query=message, intent=intent_result.intent,
+            )
+
         # 2. Get context (with current query for relevance filtering)
         # Check if memory strategy supports current_query parameter
         import inspect
@@ -226,8 +272,8 @@ class ChatService:
 
         # 3. Retrieve if needed
         retrieved_docs = []
-        if self._should_use_retrieval(intent_result.intent) and self.retrieval_pipeline:
-            retrieved_docs = await self._retrieve_documents(query=message, top_k=3)
+        if self._should_use_retrieval(intent_result.intent) and (self.retrieval_pipeline or self.graph_retrieval_service):
+            retrieved_docs = await self._retrieve_documents(query=message, top_k=3, intent=intent_result.intent, slot_result=slot_result)
 
         # 4. Build messages
         messages = await self._build_messages(
@@ -301,44 +347,74 @@ class ChatService:
         self,
         query: str,
         top_k: int = 3,
+        intent: Optional[Intent] = None,
+        slot_result=None,
     ) -> List[SearchResult]:
-        """
-        Retrieve relevant documents using retrieval pipeline.
+        """Retrieve relevant documents using vector + graph retrieval."""
+        # 1. Vector retrieval
+        vector_results = await self._vector_retrieve(query, top_k, slot_result)
 
-        Args:
-            query: Search query
-            top_k: Number of documents to retrieve
+        # 2. Graph retrieval
+        graph_results: List[SearchResult] = []
+        if self.graph_retrieval_service:
+            try:
+                entity_hints = slot_result.to_entity_hints() if slot_result and slot_result.has_slots() else None
+                if intent == Intent.GLOBAL_SUMMARY and self.global_search_service:
+                    graph_raw = await self.global_search_service.search(query, top_k=top_k)
+                else:
+                    graph_raw = await self.graph_retrieval_service.search(query, top_k=top_k, entity_hints=entity_hints)
+                graph_results = [self._graph_to_search_result(r) for r in graph_raw]
+            except Exception:
+                pass
 
-        Returns:
-            List[SearchResult]: Retrieved documents
-        """
+        # 3. Fuse
+        if vector_results and graph_results and self.multi_path_fusion:
+            fused = self.multi_path_fusion.fuse(vector_results, graph_results, top_k=top_k)
+        else:
+            fused = vector_results + graph_results
+
+        # 4. Rerank + enrich
+        if self.retrieval_pipeline and fused:
+            reranker = self.retrieval_pipeline.get("reranker")
+            if reranker:
+                fused = await reranker.rerank(fused, VectorSearchRequest(query=query, top_k=top_k))
+
+            metadata_service = self.retrieval_pipeline.get("metadata_service")
+            if metadata_service:
+                fused = await metadata_service.enrich_search_results(fused)
+
+        return fused[:top_k]
+
+    async def _vector_retrieve(self, query: str, top_k: int = 3, slot_result=None) -> List[SearchResult]:
+        """Retrieve from vector pipeline only."""
         if not self.retrieval_pipeline:
             return []
-
         try:
-            # Use hybrid search
             hybrid_search = self.retrieval_pipeline.get("hybrid_search")
             if not hybrid_search:
                 return []
-
-            request = VectorSearchRequest(query=query, top_k=top_k)
-            results = await hybrid_search.search(request)
-
-            # Rerank if available
-            reranker = self.retrieval_pipeline.get("reranker")
-            if reranker:
-                results = await reranker.rerank(results, request)
-
-            # Enrich with metadata if available
-            metadata_service = self.retrieval_pipeline.get("metadata_service")
-            if metadata_service:
-                results = await metadata_service.enrich_search_results(results)
-
-            return results
-
-        except Exception as e:
-            # Log error but don't fail
+            filters = slot_result.to_filters() if slot_result and slot_result.has_slots() else None
+            return await hybrid_search.search(VectorSearchRequest(query=query, top_k=top_k, filters=filters))
+        except Exception:
             return []
+
+    @staticmethod
+    def _graph_to_search_result(graph_result) -> SearchResult:
+        """Convert a GraphSearchResult to a SearchResult."""
+        from app.services.graph.base import GraphSearchResult as GSR
+
+        if isinstance(graph_result, GSR):
+            return SearchResult(
+                document_id=f"graph_{hash(graph_result.content[:200])}",
+                content=graph_result.content,
+                score=graph_result.score,
+                metadata={
+                    "source_type": graph_result.source_type,
+                    "entities": [{"name": e.name, "type": e.type} for e in graph_result.entities],
+                    "relations": [{"type": r.relation_type} for r in graph_result.relations],
+                },
+            )
+        return SearchResult(document_id="graph_unknown", content=str(graph_result), score=0.0)
 
     async def _build_messages(
         self,
@@ -388,6 +464,10 @@ class ChatService:
             "You are a helpful, friendly AI assistant. "
             "Provide accurate, concise responses."
         )
+
+        if self.guardrail_service:
+            from app.services.guardrails.prompt_hardening import build_safe_system_prompt
+            base_prompt = build_safe_system_prompt(base_prompt)
 
         if not retrieved_docs:
             return base_prompt
