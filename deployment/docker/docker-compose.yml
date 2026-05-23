@@ -11,7 +11,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - ENVIRONMENT=development
       - DEBUG=true
-      - GLM_API_KEY=951a05b4ed8c49df996c39ffc38e071c.08KUDBXaZ3u76zZ3
+      - GLM_API_KEY=${GLM_API_KEY}
       - GLM_MODEL=glm-4.5-air
       - VECTOR_DB_URL=http://qdrant:6333
       - EMBEDDING_PROVIDER=local

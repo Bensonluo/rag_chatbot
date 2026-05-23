@@ -50,7 +50,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         request_id = self._get_or_generate_request_id(request)
 
         # Add to request state for logging
-        request.state["request_id"] = request_id
+        request.state.request_id = request_id
 
         # Process request
         response: Response = await call_next(request)

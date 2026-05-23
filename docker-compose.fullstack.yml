@@ -64,7 +64,7 @@ services:
       - ENVIRONMENT=production
       - DEBUG=false
       - SECRET_KEY=${SECRET_KEY:-change_this_in_production}
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://124.220.28.49:3000}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://101.43.97.91:3000}
       - RATE_LIMIT_PER_MINUTE=${RATE_LIMIT_PER_MINUTE:-10}
 
       # Logging

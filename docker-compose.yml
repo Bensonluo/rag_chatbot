@@ -123,7 +123,7 @@ services:
     volumes:
       - ./app:/home/appuser/app/app
     user: root
-    entrypoint: ["/bin/bash", "-c", "source /opt/venv/bin/activate && pip install -q PyJWT && exec /home/appuser/app/scripts/entrypoint.sh"]
+    entrypoint: ["/bin/bash", "-c", "source /opt/venv/bin/activate && pip install -q PyJWT neo4j && exec /home/appuser/app/scripts/entrypoint.sh"]
     ports:
       - "8000:8000"
     depends_on:
