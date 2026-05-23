@@ -1,62 +1,99 @@
 # RAG Chatbot
 
-Production-grade Retrieval-Augmented Generation (RAG) chatbot with intelligent intent detection, memory management, and vector search.
+Production-grade Retrieval-Augmented Generation (RAG) chatbot with intelligent intent detection, memory management, vector search, GraphRAG, and comprehensive safety guardrails.
 
-## ✨ Features
+## Features
 
 ### Core RAG Capabilities
-- 🔍 **Vector Search**: Qdrant vector database with semantic search
-- 🧠 **Smart Embeddings**: BGE-M3 local embeddings (free) + GLM API option
-- 📄 **Document Management**: Upload, search, and manage documents (PDF, TXT, MD)
-- 🎯 **Hybrid Search**: Combines semantic vector search + BM25 keyword search
-- 🔄 **Semantic Chunking**: Multiple strategies (fixed, semantic, recursive)
-- 📊 **LLM Reranking**: Advanced reranking for better results
+- **Vector Search**: Qdrant vector database with semantic search
+- **Hybrid Search**: Combines semantic vector search + BM25 keyword search with Reciprocal Rank Fusion
+- **Smart Embeddings**: Local BGE-M3 (free, default) with GLM/OpenAI API options
+- **Document Management**: Upload, search, and manage documents (PDF, TXT, MD)
+- **Semantic Chunking**: Multiple strategies (fixed, semantic, recursive)
+- **LLM Reranking**: Advanced reranking for better retrieval quality
 
-### Chat Features
-- 🤖 **Hybrid Intent Detection**: Rule-based + LLM-powered intent classification
-- 💬 **Memory Management**: Sliding window, summarization, and hybrid strategies
-- 🌊 **Streaming Responses**: Real-time server-sent events
-- 🌐 **Multilingual**: Excellent Chinese + English support
+### Advanced RAG
+- **GraphRAG** (optional): Neo4j-powered knowledge graph with entity extraction, community detection, and global search
+- **Multi-Path Fusion**: Merges vector + graph retrieval results with configurable weighting
+- **Text-to-Cypher**: Natural language to Cypher query translation
+- **Community Summarization**: Leiden algorithm-based community detection with LLM summaries
+
+### Chat Intelligence
+- **Hybrid Intent Detection**: Rule-based + LLM-powered intent classification with confidence scores
+- **Slot Filling**: Extracts structured entities from queries for precise search filtering
+- **Memory Management**: Four strategies — optimized (default), sliding window, summarization, hybrid
+- **Streaming Responses**: Real-time server-sent events for low latency
+- **Multilingual**: Excellent Chinese + English support
+
+### Safety & Observability
+- **Input Guardrails**: Prompt injection detection, PII redaction, prompt hardening
+- **Output Guardrails**: PII redaction in responses
+- **Observability**: OpenTelemetry-based LLM tracing with latency, token usage, and error metrics
+- **Feedback Loop**: User thumbs up/down ratings for continuous improvement
 
 ### System Features
-- 🔐 **JWT Authentication**: Secure user authentication
-- 🚦 **Rate Limiting**: Token bucket algorithm
-- 📊 **Monitoring**: Prometheus metrics and health checks
-- 🐳 **Docker Support**: Containerized deployment
-- ☸️ **Kubernetes Ready**: Production manifests included
-- 🚀 **Easy Provider Switching**: Switch between embedding providers in seconds
+- **JWT Authentication**: Secure user authentication
+- **Rate Limiting**: Token bucket algorithm (in-memory; Redis recommended for multi-instance)
+- **Monitoring**: Prometheus metrics, health/readiness checks, optional Grafana dashboards
+- **Docker Support**: Full containerized deployment with Docker Compose
+- **Multi-Provider LLM**: GLM (default), OpenAI, Anthropic — auto-fallback by available API key
 
 ## Architecture
 
 ```
-┌─────────────┐
-│   Client    │
-└──────┬──────┘
-       │
-       ▼
-┌─────────────────────────────────────┐
-│         API Gateway (FastAPI)        │
-│  ┌──────────────────────────────┐  │
-│  │   Middleware Stack          │  │
-│  │  - Request ID               │  │
-│  │  - Rate Limiting            │  │
-│  │  - Error Handling           │  │
-│  │  - Metrics                  │  │
-│  └──────────────────────────────┘  │
-│  ┌──────────────────────────────┐  │
-│  │      Chat Service            │  │
-│  │  - Intent Detection          │  │
-│  │  - Memory Management         │  │
-│  │  - Vector Retrieval          │  │
-│  │  - LLM Generation            │  │
-│  └──────────────────────────────┘  │
-└─────────────────────────────────────┘
-       │           │           │
-       ▼           ▼           ▼
-┌──────────┐  ┌─────────┐  ┌──────────┐
-│PostgreSQL│  │ Redis   │  │ Qdrant   │
-└──────────┘  └─────────┘  └──────────┘
+User Query
+    |
+    v
++------------------+------------------+------------------+
+| Input Guardrail  | Intent Detection |  Slot Filling    |
+| (Safety Check)   | (Query Type)     | (Entity Extract) |
++------------------+------------------+------------------+
+    |                       |                  |
+    v                       v                  v
++-------------------------------------------------------+
+|              Memory Strategy (Context)                |
+|     optimized / sliding_window / summarization        |
++-------------------------------------------------------+
+    |
+    v
++-------------------------------------------------------+
+|              Document Retrieval (Knowledge)           |
+|  +----------------+  +-------------------------------+|
+|  | Vector Search  |  | GraphRAG (optional)           ||
+|  | - Semantic     |  | - Text-to-Cypher              ||
+|  | - BM25 + RRF   |  | - Graph Embedding Search      ||
+|  +----------------+  | - Community/Global Search     ||
+|         |            +-------------------------------+|
+|         v                        |                    |
+|  +----------------+             |                    |
+|  | Reranking      | <----------+                    |
+|  +----------------+                                  |
++-------------------------------------------------------+
+    |
+    v
++-------------------------------------------------------+
+|              LLM Generation (Streaming)               |
+|         GLM (default) / OpenAI / Anthropic            |
++-------------------------------------------------------+
+    |
+    v
++------------------+------------------+
+| Output Guardrail |  Feedback Store  |
+| (PII Redaction)  |  (Rating/Stats)  |
++------------------+------------------+
+    |
+    v
+  Response
 ```
+
+### Data Stores
+
+| Service    | Purpose                              | Required |
+|------------|--------------------------------------|----------|
+| PostgreSQL | Users, sessions, messages, feedback  | Yes      |
+| Redis      | Caching, rate limiting               | Yes      |
+| Qdrant     | Vector embeddings, semantic search   | Yes      |
+| Neo4j      | Knowledge graph (GraphRAG)           | No       |
 
 ## Quick Start
 
@@ -65,11 +102,12 @@ Production-grade Retrieval-Augmented Generation (RAG) chatbot with intelligent i
 - Python 3.11+
 - PostgreSQL 16+
 - Redis 7+
-- Qdrant 1.7+ (vector database)
+- Qdrant 1.7+
+- Docker & Docker Compose (recommended)
 - GLM API key (recommended) or OpenAI/Anthropic API key
-- Docker & Docker Compose (for deployment)
+- Neo4j (optional, for GraphRAG)
 
-### Using Docker Compose (Recommended)
+### Docker Compose (Recommended)
 
 ```bash
 # Clone repository
@@ -78,20 +116,36 @@ cd rag-chatbot
 
 # Create environment file
 cat > .env << EOF
-# LLM Configuration
+# LLM Configuration (GLM recommended for Chinese)
 GLM_API_KEY=your-glm-api-key-here
 GLM_MODEL=glm-4.5-air
 
-# Embedding Configuration (local = free, glm = API)
+# Embedding Configuration (local = free)
 EMBEDDING_PROVIDER=local
 EMBEDDING_MODEL=bge-m3-v2-zh
 
+# Vector Database
+QDRANT_URL=http://localhost:6333
+
+# Database & Cache
+DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/rag_chatbot
+REDIS_URL=redis://localhost:6379/0
+
 # Security
 SECRET_KEY=your-secret-key-here
+
+# Optional: Enable GraphRAG
+GRAPH_RAG_ENABLED=false
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=password
 EOF
 
-# Start all services
+# Start core services
 docker-compose up -d
+
+# Or start with monitoring (Prometheus + Grafana)
+docker-compose --profile monitoring up -d
 
 # Check health
 curl http://localhost:8000/health
@@ -103,15 +157,12 @@ docker-compose logs -f api
 ### Manual Installation
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
 
-# Set environment variables
-export DATABASE_URL="postgresql+asyncpg://user:pass@localhost/rag_chatbot"
-export REDIS_URL="redis://localhost:6379/0"
-export QDRANT_URL="http://localhost:6333"
-export OPENAI_API_KEY="sk-..."
-export SECRET_KEY="your-secret-key"
+# Install dependencies
+pip install -e ".[dev]"
 
 # Run database migrations
 alembic upgrade head
@@ -120,7 +171,7 @@ alembic upgrade head
 uvicorn app.main:create_app --factory --reload --host 0.0.0.0 --port 8000
 ```
 
-## RAG Features
+## RAG Pipeline
 
 ### Document Management
 
@@ -151,7 +202,7 @@ curl -X POST http://localhost:8000/api/v1/documents/search \
 
 ### Embedding Provider Switching
 
-**Switch between providers in `.env`:**
+Switch between providers in `.env`:
 
 ```bash
 # Local BGE-M3 (FREE, default)
@@ -161,26 +212,45 @@ EMBEDDING_MODEL=bge-m3-v2-zh
 # GLM API (pay-per-use)
 EMBEDDING_PROVIDER=glm
 GLM_API_KEY=your-api-key
+
+# OpenAI (pay-per-use)
+EMBEDDING_PROVIDER=openai
+OPENAI_API_KEY=sk-...
 ```
 
-**That's it!** Same code, different providers.
+### GraphRAG (Optional)
 
-### Vector Database
+Enable knowledge graph capabilities:
 
-**Qdrant Dashboard:**
-- URL: http://localhost:6333/dashboard
-- View collections, vectors, and perform searches
-- Built-in visualization tools
-
-**Direct API access:**
 ```bash
-# Get collection info
-curl http://localhost:6333/collections/documents
+# .env
+GRAPH_RAG_ENABLED=true
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=password
+GRAPH_RAG_FUSION_WEIGHT=0.3
+```
 
-# Search vectors
-curl -X POST http://localhost:6333/collections/documents/points/search \
+GraphRAG endpoints (available when enabled):
+```bash
+# Query graph
+curl -X POST http://localhost:8000/api/v1/graph/query \
   -H "Content-Type: application/json" \
-  -d '{...}'
+  -d '{"query": "What projects is Alice working on?"}'
+
+# Import structured data
+curl -X POST http://localhost:8000/api/v1/graph/import/structured \
+  -H "Content-Type: application/json" \
+  -d '{
+    "nodes": [{"id": "Alice", "label": "Person", "properties": {"role": "Engineer"}}],
+    "relationships": [{"source": "Alice", "target": "ProjectX", "type": "WORKS_ON"}]
+  }'
+
+# Detect communities
+curl -X POST http://localhost:8000/api/v1/graph/communities/detect
+
+# Graph health check
+curl http://localhost:8000/api/v1/graph/health
 ```
 
 ## API Documentation
@@ -191,7 +261,7 @@ Once running, visit:
 - **ReDoc**: http://localhost:8000/redoc
 - **OpenAPI JSON**: http://localhost:8000/openapi.json
 
-### Quick API Example
+### Quick API Examples
 
 ```bash
 # 1. Register user
@@ -228,6 +298,19 @@ curl -X POST http://localhost:8000/api/v1/chat/stream \
     "message": "Tell me a joke",
     "session_id": 1
   }'
+
+# 5. Submit feedback
+curl -X POST http://localhost:8000/api/v1/feedback \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message_id": 123,
+    "rating": "up"
+  }'
+
+# 6. View feedback stats
+curl http://localhost:8000/api/v1/feedback/stats \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ## Configuration
@@ -236,24 +319,27 @@ curl -X POST http://localhost:8000/api/v1/chat/stream \
 
 | Variable | Description | Default | Required |
 |----------|-------------|---------|----------|
-| `DATABASE_URL` | PostgreSQL connection string | - | Yes |
-| `REDIS_URL` | Redis connection string | - | Yes |
-| `QDRANT_URL` | Qdrant vector DB URL | - | Yes |
-| `OPENAI_API_KEY` | OpenAI API key | - | Yes* |
-| `ANTHROPIC_API_KEY` | Anthropic API key | - | No |
-| `GLM_API_KEY` | Zhipu AI GLM API key | - | No |
-| `SECRET_KEY` | JWT secret key | - | Yes |
-| `ENVIRONMENT` | Environment (development/production) | development | No |
-| `LOG_LEVEL` | Logging level | INFO | No |
-| `CORS_ORIGINS` | Allowed CORS origins | * | No |
-
-*Required if using OpenAI LLM (at least one LLM provider required: OpenAI, Anthropic, or GLM)
+| `DATABASE_URL` | PostgreSQL connection string | — | Yes |
+| `REDIS_URL` | Redis connection string | — | Yes |
+| `QDRANT_URL` | Qdrant vector DB URL | — | Yes |
+| `SECRET_KEY` | JWT secret key | — | Yes |
+| `GLM_API_KEY` | Zhipu AI GLM API key | — | No |
+| `GLM_MODEL` | GLM model name | `glm-4.5-air` | No |
+| `OPENAI_API_KEY` | OpenAI API key | — | No |
+| `ANTHROPIC_API_KEY` | Anthropic API key | — | No |
+| `EMBEDDING_PROVIDER` | Embedding source | `local` | No |
+| `ENVIRONMENT` | Environment mode | `development` | No |
+| `LOG_LEVEL` | Logging level | `INFO` | No |
 
 ### Memory Strategy Configuration
 
-Choose memory strategy based on your use case:
+```bash
+# Optimized (default) — semantic relevance filtering
+MEMORY_TYPE=optimized
+MEMORY_MAX_RECENT=3
+MEMORY_RELEVANCE_THRESHOLD=0.5
+MEMORY_TOKEN_BUDGET=4096
 
-```python
 # Sliding Window (fast, low retention)
 MEMORY_TYPE=sliding_window
 WINDOW_SIZE=10
@@ -263,28 +349,53 @@ MEMORY_TYPE=summarization
 SUMMARY_THRESHOLD=20
 SUMMARY_INTERVAL=10
 
-# Hybrid (adaptive, recommended)
+# Hybrid (adaptive)
 MEMORY_TYPE=hybrid
 HYBRID_THRESHOLD=30
 ```
 
 ### Intent Detection Configuration
 
-```python
+```bash
+# Hybrid (default) — adaptive rule + LLM
+INTENT_TYPE=hybrid
+CONFIDENCE_THRESHOLD=0.7
+
 # Rule-based (fast, less accurate)
 INTENT_TYPE=rule_based
 
 # LLM-based (slower, more accurate)
 INTENT_TYPE=llm_based
+```
 
-# Hybrid (adaptive, recommended)
-INTENT_TYPE=hybrid
-CONFIDENCE_THRESHOLD=0.7
+### Slot Filling Configuration
+
+```bash
+# Hybrid (default)
+SLOT_FILLING_TYPE=hybrid
+
+# Rule-based only
+SLOT_FILLING_TYPE=rule_based
+
+# LLM-based only
+SLOT_FILLING_TYPE=llm_based
+```
+
+### Guardrails Configuration
+
+```bash
+# Enable/disable guardrails
+GUARDRAILS_ENABLED=true
+GUARDRAILS_INPUT_ENABLED=true
+GUARDRAILS_OUTPUT_ENABLED=true
+
+# Prompt hardening
+GUARDRAILS_HARDENING_ENABLED=true
 ```
 
 ### Retrieval Configuration
 
-```python
+```bash
 # Vector search settings
 VECTOR_WEIGHT=0.7
 TOP_K=3
@@ -293,18 +404,18 @@ TOP_K=3
 USE_RERANKING=true
 RERANKER_TOP_N=5
 
-# Metadata enrichment
-USE_METADATA_ENRICHMENT=true
+# GraphRAG fusion (when enabled)
+GRAPH_RAG_FUSION_WEIGHT=0.3
 ```
 
 ### LLM Provider Selection
 
-The chatbot supports multiple LLM providers:
+The chatbot auto-selects the first available provider: GLM → OpenAI → Anthropic.
 
-**Option 1: GLM (Zhipu AI) - Recommended for Chinese**
+**Option 1: GLM (Zhipu AI) — Recommended for Chinese**
 ```bash
 GLM_API_KEY=your-glm-api-key
-GLM_MODEL=glm-4-plus
+GLM_MODEL=glm-4.5-air
 ```
 
 **Option 2: OpenAI**
@@ -319,8 +430,6 @@ ANTHROPIC_API_KEY=sk-ant-...
 ANTHROPIC_MODEL=claude-3-opus-20240229
 ```
 
-For detailed GLM setup instructions, see [docs/glm_setup.md](docs/glm_setup.md)
-
 ## Deployment
 
 ### Docker
@@ -333,9 +442,19 @@ docker build -t rag-chatbot:latest .
 docker run -d \
   -p 8000:8000 \
   -e DATABASE_URL="postgresql+asyncpg://..." \
-  -e OPENAI_API_KEY="sk-..." \
+  -e GLM_API_KEY="..." \
   -e SECRET_KEY="..." \
   rag-chatbot:latest
+```
+
+### Docker Compose (Production)
+
+```bash
+# Use production profile with monitoring
+docker-compose --profile monitoring up -d
+
+# Scale API instances
+docker-compose up -d --scale api=5
 ```
 
 ### Kubernetes
@@ -348,7 +467,7 @@ kubectl create namespace rag-chatbot
 kubectl create secret generic rag-chatbot-secrets \
   --from-literal=database-url="postgresql+asyncpg://..." \
   --from-literal=redis-url="redis://..." \
-  --from-literal=openai-api-key="sk-..." \
+  --from-literal=glm-api-key="..." \
   --from-literal=secret-key="..." \
   -n rag-chatbot
 
@@ -358,16 +477,6 @@ kubectl apply -f deploy/k8s/
 # Check status
 kubectl get pods -n rag-chatbot
 kubectl get svc -n rag-chatbot
-```
-
-### Docker Compose (Production)
-
-```bash
-# Use production profile
-docker-compose -f docker-compose.yml --profile monitoring up -d
-
-# Scale API
-docker-compose up -d --scale api=5
 ```
 
 ## Monitoring
@@ -389,7 +498,7 @@ curl http://localhost:8000/ready
 curl http://localhost:8000/metrics
 ```
 
-Access Grafana at http://localhost:3001 (admin/admin)
+Access Grafana at http://localhost:3001 (admin/admin) when monitoring profile is enabled.
 
 ### Logging
 
@@ -413,30 +522,26 @@ Logs are structured JSON:
 ### Running Tests
 
 ```bash
-# Run all tests
+# Run all tests with coverage (80% minimum enforced)
 pytest
 
-# Run with coverage
-pytest --cov=app --cov-report=html
+# Run specific test file
+pytest app/tests/unit/services/chat/test_chat_service.py
 
-# Run specific test
-pytest tests/unit/services/chat/test_chat_service.py
+# Run specific test with verbose output
+pytest app/tests/unit/services/chat/test_chat_service.py::test_specific -v
 
 # Run integration tests
-pytest tests/integration/
+pytest app/tests/integration/
 ```
 
 ### Code Quality
 
 ```bash
-# Type checking
-mypy app/
-
-# Linting
+# Run all checks (lint + format + type check)
 ruff check app/
-
-# Format code
 ruff format app/
+mypy app/
 ```
 
 ### Project Structure
@@ -444,23 +549,42 @@ ruff format app/
 ```
 rag-chatbot/
 ├── app/
-│   ├── api/              # API endpoints
-│   │   └── v1/          # API v1 endpoints
-│   ├── core/            # Core utilities
-│   ├── models/          # Database models
-│   ├── repositories/    # Data access layer
-│   ├── services/        # Business logic
-│   │   ├── chat/       # Chat orchestration
-│   │   ├── intent/     # Intent detection
-│   │   ├── llm/        # LLM integration
-│   │   ├── memory/     # Memory strategies
-│   │   └── retrieval/  # Vector search
-│   ├── middleware/      # FastAPI middleware
-│   └── main.py         # Application factory
-├── tests/               # Test suites
-├── deploy/              # Deployment configs
-├── docs/                # Documentation
-└── pyproject.toml      # Dependencies
+│   ├── api/
+│   │   ├── deps/           # Authentication dependencies
+│   │   ├── middleware/     # Request ID, rate limiting, error handling
+│   │   └── v1/             # API v1 endpoints (chat, docs, auth, feedback, graph)
+│   ├── config/             # Pydantic settings
+│   ├── core/               # Core utilities
+│   ├── middleware/         # FastAPI middleware
+│   ├── models/
+│   │   ├── database/       # SQLAlchemy ORM models
+│   │   ├── enums/          # Enumerations
+│   │   └── schemas/        # Pydantic schemas
+│   ├── repositories/       # Async data access layer
+│   ├── services/           # Business logic
+│   │   ├── chat/           # Chat orchestration (pipeline)
+│   │   ├── documents/      # Chunking, ingestion, preprocessing
+│   │   ├── embeddings/     # Multi-provider embeddings (local, GLM, OpenAI)
+│   │   ├── graph/          # GraphRAG (Neo4j)
+│   │   │   ├── community/  # Community detection & global search
+│   │   │   ├── extraction/ # Entity/relation extraction
+│   │   │   └── retrieval/  # Text-to-Cypher, graph embedding search, fusion
+│   │   ├── guardrails/     # Input/output safety checks
+│   │   ├── intent/         # Intent detection strategies
+│   │   ├── llm/            # Multi-provider LLM clients
+│   │   ├── memory/         # Memory management strategies
+│   │   ├── observability/  # OpenTelemetry tracing
+│   │   ├── retrieval/      # Hybrid search, reranking, Qdrant
+│   │   └── slot_filling/   # Entity extraction from queries
+│   ├── tests/              # Test suites
+│   │   ├── e2e/            # End-to-end tests
+│   │   ├── integration/    # Integration tests
+│   │   └── unit/           # Unit tests
+│   └── main.py             # Application factory
+├── deploy/                 # Deployment configs (Docker, K8s)
+├── docs/                   # Documentation
+├── pyproject.toml          # Dependencies & tool config
+└── docker-compose*.yml     # Docker Compose configs
 ```
 
 ## Performance Tuning
@@ -479,15 +603,21 @@ rag-chatbot/
 
 ### Vector Database
 
-- Tune search parameters (top_k, vector_weight)
+- Tune search parameters (`top_k`, `vector_weight`)
 - Use quantization for large collections
 - Enable HNSW indexing
 
 ### LLM
 
 - Use streaming for faster time-to-first-token
-- Cache embeddings
+- Cache embeddings via `cached_embeddings.py`
 - Batch requests when possible
+
+### GraphRAG
+
+- Start with `GRAPH_RAG_ENABLED=false` for baseline performance
+- Enable after document ingestion for advanced relationship queries
+- Tune `GRAPH_RAG_FUSION_WEIGHT` to balance vector vs. graph results
 
 ## Security
 
@@ -496,20 +626,17 @@ rag-chatbot/
 - [ ] Change default `SECRET_KEY`
 - [ ] Use strong password policy
 - [ ] Enable HTTPS
-- [ ] Configure CORS properly
+- [ ] Configure CORS properly (`CORS_ORIGINS`)
 - [ ] Set up rate limiting
 - [ ] Use read-only database credentials for API
 - [ ] Enable audit logging
 - [ ] Regular security updates
 - [ ] Rotate API keys
-- [ ] Enable request signing
+- [ ] Enable guardrails (`GUARDRAILS_ENABLED=true`)
 
 ### Rate Limiting
 
-Protect against abuse:
-
-```python
-# In middleware or config
+```bash
 RATE_LIMIT_REQUESTS_PER_MINUTE=60
 RATE_LIMIT_BUCKET_SIZE=10
 ```
@@ -540,14 +667,22 @@ Solution: Verify Qdrant is running
 curl http://localhost:6333/health
 ```
 
+**Neo4j connection failed (GraphRAG)**
+```
+Solution: Verify Neo4j is running and GRAPH_RAG_ENABLED matches setup
+curl http://localhost:8000/api/v1/graph/health
+```
+
 **Rate limit errors**
 ```
-Solution: Increase limits or whitelist IPs
+Solution: Increase limits or use Redis for distributed rate limiting
 ```
 
 **Memory issues**
 ```
-Solution: Adjust memory strategy window size
+Solution: Adjust memory strategy or token budget
+MEMORY_TYPE=sliding_window
+WINDOW_SIZE=5
 ```
 
 ## Contributing
@@ -555,23 +690,22 @@ Solution: Adjust memory strategy window size
 1. Fork the repository
 2. Create feature branch (`git checkout -b feature/amazing-feature`)
 3. Write tests first (TDD)
-4. Commit changes (`git commit -m 'Add amazing feature'`)
-5. Push to branch (`git push origin feature/amazing-feature`)
-6. Open Pull Request
+4. Run code quality checks (`ruff check && ruff format && mypy`)
+5. Commit changes (`git commit -m 'feat: add amazing feature'`)
+6. Push to branch (`git push origin feature/amazing-feature`)
+7. Open Pull Request
 
 ## Project Statistics
 
 ```
-Total Phases: 9
-Total Files: 80+
-Total Test Cases: 335+
-Total Lines of Code: 10000+
-Test Coverage: 80%+
+Total Python Files: ~200
+Total Test Files: ~58
+Test Coverage: 80%+ (enforced in CI)
 ```
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License — see LICENSE file for details.
 
 ## Support
 
