@@ -21,15 +21,16 @@ from app.services.llm.base import LLMServiceBase, LLMMessage
 
 logger = logging.getLogger(__name__)
 
-_CYPHER_PROMPT = """You are a Neo4j Cypher query expert. Generate a read-only Cypher query for the user's question.
+_CYPHER_PROMPT = """You are a Neo4j Cypher query expert for a customer service knowledge graph. Generate a read-only Cypher query for the user's question.
 
 Graph Schema:
 {schema}
 
 Example queries:
-1. "二甲双胍在哪些渠道销售？" -> MATCH (d:Entity:Drug {{name: '二甲双胍'}})-[:SOLD_IN]->(c:Entity:Channel) RETURN c.name, c.channel_type
-2. "哪些公司生产糖尿病药物？" -> MATCH (co:Entity:Company)-[:MANUFACTURES]->(d:Entity:Drug)-[:TREATS]->(i:Entity:Indication {{name: '糖尿病'}}) RETURN co.name, d.name
-3. "二甲双胍在零售渠道的销售数据" -> MATCH (d:Entity:Drug {{name: '二甲双胍'}})-[:SOLD_IN]->(c:Entity:Channel {{channel_type: '零售'}}), (d)-[:HAS_SALES]->(s:Entity:SalesMetric) RETURN c.channel_type, s.revenue, s.period
+1. "产品A有哪些常见问题？" -> MATCH (p:Entity:Product {{name: '产品A'}})<-[:REPORTS]-(i:Entity:Issue) RETURN i.name, i.severity, i.symptom
+2. "登录失败怎么解决？" -> MATCH (i:Entity:Issue {{name: '登录失败'}})<-[:RESOLVES]-(s:Entity:Solution) RETURN s.step, s.solution_type, s.difficulty
+3. "哪些产品支持人脸识别？" -> MATCH (p:Entity:Product)-[:HAS_FEATURE]->(f:Entity:Feature {{name: '人脸识别'}}) RETURN p.name, p.version
+4. "iOS平台上报了哪些问题？" -> MATCH (i:Entity:Issue)-[:AFFECTS]->(pl:Entity:Platform {{platform_name: 'iOS'}}) RETURN i.name, i.severity
 
 Rules:
 - Generate ONLY read-only MATCH/WHERE/RETURN queries. No CREATE, MERGE, SET, DELETE.

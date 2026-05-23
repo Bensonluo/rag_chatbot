@@ -12,15 +12,15 @@ class TestGraphRetrievalServiceRRF:
     @pytest.mark.asyncio
     async def test_fuses_cypher_and_embedding_results(self):
         cypher_result = GraphSearchResult(
-            content="Cypher: 二甲双胍 sold in 零售",
-            entities=[GraphEntity(id="1", name="二甲双胍", type="Drug")],
+            content="Cypher: 登录失败属于产品A",
+            entities=[GraphEntity(id="1", name="登录失败", type="Issue")],
             relations=[],
             score=1.0,
             source_type="text_to_cypher",
         )
         embedding_result = GraphSearchResult(
-            content="Embedding: 二甲双胍 treats 糖尿病",
-            entities=[GraphEntity(id="2", name="糖尿病", type="Indication")],
+            content="Embedding: 登录失败的解决方案",
+            entities=[GraphEntity(id="2", name="产品A", type="Product")],
             relations=[],
             score=0.9,
             source_type="graph_embedding",
@@ -35,7 +35,7 @@ class TestGraphRetrievalServiceRRF:
             text_to_cypher=mock_cypher,
             graph_embedding_search=mock_embedding,
         )
-        results = await service.search("二甲双胍销售情况", top_k=5)
+        results = await service.search("产品A登录问题怎么解决", top_k=5)
 
         assert len(results) == 2
         assert results[0].score >= results[1].score  # RRF sorted
@@ -85,7 +85,7 @@ class TestMultiPathFusion:
         graph_results = [
             GraphSearchResult(
                 content="graph result 1",
-                entities=[GraphEntity(id="1", name="二甲双胍", type="Drug")],
+                entities=[GraphEntity(id="1", name="登录失败", type="Issue")],
                 relations=[],
                 score=0.85,
                 source_type="text_to_cypher",

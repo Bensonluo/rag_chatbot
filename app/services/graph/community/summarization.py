@@ -16,14 +16,14 @@ from app.services.embeddings.base import EmbeddingServiceBase
 
 logger = logging.getLogger(__name__)
 
-_SUMMARY_PROMPT = """Summarize the following group of related entities from a pharmaceutical knowledge graph.
+_SUMMARY_PROMPT = """Summarize the following group of related entities from a customer service knowledge graph.
 
 Entities ({entity_count} total):
 {entity_list}
 
 Provide:
 1. A concise title (5-10 words)
-2. A summary paragraph describing what this community represents, key relationships, and notable patterns.
+2. A summary paragraph describing what this community represents, key products/issues/solutions involved, and notable patterns.
 
 Return ONLY a JSON object:
 {{"title": "...", "summary": "..."}}"""

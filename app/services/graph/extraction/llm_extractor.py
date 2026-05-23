@@ -14,7 +14,7 @@ from app.services.llm.base import LLMServiceBase, LLMMessage
 
 logger = logging.getLogger(__name__)
 
-_EXTRACTION_PROMPT = """You are an expert knowledge graph builder for the pharmaceutical and healthcare domain.
+_EXTRACTION_PROMPT = """You are an expert knowledge graph builder for an intelligent customer service system.
 
 Given the text below, extract all entities and relationships. Follow this schema strictly:
 
@@ -28,7 +28,7 @@ Instructions:
 1. Extract every entity mentioned in the text.
 2. For each entity, provide: "name" (canonical), "type" (from schema), "description" (brief), and "properties" (key facts from text).
 3. Extract relationships between entities. For each: "source" (entity name), "target" (entity name), "type" (from schema), "properties" (any relevant data).
-4. Normalize entity names (e.g., "二甲双胍" and "Metformin" both map to one canonical name).
+4. Normalize entity names (e.g., "登录不了" and "无法登录" both map to one canonical name like "登录失败").
 5. Only extract relationships that are explicitly stated or can be directly inferred.
 
 Return ONLY a JSON object with this exact structure:
@@ -86,7 +86,7 @@ class LLMEntityExtractor(EntityExtractor):
     ) -> ExtractionResult:
         prompt = self._prompt.format(text=text)
         messages = [
-            LLMMessage(role="system", content="You extract structured knowledge from text. Output only valid JSON."),
+            LLMMessage(role="system", content="You extract structured knowledge about products, issues, and solutions from customer service text. Output only valid JSON."),
             LLMMessage(role="user", content=prompt),
         ]
 

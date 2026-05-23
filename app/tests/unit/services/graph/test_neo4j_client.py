@@ -42,7 +42,7 @@ class TestNeo4jClient:
         self.client._driver.session = MagicMock(return_value=mock_session)
 
         entities = [
-            GraphEntity(id="e1", name="二甲双胍", type="Drug", description="降糖药"),
+            GraphEntity(id="e1", name="登录失败", type="Issue", description="用户无法登录"),
         ]
         ids = await self.client.add_entities(entities)
         assert "e1" in ids
@@ -56,7 +56,7 @@ class TestNeo4jClient:
     async def test_add_relations(self):
         mock_session = AsyncMock()
         mock_result = AsyncMock()
-        mock_result.data = AsyncMock(return_value=[{"rel_type": "MANUFACTURES"}])
+        mock_result.data = AsyncMock(return_value=[{"rel_type": "RESOLVES"}])
         mock_session.run = AsyncMock(return_value=mock_result)
         mock_session.__aenter__ = AsyncMock(return_value=mock_session)
         mock_session.__aexit__ = AsyncMock(return_value=False)
@@ -64,7 +64,7 @@ class TestNeo4jClient:
 
         from app.services.graph.base import GraphRelation
         relations = [
-            GraphRelation(id="r1", source_entity_id="e1", target_entity_id="e2", relation_type="MANUFACTURES"),
+            GraphRelation(id="r1", source_entity_id="e1", target_entity_id="e2", relation_type="RESOLVES"),
         ]
         ids = await self.client.add_relations(relations)
         assert "r1" in ids
@@ -108,10 +108,10 @@ class TestValidateReadOnly:
 
 class TestSanitizeLabel:
     def test_valid_label(self):
-        assert _sanitize_label("MANUFACTURES") == "MANUFACTURES"
+        assert _sanitize_label("RESOLVES") == "RESOLVES"
 
     def test_strips_special_chars(self):
-        assert _sanitize_label("SOLD-IN") == "SOLDIN"
+        assert _sanitize_label("HAS-FEATURE") == "HASFEATURE"
 
     def test_empty_label_raises(self):
         with pytest.raises(GraphClientError, match="Invalid"):

@@ -10,6 +10,6 @@ class TestPromptHardening:
         assert "Never reveal" in result
 
     def test_preserves_base_prompt(self):
-        base = "You are a medical assistant for pharmaceutical queries."
+        base = "You are a customer service assistant."
         result = build_safe_system_prompt(base)
         assert base in result

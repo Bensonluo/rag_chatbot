@@ -2,97 +2,92 @@
 Domain schema definition for the knowledge graph.
 
 Defines entity types, relationship types, and their properties for the
-pharmaceutical market analysis domain.
+intelligent customer service domain.
 """
 
 ENTITY_TYPES: dict[str, dict[str, str | list[str]]] = {
-    "Drug": {
-        "description": "A pharmaceutical product",
+    "Product": {
+        "description": "A product or service offered by the company",
         "properties": [
-            "generic_name", "brand_name", "approval_date",
-            "therapeutic_class", "dosage_form",
+            "product_name", "version", "product_type", "release_date",
         ],
     },
-    "Company": {
-        "description": "A pharmaceutical company",
-        "properties": ["headquarters", "company_type", "stock_ticker"],
+    "Feature": {
+        "description": "A feature or capability of a product",
+        "properties": ["feature_name", "feature_type", "status"],
     },
-    "Channel": {
-        "description": "A sales or distribution channel",
-        "properties": ["channel_type"],
+    "Issue": {
+        "description": "A customer-reported problem or bug",
+        "properties": ["symptom", "severity", "frequency", "error_code"],
     },
-    "Region": {
-        "description": "A geographic market region",
-        "properties": ["country", "province", "city"],
+    "Solution": {
+        "description": "A troubleshooting step or resolution for an issue",
+        "properties": ["step", "solution_type", "difficulty"],
     },
-    "Indication": {
-        "description": "A disease or medical condition",
-        "properties": ["icd_code", "specialty"],
+    "FAQ": {
+        "description": "A frequently asked question and its answer",
+        "properties": ["question", "answer", "category"],
     },
-    "ActiveIngredient": {
-        "description": "An active pharmaceutical ingredient (API)",
-        "properties": ["molecular_formula", "mechanism_of_action"],
+    "Category": {
+        "description": "A product or issue classification",
+        "properties": ["category_name", "level", "parent_category"],
     },
-    "SalesMetric": {
-        "description": "A sales data point (revenue, volume, etc.)",
-        "properties": ["revenue", "volume", "growth_rate", "period", "currency"],
-    },
-    "TimePeriod": {
-        "description": "A time reference (year, quarter, month)",
-        "properties": ["year", "quarter", "month"],
+    "Platform": {
+        "description": "A platform or operating environment",
+        "properties": ["platform_name", "version", "os_type"],
     },
 }
 
 RELATION_TYPES: dict[str, dict[str, str]] = {
-    "MANUFACTURES": {
-        "source": "Company",
-        "target": "Drug",
-        "description": "Company manufactures this drug",
+    "HAS_FEATURE": {
+        "source": "Product",
+        "target": "Feature",
+        "description": "Product has this feature",
     },
-    "SOLD_IN": {
-        "source": "Drug",
-        "target": "Channel",
-        "description": "Drug is sold through this channel",
+    "REPORTS": {
+        "source": "Issue",
+        "target": "Product",
+        "description": "Issue is reported for this product",
     },
-    "SOLD_IN_REGION": {
-        "source": "Drug",
-        "target": "Region",
-        "description": "Drug is available in this region",
+    "RESOLVES": {
+        "source": "Solution",
+        "target": "Issue",
+        "description": "Solution resolves this issue",
     },
-    "TREATS": {
-        "source": "Drug",
-        "target": "Indication",
-        "description": "Drug is used to treat this condition",
+    "BELONGS_TO": {
+        "source": "Product",
+        "target": "Category",
+        "description": "Product belongs to this category",
     },
-    "CONTAINS": {
-        "source": "Drug",
-        "target": "ActiveIngredient",
-        "description": "Drug contains this active ingredient",
+    "APPLIES_TO": {
+        "source": "Solution",
+        "target": "Platform",
+        "description": "Solution applies to this platform",
     },
-    "HAS_SALES": {
-        "source": "Drug",
-        "target": "SalesMetric",
-        "description": "Drug has this sales data",
+    "RELATED_ISSUE": {
+        "source": "Issue",
+        "target": "Issue",
+        "description": "Issues are related or share common cause",
     },
-    "DURING": {
-        "source": "SalesMetric",
-        "target": "TimePeriod",
-        "description": "Sales data is for this time period",
+    "ANSWERS": {
+        "source": "FAQ",
+        "target": "Product",
+        "description": "FAQ answers question about this product",
     },
-    "COMPETES_WITH": {
-        "source": "Drug",
-        "target": "Drug",
-        "description": "Drugs compete in the same therapeutic market",
+    "AFFECTS": {
+        "source": "Issue",
+        "target": "Platform",
+        "description": "Issue affects this platform",
     },
-    "OPERATES_IN": {
-        "source": "Company",
-        "target": "Region",
-        "description": "Company operates in this region",
+    "REQUIRES": {
+        "source": "Solution",
+        "target": "Feature",
+        "description": "Solution requires this feature to be enabled",
     },
-    "MARKET_OPPORTUNITY": {
-        "source": "Drug",
-        "target": "Region",
-        "description": "Potential market opportunity for drug in region",
+    "SIMILAR_TO": {
+        "source": "Product",
+        "target": "Product",
+        "description": "Products are similar or share functionality",
     },
 }
 

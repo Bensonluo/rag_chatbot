@@ -19,16 +19,16 @@ class TestLLMEntityExtractor:
     async def test_extract_valid_json(self):
         self.mock_llm.generate = AsyncMock(
             return_value=MagicMock(
-                content='{"entities": [{"name": "二甲双胍", "type": "Drug", "description": "降糖药", "properties": {"brand": "格华止"}}], "relations": [{"source": "二甲双胍", "target": "糖尿病", "type": "TREATS", "properties": {}}]}'
+                content='{"entities": [{"name": "登录失败", "type": "Issue", "description": "用户无法登录", "properties": {"severity": "high"}}], "relations": [{"source": "登录失败", "target": "产品A", "type": "REPORTS", "properties": {}}]}'
             )
         )
 
-        result = await self.extractor.extract("二甲双胍是一种降糖药物，用于治疗2型糖尿病")
+        result = await self.extractor.extract("用户反馈产品A无法登录，提示登录失败")
         assert len(result.entities) == 1
-        assert result.entities[0]["name"] == "二甲双胍"
-        assert result.entities[0]["type"] == "Drug"
+        assert result.entities[0]["name"] == "登录失败"
+        assert result.entities[0]["type"] == "Issue"
         assert len(result.relations) == 1
-        assert result.relations[0]["type"] == "TREATS"
+        assert result.relations[0]["type"] == "REPORTS"
 
     @pytest.mark.asyncio
     async def test_extract_invalid_json(self):
@@ -44,13 +44,13 @@ class TestLLMEntityExtractor:
     async def test_extract_with_markdown_fences(self):
         self.mock_llm.generate = AsyncMock(
             return_value=MagicMock(
-                content='```json\n{"entities": [{"name": "测试", "type": "Drug", "description": "", "properties": {}}], "relations": []}\n```'
+                content='```json\n{"entities": [{"name": "测试问题", "type": "Issue", "description": "", "properties": {}}], "relations": []}\n```'
             )
         )
 
         result = await self.extractor.extract("test text")
         assert len(result.entities) == 1
-        assert result.entities[0]["name"] == "测试"
+        assert result.entities[0]["name"] == "测试问题"
 
     @pytest.mark.asyncio
     async def test_extract_filters_unknown_entity_type(self):
@@ -75,7 +75,7 @@ class TestLLMEntityExtractor:
     async def test_extract_batch(self):
         self.mock_llm.generate = AsyncMock(
             return_value=MagicMock(
-                content='{"entities": [{"name": "a", "type": "Drug", "properties": {}}], "relations": []}'
+                content='{"entities": [{"name": "a", "type": "Product", "properties": {}}], "relations": []}'
             )
         )
 

@@ -108,8 +108,8 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-password}
       NEO4J_DATABASE: neo4j
-      GRAPH_RAG_ENABLED: ${GRAPH_RAG_ENABLED:-false}
-      GRAPH_RAG_COMMUNITY_ENABLED: ${GRAPH_RAG_COMMUNITY_ENABLED:-false}
+      GRAPH_RAG_ENABLED: ${GRAPH_RAG_ENABLED:-true}
+      GRAPH_RAG_COMMUNITY_ENABLED: ${GRAPH_RAG_COMMUNITY_ENABLED:-true}
 
       # Security
       SECRET_KEY: ${SECRET_KEY:-development-secret-key-change-in-production}
