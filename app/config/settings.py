@@ -145,6 +145,32 @@ class Settings(BaseSettings):
         default=True, description="Enable PII redaction in input and output"
     )
 
+    # Reranker
+    RERANKER_ENABLED: bool = Field(
+        default=True, description="Enable reranking in retrieval pipeline"
+    )
+    RERANKER_TYPE: str = Field(
+        default="cross_encoder",
+        description="Reranker type: cross_encoder, llm, chained, noop",
+    )
+    RERANKER_MODEL: str = Field(
+        default="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        description="Cross-encoder model for reranking",
+    )
+    RERANKER_DEVICE: str = Field(
+        default="cpu", description="Device for cross-encoder model (cpu, cuda)"
+    )
+    RERANKER_TOP_N: int = Field(
+        default=5, description="Number of results after first-stage reranking"
+    )
+    RERANKER_LLM_SECOND_STAGE: bool = Field(
+        default=False,
+        description="Enable LLM as second-stage reranker after CrossEncoder",
+    )
+    RERANKER_LLM_TOP_N: int = Field(
+        default=3, description="Number of results after LLM second-stage reranking"
+    )
+
     # Monitoring
     ENABLE_METRICS: bool = Field(default=True, description="Enable Prometheus metrics")
     METRICS_PORT: int = Field(default=9090, description="Metrics port")

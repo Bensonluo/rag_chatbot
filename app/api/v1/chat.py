@@ -57,6 +57,18 @@ async def initialize_chat_service(db: AsyncSession):
         logger.warning("Failed to initialize retrieval pipeline: %s", e)
         retrieval_pipeline = None
 
+    # Initialize reranker
+    try:
+        from app.config.settings import get_settings
+        settings = get_settings()
+        if settings.RERANKER_ENABLED and retrieval_pipeline is not None:
+            reranker = RetrievalFactory.create_reranker_from_settings(
+                llm_service=llm_service,
+            )
+            retrieval_pipeline["reranker"] = reranker
+    except Exception as e:
+        logger.warning("Failed to initialize reranker: %s", e)
+
     _chat_service = ChatServiceFactory.create_with_defaults(
         llm_service=llm_service,
         message_repo=message_repo,

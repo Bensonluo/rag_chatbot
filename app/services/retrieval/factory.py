@@ -10,6 +10,8 @@ from app.services.retrieval.vector_base import VectorClient
 from app.services.retrieval.qdrant_client import QdrantClient
 from app.services.retrieval.hybrid_search import HybridSearchService, KeywordSearch
 from app.services.retrieval.reranking import RerankingService, NoOpReranker
+from app.services.retrieval.cross_encoder_reranker import CrossEncoderReranker
+from app.services.retrieval.chained_reranker import ChainedReranker
 from app.services.retrieval.document_metadata import DocumentMetadataService, DocumentMetadataRepository
 from app.services.llm.base import LLMServiceBase
 from app.core.exceptions import ValidationError
@@ -105,14 +107,18 @@ class RetrievalFactory:
         reranker_type: str = "llm",
         llm_service: Optional[LLMServiceBase] = None,
         top_n: int = 5,
+        model: Optional[str] = None,
+        device: str = "cpu",
     ) -> object:
         """
         Create a reranking service.
 
         Args:
-            reranker_type: Type of reranker ("llm" or "noop")
+            reranker_type: Type of reranker ("cross_encoder", "llm", "noop")
             llm_service: LLM service (required for "llm" type)
             top_n: Number of top results to return
+            model: Cross-encoder model name (for "cross_encoder" type)
+            device: Device for cross-encoder model ("cpu" or "cuda")
 
         Returns:
             Reranking service instance
@@ -122,6 +128,13 @@ class RetrievalFactory:
         """
         if reranker_type == "noop":
             return NoOpReranker()
+
+        elif reranker_type == "cross_encoder":
+            return CrossEncoderReranker(
+                model=model or "cross-encoder/ms-marco-MiniLM-L-6-v2",
+                device=device,
+                top_n=top_n,
+            )
 
         elif reranker_type == "llm":
             if llm_service is None:
@@ -135,10 +148,68 @@ class RetrievalFactory:
             )
 
         else:
-            valid_types = ["llm", "noop"]
+            valid_types = ["cross_encoder", "llm", "noop"]
             raise ValidationError(
                 f"Invalid reranker_type: {reranker_type}. "
                 f"Must be one of {valid_types}"
+            )
+
+    @staticmethod
+    def create_reranker_from_settings(
+        llm_service: Optional[LLMServiceBase] = None,
+    ) -> object:
+        """
+        Create a reranker from application settings.
+
+        Supports single-stage (cross_encoder or llm) and two-stage (chained)
+        reranking via RERANKER_TYPE and RERANKER_LLM_SECOND_STAGE settings.
+
+        Args:
+            llm_service: LLM service (required for LLM or chained with LLM second stage)
+
+        Returns:
+            Reranking service instance
+        """
+        from app.config.settings import get_settings
+
+        settings = get_settings()
+
+        if not settings.RERANKER_ENABLED:
+            return NoOpReranker()
+
+        reranker_type = settings.RERANKER_TYPE
+
+        if reranker_type == "cross_encoder":
+            reranker = CrossEncoderReranker(
+                model=settings.RERANKER_MODEL,
+                device=settings.RERANKER_DEVICE,
+                top_n=settings.RERANKER_TOP_N,
+            )
+            if settings.RERANKER_LLM_SECOND_STAGE and llm_service:
+                second_stage = RerankingService(
+                    llm_service=llm_service,
+                    top_n=settings.RERANKER_LLM_TOP_N,
+                )
+                return ChainedReranker(first_stage=reranker, second_stage=second_stage)
+            return reranker
+
+        elif reranker_type == "llm":
+            if llm_service is None:
+                raise ValidationError(
+                    "llm_service is required for LLM-based reranking"
+                )
+            return RerankingService(
+                llm_service=llm_service,
+                top_n=settings.RERANKER_TOP_N,
+            )
+
+        elif reranker_type == "noop":
+            return NoOpReranker()
+
+        else:
+            raise ValidationError(
+                f"Invalid RERANKER_TYPE: {reranker_type}. "
+                f"Must be one of: cross_encoder, llm, noop"
             )
 
     @staticmethod
