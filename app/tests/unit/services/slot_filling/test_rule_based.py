@@ -10,59 +10,64 @@ class TestRuleBasedSlotFiller:
         self.filler = RuleBasedSlotFiller()
 
     @pytest.mark.asyncio
-    async def test_drug_keyword(self):
-        result = await self.filler.fill_slots("二甲双胍的副作用有哪些")
+    async def test_product_keyword(self):
+        result = await self.filler.fill_slots("iPhone的屏幕碎了")
         assert result.has_slots()
-        assert result.get_slot_value("drug") == "二甲双胍"
+        assert result.get_slot_value("product") == "iPhone"
 
     @pytest.mark.asyncio
-    async def test_channel_keyword(self):
-        result = await self.filler.fill_slots("零售渠道的销售数据")
+    async def test_product_keyword_airpods(self):
+        result = await self.filler.fill_slots("AirPods连不上")
         assert result.has_slots()
-        assert result.get_slot_value("channel") == "零售"
+        assert result.get_slot_value("product") == "AirPods"
+
+    @pytest.mark.asyncio
+    async def test_issue_keyword(self):
+        result = await self.filler.fill_slots("手机蓝屏了怎么办")
+        assert result.has_slots()
+        assert result.get_slot_value("issue") == "蓝屏"
+
+    @pytest.mark.asyncio
+    async def test_platform_keyword(self):
+        result = await self.filler.fill_slots("iOS上的微信闪退")
+        assert result.has_slots()
+        assert result.get_slot_value("platform") == "iOS"
+
+    @pytest.mark.asyncio
+    async def test_category_keyword(self):
+        result = await self.filler.fill_slots("退款政策是什么")
+        assert result.has_slots()
+        assert result.get_slot_value("category") == "退款"
+
+    @pytest.mark.asyncio
+    async def test_feature_keyword(self):
+        result = await self.filler.fill_slots("WiFi连不上")
+        assert result.has_slots()
+        assert result.get_slot_value("feature") == "WiFi"
 
     @pytest.mark.asyncio
     async def test_time_period_year(self):
-        result = await self.filler.fill_slots("2024年的销售情况")
+        result = await self.filler.fill_slots("2024年的订单情况")
         assert result.has_slots()
         assert result.get_slot_value("time_period") == "2024"
 
     @pytest.mark.asyncio
-    async def test_time_period_quarter(self):
-        result = await self.filler.fill_slots("第一季度销售额")
+    async def test_time_period_relative(self):
+        result = await self.filler.fill_slots("最近的物流状态")
         assert result.has_slots()
-        assert result.get_slot_value("time_period") == "Q1"
+        assert result.get_slot_value("time_period") == "最近"
 
     @pytest.mark.asyncio
     async def test_multiple_slots(self):
-        result = await self.filler.fill_slots("二甲双胍在零售渠道2024年的销售情况")
+        result = await self.filler.fill_slots("iOS上的iPhone蓝屏了")
         assert result.has_slots()
         slots = result.to_filters()
-        assert "drug" in slots
-        assert "channel" in slots
-        assert "time_period" in slots
-
-    @pytest.mark.asyncio
-    async def test_company_keyword(self):
-        result = await self.filler.fill_slots("诺华的最新药物管线")
-        assert result.has_slots()
-        assert result.get_slot_value("company") == "诺华"
-
-    @pytest.mark.asyncio
-    async def test_indication_keyword(self):
-        result = await self.filler.fill_slots("糖尿病药物市场规模")
-        assert result.has_slots()
-        assert result.get_slot_value("indication") == "糖尿病"
-
-    @pytest.mark.asyncio
-    async def test_region_keyword(self):
-        result = await self.filler.fill_slots("华东地区的药品销售")
-        assert result.has_slots()
-        assert result.get_slot_value("region") == "华东"
+        assert "product" in slots
+        assert "platform" in slots
 
     @pytest.mark.asyncio
     async def test_no_slots_for_unknown(self):
-        result = await self.filler.fill_slots("今天天气怎么样")
+        result = await self.filler.fill_slots("随便聊聊")
         assert not result.has_slots()
 
     @pytest.mark.asyncio
@@ -72,25 +77,13 @@ class TestRuleBasedSlotFiller:
         assert result.metadata == {"method": "skipped"}
 
     @pytest.mark.asyncio
-    async def test_processes_question_intent(self):
-        result = await self.filler.fill_slots("二甲双胍怎么用", intent=Intent.QUESTION)
+    async def test_processes_faq_intent(self):
+        result = await self.filler.fill_slots("iPhone怎么用", intent=Intent.FAQ)
         assert result.has_slots()
-        assert result.get_slot_value("drug") == "二甲双胍"
-
-    @pytest.mark.asyncio
-    async def test_english_keyword_normalization(self):
-        result = await self.filler.fill_slots("metformin的市场表现")
-        assert result.has_slots()
-        assert result.get_slot_value("drug") == "二甲双胍"
-
-    @pytest.mark.asyncio
-    async def test_channel_电商_maps_to_线上(self):
-        result = await self.filler.fill_slots("电商渠道的OTC药品")
-        assert result.has_slots()
-        assert result.get_slot_value("channel") == "线上"
+        assert result.get_slot_value("product") == "iPhone"
 
     @pytest.mark.asyncio
     async def test_metadata(self):
-        result = await self.filler.fill_slots("二甲双胍")
+        result = await self.filler.fill_slots("iPhone")
         assert result.metadata["method"] == "rule_based"
         assert result.metadata["slot_count"] >= 1

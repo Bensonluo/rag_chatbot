@@ -15,10 +15,10 @@ class TestLLMSlotFiller:
     async def test_extract_valid_slots(self):
         self.mock_llm.generate = AsyncMock(
             return_value=MagicMock(
-                content='{"slots": [{"slot_type": "drug", "value": "二甲双胍"}, {"slot_type": "channel", "value": "零售"}]}'
+                content='{"slots": [{"slot_type": "product", "value": "iPhone"}, {"slot_type": "issue", "value": "蓝屏"}]}'
             )
         )
-        result = await self.filler.fill_slots("二甲双胍在零售渠道的销售情况")
+        result = await self.filler.fill_slots("iPhone蓝屏了怎么办")
         assert result.has_slots()
         assert len(result.slots) == 2
         assert result.slots[0].source == "llm"
@@ -43,12 +43,12 @@ class TestLLMSlotFiller:
     async def test_handles_markdown_fences(self):
         self.mock_llm.generate = AsyncMock(
             return_value=MagicMock(
-                content='```json\n{"slots": [{"slot_type": "drug", "value": "测试药"}]}\n```'
+                content='```json\n{"slots": [{"slot_type": "product", "value": "iPad"}]}\n```'
             )
         )
         result = await self.filler.fill_slots("test")
         assert result.has_slots()
-        assert result.slots[0].value == "测试药"
+        assert result.slots[0].value == "iPad"
 
     @pytest.mark.asyncio
     async def test_filters_unknown_slot_type(self):

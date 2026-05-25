@@ -11,6 +11,10 @@ ENV PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
 # Increase pip timeout for slow networks
 ENV PIP_DEFAULT_TIMEOUT=300
 
+# Use Chinese apt mirror for faster downloads
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
+
 # Install system dependencies with build tools
 RUN apt-get update && apt-get install -y \
     gcc \
@@ -41,6 +45,10 @@ FROM python:3.11-slim as runtime
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PATH="/opt/venv/bin:$PATH"
+
+# Use Chinese apt mirror for faster downloads
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
 
 # Install runtime dependencies (including netcat for health checks)
 RUN apt-get update && apt-get install -y \

@@ -7,48 +7,57 @@ from app.models.enums.intent import Intent
 class TestIntentDetector:
     """Test Intent detector base class"""
 
-    def test_base_class_not_implemented_detect(self):
-        """Test that detect raises NotImplementedError in base class"""
+    def test_base_class_is_abstract(self):
+        """Test that IntentDetector cannot be instantiated directly"""
         # Arrange
         from app.services.intent.base import IntentDetector
 
-        detector = IntentDetector()
+        # Act & Assert - ABC with abstract methods cannot be instantiated
+        with pytest.raises(TypeError, match="abstract"):
+            IntentDetector()
 
-        # Act & Assert
-        with pytest.raises(NotImplementedError):
-            detector.detect("Hello!")
-
-    def test_base_class_not_implemented_detect_with_confidence(self):
-        """Test that detect_with_confidence raises NotImplementedError in base class"""
+    def test_subclass_must_implement_detect(self):
+        """Test that subclass must implement detect method"""
         # Arrange
         from app.services.intent.base import IntentDetector
 
-        detector = IntentDetector()
+        class IncompleteDetector(IntentDetector):
+            pass
 
         # Act & Assert
-        with pytest.raises(NotImplementedError):
-            detector.detect_with_confidence("Hello!")
+        with pytest.raises(TypeError, match="abstract"):
+            IncompleteDetector()
 
 
 class TestIntentEnum:
     """Test Intent enum values"""
 
     def test_intent_values(self):
-        """Test that all expected intents exist"""
+        """Test that all expected business intents exist"""
         # Arrange & Act
         from app.models.enums.intent import Intent
 
-        # Assert
-        assert Intent.QUESTION == "question"
-        assert Intent.COMPARISON == "comparison"
-        assert Intent.HOW_TO == "how_to"
-        assert Intent.DEFINITION == "definition"
-        assert Intent.SUMMARY == "summary"
-        assert Intent.CODE_HELP == "code_help"
-        assert Intent.CREATIVE == "creative"
+        # Assert - Task-oriented intents
+        assert Intent.REFUND == "refund"
+        assert Intent.RETURN == "return"
+        assert Intent.QUERY_ORDER == "query_order"
+        assert Intent.TRACK_SHIPPING == "track_shipping"
+        assert Intent.COMPLAINT == "complaint"
+        # Knowledge intents
+        assert Intent.FAQ == "faq"
+        assert Intent.POLICY == "policy"
+        # Dialogue intents
         assert Intent.CHITCHAT == "chitchat"
-        assert Intent.TASK == "task"
+        assert Intent.GREETING == "greeting"
+        # Meta intents
+        assert Intent.CONFIRM == "confirm"
+        assert Intent.DENY == "deny"
+        assert Intent.CANCEL == "cancel"
         assert Intent.UNKNOWN == "unknown"
+        # Graph-related intents
+        assert Intent.RELATIONSHIP_QUERY == "relationship_query"
+        assert Intent.GLOBAL_SUMMARY == "global_summary"
+        assert Intent.ENTITY_LOOKUP == "entity_lookup"
 
     def test_intent_completeness(self):
         """Test that we have all required intents"""
@@ -56,16 +65,22 @@ class TestIntentEnum:
         from app.models.enums.intent import Intent
 
         required_intents = [
-            "QUESTION",
-            "COMPARISON",
-            "HOW_TO",
-            "DEFINITION",
-            "SUMMARY",
-            "CODE_HELP",
-            "CREATIVE",
+            "REFUND",
+            "RETURN",
+            "QUERY_ORDER",
+            "TRACK_SHIPPING",
+            "COMPLAINT",
+            "FAQ",
+            "POLICY",
             "CHITCHAT",
-            "TASK",
+            "GREETING",
+            "CONFIRM",
+            "DENY",
+            "CANCEL",
             "UNKNOWN",
+            "RELATIONSHIP_QUERY",
+            "GLOBAL_SUMMARY",
+            "ENTITY_LOOKUP",
         ]
 
         # Act & Assert
@@ -83,12 +98,12 @@ class TestIntentResult:
 
         # Act
         result = IntentResult(
-            intent=Intent.QUESTION,
+            intent=Intent.REFUND,
             confidence=0.95
         )
 
         # Assert
-        assert result.intent == Intent.QUESTION
+        assert result.intent == Intent.REFUND
         assert result.confidence == 0.95
 
     def test_create_intent_result_with_metadata(self):
@@ -98,15 +113,15 @@ class TestIntentResult:
 
         # Act
         result = IntentResult(
-            intent=Intent.CODE_HELP,
+            intent=Intent.TRACK_SHIPPING,
             confidence=0.88,
-            metadata={"matched_keyword": "function", "rule_used": "code_help_rule_1"}
+            metadata={"matched_keyword": "快递", "rule_used": "track_shipping_rule_1"}
         )
 
         # Assert
-        assert result.intent == Intent.CODE_HELP
+        assert result.intent == Intent.TRACK_SHIPPING
         assert result.confidence == 0.88
-        assert result.metadata["matched_keyword"] == "function"
+        assert result.metadata["matched_keyword"] == "快递"
 
     def test_create_intent_result_default_confidence(self):
         """Test creating intent result with default confidence"""
@@ -114,10 +129,10 @@ class TestIntentResult:
         from app.services.intent.base import IntentResult
 
         # Act
-        result = IntentResult(intent=Intent.CHITCHAT)
+        result = IntentResult(intent=Intent.GREETING)
 
         # Assert
-        assert result.intent == Intent.CHITCHAT
+        assert result.intent == Intent.GREETING
         assert result.confidence == 0.0  # Default value
 
     def test_create_intent_result_default_metadata(self):
@@ -127,7 +142,7 @@ class TestIntentResult:
 
         # Act
         result = IntentResult(
-            intent=Intent.QUESTION,
+            intent=Intent.FAQ,
             confidence=0.8
         )
 

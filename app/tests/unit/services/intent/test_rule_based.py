@@ -17,136 +17,226 @@ class TestRuleBasedIntentDetector:
         assert detector is not None
         assert hasattr(detector, 'rules')
 
-    def test_detect_question_what(self):
-        """Test detecting 'what' question"""
+    def test_detect_refund_keyword(self):
+        """Test detecting refund intent from keyword"""
         # Arrange
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
 
         # Act
-        intent = detector.detect("What is the capital of France?")
+        intent = detector.detect("我要退款")
 
         # Assert
-        assert intent == Intent.QUESTION
+        assert intent == Intent.REFUND
 
-    def test_detect_question_how(self):
-        """Test detecting 'how' question that's not a how-to"""
+    def test_detect_refund_english(self):
+        """Test detecting refund intent from English keyword"""
         # Arrange
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
 
         # Act
-        intent = detector.detect("How are you doing today?")
+        intent = detector.detect("I want a refund")
 
         # Assert
-        # This could be QUESTION or CHITCHAT depending on implementation
-        assert intent in [Intent.QUESTION, Intent.CHITCHAT]
+        assert intent == Intent.REFUND
 
-    def test_detect_how_to(self):
-        """Test detecting how-to intent"""
+    def test_detect_return_keyword(self):
+        """Test detecting return intent from keyword"""
         # Arrange
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
 
         # Act
-        intent = detector.detect("How do I implement binary search in Python?")
+        intent = detector.detect("我要退货")
 
         # Assert
-        assert intent == Intent.HOW_TO
+        assert intent == Intent.RETURN
 
-    def test_detect_comparison(self):
-        """Test detecting comparison intent"""
+    def test_detect_return_exchange(self):
+        """Test detecting return intent from exchange keyword"""
         # Arrange
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
 
         # Act
-        intent = detector.detect("Python vs JavaScript: which is better for web development?")
+        intent = detector.detect("我想换货")
 
         # Assert
-        assert intent == Intent.COMPARISON
+        assert intent == Intent.RETURN
 
-    def test_detect_definition(self):
-        """Test detecting definition intent"""
+    def test_detect_query_order_keyword(self):
+        """Test detecting query_order intent from keyword"""
         # Arrange
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
 
         # Act
-        intent = detector.detect("Define machine learning")
+        intent = detector.detect("查一下订单")
 
         # Assert
-        assert intent == Intent.DEFINITION
+        assert intent == Intent.QUERY_ORDER
 
-    def test_detect_summary(self):
-        """Test detecting summary intent"""
+    def test_detect_query_order_status(self):
+        """Test detecting query_order intent from status pattern"""
         # Arrange
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
 
         # Act
-        intent = detector.detect("Summarize the key points of the article")
+        intent = detector.detect("我的订单状态是什么")
 
         # Assert
-        assert intent == Intent.SUMMARY
+        assert intent == Intent.QUERY_ORDER
 
-    def test_detect_code_help(self):
-        """Test detecting code help intent"""
+    def test_detect_track_shipping_keyword(self):
+        """Test detecting track_shipping intent from keyword"""
         # Arrange
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
 
         # Act
-        intent = detector.detect("Help me debug this Python function")
+        intent = detector.detect("快递到哪了")
 
         # Assert
-        assert intent == Intent.CODE_HELP
+        assert intent == Intent.TRACK_SHIPPING
 
-    def test_detect_creative(self):
-        """Test detecting creative writing intent"""
+    def test_detect_track_shipping_logistics(self):
+        """Test detecting track_shipping intent from logistics keyword"""
         # Arrange
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
 
         # Act
-        intent = detector.detect("Write a poem about spring")
+        intent = detector.detect("物流查询")
 
         # Assert
-        assert intent == Intent.CREATIVE
+        assert intent == Intent.TRACK_SHIPPING
 
-    def test_detect_chitchat(self):
-        """Test detecting chitchat intent"""
+    def test_detect_complaint_keyword(self):
+        """Test detecting complaint intent from keyword"""
         # Arrange
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
 
         # Act
-        intent = detector.detect("Hello, how are you?")
+        intent = detector.detect("我要投诉")
+
+        # Assert
+        assert intent == Intent.COMPLAINT
+
+    def test_detect_policy_keyword(self):
+        """Test detecting policy intent from keyword"""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act
+        intent = detector.detect("退货政策是什么")
+
+        # Assert
+        assert intent == Intent.POLICY
+
+    def test_detect_faq_keyword(self):
+        """Test detecting FAQ intent from general question keywords"""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act - "能不能" is a FAQ keyword that doesn't match task-oriented patterns
+        intent = detector.detect("能不能帮我看看")
+
+        # Assert
+        assert intent == Intent.FAQ
+
+    def test_detect_greeting_keyword(self):
+        """Test detecting greeting intent from keyword"""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act
+        intent = detector.detect("你好")
+
+        # Assert
+        assert intent == Intent.GREETING
+
+    def test_detect_greeting_english(self):
+        """Test detecting greeting intent from English keyword"""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act
+        intent = detector.detect("hello")
+
+        # Assert
+        assert intent == Intent.GREETING
+
+    def test_detect_chitchat_keyword(self):
+        """Test detecting chitchat intent from keyword"""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act
+        intent = detector.detect("哈哈")
 
         # Assert
         assert intent == Intent.CHITCHAT
 
-    def test_detect_task(self):
-        """Test detecting task intent"""
+    def test_detect_confirm_keyword(self):
+        """Test detecting confirm intent from keyword"""
         # Arrange
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
 
         # Act
-        intent = detector.detect("Send an email to john@example.com")
+        intent = detector.detect("是的")
 
         # Assert
-        assert intent == Intent.TASK
+        assert intent == Intent.CONFIRM
+
+    def test_detect_deny_keyword(self):
+        """Test detecting deny intent from keyword"""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act
+        intent = detector.detect("不是")
+
+        # Assert
+        assert intent == Intent.DENY
+
+    def test_detect_cancel_keyword(self):
+        """Test detecting cancel intent from keyword"""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act
+        intent = detector.detect("取消")
+
+        # Assert
+        assert intent == Intent.CANCEL
 
     def test_detect_unknown(self):
         """Test detecting unknown intent"""
@@ -169,10 +259,10 @@ class TestRuleBasedIntentDetector:
         detector = RuleBasedIntentDetector()
 
         # Act
-        result = detector.detect_with_confidence("How do I create a function in Python?")
+        result = detector.detect_with_confidence("我要退款")
 
         # Assert
-        assert result.intent == Intent.HOW_TO
+        assert result.intent == Intent.REFUND
         assert result.confidence > 0.5
         assert result.confidence <= 1.0
 
@@ -198,13 +288,14 @@ class TestRuleBasedIntentDetector:
         detector = RuleBasedIntentDetector()
 
         # Act
-        result = detector.detect_with_confidence("Write a Python function")
+        result = detector.detect_with_confidence("我要退款")
 
         # Assert
-        assert result.intent == Intent.CODE_HELP
+        assert result.intent == Intent.REFUND
         assert result.confidence > 0
         assert result.metadata is not None
         # Metadata should contain info about matched rules
+        assert "matched_rules" in result.metadata
 
     def test_case_insensitive(self):
         """Test that detection is case-insensitive"""
@@ -214,12 +305,12 @@ class TestRuleBasedIntentDetector:
         detector = RuleBasedIntentDetector()
 
         # Act
-        intent1 = detector.detect("HOW DO I CREATE A FUNCTION?")
-        intent2 = detector.detect("How do I create a function?")
+        intent1 = detector.detect("REFUND")
+        intent2 = detector.detect("refund")
 
         # Assert
         assert intent1 == intent2
-        assert intent1 == Intent.HOW_TO
+        assert intent1 == Intent.REFUND
 
     def test_punctuation_handling(self):
         """Test that punctuation is handled correctly"""
@@ -229,10 +320,10 @@ class TestRuleBasedIntentDetector:
         detector = RuleBasedIntentDetector()
 
         # Act
-        intent = detector.detect("Hello!!!")
+        intent = detector.detect("你好！！！")
 
         # Assert
-        assert intent == Intent.CHITCHAT
+        assert intent == Intent.GREETING
 
     def test_empty_query(self):
         """Test handling empty query"""
@@ -247,15 +338,41 @@ class TestRuleBasedIntentDetector:
         # Assert
         assert intent == Intent.UNKNOWN
 
-    def test_multiple_keywords(self):
-        """Test query with multiple intent keywords"""
+    def test_multiple_keywords_refund_and_return(self):
+        """Test query with both refund and return keywords"""
         # Arrange
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
 
-        # Act - "how" and "code" both present
-        intent = detector.detect("How do I write code for this?")
+        # Act - Both "退款" and "退货" present
+        intent = detector.detect("我要退款退货")
 
         # Assert - Should match one intent based on rule priority
-        assert intent in [Intent.HOW_TO, Intent.CODE_HELP]
+        assert intent in [Intent.REFUND, Intent.RETURN]
+
+    def test_detect_with_context_parameter(self):
+        """Test that detect accepts optional context parameter"""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act
+        intent = detector.detect("我要退款", context={"previous_messages": []})
+
+        # Assert
+        assert intent == Intent.REFUND
+
+    def test_detect_track_shipping_pattern(self):
+        """Test detecting track_shipping via regex pattern"""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act - matches pattern r"(物流|快递|包裹).{0,4}(到|在|哪|状态|查询)"
+        intent = detector.detect("包裹到了吗")
+
+        # Assert
+        assert intent == Intent.TRACK_SHIPPING

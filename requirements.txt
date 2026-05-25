@@ -41,3 +41,7 @@ opentelemetry-instrumentation-fastapi>=0.43b0
 
 # Email validation
 email-validator>=2.1.0
+
+# Dialogue Engine
+langgraph>=0.2.0
+langchain-core>=0.3.0

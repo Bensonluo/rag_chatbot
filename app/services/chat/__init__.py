@@ -8,17 +8,12 @@ from app.services.chat.chat_service import (
     ChatService,
     ChatResponse,
     ChatMessage,
-    ChatIntent,
 )
 from app.services.chat.factory import ChatServiceFactory
 
 __all__ = [
-    # Chat service
     "ChatService",
-    # Models
     "ChatResponse",
     "ChatMessage",
-    "ChatIntent",
-    # Factory
     "ChatServiceFactory",
 ]

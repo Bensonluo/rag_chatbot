@@ -2,6 +2,7 @@
 import pytest
 from unittest.mock import Mock, AsyncMock
 from app.models.enums.intent import Intent
+from app.services.intent.base import IntentResult
 
 
 class TestHybridIntentDetector:
@@ -70,11 +71,11 @@ class TestHybridIntentDetector:
             confidence_threshold=0.7
         )
 
-        # Act - Clear "how to" query should get high confidence from rule-based
-        intent = await detector.detect("How do I implement quicksort?")
+        # Act - Clear "退款" query should get high confidence from rule-based
+        intent = await detector.detect("我要退款")
 
         # Assert
-        assert intent == Intent.HOW_TO
+        assert intent == Intent.REFUND
         # LLM should not be called since rule-based confidence is high
         llm_based.detect_with_confidence.assert_not_called()
 
@@ -85,8 +86,7 @@ class TestHybridIntentDetector:
         from app.services.intent.hybrid import HybridIntentDetector
         from app.services.intent.rule_based import RuleBasedIntentDetector
         from app.services.intent.llm_based import LLMIntentDetector
-        from app.services.llm.base import LLMServiceBase, LLMResponse
-        from app.models.enums.intent import Intent
+        from app.services.llm.base import LLMServiceBase
 
         mock_llm = Mock(spec=LLMServiceBase)
         rule_based = RuleBasedIntentDetector()
@@ -95,7 +95,7 @@ class TestHybridIntentDetector:
         # Mock LLM to return specific intent
         llm_based.detect_with_confidence = AsyncMock(
             return_value=IntentResult(
-                intent=Intent.QUESTION,
+                intent=Intent.FAQ,
                 confidence=0.85,
                 metadata={"method": "llm"}
             )
@@ -111,8 +111,8 @@ class TestHybridIntentDetector:
         intent = await detector.detect("Xylophone zebra yellow")
 
         # Assert
-        # Should use LLM result (QUESTION in this mock case)
-        assert intent in [Intent.QUESTION, Intent.UNKNOWN]
+        # Should use LLM result (FAQ in this mock case)
+        assert intent in [Intent.FAQ, Intent.UNKNOWN]
         llm_based.detect_with_confidence.assert_called_once()
 
     @pytest.mark.asyncio
@@ -133,10 +133,10 @@ class TestHybridIntentDetector:
         )
 
         # Act
-        result = await detector.detect_with_confidence("How do I create a function?")
+        result = await detector.detect_with_confidence("我要退款")
 
         # Assert
-        assert result.intent == Intent.HOW_TO
+        assert result.intent == Intent.REFUND
         assert result.confidence >= 0.5
         # Check metadata indicates which method was used
         if result.metadata:
@@ -196,17 +196,17 @@ class TestHybridIntentDetector:
 
         context = {
             "previous_messages": [
-                {"role": "user", "content": "Hello"},
-                {"role": "assistant", "content": "Hi!"}
+                {"role": "user", "content": "你好"},
+                {"role": "assistant", "content": "您好！有什么可以帮您？"}
             ]
         }
 
         # Act
-        intent = await detector.detect("How are you?", context=context)
+        intent = await detector.detect("你好", context=context)
 
         # Assert
-        # Rule-based should detect this as CHITCHAT or QUESTION with high confidence
-        assert intent in [Intent.CHITCHAT, Intent.QUESTION]
+        # Rule-based should detect this as GREETING with high confidence
+        assert intent == Intent.GREETING
 
     @pytest.mark.asyncio
     async def test_priority_rule_based_speed(self):
@@ -214,12 +214,10 @@ class TestHybridIntentDetector:
         # Arrange
         from app.services.intent.hybrid import HybridIntentDetector
         from app.services.intent.rule_based import RuleBasedIntentDetector
-        from app.services.intent.llm_based import LLMIntentDetector
-        from app.services.llm.base import LLMServiceBase
 
-        mock_llm = Mock(spec=LLMServiceBase)
         rule_based = RuleBasedIntentDetector()
-        llm_based = LLMIntentDetector(llm_service=mock_llm)
+        llm_based = Mock()
+        llm_based.detect_with_confidence = AsyncMock()
 
         detector = HybridIntentDetector(
             rule_based=rule_based,
@@ -227,11 +225,11 @@ class TestHybridIntentDetector:
             confidence_threshold=0.7
         )
 
-        # Act - Clear chitchat query
-        intent = await detector.detect("Hello!")
+        # Act - Clear greeting query
+        intent = await detector.detect("你好")
 
         # Assert
-        assert intent == Intent.CHITCHAT
+        assert intent == Intent.GREETING
         # LLM should not be called for clear queries
         llm_based.detect_with_confidence.assert_not_called()
 
@@ -240,6 +238,7 @@ class TestHybridIntentDetector:
         # Arrange
         from app.services.intent.hybrid import HybridIntentDetector
         from app.services.intent.rule_based import RuleBasedIntentDetector
+        from app.services.intent.llm_based import LLMIntentDetector
         from app.services.llm.base import LLMServiceBase
 
         mock_llm = Mock(spec=LLMServiceBase)

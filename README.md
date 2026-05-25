@@ -1,8 +1,17 @@
-# RAG Chatbot
+# RAG 智能客服
 
-Production-grade Retrieval-Augmented Generation (RAG) chatbot with intelligent intent detection, memory management, vector search, GraphRAG, and comprehensive safety guardrails.
+Production-grade intelligent customer service with LangGraph dialogue management, business intent routing, Function Calling, and RAG knowledge retrieval.
 
 ## Features
+
+### LangGraph 对话引擎
+- **StateGraph 编排**: 9 节点对话图（安全检查 → 意图识别 → 意图切换 → 路由 → 槽位收集/工具执行/RAG检索 → 生成回复）
+- **业务意图分类**: 5 种任务型（退款/退货/订单查询/物流追踪/投诉）+ 知识型 + 对话型 + 元意图
+- **多轮槽位收集**: 正则提取 + 短消息回退赋值，缺槽追问直到完整
+- **Function Calling**: ToolRegistry + 5 个工具（退款/退货/订单查询/物流追踪/投诉）
+- **意图切换恢复**: State Stack 推栈保存/弹栈恢复，中途切换后无缝继续
+- **Checkpoint 持久化**: MemorySaver 按 session_id 自动保存/恢复对话状态
+- **三路路由**: task → 槽位收集 → 工具执行；rag → 向量/图谱检索；direct → LLM 直出
 
 ### Core RAG Capabilities
 - **Vector Search**: Qdrant vector database with semantic search
@@ -19,8 +28,8 @@ Production-grade Retrieval-Augmented Generation (RAG) chatbot with intelligent i
 - **Community Summarization**: Leiden algorithm-based community detection with LLM summaries
 
 ### Chat Intelligence
-- **Hybrid Intent Detection**: Rule-based + LLM-powered intent classification with confidence scores
-- **Slot Filling**: Extracts structured entities from queries for precise search filtering
+- **Hybrid Intent Detection**: Rule-based + LLM-powered business intent classification with confidence scores
+- **Slot Filling**: Per-intent slot schemas with regex extraction + fallback assignment
 - **Memory Management**: Four strategies — optimized (default), sliding window, summarization, hybrid
 - **Streaming Responses**: Real-time server-sent events for low latency
 - **Multilingual**: Excellent Chinese + English support
@@ -40,50 +49,57 @@ Production-grade Retrieval-Augmented Generation (RAG) chatbot with intelligent i
 
 ## Architecture
 
+### LangGraph Dialogue Graph
+
 ```
-User Query
-    |
-    v
-+------------------+------------------+------------------+
-| Input Guardrail  | Intent Detection |  Slot Filling    |
-| (Safety Check)   | (Query Type)     | (Entity Extract) |
-+------------------+------------------+------------------+
-    |                       |                  |
-    v                       v                  v
-+-------------------------------------------------------+
-|              Memory Strategy (Context)                |
-|     optimized / sliding_window / summarization        |
-+-------------------------------------------------------+
-    |
-    v
-+-------------------------------------------------------+
-|              Document Retrieval (Knowledge)           |
-|  +----------------+  +-------------------------------+|
-|  | Vector Search  |  | GraphRAG (optional)           ||
-|  | - Semantic     |  | - Text-to-Cypher              ||
-|  | - BM25 + RRF   |  | - Graph Embedding Search      ||
-|  +----------------+  | - Community/Global Search     ||
-|         |            +-------------------------------+|
-|         v                        |                    |
-|  +----------------+             |                    |
-|  | Reranking      | <----------+                    |
-|  +----------------+                                  |
-+-------------------------------------------------------+
-    |
-    v
-+-------------------------------------------------------+
-|              LLM Generation (Streaming)               |
-|         GLM (default) / OpenAI / Anthropic            |
-+-------------------------------------------------------+
-    |
-    v
-+------------------+------------------+
-| Output Guardrail |  Feedback Store  |
-| (PII Redaction)  |  (Rating/Stats)  |
-+------------------+------------------+
-    |
-    v
-  Response
+START
+  │
+  ▼
+guardrail (输入安全)
+  │
+  ▼
+detect_intent (意图识别)
+  │   cancel 优先 → 槽位值保持任务意图 → 元意图保持
+  ▼
+handle_switch (意图切换)
+  │   推栈保存 / 弹栈恢复
+  ▼
+route_intent (路由决策)
+  │
+  ├── task  → collect_slots (槽位收集)
+  │             │
+  │             ├── complete → execute_tool → generate_response → END
+  │             └── missing  → generate_response (追问) → END
+  │
+  ├── rag   → rag_lookup → generate_response → END
+  │
+  ├── direct → direct_response → END
+  │
+  └── meta  → generate_response → END
+```
+
+### Intent Switch & Resume Flow
+
+```
+User: "我要退款"
+→ refund, filled={}, pending=[order_id, reason]
+→ "请提供您的订单号"
+
+User: "订单号12345"
+→ refund, filled={order_id:"12345"}, pending=[reason]
+→ "请问退款原因是什么？"
+
+User: "退货政策是什么"        ← 意图切换！
+→ push refund state to stack
+→ policy → RAG 检索
+→ "退货政策是7天无理由..."
+   + "您之前的退款申请需要继续吗？"
+
+User: "继续，原因是质量问题"
+→ pop stack → 恢复 refund + filled={order_id:"12345"}
+→ filled={order_id:"12345", reason:"质量问题"}, complete
+→ execute_tool: refund → {status:success, refund_id:"RF123456"}
+→ "退款已受理，退款单号RF123456"
 ```
 
 ### Data Stores
@@ -111,8 +127,8 @@ User Query
 
 ```bash
 # Clone repository
-git clone https://github.com/example/rag-chatbot.git
-cd rag-chatbot
+git clone https://github.com/Bensonluo/rag_chatbot.git
+cd rag_chatbot
 
 # Create environment file
 cat > .env << EOF
@@ -171,88 +187,6 @@ alembic upgrade head
 uvicorn app.main:create_app --factory --reload --host 0.0.0.0 --port 8000
 ```
 
-## RAG Pipeline
-
-### Document Management
-
-**Upload documents:**
-```bash
-# Upload text document
-curl -X POST http://localhost:8000/api/v1/documents/upload \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "My Document",
-    "content": "Full document text..."
-  }'
-
-# Upload file (PDF, TXT, MD)
-curl -X POST http://localhost:8000/api/v1/documents/upload/file \
-  -F "file=@document.pdf"
-```
-
-**Search documents:**
-```bash
-curl -X POST http://localhost:8000/api/v1/documents/search \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "search query",
-    "top_k": 5
-  }'
-```
-
-### Embedding Provider Switching
-
-Switch between providers in `.env`:
-
-```bash
-# Local BGE-M3 (FREE, default)
-EMBEDDING_PROVIDER=local
-EMBEDDING_MODEL=bge-m3-v2-zh
-
-# GLM API (pay-per-use)
-EMBEDDING_PROVIDER=glm
-GLM_API_KEY=your-api-key
-
-# OpenAI (pay-per-use)
-EMBEDDING_PROVIDER=openai
-OPENAI_API_KEY=sk-...
-```
-
-### GraphRAG (Optional)
-
-Enable knowledge graph capabilities:
-
-```bash
-# .env
-GRAPH_RAG_ENABLED=true
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=password
-GRAPH_RAG_FUSION_WEIGHT=0.3
-```
-
-GraphRAG endpoints (available when enabled):
-```bash
-# Query graph
-curl -X POST http://localhost:8000/api/v1/graph/query \
-  -H "Content-Type: application/json" \
-  -d '{"query": "What projects is Alice working on?"}'
-
-# Import structured data
-curl -X POST http://localhost:8000/api/v1/graph/import/structured \
-  -H "Content-Type: application/json" \
-  -d '{
-    "nodes": [{"id": "Alice", "label": "Person", "properties": {"role": "Engineer"}}],
-    "relationships": [{"source": "Alice", "target": "ProjectX", "type": "WORKS_ON"}]
-  }'
-
-# Detect communities
-curl -X POST http://localhost:8000/api/v1/graph/communities/detect
-
-# Graph health check
-curl http://localhost:8000/api/v1/graph/health
-```
-
 ## API Documentation
 
 Once running, visit:
@@ -281,12 +215,12 @@ TOKEN=$(curl -X POST http://localhost:8000/api/v1/login \
     "password": "securepass123"
   }' | jq -r '.access_token')
 
-# 3. Send chat message
+# 3. Send chat message (LangGraph dialogue graph)
 curl -X POST http://localhost:8000/api/v1/chat \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "message": "What is Python?",
+    "message": "我要退款",
     "session_id": 1
   }'
 
@@ -295,7 +229,7 @@ curl -X POST http://localhost:8000/api/v1/chat/stream \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "message": "Tell me a joke",
+    "message": "退货政策是什么",
     "session_id": 1
   }'
 
@@ -307,10 +241,6 @@ curl -X POST http://localhost:8000/api/v1/feedback \
     "message_id": 123,
     "rating": "up"
   }'
-
-# 6. View feedback stats
-curl http://localhost:8000/api/v1/feedback/stats \
-  -H "Authorization: Bearer $TOKEN"
 ```
 
 ## Configuration
@@ -330,6 +260,24 @@ curl http://localhost:8000/api/v1/feedback/stats \
 | `EMBEDDING_PROVIDER` | Embedding source | `local` | No |
 | `ENVIRONMENT` | Environment mode | `development` | No |
 | `LOG_LEVEL` | Logging level | `INFO` | No |
+
+### Dialogue Configuration
+
+The LangGraph dialogue graph is built automatically by `ChatServiceFactory.create_with_defaults()`. Key components:
+
+- **Intent Detection**: `hybrid` (rule + LLM), `rule_based`, or `llm_based`
+- **Slot Schemas**: Defined in `app/services/slot_filling/slot_types.py` per intent
+- **Tools**: Registered in `app/services/dialogue/tools.py` (mock handlers for demo)
+- **Checkpointer**: `MemorySaver` (dev), swap to `PostgresSaver` for production
+
+```bash
+# Intent detection strategy
+INTENT_TYPE=hybrid          # hybrid | rule_based | llm_based
+CONFIDENCE_THRESHOLD=0.7
+
+# Memory strategy
+MEMORY_TYPE=optimized       # optimized | sliding_window | summarization | hybrid
+```
 
 ### Memory Strategy Configuration
 
@@ -352,33 +300,6 @@ SUMMARY_INTERVAL=10
 # Hybrid (adaptive)
 MEMORY_TYPE=hybrid
 HYBRID_THRESHOLD=30
-```
-
-### Intent Detection Configuration
-
-```bash
-# Hybrid (default) — adaptive rule + LLM
-INTENT_TYPE=hybrid
-CONFIDENCE_THRESHOLD=0.7
-
-# Rule-based (fast, less accurate)
-INTENT_TYPE=rule_based
-
-# LLM-based (slower, more accurate)
-INTENT_TYPE=llm_based
-```
-
-### Slot Filling Configuration
-
-```bash
-# Hybrid (default)
-SLOT_FILLING_TYPE=hybrid
-
-# Rule-based only
-SLOT_FILLING_TYPE=rule_based
-
-# LLM-based only
-SLOT_FILLING_TYPE=llm_based
 ```
 
 ### Guardrails Configuration
@@ -500,23 +421,6 @@ curl http://localhost:8000/metrics
 
 Access Grafana at http://localhost:3001 (admin/admin) when monitoring profile is enabled.
 
-### Logging
-
-Logs are structured JSON:
-
-```json
-{
-  "timestamp": "2024-01-29T10:00:00Z",
-  "level": "info",
-  "request_id": "550e8400-e29b-41d4-a716-446655440000",
-  "message": "Request processed",
-  "path": "/api/v1/chat",
-  "method": "POST",
-  "status_code": 200,
-  "duration_ms": 150
-}
-```
-
 ## Development
 
 ### Running Tests
@@ -531,8 +435,11 @@ pytest app/tests/unit/services/chat/test_chat_service.py
 # Run specific test with verbose output
 pytest app/tests/unit/services/chat/test_chat_service.py::test_specific -v
 
-# Run integration tests
-pytest app/tests/integration/
+# Run intent tests
+pytest app/tests/unit/services/intent/ -v
+
+# Run dialogue tests
+pytest app/tests/unit/services/chat/ -v
 ```
 
 ### Code Quality
@@ -558,11 +465,16 @@ rag-chatbot/
 │   ├── middleware/         # FastAPI middleware
 │   ├── models/
 │   │   ├── database/       # SQLAlchemy ORM models
-│   │   ├── enums/          # Enumerations
+│   │   ├── enums/          # Enumerations (business intents)
 │   │   └── schemas/        # Pydantic schemas
 │   ├── repositories/       # Async data access layer
 │   ├── services/           # Business logic
-│   │   ├── chat/           # Chat orchestration (pipeline)
+│   │   ├── chat/           # Chat orchestration (ChatService + Factory)
+│   │   ├── dialogue/       # LangGraph dialogue engine
+│   │   │   ├── graph.py    # StateGraph construction + compilation
+│   │   │   ├── nodes.py    # 9 dialogue nodes + conditional edges
+│   │   │   ├── state.py    # DialogueState TypedDict
+│   │   │   └── tools.py    # ToolRegistry + 5 mock handlers
 │   │   ├── documents/      # Chunking, ingestion, preprocessing
 │   │   ├── embeddings/     # Multi-provider embeddings (local, GLM, OpenAI)
 │   │   ├── graph/          # GraphRAG (Neo4j)
@@ -570,12 +482,12 @@ rag-chatbot/
 │   │   │   ├── extraction/ # Entity/relation extraction
 │   │   │   └── retrieval/  # Text-to-Cypher, graph embedding search, fusion
 │   │   ├── guardrails/     # Input/output safety checks
-│   │   ├── intent/         # Intent detection strategies
+│   │   ├── intent/         # Business intent detection (rule + LLM + hybrid)
 │   │   ├── llm/            # Multi-provider LLM clients
 │   │   ├── memory/         # Memory management strategies
 │   │   ├── observability/  # OpenTelemetry tracing
 │   │   ├── retrieval/      # Hybrid search, reranking, Qdrant
-│   │   └── slot_filling/   # Entity extraction from queries
+│   │   └── slot_filling/   # Slot schemas + rule/LLM extraction
 │   ├── tests/              # Test suites
 │   │   ├── e2e/            # End-to-end tests
 │   │   ├── integration/    # Integration tests
@@ -613,11 +525,11 @@ rag-chatbot/
 - Cache embeddings via `cached_embeddings.py`
 - Batch requests when possible
 
-### GraphRAG
+### LangGraph
 
-- Start with `GRAPH_RAG_ENABLED=false` for baseline performance
-- Enable after document ingestion for advanced relationship queries
-- Tune `GRAPH_RAG_FUSION_WEIGHT` to balance vector vs. graph results
+- Use `MemorySaver` for development, `PostgresSaver` for production
+- Tune intent confidence threshold to reduce false positives
+- Adjust slot fallback message length threshold (default: 30 chars)
 
 ## Security
 
@@ -639,50 +551,6 @@ rag-chatbot/
 ```bash
 RATE_LIMIT_REQUESTS_PER_MINUTE=60
 RATE_LIMIT_BUCKET_SIZE=10
-```
-
-### Input Validation
-
-All inputs validated with Pydantic:
-
-```python
-class ChatRequest(BaseModel):
-    message: str = Field(..., min_length=1, max_length=5000)
-    session_id: int = Field(..., gt=0)
-```
-
-## Troubleshooting
-
-### Common Issues
-
-**Database connection failed**
-```
-Solution: Check DATABASE_URL format
-postgresql+asyncpg://user:pass@host:port/dbname
-```
-
-**Qdrant connection timeout**
-```
-Solution: Verify Qdrant is running
-curl http://localhost:6333/health
-```
-
-**Neo4j connection failed (GraphRAG)**
-```
-Solution: Verify Neo4j is running and GRAPH_RAG_ENABLED matches setup
-curl http://localhost:8000/api/v1/graph/health
-```
-
-**Rate limit errors**
-```
-Solution: Increase limits or use Redis for distributed rate limiting
-```
-
-**Memory issues**
-```
-Solution: Adjust memory strategy or token budget
-MEMORY_TYPE=sliding_window
-WINDOW_SIZE=5
 ```
 
 ## Contributing

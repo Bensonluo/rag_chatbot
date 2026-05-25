@@ -4,12 +4,15 @@ Chat API endpoints.
 Provides REST API for chat interactions including message processing,
 streaming responses, and history management.
 """
-import logging
+from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+import logging
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from typing import Optional, List
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
 from app.api.rate_limit import check_rate_limit
@@ -19,7 +22,6 @@ from app.services.chat.factory import ChatServiceFactory
 from app.services.llm import LLMFactory
 from app.services.embeddings import EmbeddingFactory
 from app.services.retrieval import RetrievalFactory
-from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +39,12 @@ async def initialize_chat_service(db: AsyncSession):
 
     from app.repositories.message_repository import MessageRepository
     from app.repositories.session_repository import SessionRepository
+
     message_repo = MessageRepository(db)
     session_repo = SessionRepository(db)
 
+    # ── Retrieval pipeline ────────────────────────────────────────────────
+    retrieval_pipeline = None
     try:
         embedding_service = EmbeddingFactory.create_from_settings()
         qdrant_client = RetrievalFactory.create_vector_client(
@@ -55,11 +60,11 @@ async def initialize_chat_service(db: AsyncSession):
         }
     except Exception as e:
         logger.warning("Failed to initialize retrieval pipeline: %s", e)
-        retrieval_pipeline = None
 
     # Initialize reranker
     try:
         from app.config.settings import get_settings
+
         settings = get_settings()
         if settings.RERANKER_ENABLED and retrieval_pipeline is not None:
             reranker = RetrievalFactory.create_reranker_from_settings(
@@ -69,18 +74,14 @@ async def initialize_chat_service(db: AsyncSession):
     except Exception as e:
         logger.warning("Failed to initialize reranker: %s", e)
 
-    _chat_service = ChatServiceFactory.create_with_defaults(
-        llm_service=llm_service,
-        message_repo=message_repo,
-        session_repo=session_repo,
-        memory_type="optimized",
-        intent_type="hybrid",
-        retrieval_pipeline=retrieval_pipeline,
-    )
+    # ── GraphRAG services ─────────────────────────────────────────────────
+    graph_retrieval_service = None
+    global_search_service = None
+    multi_path_fusion = None
 
-    # Initialize GraphRAG services if enabled
     try:
         from app.config.settings import get_settings
+
         settings = get_settings()
         if settings.GRAPH_RAG_ENABLED:
             from app.services.graph import GraphFactory
@@ -105,12 +106,14 @@ async def initialize_chat_service(db: AsyncSession):
 
                 if settings.GRAPH_RAG_TEXT_TO_CYPHER_ENABLED:
                     from app.services.graph.retrieval import TextToCypherService
+
                     graph_retrieval_service._cypher = TextToCypherService(
                         llm_service=llm_service,
                         graph_client=graph_client,
                     )
 
                 from app.services.graph.retrieval import GraphEmbeddingSearch
+
                 graph_embedding = GraphEmbeddingSearch(
                     graph_client=graph_client,
                     embedding_service=embedding_service,
@@ -120,39 +123,53 @@ async def initialize_chat_service(db: AsyncSession):
 
                 if settings.GRAPH_RAG_COMMUNITY_ENABLED:
                     from app.services.graph.community import GlobalSearchService
+
                     global_search_service = GlobalSearchService(
                         graph_client=graph_client,
                         embedding_service=embedding_service,
                     )
-
-                _chat_service.graph_retrieval_service = graph_retrieval_service
-                _chat_service.global_search_service = global_search_service
-                _chat_service.multi_path_fusion = multi_path_fusion
     except Exception as e:
         logger.warning("Failed to initialize GraphRAG services: %s", e)
 
-    # Initialize slot filling
+    # ── Slot filling ──────────────────────────────────────────────────────
+    slot_filler = None
     try:
         from app.config.settings import get_settings
+
         settings = get_settings()
         if settings.SLOT_FILLING_ENABLED:
             from app.services.slot_filling.factory import SlotFillerFactory
+
             slot_filler = SlotFillerFactory.create(
                 filler_type=settings.SLOT_FILLING_TYPE,
                 llm_service=llm_service,
             )
-            _chat_service.slot_filler = slot_filler
     except Exception as e:
         logger.warning("Failed to initialize slot filling: %s", e)
 
-    # Initialize guardrails
+    # ── Guardrails ────────────────────────────────────────────────────────
+    guardrail_service = None
     try:
         from app.services.guardrails.factory import GuardrailFactory
+
         guardrail_service = GuardrailFactory.create_from_settings()
-        if guardrail_service:
-            _chat_service.guardrail_service = guardrail_service
     except Exception as e:
         logger.warning("Failed to initialize guardrails: %s", e)
+
+    # ── Build ChatService via factory (graph constructed internally) ──────
+    _chat_service = ChatServiceFactory.create_with_defaults(
+        llm_service=llm_service,
+        message_repo=message_repo,
+        session_repo=session_repo,
+        memory_type="optimized",
+        intent_type="hybrid",
+        retrieval_pipeline=retrieval_pipeline,
+        graph_retrieval_service=graph_retrieval_service,
+        global_search_service=global_search_service,
+        multi_path_fusion=multi_path_fusion,
+        slot_filler=slot_filler,
+        guardrail_service=guardrail_service,
+    )
 
 
 def get_chat_service() -> ChatService:
@@ -166,9 +183,12 @@ def get_chat_service() -> ChatService:
     return _chat_service
 
 
-# Request/Response Schemas
+# ── Request / Response schemas ────────────────────────────────────────────
+
+
 class ChatRequest(BaseModel):
     """Chat message request."""
+
     message: str = Field(..., min_length=1, description="User message")
     session_id: int = Field(..., gt=0, description="Session ID")
     user_id: Optional[int] = Field(None, gt=0, description="User ID (optional)")
@@ -177,15 +197,18 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     """Chat message response."""
+
     content: str
     session_id: int
     intent: str
     sources: Optional[List[str]] = None
     metadata: Optional[dict] = None
+    dialogue_state: Optional[dict] = None
 
 
 class ChatMessageResponse(BaseModel):
     """Chat message in history."""
+
     role: str
     content: str
     timestamp: Optional[str] = None
@@ -193,8 +216,12 @@ class ChatMessageResponse(BaseModel):
 
 class ChatHistoryResponse(BaseModel):
     """Chat history response."""
+
     messages: List[ChatMessageResponse]
     session_id: int
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────
 
 
 @router.post("", response_model=ChatResponse, status_code=status.HTTP_200_OK)
@@ -217,12 +244,22 @@ async def chat(
             max_tokens=request.max_tokens,
         )
 
+        # Build dialogue_state from metadata when present
+        dialogue_state = None
+        if response.metadata:
+            dialogue_state = {
+                "phase": response.intent,
+                "pending_slots": response.metadata.get("pending_slots", []),
+                "filled_slots": response.metadata.get("filled_slots", {}),
+            }
+
         return ChatResponse(
             content=response.content,
             session_id=response.session_id,
             intent=response.intent,
             sources=response.sources,
             metadata=response.metadata,
+            dialogue_state=dialogue_state,
         )
 
     except Exception as e:

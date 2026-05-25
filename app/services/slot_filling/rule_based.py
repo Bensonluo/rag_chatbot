@@ -10,15 +10,9 @@ from typing import Optional, Dict, Any, List
 
 from app.services.slot_filling.base import SlotFiller, ExtractedSlot, SlotFillingResult
 from app.services.slot_filling.slot_types import SLOT_DEFINITIONS
-from app.models.enums.intent import Intent
+from app.models.enums.intent import RAG_INTENTS, Intent
 
 logger = logging.getLogger(__name__)
-
-_RETRIEVAL_INTENTS = {
-    Intent.QUESTION, Intent.HOW_TO, Intent.COMPARISON, Intent.DEFINITION,
-    Intent.RECOMMENDATION, Intent.RELATIONSHIP_QUERY, Intent.GLOBAL_SUMMARY,
-    Intent.ENTITY_LOOKUP,
-}
 
 
 class RuleBasedSlotFiller(SlotFiller):
@@ -49,7 +43,7 @@ class RuleBasedSlotFiller(SlotFiller):
         intent: Optional[Intent] = None,
         context: Optional[Dict[str, Any]] = None,
     ) -> SlotFillingResult:
-        if intent and intent not in _RETRIEVAL_INTENTS:
+        if intent and intent.value not in RAG_INTENTS:
             return SlotFillingResult(
                 slots=[], raw_query=query, metadata={"method": "skipped"},
             )

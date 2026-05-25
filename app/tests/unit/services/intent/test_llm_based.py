@@ -35,48 +35,50 @@ class TestLLMIntentDetector:
 
         # Assert
         assert len(detector.intents) > 0
-        assert Intent.QUESTION in detector.intents
+        assert Intent.REFUND.value in detector.intents
+        assert Intent.FAQ.value in detector.intents
+        assert Intent.GREETING.value in detector.intents
 
     @pytest.mark.asyncio
-    async def test_detect_simple_query(self):
-        """Test detecting simple question"""
+    async def test_detect_refund_query(self):
+        """Test detecting refund intent"""
         # Arrange
         from app.services.intent.llm_based import LLMIntentDetector
         from app.services.llm.base import LLMServiceBase, LLMResponse
 
         mock_llm = Mock(spec=LLMServiceBase)
         mock_llm.generate = AsyncMock(
-            return_value=LLMResponse(content="question", model="gpt-4")
+            return_value=LLMResponse(content="refund", model="gpt-4")
         )
 
         detector = LLMIntentDetector(llm_service=mock_llm)
 
         # Act
-        intent = await detector.detect("What is AI?")
+        intent = await detector.detect("我要退款")
 
         # Assert
-        assert intent == Intent.QUESTION
+        assert intent == Intent.REFUND
         mock_llm.generate.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_detect_how_to_query(self):
-        """Test detecting how-to query"""
+    async def test_detect_query_order(self):
+        """Test detecting query_order intent"""
         # Arrange
         from app.services.intent.llm_based import LLMIntentDetector
         from app.services.llm.base import LLMServiceBase, LLMResponse
 
         mock_llm = Mock(spec=LLMServiceBase)
         mock_llm.generate = AsyncMock(
-            return_value=LLMResponse(content="how_to", model="gpt-4")
+            return_value=LLMResponse(content="query_order", model="gpt-4")
         )
 
         detector = LLMIntentDetector(llm_service=mock_llm)
 
         # Act
-        intent = await detector.detect("How do I implement quicksort?")
+        intent = await detector.detect("查一下我的订单")
 
         # Assert
-        assert intent == Intent.HOW_TO
+        assert intent == Intent.QUERY_ORDER
 
     @pytest.mark.asyncio
     async def test_detect_with_confidence(self):
@@ -89,7 +91,7 @@ class TestLLMIntentDetector:
         mock_llm = Mock(spec=LLMServiceBase)
         mock_llm.generate = AsyncMock(
             return_value=LLMResponse(
-                content='{"intent": "question", "confidence": 0.95}',
+                content='{"intent": "refund", "confidence": 0.95}',
                 model="gpt-4"
             )
         )
@@ -97,10 +99,10 @@ class TestLLMIntentDetector:
         detector = LLMIntentDetector(llm_service=mock_llm)
 
         # Act
-        result = await detector.detect_with_confidence("What is Python?")
+        result = await detector.detect_with_confidence("我要退款")
 
         # Assert
-        assert result.intent == Intent.QUESTION
+        assert result.intent == Intent.REFUND
         assert result.confidence == 0.95
 
     @pytest.mark.asyncio
@@ -117,9 +119,11 @@ class TestLLMIntentDetector:
 
         detector = LLMIntentDetector(llm_service=mock_llm)
 
-        # Act & Assert - Should fall back to string parsing
-        intent = await detector.detect("Hello!")
-        # Could be CHITCHAT or UNKNOWN depending on implementation
+        # Act
+        intent = await detector.detect("你好")
+
+        # Assert - plain text doesn't match any intent value, so should be UNKNOWN
+        assert intent == Intent.UNKNOWN
 
     @pytest.mark.asyncio
     async def test_detect_with_context(self):
@@ -137,13 +141,13 @@ class TestLLMIntentDetector:
 
         context = {
             "previous_messages": [
-                {"role": "user", "content": "Hello"},
-                {"role": "assistant", "content": "Hi there!"}
+                {"role": "user", "content": "你好"},
+                {"role": "assistant", "content": "您好！有什么可以帮您？"}
             ]
         }
 
         # Act
-        intent = await detector.detect("How are you?", context=context)
+        intent = await detector.detect("哈哈，谢谢", context=context)
 
         # Assert
         assert intent == Intent.CHITCHAT
@@ -165,7 +169,7 @@ class TestLLMIntentDetector:
 
         # Act & Assert
         with pytest.raises(ExternalServiceError):
-            await detector.detect("Test query")
+            await detector.detect("测试查询")
 
     def test_custom_prompt_template(self):
         """Test using custom prompt template"""
@@ -202,8 +206,8 @@ class TestLLMIntentDetector:
         assert "intent" in prompt.lower()
         assert "classify" in prompt.lower()
 
-    def test_format_prompt(self):
-        """Test prompt formatting with variables"""
+    def test_build_user_prompt(self):
+        """Test user prompt building with query"""
         # Arrange
         from app.services.intent.llm_based import LLMIntentDetector
         from app.services.llm.base import LLMServiceBase
@@ -212,12 +216,8 @@ class TestLLMIntentDetector:
         detector = LLMIntentDetector(llm_service=mock_llm)
 
         # Act
-        formatted = detector._format_prompt(
-            template="Query: {query}\nIntents: {intents}",
-            query="Test query",
-            intents="intent1, intent2"
-        )
+        prompt = detector._build_user_prompt("我要退款", context=None)
 
         # Assert
-        assert "Query: Test query" in formatted
-        assert "intent1, intent2" in formatted
+        assert "我要退款" in prompt
+        assert "Intent:" in prompt
