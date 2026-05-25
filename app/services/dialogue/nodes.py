@@ -368,14 +368,33 @@ class NodeFactory:
         if not pending or intent not in TASK_INTENTS:
             return "full"
 
-        # Cancel keywords always go through full detection.
-        if any(kw in message for kw in ("取消", "算了", "不要了", "cancel")):
+        # Cancel / abort keywords always go through full detection.
+        if any(kw in message for kw in (
+            "取消", "算了", "不要了", "不了", "不想", "不想退", "cancel",
+        )):
+            return "full"
+
+        # Greeting / chitchat go through full detection.
+        if any(kw in message for kw in (
+            "你好", "hello", "hi", "在吗", "谢谢", "再见",
+        )):
+            return "full"
+
+        # Question patterns — unlikely to be slot answers.
+        if any(kw in message for kw in (
+            "怎么", "什么", "为什么", "哪", "怎么样", "天气",
+            "能不", "可以", "帮忙", "请问",
+        )):
+            return "full"
+
+        # Questions (contains ？ or ?) likely aren't slot answers.
+        if "？" in message or "?" in message:
             return "full"
 
         # Task-switching keywords go through full detection.
         if any(kw in message for kw in (
             "退款", "退货", "订单", "物流", "投诉", "查询",
-            "政策", "faq", "FAQ", "政策",
+            "政策", "faq", "FAQ",
             "refund", "return", "order", "shipping", "complaint", "policy",
         )):
             return "full"
