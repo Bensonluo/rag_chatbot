@@ -54,7 +54,7 @@ class LLMFactory:
             >>> llm = LLMFactory.create(
             ...     provider="glm",
             ...     api_key="your-api-key",
-            ...     model="glm-4-plus"
+            ...     model="glm-5.2"
             ... )
             >>>
             >>> # Create OpenAI client

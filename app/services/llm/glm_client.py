@@ -49,14 +49,14 @@ class GLMClient(LLMServiceBase):
     # Available GLM models
     MODELS = [
         "glm-5.1",
-        "glm-4-plus",
-        "glm-4-0520",
+        "glm-5.2",
+        "glm-5.2",
         "glm-4",
-        "glm-4.5-air",
-        "glm-4-air",
-        "glm-4-airx",
-        "glm-4-flash",
-        "glm-3-turbo",
+        "glm-5.2",
+        "glm-5.2",
+        "glm-5.2",
+        "glm-5.2",
+        "glm-5.2",
     ]
 
     # GLM API base URL
@@ -74,7 +74,7 @@ class GLMClient(LLMServiceBase):
 
         Args:
             api_key: Zhipu AI API key (format: {id}.{secret})
-            model: Model name (default: glm-4.5-air)
+            model: Model name (default: glm-5.2)
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
         """
@@ -273,14 +273,14 @@ class GLMClient(LLMServiceBase):
         """
         context_windows = {
             "glm-5.1": 128000,
-            "glm-4-plus": 128000,
-            "glm-4-0520": 128000,
+            "glm-5.2": 128000,
+            "glm-5.2": 128000,
             "glm-4": 128000,
-            "glm-4.5-air": 128000,
-            "glm-4-air": 128000,
-            "glm-4-airx": 128000,
-            "glm-4-flash": 128000,
-            "glm-3-turbo": 128000,
+            "glm-5.2": 128000,
+            "glm-5.2": 128000,
+            "glm-5.2": 128000,
+            "glm-5.2": 128000,
+            "glm-5.2": 128000,
         }
 
         return context_windows.get(self.model, 128000)

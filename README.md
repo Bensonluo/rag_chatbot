@@ -134,7 +134,7 @@ cd rag_chatbot
 cat > .env << EOF
 # LLM Configuration (GLM recommended for Chinese)
 GLM_API_KEY=your-glm-api-key-here
-GLM_MODEL=glm-4.5-air
+GLM_MODEL=glm-5.2
 
 # Embedding Configuration (local = free)
 EMBEDDING_PROVIDER=local
@@ -254,7 +254,7 @@ curl -X POST http://localhost:8000/api/v1/feedback \
 | `QDRANT_URL` | Qdrant vector DB URL | — | Yes |
 | `SECRET_KEY` | JWT secret key | — | Yes |
 | `GLM_API_KEY` | Zhipu AI GLM API key | — | No |
-| `GLM_MODEL` | GLM model name | `glm-4.5-air` | No |
+| `GLM_MODEL` | GLM model name | `glm-5.2` | No |
 | `OPENAI_API_KEY` | OpenAI API key | — | No |
 | `ANTHROPIC_API_KEY` | Anthropic API key | — | No |
 | `EMBEDDING_PROVIDER` | Embedding source | `local` | No |
@@ -336,7 +336,7 @@ The chatbot auto-selects the first available provider: GLM → OpenAI → Anthro
 **Option 1: GLM (Zhipu AI) — Recommended for Chinese**
 ```bash
 GLM_API_KEY=your-glm-api-key
-GLM_MODEL=glm-4.5-air
+GLM_MODEL=glm-5.2
 ```
 
 **Option 2: OpenAI**

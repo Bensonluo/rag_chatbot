@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     ANTHROPIC_MODEL: str = Field(default="claude-3-opus-20240229", description="Anthropic model name")
 
     GLM_API_KEY: str | None = Field(default=None, description="Zhipu AI GLM API key")
-    GLM_MODEL: str = Field(default="glm-4.5-air", description="GLM model name")
+    GLM_MODEL: str = Field(default="glm-5.2", description="GLM model name")
 
     # Embedding Models
     EMBEDDING_PROVIDER: str = Field(default="local", description="Embedding provider (local, glm, openai)")
