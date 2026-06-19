@@ -1,53 +1,209 @@
-# RAG 智能客服
+<div align="center">
 
-Production-grade intelligent customer service with LangGraph dialogue management, business intent routing, Function Calling, and RAG knowledge retrieval.
+# GraphRAG Smart Customer Service
 
-## Features
+**A production-grade enterprise chatbot powered by LangGraph — 9-node dialogue graph, Function Calling, hybrid RAG, and GraphRAG knowledge retrieval.**
 
-### LangGraph 对话引擎
-- **StateGraph 编排**: 9 节点对话图（安全检查 → 意图识别 → 意图切换 → 路由 → 槽位收集/工具执行/RAG检索 → 生成回复）
-- **业务意图分类**: 5 种任务型（退款/退货/订单查询/物流追踪/投诉）+ 知识型 + 对话型 + 元意图
-- **多轮槽位收集**: 正则提取 + 短消息回退赋值，缺槽追问直到完整
-- **Function Calling**: ToolRegistry + 5 个工具（退款/退货/订单查询/物流追踪/投诉）
-- **意图切换恢复**: State Stack 推栈保存/弹栈恢复，中途切换后无缝继续
-- **Checkpoint 持久化**: MemorySaver 按 session_id 自动保存/恢复对话状态
-- **三路路由**: task → 槽位收集 → 工具执行；rag → 向量/图谱检索；direct → LLM 直出
+[![Live Demo](https://img.shields.io/badge/LIVE-DEMO-brightgreen?style=for-the-badge&logo=vercel)](https://benluo.art/projects/rag-chatbot/)
+[![GitHub stars](https://img.shields.io/github/stars/Bensonluo/rag_chatbot?style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/stargazers)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-### Core RAG Capabilities
-- **Vector Search**: Qdrant vector database with semantic search
-- **Hybrid Search**: Combines semantic vector search + BM25 keyword search with Reciprocal Rank Fusion
-- **Smart Embeddings**: Local BGE-M3 (free, default) with GLM/OpenAI API options
-- **Document Management**: Upload, search, and manage documents (PDF, TXT, MD)
-- **Semantic Chunking**: Multiple strategies (fixed, semantic, recursive)
-- **LLM Reranking**: Advanced reranking for better retrieval quality
+[![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-StateGraph-FF6B6B)](https://github.com/langchain-ai/langgraph)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 
-### Advanced RAG
-- **GraphRAG** (optional): Neo4j-powered knowledge graph with entity extraction, community detection, and global search
-- **Multi-Path Fusion**: Merges vector + graph retrieval results with configurable weighting
-- **Text-to-Cypher**: Natural language to Cypher query translation
-- **Community Summarization**: Leiden algorithm-based community detection with LLM summaries
+<!-- 🎬 录制说明:用 lic_ecap/kap 录 30 秒对话演示,放到 docs/assets/demo.gif -->
+<!--     录制内容:输入"我要退款" → 多轮槽位收集 → 意图切换"退货政策" → 恢复原任务 -->
+<img src="docs/assets/demo.gif" alt="RAG Chatbot Demo" width="80%">
 
-### Chat Intelligence
-- **Hybrid Intent Detection**: Rule-based + LLM-powered business intent classification with confidence scores
-- **Slot Filling**: Per-intent slot schemas with regex extraction + fallback assignment
-- **Memory Management**: Four strategies — optimized (default), sliding window, summarization, hybrid
-- **Streaming Responses**: Real-time server-sent events for low latency
-- **Multilingual**: Excellent Chinese + English support
+*🎬 Replace this with a 30s GIF of the dialogue flow — see [Recording Guide](#-demo-recording-guide) below*
 
-### Safety & Observability
-- **Input Guardrails**: Prompt injection detection, PII redaction, prompt hardening
-- **Output Guardrails**: PII redaction in responses
-- **Observability**: OpenTelemetry-based LLM tracing with latency, token usage, and error metrics
-- **Feedback Loop**: User thumbs up/down ratings for continuous improvement
+</div>
 
-### System Features
-- **JWT Authentication**: Secure user authentication
-- **Rate Limiting**: Token bucket algorithm (in-memory; Redis recommended for multi-instance)
-- **Monitoring**: Prometheus metrics, health/readiness checks, optional Grafana dashboards
-- **Docker Support**: Full containerized deployment with Docker Compose
-- **Multi-Provider LLM**: GLM (default), OpenAI, Anthropic — auto-fallback by available API key
+---
 
-## Architecture
+## 📌 Table of Contents
+
+- [Why This Project](#-why-this-project)
+- [Key Highlights](#-key-highlights)
+- [How It Works](#-how-it-works)
+- [Quick Start](#-quick-start)
+- [Live Demo](#-live-demo)
+- [Architecture](#-architecture)
+- [Configuration](#-configuration)
+- [Testing & Quality](#-testing--quality)
+- [Roadmap](#-roadmap)
+- [中文说明](#-中文说明)
+
+---
+
+## 💡 Why This Project
+
+Most "RAG chatbot" tutorials stop at a single vector search call. **Real customer service is much harder**:
+
+- ❌ Users interrupt midway ("wait, what's the refund policy?") then expect to resume
+- ❌ Tasks need multi-turn slot collection (order ID, reason, amount...)
+- ❌ You need function calling to actually execute refunds, not just chat about them
+- ❌ Knowledge questions and task questions need different handling paths
+- ❌ PII leakage and prompt injection are real attack vectors
+
+This project solves all of them with a **LangGraph StateGraph** — the same architecture used by enterprises running mission-critical dialogue systems. It's not a demo; it's a reference implementation you can learn from and extend.
+
+> 💬 **What you'll learn**: how to structure a multi-node dialogue graph, design intent routing with task resume, integrate hybrid retrieval (vector + GraphRAG), and ship it with full observability.
+
+---
+
+## ✨ Key Highlights
+
+<div align="center">
+
+| 🎯 Dialogue Engine | 🔧 Function Calling | 📚 RAG |
+|:---:|:---:|:---:|
+| **9-node** StateGraph | **5** mock tools | Hybrid + GraphRAG |
+| Intent switch & resume | ToolRegistry pattern | Vector + BM25 + RRF |
+| Slot filling | Task → tool → response | Cross-Encoder reranking |
+
+| 🛡️ Safety | 📊 Observability | 🚀 Production |
+|:---:|:---:|:---:|
+| Input/Output guardrails | OpenTelemetry tracing | Docker Compose |
+| Prompt injection detection | Prometheus + Grafana | K8s manifests |
+| PII redaction | Token & latency metrics | Health checks |
+
+| 📈 Stats | | |
+|:---:|:---:|:---:|
+| **104+** test cases | **3** LLM providers | **80%+** coverage |
+| **9** dialogue nodes | **4** data stores | **4** memory strategies |
+
+</div>
+
+### 🧠 What makes it different
+
+1. **LangGraph StateGraph, not a chain** — 9 nodes with conditional edges, checkpointed for resume
+2. **Intent switch with state stack** — push/pop pattern to save & restore in-flight tasks
+3. **Tri-route dispatch** — task → tool execution / RAG → retrieval / direct → LLM
+4. **GraphRAG (optional)** — Neo4j knowledge graph + Text-to-Cypher + community detection
+5. **Hybrid retrieval** — vector (Qdrant) + BM25 keyword → RRF fusion → Cross-Encoder rerank
+6. **Full-stack observability** — OpenTelemetry + Prometheus + Grafana out of the box
+
+---
+
+## 🔄 How It Works
+
+A user says *"I want a refund"*. Here's what happens:
+
+```
+1. guardrail        → scan for prompt injection, redact PII
+2. detect_intent    → classify: refund (task) | policy (rag) | chitchat (direct)
+3. handle_switch    → if intent changed, push current state to stack
+4. route_intent     → dispatch to the right branch
+   ├── task → collect_slots → execute_tool → generate_response
+   ├── rag   → rag_lookup   → generate_response
+   └── direct → direct_response
+5. checkpoint       → save state by session_id (resume on next turn)
+```
+
+### Intent Switch & Resume — the killer feature
+
+```
+User: "我要退款"
+→ refund, filled={}, pending=[order_id, reason]
+→ "请提供您的订单号"
+
+User: "订单号12345"
+→ refund, filled={order_id:"12345"}, pending=[reason]
+→ "请问退款原因是什么？"
+
+User: "退货政策是什么"        ← 🔄 intent switched!
+→ push refund state to stack
+→ policy → RAG 检索
+→ "退货政策是7天无理由..."
+   + "您之前的退款申请需要继续吗？"
+
+User: "继续，原因是质量问题"
+→ pop stack → resume refund + filled={order_id:"12345"}
+→ filled={order_id:"12345", reason:"质量问题"}, complete
+→ execute_tool: refund → {status:success, refund_id:"RF123456"}
+→ "退款已受理，退款单号RF123456"
+```
+
+---
+
+## 🚀 Quick Start
+
+### Option 1: Docker Compose (recommended, ~2 min)
+
+```bash
+git clone https://github.com/Bensonluo/rag_chatbot.git
+cd rag_chatbot
+
+# Configure environment
+cp .env.example .env
+# Edit .env: set GLM_API_KEY (or OPENAI_API_KEY / ANTHROPIC_API_KEY)
+
+# Start core services (API + PostgreSQL + Redis + Qdrant)
+docker-compose up -d
+
+# Or with monitoring stack (Prometheus + Grafana)
+docker-compose --profile monitoring up -d
+
+# Verify
+curl http://localhost:8000/health
+# → {"status":"healthy","database":"connected","redis":"connected",...}
+```
+
+### Option 2: Try the Live Demo first
+
+Don't want to deploy? **[Try it online →](https://benluo.art/projects/rag-chatbot/)** — no signup, runs in your browser.
+
+> 🔑 **Note on API keys**: GLM is recommended for Chinese workloads (best cost/quality ratio). The system auto-falls back: GLM → OpenAI → Anthropic. Embeddings default to local BGE-M3 (free, no API key needed).
+
+### Option 3: Local development
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+# Start PostgreSQL + Redis + Qdrant via docker-compose
+docker-compose up -d postgres redis qdrant
+
+# Run migrations & dev server
+alembic upgrade head
+uvicorn app.main:create_app --factory --reload --host 0.0.0.0 --port 8000
+```
+
+📖 **API docs** (when running): http://localhost:8000/docs
+
+---
+
+## 🌐 Live Demo
+
+The chatbot is deployed and interactive at:
+
+> 🎯 **[benluo.art/projects/rag-chatbot/](https://benluo.art/projects/rag-chatbot/)**
+
+Try these scenarios:
+- 🔄 **Intent switch**: Ask "我要退款", partially answer, then ask "退货政策是什么"
+- 📚 **RAG retrieval**: Ask about return policy, shipping, warranty
+- 🛠️ **Function Calling**: Complete a refund/return/order query workflow
+
+---
+
+## 🏗️ Architecture
+
+### Tech Stack
+
+| Layer | Choice | Why |
+|-------|--------|-----|
+| **Dialogue orchestration** | LangGraph StateGraph | Conditional routing + checkpointing |
+| **API framework** | FastAPI + async | High concurrency, OpenAPI built-in |
+| **Vector DB** | Qdrant | Fast hybrid search, open-source |
+| **Graph DB** (optional) | Neo4j | Knowledge graph for GraphRAG |
+| **Relational DB** | PostgreSQL | Sessions, users, feedback |
+| **Cache** | Redis | Rate limiting, embeddings cache |
+| **LLM** | GLM / OpenAI / Anthropic | Auto-fallback by API key availability |
+| **Embeddings** | BGE-M3 (local) | Free, multilingual, no API key |
+| **Observability** | OpenTelemetry + Prometheus + Grafana | Production-grade tracing & metrics |
 
 ### LangGraph Dialogue Graph
 
@@ -55,7 +211,7 @@ Production-grade intelligent customer service with LangGraph dialogue management
 START
   │
   ▼
-guardrail (输入安全)
+guardrail (输入安全检查)
   │
   ▼
 detect_intent (意图识别)
@@ -78,505 +234,204 @@ route_intent (路由决策)
   └── meta  → generate_response → END
 ```
 
-### Intent Switch & Resume Flow
-
-```
-User: "我要退款"
-→ refund, filled={}, pending=[order_id, reason]
-→ "请提供您的订单号"
-
-User: "订单号12345"
-→ refund, filled={order_id:"12345"}, pending=[reason]
-→ "请问退款原因是什么？"
-
-User: "退货政策是什么"        ← 意图切换！
-→ push refund state to stack
-→ policy → RAG 检索
-→ "退货政策是7天无理由..."
-   + "您之前的退款申请需要继续吗？"
-
-User: "继续，原因是质量问题"
-→ pop stack → 恢复 refund + filled={order_id:"12345"}
-→ filled={order_id:"12345", reason:"质量问题"}, complete
-→ execute_tool: refund → {status:success, refund_id:"RF123456"}
-→ "退款已受理，退款单号RF123456"
-```
-
-### Data Stores
-
-| Service    | Purpose                              | Required |
-|------------|--------------------------------------|----------|
-| PostgreSQL | Users, sessions, messages, feedback  | Yes      |
-| Redis      | Caching, rate limiting               | Yes      |
-| Qdrant     | Vector embeddings, semantic search   | Yes      |
-| Neo4j      | Knowledge graph (GraphRAG)           | No       |
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.11+
-- PostgreSQL 16+
-- Redis 7+
-- Qdrant 1.7+
-- Docker & Docker Compose (recommended)
-- GLM API key (recommended) or OpenAI/Anthropic API key
-- Neo4j (optional, for GraphRAG)
-
-### Docker Compose (Recommended)
-
-```bash
-# Clone repository
-git clone https://github.com/Bensonluo/rag_chatbot.git
-cd rag_chatbot
-
-# Create environment file
-cat > .env << EOF
-# LLM Configuration (GLM recommended for Chinese)
-GLM_API_KEY=your-glm-api-key-here
-GLM_MODEL=glm-5.2
-
-# Embedding Configuration (local = free)
-EMBEDDING_PROVIDER=local
-EMBEDDING_MODEL=bge-m3-v2-zh
-
-# Vector Database
-QDRANT_URL=http://localhost:6333
-
-# Database & Cache
-DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/rag_chatbot
-REDIS_URL=redis://localhost:6379/0
-
-# Security
-SECRET_KEY=your-secret-key-here
-
-# Optional: Enable GraphRAG
-GRAPH_RAG_ENABLED=false
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=password
-EOF
-
-# Start core services
-docker-compose up -d
-
-# Or start with monitoring (Prometheus + Grafana)
-docker-compose --profile monitoring up -d
-
-# Check health
-curl http://localhost:8000/health
-
-# View logs
-docker-compose logs -f api
-```
-
-### Manual Installation
-
-```bash
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -e ".[dev]"
-
-# Run database migrations
-alembic upgrade head
-
-# Start development server
-uvicorn app.main:create_app --factory --reload --host 0.0.0.0 --port 8000
-```
-
-## API Documentation
-
-Once running, visit:
-
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **OpenAPI JSON**: http://localhost:8000/openapi.json
-
-### Quick API Examples
-
-```bash
-# 1. Register user
-curl -X POST http://localhost:8000/api/v1/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "securepass123",
-    "full_name": "John Doe"
-  }'
-
-# 2. Login
-TOKEN=$(curl -X POST http://localhost:8000/api/v1/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "email": "user@example.com",
-    "password": "securepass123"
-  }' | jq -r '.access_token')
-
-# 3. Send chat message (LangGraph dialogue graph)
-curl -X POST http://localhost:8000/api/v1/chat \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": "我要退款",
-    "session_id": 1
-  }'
-
-# 4. Stream response
-curl -X POST http://localhost:8000/api/v1/chat/stream \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": "退货政策是什么",
-    "session_id": 1
-  }'
-
-# 5. Submit feedback
-curl -X POST http://localhost:8000/api/v1/feedback \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message_id": 123,
-    "rating": "up"
-  }'
-```
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description | Default | Required |
-|----------|-------------|---------|----------|
-| `DATABASE_URL` | PostgreSQL connection string | — | Yes |
-| `REDIS_URL` | Redis connection string | — | Yes |
-| `QDRANT_URL` | Qdrant vector DB URL | — | Yes |
-| `SECRET_KEY` | JWT secret key | — | Yes |
-| `GLM_API_KEY` | Zhipu AI GLM API key | — | No |
-| `GLM_MODEL` | GLM model name | `glm-5.2` | No |
-| `OPENAI_API_KEY` | OpenAI API key | — | No |
-| `ANTHROPIC_API_KEY` | Anthropic API key | — | No |
-| `EMBEDDING_PROVIDER` | Embedding source | `local` | No |
-| `ENVIRONMENT` | Environment mode | `development` | No |
-| `LOG_LEVEL` | Logging level | `INFO` | No |
-
-### Dialogue Configuration
-
-The LangGraph dialogue graph is built automatically by `ChatServiceFactory.create_with_defaults()`. Key components:
-
-- **Intent Detection**: `hybrid` (rule + LLM), `rule_based`, or `llm_based`
-- **Slot Schemas**: Defined in `app/services/slot_filling/slot_types.py` per intent
-- **Tools**: Registered in `app/services/dialogue/tools.py` (mock handlers for demo)
-- **Checkpointer**: `MemorySaver` (dev), swap to `PostgresSaver` for production
-
-```bash
-# Intent detection strategy
-INTENT_TYPE=hybrid          # hybrid | rule_based | llm_based
-CONFIDENCE_THRESHOLD=0.7
-
-# Memory strategy
-MEMORY_TYPE=optimized       # optimized | sliding_window | summarization | hybrid
-```
-
-### Memory Strategy Configuration
-
-```bash
-# Optimized (default) — semantic relevance filtering
-MEMORY_TYPE=optimized
-MEMORY_MAX_RECENT=3
-MEMORY_RELEVANCE_THRESHOLD=0.5
-MEMORY_TOKEN_BUDGET=4096
-
-# Sliding Window (fast, low retention)
-MEMORY_TYPE=sliding_window
-WINDOW_SIZE=10
-
-# Summarization (slower, high retention)
-MEMORY_TYPE=summarization
-SUMMARY_THRESHOLD=20
-SUMMARY_INTERVAL=10
-
-# Hybrid (adaptive)
-MEMORY_TYPE=hybrid
-HYBRID_THRESHOLD=30
-```
-
-### Guardrails Configuration
-
-```bash
-# Enable/disable guardrails
-GUARDRAILS_ENABLED=true
-GUARDRAILS_INPUT_ENABLED=true
-GUARDRAILS_OUTPUT_ENABLED=true
-
-# Prompt hardening
-GUARDRAILS_HARDENING_ENABLED=true
-```
-
-### Retrieval Configuration
-
-```bash
-# Vector search settings
-VECTOR_WEIGHT=0.7
-TOP_K=3
-
-# Reranking
-USE_RERANKING=true
-RERANKER_TOP_N=5
-
-# GraphRAG fusion (when enabled)
-GRAPH_RAG_FUSION_WEIGHT=0.3
-```
-
-### LLM Provider Selection
-
-The chatbot auto-selects the first available provider: GLM → OpenAI → Anthropic.
-
-**Option 1: GLM (Zhipu AI) — Recommended for Chinese**
-```bash
-GLM_API_KEY=your-glm-api-key
-GLM_MODEL=glm-5.2
-```
-
-**Option 2: OpenAI**
-```bash
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4-turbo-preview
-```
-
-**Option 3: Anthropic**
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-3-opus-20240229
-```
-
-## Deployment
-
-### Docker
-
-```bash
-# Build image
-docker build -t rag-chatbot:latest .
-
-# Run container
-docker run -d \
-  -p 8000:8000 \
-  -e DATABASE_URL="postgresql+asyncpg://..." \
-  -e GLM_API_KEY="..." \
-  -e SECRET_KEY="..." \
-  rag-chatbot:latest
-```
-
-### Docker Compose (Production)
-
-```bash
-# Use production profile with monitoring
-docker-compose --profile monitoring up -d
-
-# Scale API instances
-docker-compose up -d --scale api=5
-```
-
-### Kubernetes
-
-```bash
-# Create namespace
-kubectl create namespace rag-chatbot
-
-# Create secrets
-kubectl create secret generic rag-chatbot-secrets \
-  --from-literal=database-url="postgresql+asyncpg://..." \
-  --from-literal=redis-url="redis://..." \
-  --from-literal=glm-api-key="..." \
-  --from-literal=secret-key="..." \
-  -n rag-chatbot
-
-# Deploy
-kubectl apply -f deploy/k8s/
-
-# Check status
-kubectl get pods -n rag-chatbot
-kubectl get svc -n rag-chatbot
-```
-
-## Monitoring
-
-### Health Checks
-
-```bash
-# Liveness probe
-curl http://localhost:8000/health
-
-# Readiness probe
-curl http://localhost:8000/ready
-```
-
-### Metrics
-
-```bash
-# Prometheus metrics
-curl http://localhost:8000/metrics
-```
-
-Access Grafana at http://localhost:3001 (admin/admin) when monitoring profile is enabled.
-
-## Development
-
-### Running Tests
-
-```bash
-# Run all tests with coverage (80% minimum enforced)
-pytest
-
-# Run specific test file
-pytest app/tests/unit/services/chat/test_chat_service.py
-
-# Run specific test with verbose output
-pytest app/tests/unit/services/chat/test_chat_service.py::test_specific -v
-
-# Run intent tests
-pytest app/tests/unit/services/intent/ -v
-
-# Run dialogue tests
-pytest app/tests/unit/services/chat/ -v
-```
-
-### Code Quality
-
-```bash
-# Run all checks (lint + format + type check)
-ruff check app/
-ruff format app/
-mypy app/
-```
-
 ### Project Structure
 
 ```
-rag-chatbot/
+rag_chatbot/
 ├── app/
-│   ├── api/
-│   │   ├── deps/           # Authentication dependencies
-│   │   ├── middleware/     # Request ID, rate limiting, error handling
-│   │   └── v1/             # API v1 endpoints (chat, docs, auth, feedback, graph)
-│   ├── config/             # Pydantic settings
-│   ├── core/               # Core utilities
-│   ├── middleware/         # FastAPI middleware
-│   ├── models/
-│   │   ├── database/       # SQLAlchemy ORM models
-│   │   ├── enums/          # Enumerations (business intents)
-│   │   └── schemas/        # Pydantic schemas
-│   ├── repositories/       # Async data access layer
-│   ├── services/           # Business logic
-│   │   ├── chat/           # Chat orchestration (ChatService + Factory)
-│   │   ├── dialogue/       # LangGraph dialogue engine
-│   │   │   ├── graph.py    # StateGraph construction + compilation
-│   │   │   ├── nodes.py    # 9 dialogue nodes + conditional edges
-│   │   │   ├── state.py    # DialogueState TypedDict
-│   │   │   └── tools.py    # ToolRegistry + 5 mock handlers
-│   │   ├── documents/      # Chunking, ingestion, preprocessing
-│   │   ├── embeddings/     # Multi-provider embeddings (local, GLM, OpenAI)
-│   │   ├── graph/          # GraphRAG (Neo4j)
-│   │   │   ├── community/  # Community detection & global search
-│   │   │   ├── extraction/ # Entity/relation extraction
-│   │   │   └── retrieval/  # Text-to-Cypher, graph embedding search, fusion
-│   │   ├── guardrails/     # Input/output safety checks
-│   │   ├── intent/         # Business intent detection (rule + LLM + hybrid)
-│   │   ├── llm/            # Multi-provider LLM clients
-│   │   ├── memory/         # Memory management strategies
-│   │   ├── observability/  # OpenTelemetry tracing
-│   │   ├── retrieval/      # Hybrid search, reranking, Qdrant
-│   │   └── slot_filling/   # Slot schemas + rule/LLM extraction
-│   ├── tests/              # Test suites
-│   │   ├── e2e/            # End-to-end tests
-│   │   ├── integration/    # Integration tests
-│   │   └── unit/           # Unit tests
-│   └── main.py             # Application factory
-├── deploy/                 # Deployment configs (Docker, K8s)
-├── docs/                   # Documentation
-├── pyproject.toml          # Dependencies & tool config
-└── docker-compose*.yml     # Docker Compose configs
+│   ├── api/v1/              # REST endpoints (chat, auth, feedback, docs)
+│   ├── services/
+│   │   ├── dialogue/        # 🎯 LangGraph engine
+│   │   │   ├── graph.py     #   StateGraph construction + compile
+│   │   │   ├── nodes.py     #   9 dialogue nodes + conditional edges
+│   │   │   ├── state.py     #   DialogueState TypedDict
+│   │   │   └── tools.py     #   ToolRegistry + 5 mock handlers
+│   │   ├── retrieval/       # Hybrid search + rerank + Qdrant
+│   │   ├── graph/           # GraphRAG (Neo4j, extraction, community)
+│   │   ├── intent/          # Rule + LLM + hybrid intent detection
+│   │   ├── slot_filling/    # Per-intent slot schemas
+│   │   ├── guardrails/      # Input/output safety
+│   │   ├── memory/          # 4 memory strategies
+│   │   └── llm/             # Multi-provider LLM clients
+│   ├── models/              # ORM + Pydantic schemas
+│   ├── repositories/        # Async data access layer
+│   └── tests/               # Unit + integration + e2e
+├── deploy/k8s/              # Kubernetes manifests
+└── docker-compose*.yml
 ```
 
-## Performance Tuning
+---
 
-### Database
+## ⚙️ Configuration
 
-- Use connection pooling (default: 20 connections)
-- Enable prepared statements
-- Add indexes on frequently queried fields
+### Core Environment Variables
 
-### Redis
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `DATABASE_URL` | PostgreSQL connection string | — | ✅ |
+| `REDIS_URL` | Redis connection string | — | ✅ |
+| `QDRANT_URL` | Qdrant vector DB URL | — | ✅ |
+| `SECRET_KEY` | JWT secret key | — | ✅ |
+| `GLM_API_KEY` | Zhipu AI GLM API key | — | (any LLM) |
+| `OPENAI_API_KEY` | OpenAI API key | — | (any LLM) |
+| `ANTHROPIC_API_KEY` | Anthropic API key | — | (any LLM) |
+| `EMBEDDING_PROVIDER` | Embedding source | `local` | ❌ |
+| `GRAPH_RAG_ENABLED` | Enable GraphRAG (needs Neo4j) | `false` | ❌ |
 
-- Use Redis for session storage
-- Enable persistence (AOF)
-- Configure max memory policy
+### Pluggable Strategies
 
-### Vector Database
-
-- Tune search parameters (`top_k`, `vector_weight`)
-- Use quantization for large collections
-- Enable HNSW indexing
-
-### LLM
-
-- Use streaming for faster time-to-first-token
-- Cache embeddings via `cached_embeddings.py`
-- Batch requests when possible
-
-### LangGraph
-
-- Use `MemorySaver` for development, `PostgresSaver` for production
-- Tune intent confidence threshold to reduce false positives
-- Adjust slot fallback message length threshold (default: 30 chars)
-
-## Security
-
-### Production Checklist
-
-- [ ] Change default `SECRET_KEY`
-- [ ] Use strong password policy
-- [ ] Enable HTTPS
-- [ ] Configure CORS properly (`CORS_ORIGINS`)
-- [ ] Set up rate limiting
-- [ ] Use read-only database credentials for API
-- [ ] Enable audit logging
-- [ ] Regular security updates
-- [ ] Rotate API keys
-- [ ] Enable guardrails (`GUARDRAILS_ENABLED=true`)
-
-### Rate Limiting
+The system is designed for swappable components:
 
 ```bash
-RATE_LIMIT_REQUESTS_PER_MINUTE=60
-RATE_LIMIT_BUCKET_SIZE=10
+# Intent detection: hybrid | rule_based | llm_based
+INTENT_TYPE=hybrid
+CONFIDENCE_THRESHOLD=0.7
+
+# Memory: optimized | sliding_window | summarization | hybrid
+MEMORY_TYPE=optimized
+MEMORY_MAX_RECENT=3
+MEMORY_TOKEN_BUDGET=4096
+
+# Retrieval weights
+VECTOR_WEIGHT=0.7
+USE_RERANKING=true
+GRAPH_RAG_FUSION_WEIGHT=0.3   # only if GraphRAG enabled
+
+# Guardrails
+GUARDRAILS_ENABLED=true
+GUARDRAILS_HARDENING_ENABLED=true
 ```
 
-## Contributing
+See [.env.example](.env.example) for the full list.
 
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Write tests first (TDD)
-4. Run code quality checks (`ruff check && ruff format && mypy`)
-5. Commit changes (`git commit -m 'feat: add amazing feature'`)
-6. Push to branch (`git push origin feature/amazing-feature`)
-7. Open Pull Request
+---
 
-## Project Statistics
+## 🧪 Testing & Quality
 
-```
-Total Python Files: ~200
-Total Test Files: ~58
-Test Coverage: 80%+ (enforced in CI)
+```bash
+# Full test suite with coverage (80% minimum enforced)
+pytest
+
+# Targeted runs
+pytest app/tests/unit/services/dialogue/ -v    # LangGraph tests
+pytest app/tests/unit/services/intent/ -v      # Intent detection
+pytest app/tests/integration/ -v               # API integration
 ```
 
-## License
+### Code Quality Gates
 
-MIT License — see LICENSE file for details.
+```bash
+ruff check app/      # Lint
+ruff format app/     # Format
+mypy app/            # Type check
+```
 
-## Support
+| Metric | Value |
+|--------|-------|
+| Test cases | **104+** |
+| Test coverage | **80%+** (CI-enforced) |
+| Python files | ~200 |
+| Test files | ~58 |
 
-- Documentation: See `docs/` directory
-- GitHub Issues: https://github.com/example/rag-chatbot/issues
-- Email: luopengllpp@yahoo.com
+---
+
+## 🗺️ Roadmap
+
+- [x] LangGraph StateGraph with 9 nodes + conditional routing
+- [x] Intent switch & resume via state stack
+- [x] Hybrid retrieval (vector + BM25 + rerank)
+- [x] GraphRAG with Neo4j (optional)
+- [x] OpenTelemetry tracing + Prometheus metrics
+- [x] 104+ test cases, 80%+ coverage
+- [ ] PostgresSaver checkpointing (production-grade persistence)
+- [ ] Fine-tuned intent classifier (replace LLM-based with small specialized model)
+- [ ] A/B testing framework for prompt variants
+- [ ] Multi-tenant knowledge bases
+
+---
+
+## 🤝 Contributing
+
+PRs welcome! Especially:
+- 🐛 Bug fixes — please include a failing test
+- ✨ New dialogue node types or slot strategies
+- 📚 More GraphRAG use cases (currently: customer service KB)
+- 🌍 i18n improvements
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
+
+---
+
+## 📜 License
+
+[MIT](LICENSE) — free for personal and commercial use.
+
+If this project helped you, please ⭐ star the repo — it helps others discover it.
+
+---
+
+## 📬 Contact
+
+- 💼 **Portfolio**: [benluo.art](https://benluo.art)
+- 🐙 **GitHub**: [@Bensonluo](https://github.com/Bensonluo)
+- 💬 **Issues**: [GitHub Issues](https://github.com/Bensonluo/rag_chatbot/issues)
+
+---
+
+## 🇨🇳 中文说明
+
+**GraphRAG 智能客服** — 基于 LangGraph 构建的企业级客服对话系统。
+
+### 核心亮点
+
+- **LangGraph StateGraph 对话图**:9 节点编排(安全检查 → 意图识别 → 意图切换 → 路由 → 槽位/工具/RAG → 生成回复)
+- **业务意图分类**:5 种任务型(退款/退货/订单查询/物流追踪/投诉)+ 知识型 + 对话型 + 元意图
+- **多轮槽位收集**:正则提取 + 短消息回退,缺槽追问
+- **Function Calling**:ToolRegistry + 5 个 Mock 工具
+- **意图切换与恢复**:State Stack 推栈保存/弹栈恢复
+- **GraphRAG**:Neo4j 知识图谱 + Text-to-Cypher + 社区发现
+- **混合检索**:向量 + BM25 → RRF 融合 → Cross-Encoder 重排序
+- **全链路可观测**:OpenTelemetry + Prometheus + Grafana
+
+### 快速开始
+
+```bash
+git clone https://github.com/Bensonluo/rag_chatbot.git
+cd rag_chatbot
+cp .env.example .env  # 填入 GLM_API_KEY
+docker-compose up -d
+```
+
+访问 http://localhost:8000/docs 查看 API 文档。
+
+📖 **部署文档**:参考 [Portfolio Deployment Guide](https://github.com/Bensonluo/portfolio-fe)。
+
+---
+
+<details>
+<summary>🎬 Demo Recording Guide (for maintainers)</summary>
+
+### How to record the hero GIF
+
+1. **Tool**: [licecap](https://www.cockos.com/licecap/) (Mac/Win, free) or [kap](https://getkap.co/) (Mac, OSS)
+2. **Content** (~30s):
+   - 0-5s: Type "我要退款", show bot asking for order_id
+   - 5-15s: Provide order_id, watch slot filling
+   - 15-20s: Ask "退货政策是什么" mid-flow (show intent switch)
+   - 20-30s: Resume original refund task, watch it complete
+3. **Save to**: `docs/assets/demo.gif` (keep under 5MB)
+4. **Update**: Replace the placeholder `<img>` in the hero section
+
+### Architecture diagram
+
+Use [excalidraw](https://excalidraw.com/) (free) or [mermaid](https://mermaid.live/) to export a clean PNG of the dialogue graph, save to `docs/assets/architecture.png`.
+
+</details>
+
+<!--
+RECORDING_TODO:
+1. Record demo.gif → docs/assets/demo.gif
+2. Draw architecture.png → docs/assets/architecture.png
+3. Replace placeholder img tags in hero section
+4. Update Live Demo URL (benluo.art → real domain)
+-->
