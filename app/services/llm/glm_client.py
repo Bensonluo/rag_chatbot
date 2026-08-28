@@ -43,20 +43,15 @@ class GLMClient(LLMServiceBase):
     """
     GLM (Zhipu AI) LLM service implementation.
 
-    Supports GLM-4, GLM-3-Turbo, and other Zhipu AI models.
+    Supports GLM-5.3-Flash, GLM-5.2, GLM-4, and other Zhipu AI models.
     """
 
     # Available GLM models
     MODELS = [
+        "glm-5.3-flash",
+        "glm-5.2",
         "glm-5.1",
-        "glm-5.2",
-        "glm-5.2",
         "glm-4",
-        "glm-5.2",
-        "glm-5.2",
-        "glm-5.2",
-        "glm-5.2",
-        "glm-5.2",
     ]
 
     # GLM API base URL
@@ -65,7 +60,7 @@ class GLMClient(LLMServiceBase):
     def __init__(
         self,
         api_key: str,
-        model: str = "glm-5.1",
+        model: str = "glm-5.3-flash",
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
     ) -> None:
@@ -74,7 +69,7 @@ class GLMClient(LLMServiceBase):
 
         Args:
             api_key: Zhipu AI API key (format: {id}.{secret})
-            model: Model name (default: glm-5.2)
+            model: Model name (default: glm-5.3-flash)
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
         """
@@ -272,15 +267,10 @@ class GLMClient(LLMServiceBase):
             int: Maximum tokens in context window
         """
         context_windows = {
+            "glm-5.3-flash": 128000,
+            "glm-5.2": 128000,
             "glm-5.1": 128000,
-            "glm-5.2": 128000,
-            "glm-5.2": 128000,
             "glm-4": 128000,
-            "glm-5.2": 128000,
-            "glm-5.2": 128000,
-            "glm-5.2": 128000,
-            "glm-5.2": 128000,
-            "glm-5.2": 128000,
         }
 
         return context_windows.get(self.model, 128000)

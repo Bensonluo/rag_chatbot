@@ -120,7 +120,7 @@ def main():
         print("\n🎉 Configuration successful!")
         print("\nYour GLM API key has been set to:")
         print("   API Key: 951a05b4ed8c49df996c39ffc38e071c.08KUDBXaZ3u76zZ3")
-        print("   Model: glm-5.2")
+        print("   Model: glm-5.3-flash")
         print("\nYou can now use GLM in your RAG chatbot:")
         print("   from app.services.llm import LLMFactory")
         print("   llm = LLMFactory.create(provider='glm')")
