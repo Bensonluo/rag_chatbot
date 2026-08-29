@@ -7,15 +7,15 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/ragchatbot
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/rag_chatbot
       - REDIS_URL=redis://redis:6379/0
       - ENVIRONMENT=development
       - DEBUG=true
-      - GLM_API_KEY=${GLM_API_KEY}
+      - GLM_API_KEY=${GLM_API_KEY:-}
       - GLM_MODEL=glm-5.3-flash
       - VECTOR_DB_URL=http://qdrant:6333
       - EMBEDDING_PROVIDER=local
-      - EMBEDDING_MODEL=bge-m3-v2-zh
+      - EMBEDDING_MODEL=bge-m3
       - MEMORY_TYPE=optimized
     depends_on:
       - db
@@ -31,7 +31,7 @@ services:
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=ragchatbot
+      - POSTGRES_DB=rag_chatbot
     ports:
       - "5432:5432"
     volumes:

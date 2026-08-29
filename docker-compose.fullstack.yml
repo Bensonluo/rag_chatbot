@@ -1,8 +1,6 @@
 # Full-Stack Docker Compose for RAG Chatbot
 # Includes: Frontend (Next.js), Backend (FastAPI), PostgreSQL, Redis, Qdrant
 # Deploy with: docker-compose -f docker-compose.fullstack.yml up -d
-version: '3.8'
-
 services:
   # ==========================================
   # FRONTEND (Next.js Portfolio)
@@ -34,7 +32,7 @@ services:
       - "8000:8000"
     environment:
       # Database
-      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-your_secure_password}@db:5432/ragchatbot
+      - DATABASE_URL=postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-your_secure_password}@db:5432/rag_chatbot
       - DATABASE_POOL_SIZE=10
       - DATABASE_MAX_OVERFLOW=20
 
@@ -46,12 +44,12 @@ services:
       - VECTOR_COLLECTION_NAME=documents
 
       # LLM Configuration
-      - GLM_API_KEY=${GLM_API_KEY}
+      - GLM_API_KEY=${GLM_API_KEY:-}
       - GLM_MODEL=${GLM_MODEL:-glm-5.3-flash}
 
       # Embedding Configuration
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-local}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-bge-m3-v2-zh}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-bge-m3}
 
       # Memory Configuration
       - MEMORY_TYPE=${MEMORY_TYPE:-optimized}
@@ -101,7 +99,7 @@ services:
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-your_secure_password}
-      - POSTGRES_DB=${POSTGRES_DB:-ragchatbot}
+      - POSTGRES_DB=${POSTGRES_DB:-rag_chatbot}
       - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --locale=en_US.utf8
     ports:
       - "5432:5432"

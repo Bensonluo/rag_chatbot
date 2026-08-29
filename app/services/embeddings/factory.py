@@ -6,7 +6,7 @@ Provides a simple interface for creating embedding clients based on configuratio
 from typing import Optional
 
 from app.services.embeddings.base import EmbeddingServiceBase
-from app.services.embeddings.local_embeddings import LocalEmbeddingService
+from app.services.embeddings.local_embeddings import get_local_embedding_service
 from app.services.embeddings.glm_embeddings import GLMEmbeddingService
 from app.services.embeddings.cached_embeddings import CachedEmbeddingService
 from app.config.settings import get_settings
@@ -76,10 +76,10 @@ class EmbeddingFactory:
 
         # Create service based on provider
         if provider == "local":
-            model = model or getattr(settings, 'EMBEDDING_MODEL', 'bge-m3-v2-zh')
-            service = LocalEmbeddingService(
+            model = model or getattr(settings, "EMBEDDING_MODEL", "bge-m3")
+            service = get_local_embedding_service(
                 model=model,
-                device=device
+                device=device,
             )
 
         elif provider == "glm":

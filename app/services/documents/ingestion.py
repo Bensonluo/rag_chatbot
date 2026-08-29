@@ -4,10 +4,11 @@ Document ingestion service.
 Handles document upload, processing, chunking, and storage in vector database.
 """
 import uuid
-from typing import List, Optional, Dict
+from collections.abc import Callable
+from typing import Any, Optional
 from pathlib import Path
 
-from app.services.documents.base import Document, DocumentChunk
+from app.services.documents.base import ChunkingStrategy, Document, DocumentChunk
 from app.services.documents.chunking import (
     FixedSizeChunking,
     SemanticChunking,
@@ -15,6 +16,9 @@ from app.services.documents.chunking import (
 )
 from app.services.documents.preprocessing import DocumentPreprocessor
 from app.services.embeddings import EmbeddingFactory
+from app.services.embeddings.base import EmbeddingServiceBase
+from app.services.graph.base import GraphClient
+from app.services.graph.extraction.base import EntityExtractor
 from app.services.retrieval.qdrant_client import QdrantClient
 from app.core.exceptions import ValidationError, ExternalServiceError
 
@@ -31,7 +35,7 @@ class DocumentIngestionService:
     - Storage in vector database
     """
 
-    CHUNKING_STRATEGIES = {
+    CHUNKING_STRATEGIES: dict[str, Callable[[], ChunkingStrategy]] = {
         "fixed": FixedSizeChunking,
         "semantic": SemanticChunking,
         "recursive": RecursiveCharacterChunking,
@@ -44,8 +48,9 @@ class DocumentIngestionService:
         chunking_strategy: str = "semantic",
         max_chunk_size: int = 512,
         chunk_overlap: int = 50,
-        graph_client=None,
-        entity_extractor=None,
+        graph_client: GraphClient | None = None,
+        entity_extractor: EntityExtractor | None = None,
+        embedding_service: Optional[EmbeddingServiceBase] = None,
     ) -> None:
         """
         Initialize document ingestion service.
@@ -58,6 +63,7 @@ class DocumentIngestionService:
             chunk_overlap: Overlap between chunks
             graph_client: Optional graph client for entity storage
             entity_extractor: Optional entity extractor for graph extraction
+            embedding_service: Optional prebuilt embedding service to reuse
         """
         self.qdrant_client = qdrant_client
         self.embedding_provider = embedding_provider
@@ -68,7 +74,7 @@ class DocumentIngestionService:
         self.entity_extractor = entity_extractor
 
         # Initialize embedding service
-        self.embedding_service = EmbeddingFactory.create(
+        self.embedding_service = embedding_service or EmbeddingFactory.create(
             provider=embedding_provider
         )
 
@@ -87,9 +93,9 @@ class DocumentIngestionService:
         self,
         text: str,
         title: str,
-        metadata: dict = None,
-        document_id: str = None,
-    ) -> dict:
+        metadata: dict[str, Any] | None = None,
+        document_id: str | None = None,
+    ) -> dict[str, Any]:
         """
         Ingest a text document into the RAG system.
 
@@ -137,7 +143,7 @@ class DocumentIngestionService:
             metadata=metadata
         )
         document.content = processed_text
-        document.doc_metadata.update(enhanced_metadata)
+        document.metadata.update(enhanced_metadata)
 
         # Chunk document
         chunks = await self.chunking.chunk(
@@ -160,8 +166,12 @@ class DocumentIngestionService:
                 "chunk_id": chunk.chunk_id,
                 "document_id": chunk.document_id,
                 "content": chunk.content,
-                "index": chunk.index,
-                **chunk.metadata
+                "metadata": {
+                    "chunk_id": chunk.chunk_id,
+                    "document_id": chunk.document_id,
+                    "index": chunk.index,
+                    **chunk.metadata,
+                },
             }
             for chunk in chunks
         ]
@@ -194,14 +204,23 @@ class DocumentIngestionService:
                             )
                             for e in extraction.entities
                         ]
-                        await self.graph_client.add_entities(graph_ents)
-                        graph_entities_count += len(graph_ents)
+                        stored_entity_ids = await self.graph_client.add_entities(
+                            graph_ents
+                        )
+                        graph_entities_count += len(stored_entity_ids)
+                    else:
+                        graph_ents = []
+                        stored_entity_ids = []
 
                     if extraction.relations:
-                        # Resolve entity IDs by name
+                        # Neo4j MERGE may return IDs for pre-existing entities,
+                        # so relations must use the stored IDs rather than the
+                        # newly proposed UUIDs.
                         name_to_id = {
-                            e["name"]: f"{e['type']}_{e['name']}"
-                            for e in extraction.entities
+                            entity.name: stored_id
+                            for entity, stored_id in zip(
+                                graph_ents, stored_entity_ids
+                            )
                         }
                         graph_rels = [
                             GraphRelation(
@@ -234,12 +253,14 @@ class DocumentIngestionService:
             "graph_relations_extracted": graph_relations_count,
         }
 
+        return result
+
     async def ingest_file(
         self,
         file_path: str,
-        metadata: dict = None,
-        document_id: str = None,
-    ) -> dict:
+        metadata: dict[str, Any] | None = None,
+        document_id: str | None = None,
+    ) -> dict[str, Any]:
         """
         Ingest a document from file into the RAG system.
 
@@ -331,7 +352,7 @@ class DocumentIngestionService:
                 message=f"Failed to read PDF: {str(e)}"
             )
 
-    async def delete_document(self, document_id: str) -> dict:
+    async def delete_document(self, document_id: str) -> dict[str, Any]:
         """
         Delete a document and all its chunks from the vector database.
 
@@ -346,11 +367,7 @@ class DocumentIngestionService:
         # For now, we'll use the client's delete method with filter
 
         deleted_count = await self.qdrant_client.delete_by_filter(
-            filter={
-                "must": [
-                    {"key": "document_id", "match": {"value": document_id}}
-                ]
-            }
+            {"document_id": document_id}
         )
 
         return {

@@ -29,6 +29,14 @@ class SessionRepository(BaseRepository[ChatSession]):
         """
         super().__init__(session)
 
+    async def get_by_id(
+        self,
+        id: int,
+        model: type[ChatSession] = ChatSession,
+    ) -> ChatSession | None:
+        """Get a session by ID without requiring callers to repeat the model."""
+        return await super().get_by_id(id, model)
+
     async def get_by_user_id(
         self,
         user_id: int,

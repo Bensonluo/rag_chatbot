@@ -1,6 +1,6 @@
 """Tests for Anthropic LLM client"""
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock
 
 
 class TestAnthropicClient:
@@ -43,9 +43,6 @@ class TestAnthropicClient:
         from app.services.llm.anthropic_client import AnthropicClient
         from app.services.llm.base import LLMMessage
 
-        client = AnthropicClient(api_key="test-key", model="claude-3-opus-20240229")
-        messages = [LLMMessage(role="user", content="Hello!")]
-
         # Mock Anthropic API response
         mock_response = Mock()
         mock_response.content = [Mock(type="text", text="Hi there!")]
@@ -54,19 +51,20 @@ class TestAnthropicClient:
         mock_response.usage = Mock()
         mock_response.usage.input_tokens = 10
         mock_response.usage.output_tokens = 5
+        mock_client = Mock()
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+        client = AnthropicClient(
+            api_key="test-key", model="claude-3-opus-20240229", client=mock_client
+        )
+        messages = [LLMMessage(role="user", content="Hello!")]
 
-        with patch("app.services.llm.anthropic_client.AsyncAnthropic") as mock_anthropic:
-            mock_client = AsyncMock()
-            mock_client.messages.create = AsyncMock(return_value=mock_response)
-            mock_anthropic.return_value = mock_client
+        # Act
+        response = await client.generate(messages=messages)
 
-            # Act
-            response = await client.generate(messages=messages)
-
-            # Assert
-            assert response.content == "Hi there!"
-            assert response.model == "claude-3-opus-20240229"
-            assert response.finish_reason == "end_turn"
+        # Assert
+        assert response.content == "Hi there!"
+        assert response.model == "claude-3-opus-20240229"
+        assert response.finish_reason == "end_turn"
 
     @pytest.mark.asyncio
     async def test_generate_with_system_message(self):
@@ -75,31 +73,31 @@ class TestAnthropicClient:
         from app.services.llm.anthropic_client import AnthropicClient
         from app.services.llm.base import LLMMessage
 
-        client = AnthropicClient(api_key="test-key", model="claude-3-opus-20240229")
+        mock_response = Mock()
+        mock_response.content = [Mock(type="text", text="Hi there!")]
+        mock_response.stop_reason = "end_turn"
+        mock_response.model = "claude-3-opus-20240229"
+        mock_response.usage.input_tokens = 10
+        mock_response.usage.output_tokens = 5
+        mock_client = Mock()
+        mock_client.messages.create = AsyncMock(return_value=mock_response)
+        client = AnthropicClient(
+            api_key="test-key", model="claude-3-opus-20240229", client=mock_client
+        )
         messages = [
             LLMMessage(role="system", content="You are a helpful assistant."),
             LLMMessage(role="user", content="Hello!"),
         ]
 
-        mock_response = Mock()
-        mock_response.content = [Mock(type="text", text="Hi there!")]
-        mock_response.stop_reason = "end_turn"
-        mock_response.model = "claude-3-opus-20240229"
-        mock_response.usage = Mock()
+        # Act
+        response = await client.generate(messages=messages, temperature=0.0)
 
-        with patch("app.services.llm.anthropic_client.AsyncAnthropic") as mock_anthropic:
-            mock_client = AsyncMock()
-            mock_client.messages.create = AsyncMock(return_value=mock_response)
-            mock_anthropic.return_value = mock_client
-
-            # Act
-            response = await client.generate(messages=messages)
-
-            # Assert
-            assert response.content == "Hi there!"
-            # Verify system message was passed separately
-            call_args = mock_client.messages.create.call_args
-            assert "system" in call_args.kwargs
+        # Assert
+        assert response.content == "Hi there!"
+        # Verify system message was passed separately
+        call_args = mock_client.messages.create.call_args
+        assert "system" in call_args.kwargs
+        assert call_args.kwargs["temperature"] == 0.0
 
     @pytest.mark.asyncio
     async def test_generate_stream(self):
@@ -107,9 +105,6 @@ class TestAnthropicClient:
         # Arrange
         from app.services.llm.anthropic_client import AnthropicClient
         from app.services.llm.base import LLMMessage
-
-        client = AnthropicClient(api_key="test-key", model="claude-3-opus-20240229")
-        messages = [LLMMessage(role="user", content="Hello!")]
 
         # Mock streaming response
         async def mock_stream():
@@ -121,18 +116,23 @@ class TestAnthropicClient:
                 mock_event.delta.text = chunk
                 yield mock_event
 
-        with patch("app.services.llm.anthropic_client.AsyncAnthropic") as mock_anthropic:
-            mock_client = AsyncMock()
-            mock_client.messages.create = AsyncMock(return_value=mock_stream())
-            mock_anthropic.return_value = mock_client
+        stream_context = Mock()
+        stream_context.__aenter__ = AsyncMock(return_value=mock_stream())
+        stream_context.__aexit__ = AsyncMock(return_value=False)
+        mock_client = Mock()
+        mock_client.messages.stream = Mock(return_value=stream_context)
+        client = AnthropicClient(
+            api_key="test-key", model="claude-3-opus-20240229", client=mock_client
+        )
+        messages = [LLMMessage(role="user", content="Hello!")]
 
-            # Act
-            chunks = []
-            async for chunk in client.generate_stream(messages=messages):
-                chunks.append(chunk)
+        # Act
+        chunks = []
+        async for chunk in client.generate_stream(messages=messages):
+            chunks.append(chunk)
 
-            # Assert
-            assert chunks == ["Hi", " there", "!"]
+        # Assert
+        assert chunks == ["Hi", " there", "!"]
 
     @pytest.mark.asyncio
     async def test_generate_api_error(self):
@@ -142,19 +142,16 @@ class TestAnthropicClient:
         from app.services.llm.base import LLMMessage
         from app.core.exceptions import ExternalServiceError
 
-        client = AnthropicClient(api_key="test-key", model="claude-3-opus-20240229")
+        mock_client = Mock()
+        mock_client.messages.create = AsyncMock(side_effect=Exception("API Error"))
+        client = AnthropicClient(
+            api_key="test-key", model="claude-3-opus-20240229", client=mock_client
+        )
         messages = [LLMMessage(role="user", content="Hello!")]
 
-        with patch("app.services.llm.anthropic_client.AsyncAnthropic") as mock_anthropic:
-            mock_client = AsyncMock()
-            mock_client.messages.create = AsyncMock(
-                side_effect=Exception("API Error")
-            )
-            mock_anthropic.return_value = mock_client
-
-            # Act & Assert
-            with pytest.raises(ExternalServiceError):
-                await client.generate(messages=messages)
+        # Act & Assert
+        with pytest.raises(ExternalServiceError):
+            await client.generate(messages=messages)
 
     def test_estimate_tokens(self):
         """Test token estimation"""

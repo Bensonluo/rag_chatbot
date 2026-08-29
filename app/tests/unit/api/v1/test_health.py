@@ -28,6 +28,7 @@ class TestHealthEndpoints:
         from app.main import create_app
 
         app = create_app()
+        app.state.chat_ready = True
         client = TestClient(app)
 
         # Act
@@ -135,6 +136,7 @@ class TestMonitoringIntegration:
         from app.main import create_app
 
         app = create_app()
+        app.state.chat_ready = True
         client = TestClient(app)
 
         # Act & Assert

@@ -82,7 +82,8 @@ class TestRequestIDMiddleware:
                 "type": "http",
                 "method": "GET",
                 "path": "/test",
-                "headers": [(b"X-Request-ID", existing_id.encode())],
+                # ASGI requires incoming header names to be lowercase bytes.
+                "headers": [(b"x-request-id", existing_id.encode())],
                 "query_string": b"",
             },
             receive=None,

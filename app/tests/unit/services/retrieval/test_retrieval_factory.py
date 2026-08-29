@@ -15,7 +15,8 @@ class TestRetrievalFactory:
         client = RetrievalFactory.create_vector_client(
             client_type="qdrant",
             url="http://localhost:6333",
-            collection_name="test_collection"
+            collection_name="test_collection",
+            client=Mock(),
         )
 
         # Assert
@@ -31,7 +32,8 @@ class TestRetrievalFactory:
             client_type="qdrant",
             url="http://localhost:6333",
             collection_name="test_collection",
-            api_key="test_api_key"
+            api_key="test_api_key",
+            client=Mock(),
         )
 
         # Assert
@@ -69,7 +71,7 @@ class TestRetrievalFactory:
 
         # Assert
         assert service.vector_weight == 0.7
-        assert service.keyword_weight == 0.3
+        assert service.keyword_weight == pytest.approx(0.3)
 
     def test_create_hybrid_search_default_weights(self):
         """Test creating hybrid search with default weights"""

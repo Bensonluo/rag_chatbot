@@ -1,10 +1,16 @@
 """Chat session database model"""
-from typing import List
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from sqlalchemy import ForeignKey, String, Integer, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.database.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.database.message import Message
+    from app.models.database.user import User
 
 
 class ChatSession(Base, TimestampMixin):
@@ -47,10 +53,10 @@ class ChatSession(Base, TimestampMixin):
     session_metadata: Mapped[dict | None] = mapped_column(JSON, default=None)
 
     # Relationships
-    user: Mapped["User"] = relationship(
+    user: Mapped[User] = relationship(
         back_populates="sessions",
     )
-    messages: Mapped[List["Message"]] = relationship(
+    messages: Mapped[list[Message]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
         order_by="Message.created_at",

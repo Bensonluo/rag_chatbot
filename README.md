@@ -2,7 +2,7 @@
 
 # GraphRAG Smart Customer Service
 
-**A production-grade enterprise chatbot powered by LangGraph — 9-node dialogue graph, Function Calling, hybrid RAG, and GraphRAG knowledge retrieval.**
+**A personal technical demo powered by LangGraph — 9-node dialogue graph, Function Calling, hybrid RAG, and GraphRAG retrieval.**
 
 [![Live Demo](https://img.shields.io/badge/LIVE-DEMO-brightgreen?style=for-the-badge&logo=vercel)](https://benluo.art/projects/rag-chatbot/)
 [![GitHub stars](https://img.shields.io/github/stars/Bensonluo/rag_chatbot?style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/stargazers)
@@ -13,11 +13,7 @@
 [![LangGraph](https://img.shields.io/badge/LangGraph-StateGraph-FF6B6B)](https://github.com/langchain-ai/langgraph)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 
-<!-- 🎬 录制说明:用 lic_ecap/kap 录 30 秒对话演示,放到 docs/assets/demo.gif -->
-<!--     录制内容:输入"我要退款" → 多轮槽位收集 → 意图切换"退货政策" → 恢复原任务 -->
-<img src="docs/assets/demo.gif" alt="RAG Chatbot Demo" width="80%">
-
-*🎬 Replace this with a 30s GIF of the dialogue flow — see [Recording Guide](#-demo-recording-guide) below*
+`intent routing → slot filling → tool call / hybrid retrieval → GraphRAG (optional)`
 
 </div>
 
@@ -48,9 +44,16 @@ Most "RAG chatbot" tutorials stop at a single vector search call. **Real custome
 - ❌ Knowledge questions and task questions need different handling paths
 - ❌ PII leakage and prompt injection are real attack vectors
 
-This project solves all of them with a **LangGraph StateGraph** — the same architecture used by enterprises running mission-critical dialogue systems. It's not a demo; it's a reference implementation you can learn from and extend.
+This project explores those problems with a **LangGraph StateGraph**. It is deliberately an architecture-focused personal demo: easy to read, run, modify, and discuss in an interview or technical review.
 
-> 💬 **What you'll learn**: how to structure a multi-node dialogue graph, design intent routing with task resume, integrate hybrid retrieval (vector + GraphRAG), and ship it with full observability.
+> 💬 **What you'll learn**: how to structure a multi-node dialogue graph, design intent routing with task resume, integrate hybrid retrieval (vector + GraphRAG), and expose useful runtime metrics.
+
+### Project scope
+
+- The maintained path is a single-instance technical demo, not a production SLA target.
+- PostgreSQL, Redis, Qdrant, and Neo4j data created by Compose can be treated as disposable demo data.
+- Authentication, Kubernetes, tracing, and community GraphRAG remain extension examples; they are not part of the default quality gate.
+- The core quality gate covers dialogue state, intent/slot processing, guardrails, document ingestion, retrieval, and the connected GraphRAG path.
 
 ---
 
@@ -64,15 +67,15 @@ This project solves all of them with a **LangGraph StateGraph** — the same arc
 | Intent switch & resume | ToolRegistry pattern | Vector + BM25 + RRF |
 | Slot filling | Task → tool → response | Cross-Encoder reranking |
 
-| 🛡️ Safety | 📊 Observability | 🚀 Production |
+| 🛡️ Safety | 📊 Observability | 🚀 Runtime |
 |:---:|:---:|:---:|
 | Input/Output guardrails | OpenTelemetry tracing | Docker Compose |
-| Prompt injection detection | Prometheus + Grafana | K8s manifests |
+| Prompt injection detection | Prometheus + Grafana | Compose + optional K8s example |
 | PII redaction | Token & latency metrics | Health checks |
 
 | 📈 Stats | | |
 |:---:|:---:|:---:|
-| **104+** test cases | **3** LLM providers | **80%+** coverage |
+| **395** maintained tests | **3** LLM providers | **79.92%** core coverage |
 | **9** dialogue nodes | **4** data stores | **4** memory strategies |
 
 </div>
@@ -84,7 +87,7 @@ This project solves all of them with a **LangGraph StateGraph** — the same arc
 3. **Tri-route dispatch** — task → tool execution / RAG → retrieval / direct → LLM
 4. **GraphRAG (optional)** — Neo4j knowledge graph + Text-to-Cypher + community detection
 5. **Hybrid retrieval** — vector (Qdrant) + BM25 keyword → RRF fusion → Cross-Encoder rerank
-6. **Full-stack observability** — OpenTelemetry + Prometheus + Grafana out of the box
+6. **Observable demo runtime** — `/metrics`, optional Prometheus/Grafana profile, and tracing hooks
 
 ---
 
@@ -131,7 +134,7 @@ User: "继续，原因是质量问题"
 
 ## 🚀 Quick Start
 
-### Option 1: Docker Compose (recommended, ~2 min)
+### Option 1: Docker Compose (recommended)
 
 ```bash
 git clone https://github.com/Bensonluo/rag_chatbot.git
@@ -141,7 +144,7 @@ cd rag_chatbot
 cp .env.example .env
 # Edit .env: set GLM_API_KEY (or OPENAI_API_KEY / ANTHROPIC_API_KEY)
 
-# Start core services (API + PostgreSQL + Redis + Qdrant)
+# Start the demo stack (API + PostgreSQL + Redis + Qdrant + Neo4j)
 docker-compose up -d
 
 # Or with monitoring stack (Prometheus + Grafana)
@@ -149,14 +152,14 @@ docker-compose --profile monitoring up -d
 
 # Verify
 curl http://localhost:8000/health
-# → {"status":"healthy","database":"connected","redis":"connected",...}
+curl http://localhost:8000/ready
 ```
 
 ### Option 2: Try the Live Demo first
 
 Don't want to deploy? **[Try it online →](https://benluo.art/projects/rag-chatbot/)** — no signup, runs in your browser.
 
-> 🔑 **Note on API keys**: GLM is recommended for Chinese workloads (best cost/quality ratio). The system auto-falls back: GLM → OpenAI → Anthropic. Embeddings default to local BGE-M3 (free, no API key needed).
+> 🔑 **Note on API keys**: configure at least one supported LLM key. Embeddings default to the local [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) model, so the first start downloads model weights and can take several minutes.
 
 ### Option 3: Local development
 
@@ -203,7 +206,7 @@ Try these scenarios:
 | **Cache** | Redis | Rate limiting, embeddings cache |
 | **LLM** | GLM / OpenAI / Anthropic | Auto-fallback by API key availability |
 | **Embeddings** | BGE-M3 (local) | Free, multilingual, no API key |
-| **Observability** | OpenTelemetry + Prometheus + Grafana | Production-grade tracing & metrics |
+| **Observability** | OpenTelemetry + Prometheus + Grafana | Inspect demo traces and metrics |
 
 ### LangGraph Dialogue Graph
 
@@ -309,27 +312,32 @@ See [.env.example](.env.example) for the full list.
 ## 🧪 Testing & Quality
 
 ```bash
-# Full test suite with coverage (80% minimum enforced)
+# Maintained core suite (70% minimum; currently 395 tests / 79.92%)
 pytest
 
 # Targeted runs
 pytest app/tests/unit/services/dialogue/ -v    # LangGraph tests
 pytest app/tests/unit/services/intent/ -v      # Intent detection
-pytest app/tests/integration/ -v               # API integration
+# Legacy audit only (contains superseded contracts; not expected to be all green)
+pytest app/tests --no-cov
 ```
 
 ### Code Quality Gates
 
 ```bash
-ruff check app/      # Lint
-ruff format app/     # Format
-mypy app/            # Type check
+# Runtime-critical Ruff checks (production code only)
+ruff check app --exclude app/tests --select E9,F63,F7,F82
+
+# Key typed boundaries used by the demo chain
+mypy app/core/security.py app/services/documents/base.py \
+  app/services/documents/ingestion.py app/services/graph/base.py \
+  --follow-imports=skip --ignore-missing-imports
 ```
 
 | Metric | Value |
 |--------|-------|
-| Test cases | **104+** |
-| Test coverage | **80%+** (CI-enforced) |
+| Maintained test cases | **395** |
+| Maintained core coverage | **79.92%** (70% minimum enforced locally) |
 | Python files | ~200 |
 | Test files | ~58 |
 
@@ -342,8 +350,8 @@ mypy app/            # Type check
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 104+ test cases, 80%+ coverage
-- [ ] PostgresSaver checkpointing (production-grade persistence)
+- [x] 395 maintained core tests, 79.92% coverage
+- [ ] PostgresSaver checkpointing experiment
 - [ ] Fine-tuned intent classifier (replace LLM-based with small specialized model)
 - [ ] A/B testing framework for prompt variants
 - [ ] Multi-tenant knowledge bases
@@ -358,7 +366,7 @@ PRs welcome! Especially:
 - 📚 More GraphRAG use cases (currently: customer service KB)
 - 🌍 i18n improvements
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup.
+For development setup, follow the local-development commands above and run `pytest` before opening a PR.
 
 ---
 
@@ -380,7 +388,7 @@ If this project helped you, please ⭐ star the repo — it helps others discove
 
 ## 🇨🇳 中文说明
 
-**GraphRAG 智能客服** — 基于 LangGraph 构建的企业级客服对话系统。
+**GraphRAG 智能客服** — 基于 LangGraph 构建的个人技术 Demo，重点展示对话状态、混合检索与知识图谱链路。
 
 ### 核心亮点
 
@@ -404,34 +412,4 @@ docker-compose up -d
 
 访问 http://localhost:8000/docs 查看 API 文档。
 
-📖 **部署文档**:参考 [Portfolio Deployment Guide](https://github.com/Bensonluo/portfolio-fe)。
-
----
-
-<details>
-<summary>🎬 Demo Recording Guide (for maintainers)</summary>
-
-### How to record the hero GIF
-
-1. **Tool**: [licecap](https://www.cockos.com/licecap/) (Mac/Win, free) or [kap](https://getkap.co/) (Mac, OSS)
-2. **Content** (~30s):
-   - 0-5s: Type "我要退款", show bot asking for order_id
-   - 5-15s: Provide order_id, watch slot filling
-   - 15-20s: Ask "退货政策是什么" mid-flow (show intent switch)
-   - 20-30s: Resume original refund task, watch it complete
-3. **Save to**: `docs/assets/demo.gif` (keep under 5MB)
-4. **Update**: Replace the placeholder `<img>` in the hero section
-
-### Architecture diagram
-
-Use [excalidraw](https://excalidraw.com/) (free) or [mermaid](https://mermaid.live/) to export a clean PNG of the dialogue graph, save to `docs/assets/architecture.png`.
-
-</details>
-
-<!--
-RECORDING_TODO:
-1. Record demo.gif → docs/assets/demo.gif
-2. Draw architecture.png → docs/assets/architecture.png
-3. Replace placeholder img tags in hero section
-4. Update Live Demo URL (benluo.art → real domain)
--->
+> 项目口径：这是可运行、可扩展、适合技术交流的单实例 Demo；不把多租户、高可用、灾备等生产能力作为完成标准。

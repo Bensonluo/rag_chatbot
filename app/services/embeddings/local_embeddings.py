@@ -17,14 +17,14 @@ class LocalEmbeddingService(EmbeddingServiceBase):
     Local embedding service using sentence-transformers.
 
     Supports models like:
-    - BAAI/bge-m3-v2-zh (BGE-M3 Chinese-English)
+    - BAAI/bge-m3 (BGE-M3 multilingual)
     - sentence-transformers/all-MiniLM-L6-v2
     - Other HuggingFace sentence-transformer models
     """
 
     # Available models and their dimensions
     MODELS = {
-        "bge-m3-v2-zh": 1024,  # BGE-M3 Chinese-English (recommended)
+        "bge-m3": 1024,  # BGE-M3 multilingual (recommended)
         "bge-large-zh-v1.5": 1024,  # BGE Large Chinese
         "bge-small-zh-v1.5": 512,  # BGE Small Chinese
         "multilingual-e5-large": 1024,  # E5 Large Multilingual
@@ -33,7 +33,7 @@ class LocalEmbeddingService(EmbeddingServiceBase):
 
     def __init__(
         self,
-        model: str = "bge-m3-v2-zh",
+        model: str = "bge-m3",
         device: str = "cpu",
         dimensions: int = None,
     ) -> None:
@@ -41,13 +41,13 @@ class LocalEmbeddingService(EmbeddingServiceBase):
         Initialize local embedding service.
 
         Args:
-            model: Model name (default: bge-m3-v2-zh)
+            model: Model name (default: bge-m3)
             device: Device to use ('cpu' or 'cuda')
             dimensions: Override dimensions (auto-detected if not provided)
         """
         # Map model name to HuggingFace model ID
         model_mapping = {
-            "bge-m3-v2-zh": "BAAI/bge-m3-v2-zh",
+            "bge-m3": "BAAI/bge-m3",
             "bge-large-zh-v1.5": "BAAI/bge-large-zh-v1.5",
             "bge-small-zh-v1.5": "BAAI/bge-small-zh-v1.5",
             "multilingual-e5-large": "intfloat/multilingual-e5-large",
@@ -193,14 +193,18 @@ class LocalEmbeddingService(EmbeddingServiceBase):
 
 
 @lru_cache()
-def get_local_embedding_service(model: str = "bge-m3-v2-zh") -> LocalEmbeddingService:
+def get_local_embedding_service(
+    model: str = "bge-m3",
+    device: str = "cpu",
+) -> LocalEmbeddingService:
     """
     Get a cached local embedding service instance.
 
     Args:
         model: Model name to use
+        device: Inference device
 
     Returns:
         LocalEmbeddingService: Cached service instance
     """
-    return LocalEmbeddingService(model=model)
+    return LocalEmbeddingService(model=model, device=device)

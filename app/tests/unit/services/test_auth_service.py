@@ -255,6 +255,8 @@ class TestAuthenticationService:
             email="test@example.com",
             hashed_password="hash",
         )
+        db_session.add(user)
+        await db_session.commit()
 
         user_repo = UserRepository(db_session)
         auth_service = AuthenticationService(user_repo)
@@ -299,6 +301,8 @@ class TestAuthenticationService:
             email="test@example.com",
             hashed_password="hash",
         )
+        db_session.add(user)
+        await db_session.commit()
 
         user_repo = UserRepository(db_session)
         auth_service = AuthenticationService(user_repo)

@@ -15,6 +15,28 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+# Metrics belong to the process, not to an individual FastAPI app instance.
+# Defining them once keeps app factories and test clients from attempting to
+# register duplicate time series in Prometheus' global registry.
+HTTP_REQUEST_COUNT = Counter(
+    "http_requests_total",
+    "Total HTTP requests",
+    ["method", "endpoint", "status"],
+    registry=REGISTRY,
+)
+HTTP_REQUEST_LATENCY = Histogram(
+    "http_request_duration_seconds",
+    "HTTP request latency",
+    ["method", "endpoint"],
+    registry=REGISTRY,
+)
+HTTP_ACTIVE_REQUESTS = Gauge(
+    "http_requests_active",
+    "Active HTTP requests",
+    registry=REGISTRY,
+)
+
+
 class PrometheusMiddleware(BaseHTTPMiddleware):
     """
     Middleware to collect Prometheus metrics.
@@ -29,26 +51,9 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.app_name = app_name
 
-        # Define metrics
-        self.request_count = Counter(
-            "http_requests_total",
-            "Total HTTP requests",
-            ["method", "endpoint", "status"],
-            registry=REGISTRY,
-        )
-
-        self.request_latency = Histogram(
-            "http_request_duration_seconds",
-            "HTTP request latency",
-            ["method", "endpoint"],
-            registry=REGISTRY,
-        )
-
-        self.active_requests = Gauge(
-            "http_requests_active",
-            "Active HTTP requests",
-            registry=REGISTRY,
-        )
+        self.request_count = HTTP_REQUEST_COUNT
+        self.request_latency = HTTP_REQUEST_LATENCY
+        self.active_requests = HTTP_ACTIVE_REQUESTS
 
     async def dispatch(self, request: Request, call_next):
         """

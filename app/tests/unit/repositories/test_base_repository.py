@@ -151,7 +151,7 @@ class TestBaseRepository:
         from app.models.database.user import User
 
         mock_session = Mock()
-        mock_session.delete = Mock()
+        mock_session.delete = AsyncMock()
         mock_session.commit = AsyncMock()
 
         user_to_delete = User(

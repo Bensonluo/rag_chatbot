@@ -29,6 +29,14 @@ class UserRepository(BaseRepository[User]):
         """
         super().__init__(session)
 
+    async def get_by_id(
+        self,
+        id: int,
+        model: type[User] = User,
+    ) -> User | None:
+        """Get a user by ID without requiring callers to repeat the model."""
+        return await super().get_by_id(id, model)
+
     async def get_by_email(self, email: str) -> User | None:
         """
         Get a user by email address (case-insensitive).

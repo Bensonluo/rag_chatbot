@@ -6,6 +6,47 @@ from unittest.mock import Mock, AsyncMock, patch, MagicMock
 class TestQdrantClient:
     """Test Qdrant client implementation"""
 
+    @pytest.mark.asyncio
+    async def test_ensure_collection_creates_it_for_first_use(self):
+        """A fresh Compose Qdrant instance should work without manual setup."""
+        from app.services.retrieval.qdrant_client import QdrantClient
+
+        class FakeDistance:
+            COSINE = "Cosine"
+
+        class FakeVectorParams:
+            def __init__(self, **values):
+                self.__dict__.update(values)
+
+        models = {
+            "Distance": FakeDistance,
+            "VectorParams": FakeVectorParams,
+        }
+        mock_client = Mock()
+        mock_client.collection_exists = AsyncMock(return_value=False)
+        mock_client.create_collection = AsyncMock(return_value=True)
+        client = QdrantClient(
+            url="http://localhost:6333",
+            collection_name="documents",
+            client=mock_client,
+            embedding_service=Mock(dimensions=1024),
+        )
+        client._client_injected = False
+
+        with patch.object(
+            client,
+            "_qdrant_model",
+            side_effect=lambda name: models[name],
+        ):
+            await client._ensure_collection()
+
+        mock_client.create_collection.assert_awaited_once()
+        vector_config = mock_client.create_collection.await_args.kwargs[
+            "vectors_config"
+        ]
+        assert vector_config.size == 1024
+        assert vector_config.distance == "Cosine"
+
     def test_client_initialization(self):
         """Test Qdrant client initialization"""
         # Arrange & Act
@@ -87,10 +128,12 @@ class TestQdrantClient:
 
         mock_client = Mock()
         mock_search_result = Mock(
-            id="doc1",
+            id="chunk1",
             payload={
+                "document_id": "doc1",
+                "chunk_id": "chunk1",
                 "content": "Test content",
-                "metadata": {"category": "test"}
+                "metadata": {"category": "test", "chunk_id": "chunk1"}
             },
             score=0.95
         )
@@ -117,7 +160,10 @@ class TestQdrantClient:
             assert results[0].document_id == "doc1"
             assert results[0].score == 0.95
             assert results[0].content == "Test content"
-            assert results[0].metadata == {"category": "test"}
+            assert results[0].metadata == {
+                "category": "test",
+                "chunk_id": "chunk1",
+            }
 
     @pytest.mark.asyncio
     async def test_search_with_filters(self):
@@ -149,6 +195,33 @@ class TestQdrantClient:
             mock_client.search.assert_called_once()
             call_args = mock_client.search.call_args
             assert call_args is not None
+
+    @pytest.mark.asyncio
+    async def test_delete_by_filter_keeps_root_payload_keys(self):
+        """Document deletion filters target root payload fields."""
+        from app.services.retrieval.qdrant_client import QdrantClient
+
+        mock_client = Mock()
+        mock_client.count = AsyncMock(return_value=Mock(count=3))
+        mock_client.delete = AsyncMock(return_value=Mock(status="completed"))
+
+        client = QdrantClient(
+            url="http://localhost:6333",
+            collection_name="test_collection",
+            client=mock_client,
+        )
+
+        with patch.object(
+            client,
+            "_build_filter",
+            return_value=Mock(name="qdrant_filter"),
+        ) as build_filter:
+            deleted = await client.delete_by_filter({"document_id": "doc-demo"})
+
+        build_filter.assert_called_once_with({"document_id": "doc-demo"})
+        mock_client.count.assert_awaited_once()
+        mock_client.delete.assert_awaited_once()
+        assert deleted == 3
 
     @pytest.mark.asyncio
     async def test_delete_documents(self):
@@ -231,7 +304,7 @@ class TestQdrantClient:
         assert document.id == "doc1"
         assert document.content == "Test content"
         assert document.embedding == [0.1, 0.2, 0.3]
-        assert document.doc_metadata == {"category": "test"}
+        assert document.metadata == {"category": "test"}
 
     @pytest.mark.asyncio
     async def test_get_document_not_found(self):

@@ -21,7 +21,7 @@ class TestAuthEndpoints:
         )
 
         # Assert
-        assert response.status_code == 200
+        assert response.status_code == 201
         data = response.json()
         assert "id" in data
         assert data["email"] == "newuser@example.com"

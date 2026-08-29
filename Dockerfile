@@ -32,11 +32,11 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Upgrade pip and install build tools FIRST (separate layer for caching)
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Copy requirements file for better caching
-COPY requirements.txt ./
-
-# Install Python dependencies from requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+# pyproject.toml is the dependency source of truth. Copy only package metadata
+# and source first so dependency installation remains a cacheable layer.
+COPY pyproject.toml README.md LICENSE ./
+COPY app ./app
+RUN pip install --no-cache-dir .
 
 # Stage 2: Runtime
 FROM python:3.11-slim as runtime

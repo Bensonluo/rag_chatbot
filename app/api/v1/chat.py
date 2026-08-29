@@ -35,6 +35,9 @@ async def initialize_chat_service(db: AsyncSession):
     """Initialize the RAG chat service with all dependencies."""
     global _chat_service
 
+    from app.config.settings import get_settings
+
+    settings = get_settings()
     llm_service = LLMFactory.create_from_settings()
 
     from app.repositories.message_repository import MessageRepository
@@ -49,8 +52,9 @@ async def initialize_chat_service(db: AsyncSession):
         embedding_service = EmbeddingFactory.create_from_settings()
         qdrant_client = RetrievalFactory.create_vector_client(
             client_type="qdrant",
-            url="http://qdrant:6333",
-            collection_name="documents",
+            url=settings.VECTOR_DB_URL,
+            collection_name=settings.VECTOR_COLLECTION_NAME,
+            api_key=settings.VECTOR_API_KEY,
             embedding_service=embedding_service,
         )
         retrieval_pipeline = {
@@ -63,9 +67,6 @@ async def initialize_chat_service(db: AsyncSession):
 
     # Initialize reranker
     try:
-        from app.config.settings import get_settings
-
-        settings = get_settings()
         if settings.RERANKER_ENABLED and retrieval_pipeline is not None:
             reranker = RetrievalFactory.create_reranker_from_settings(
                 llm_service=llm_service,
@@ -80,9 +81,6 @@ async def initialize_chat_service(db: AsyncSession):
     multi_path_fusion = None
 
     try:
-        from app.config.settings import get_settings
-
-        settings = get_settings()
         if settings.GRAPH_RAG_ENABLED:
             from app.services.graph import GraphFactory
             from app.services.graph.retrieval import (
@@ -93,6 +91,11 @@ async def initialize_chat_service(db: AsyncSession):
             graph_client = GraphFactory.create_from_settings()
             if graph_client:
                 await graph_client.connect()
+
+                # Reuse the connected client for the optional GraphRAG HTTP API.
+                from app.api.v1.graph import set_graph_client
+
+                set_graph_client(graph_client)
 
                 graph_retrieval_service = GraphRetrievalService(
                     text_to_cypher=None,
@@ -134,9 +137,6 @@ async def initialize_chat_service(db: AsyncSession):
     # ── Slot filling ──────────────────────────────────────────────────────
     slot_filler = None
     try:
-        from app.config.settings import get_settings
-
-        settings = get_settings()
         if settings.SLOT_FILLING_ENABLED:
             from app.services.slot_filling.factory import SlotFillerFactory
 

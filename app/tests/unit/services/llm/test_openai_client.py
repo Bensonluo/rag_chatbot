@@ -1,6 +1,6 @@
 """Tests for OpenAI LLM client"""
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import Mock, AsyncMock
 
 
 class TestOpenAIClient:
@@ -43,9 +43,6 @@ class TestOpenAIClient:
         from app.services.llm.openai_client import OpenAIClient
         from app.services.llm.base import LLMMessage
 
-        client = OpenAIClient(api_key="test-key", model="gpt-4")
-        messages = [LLMMessage(role="user", content="Hello!")]
-
         # Mock OpenAI API
         mock_response = Mock()
         mock_response.choices = [Mock()]
@@ -55,20 +52,20 @@ class TestOpenAIClient:
         mock_response.usage.prompt_tokens = 10
         mock_response.usage.completion_tokens = 5
         mock_response.usage.total_tokens = 15
+        mock_response.model = "gpt-4"
+        mock_client = Mock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+        client = OpenAIClient(api_key="test-key", model="gpt-4", client=mock_client)
+        messages = [LLMMessage(role="user", content="Hello!")]
 
-        with patch("app.services.llm.openai_client.AsyncOpenAI") as mock_openai:
-            mock_client = AsyncMock()
-            mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
-            mock_openai.return_value = mock_client
+        # Act
+        response = await client.generate(messages=messages)
 
-            # Act
-            response = await client.generate(messages=messages)
-
-            # Assert
-            assert response.content == "Hi there!"
-            assert response.model == "gpt-4"
-            assert response.finish_reason == "stop"
-            assert response.usage["total_tokens"] == 15
+        # Assert
+        assert response.content == "Hi there!"
+        assert response.model == "gpt-4"
+        assert response.finish_reason == "stop"
+        assert response.usage["total_tokens"] == 15
 
     @pytest.mark.asyncio
     async def test_generate_with_overrides(self):
@@ -76,14 +73,6 @@ class TestOpenAIClient:
         # Arrange
         from app.services.llm.openai_client import OpenAIClient
         from app.services.llm.base import LLMMessage
-
-        client = OpenAIClient(
-            api_key="test-key",
-            model="gpt-4",
-            max_tokens=500,
-            temperature=0.5
-        )
-        messages = [LLMMessage(role="user", content="Hello!")]
 
         mock_response = Mock()
         mock_response.choices = [Mock()]
@@ -93,25 +82,31 @@ class TestOpenAIClient:
         mock_response.usage.prompt_tokens = 10
         mock_response.usage.completion_tokens = 5
         mock_response.usage.total_tokens = 15
+        mock_response.model = "gpt-4"
+        mock_client = Mock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+        client = OpenAIClient(
+            api_key="test-key",
+            model="gpt-4",
+            max_tokens=500,
+            temperature=0.5,
+            client=mock_client,
+        )
+        messages = [LLMMessage(role="user", content="Hello!")]
 
-        with patch("app.services.llm.openai_client.AsyncOpenAI") as mock_openai:
-            mock_client = AsyncMock()
-            mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
-            mock_openai.return_value = mock_client
+        # Act - Override parameters
+        response = await client.generate(
+            messages=messages,
+            max_tokens=1000,
+            temperature=0.0
+        )
 
-            # Act - Override parameters
-            response = await client.generate(
-                messages=messages,
-                max_tokens=1000,
-                temperature=0.9
-            )
-
-            # Assert
-            assert response.content == "Response"
-            # Verify the override was passed to API
-            call_args = mock_client.chat.completions.create.call_args
-            assert call_args.kwargs["max_tokens"] == 1000
-            assert call_args.kwargs["temperature"] == 0.9
+        # Assert
+        assert response.content == "Response"
+        # Verify the override was passed to API
+        call_args = mock_client.chat.completions.create.call_args
+        assert call_args.kwargs["max_tokens"] == 1000
+        assert call_args.kwargs["temperature"] == 0.0
 
     @pytest.mark.asyncio
     async def test_generate_stream(self):
@@ -119,9 +114,6 @@ class TestOpenAIClient:
         # Arrange
         from app.services.llm.openai_client import OpenAIClient
         from app.services.llm.base import LLMMessage
-
-        client = OpenAIClient(api_key="test-key", model="gpt-4")
-        messages = [LLMMessage(role="user", content="Hello!")]
 
         # Mock streaming response
         async def mock_stream():
@@ -132,18 +124,18 @@ class TestOpenAIClient:
                 mock_chunk.choices[0].delta.content = chunk
                 yield mock_chunk
 
-        with patch("app.services.llm.openai_client.AsyncOpenAI") as mock_openai:
-            mock_client = AsyncMock()
-            mock_client.chat.completions.create = AsyncMock(return_value=mock_stream())
-            mock_openai.return_value = mock_client
+        mock_client = Mock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_stream())
+        client = OpenAIClient(api_key="test-key", model="gpt-4", client=mock_client)
+        messages = [LLMMessage(role="user", content="Hello!")]
 
-            # Act
-            chunks = []
-            async for chunk in client.generate_stream(messages=messages):
-                chunks.append(chunk)
+        # Act
+        chunks = []
+        async for chunk in client.generate_stream(messages=messages):
+            chunks.append(chunk)
 
-            # Assert
-            assert chunks == ["Hi", " there", "!"]
+        # Assert
+        assert chunks == ["Hi", " there", "!"]
 
     @pytest.mark.asyncio
     async def test_generate_api_error(self):
@@ -153,19 +145,14 @@ class TestOpenAIClient:
         from app.services.llm.base import LLMMessage
         from app.core.exceptions import ExternalServiceError
 
-        client = OpenAIClient(api_key="test-key", model="gpt-4")
+        mock_client = Mock()
+        mock_client.chat.completions.create = AsyncMock(side_effect=Exception("API Error"))
+        client = OpenAIClient(api_key="test-key", model="gpt-4", client=mock_client)
         messages = [LLMMessage(role="user", content="Hello!")]
 
-        with patch("app.services.llm.openai_client.AsyncOpenAI") as mock_openai:
-            mock_client = AsyncMock()
-            mock_client.chat.completions.create = AsyncMock(
-                side_effect=Exception("API Error")
-            )
-            mock_openai.return_value = mock_client
-
-            # Act & Assert
-            with pytest.raises(ExternalServiceError):
-                await client.generate(messages=messages)
+        # Act & Assert
+        with pytest.raises(ExternalServiceError):
+            await client.generate(messages=messages)
 
     def test_estimate_tokens(self):
         """Test token estimation"""

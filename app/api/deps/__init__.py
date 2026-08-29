@@ -137,7 +137,7 @@ async def get_current_user(
 
 
 async def get_current_active_user(
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> User:
     """
     Dependency to get the current active user.
@@ -151,6 +151,12 @@ async def get_current_active_user(
     Raises:
         HTTPException: If user is not active
     """
+    if current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     if not current_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

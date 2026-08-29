@@ -15,7 +15,7 @@ from app.models.schemas.session import (
 )
 from app.api.deps import (
     get_session_repository,
-    get_current_user,
+    get_current_active_user,
 )
 from app.services.session_service import SessionService
 from app.repositories.session_repository import SessionRepository
@@ -47,7 +47,7 @@ async def get_session_service(
 )
 async def create_session(
     session_data: SessionCreate,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
     session_service: Annotated[SessionService, Depends(get_session_service)],
 ) -> dict:
     """
@@ -82,7 +82,7 @@ async def create_session(
     summary="List user's chat sessions",
 )
 async def list_sessions(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
     session_service: Annotated[SessionService, Depends(get_session_service)],
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
@@ -123,7 +123,7 @@ async def list_sessions(
 )
 async def get_session(
     session_id: int,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
     session_service: Annotated[SessionService, Depends(get_session_service)],
 ) -> dict:
     """
@@ -151,7 +151,7 @@ async def get_session(
 async def update_session(
     session_id: int,
     session_data: SessionUpdate,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
     session_service: Annotated[SessionService, Depends(get_session_service)],
 ) -> dict:
     """
@@ -185,7 +185,7 @@ async def update_session(
 )
 async def delete_session(
     session_id: int,
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
     session_service: Annotated[SessionService, Depends(get_session_service)],
 ) -> None:
     """

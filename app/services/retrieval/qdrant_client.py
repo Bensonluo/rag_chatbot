@@ -3,6 +3,8 @@ Qdrant vector database client implementation.
 
 Provides async client for Qdrant vector database operations.
 """
+import asyncio
+
 from typing import Optional, List
 from app.services.retrieval.vector_base import (
     VectorClient,
@@ -11,6 +13,13 @@ from app.services.retrieval.vector_base import (
     VectorSearchRequest,
     VectorClientError,
 )
+
+
+class _InjectedClientModel:
+    """Minimal SDK model used only with an injected test/demo client."""
+
+    def __init__(self, **values: object) -> None:
+        self.__dict__.update(values)
 
 
 class QdrantClient(VectorClient):
@@ -43,6 +52,9 @@ class QdrantClient(VectorClient):
         self.collection_name = collection_name
         self.api_key = api_key
         self.embedding_service = embedding_service
+        self._client_injected = client is not None
+        self._collection_ready = False
+        self._collection_lock = asyncio.Lock()
 
         # Use provided client or create new one
         if client:
@@ -77,7 +89,8 @@ class QdrantClient(VectorClient):
             VectorClientError: If operation fails
         """
         try:
-            from qdrant_client.models import PointStruct
+            await self._ensure_collection()
+            PointStruct = self._qdrant_model("PointStruct")
 
             points = []
             document_ids = []
@@ -93,6 +106,7 @@ class QdrantClient(VectorClient):
                     id=doc.id,
                     vector=embedding,
                     payload={
+                        "document_id": doc.id,
                         "content": doc.content,
                         "metadata": doc.metadata or {},
                     }
@@ -131,14 +145,17 @@ class QdrantClient(VectorClient):
             VectorClientError: If operation fails
         """
         try:
+            await self._ensure_collection()
             # Generate embedding for query
             query_embedding = await self._generate_embedding(request.query)
 
             # Build search filters if provided
             search_filter = None
             if request.filters:
-                from qdrant_client.models import Filter
-                search_filter = self._build_filter(request.filters)
+                search_filter = self._build_filter(
+                    request.filters,
+                    metadata_prefix=True,
+                )
 
             # Search in Qdrant
             response = await self.client.search(
@@ -151,11 +168,12 @@ class QdrantClient(VectorClient):
             # Convert to SearchResult objects
             results = []
             for hit in response:
+                payload = hit.payload or {}
                 result = SearchResult(
-                    document_id=str(hit.id),
-                    content=hit.payload.get("content", ""),
+                    document_id=str(payload.get("document_id", hit.id)),
+                    content=payload.get("content", ""),
                     score=float(hit.score),
-                    metadata=hit.payload.get("metadata"),
+                    metadata=payload.get("metadata"),
                 )
                 results.append(result)
 
@@ -181,7 +199,7 @@ class QdrantClient(VectorClient):
             VectorClientError: If operation fails
         """
         try:
-            from qdrant_client.models import PointIdsList
+            PointIdsList = self._qdrant_model("PointIdsList")
 
             await self.client.delete(
                 collection_name=self.collection_name,
@@ -217,7 +235,8 @@ class QdrantClient(VectorClient):
             VectorClientError: If operation fails
         """
         try:
-            from qdrant_client.models import PointStruct
+            await self._ensure_collection()
+            PointStruct = self._qdrant_model("PointStruct")
 
             if not (len(ids) == len(vectors) == len(payloads)):
                 raise VectorClientError(
@@ -264,10 +283,16 @@ class QdrantClient(VectorClient):
             VectorClientError: If operation fails
         """
         try:
-            from qdrant_client.models import Filter
-
             # Build Qdrant filter
             qdrant_filter = self._build_filter(filter)
+
+            # Count first because Qdrant's delete response only reports the
+            # operation status, not how many points matched.
+            count_result = await self.client.count(
+                collection_name=self.collection_name,
+                count_filter=qdrant_filter,
+                exact=True,
+            )
 
             # Delete with filter
             await self.client.delete(
@@ -275,9 +300,7 @@ class QdrantClient(VectorClient):
                 query_filter=qdrant_filter
             )
 
-            # Qdrant doesn't return deleted count, so we estimate
-            # In production, you might want to count first
-            return len(filter.get("must", []))
+            return int(count_result.count)
 
         except Exception as e:
             raise VectorClientError(
@@ -299,7 +322,8 @@ class QdrantClient(VectorClient):
             VectorClientError: If operation fails
         """
         try:
-            from qdrant_client.models import PointStruct
+            await self._ensure_collection()
+            PointStruct = self._qdrant_model("PointStruct")
 
             # Generate embedding if not provided
             embedding = document.embedding
@@ -310,8 +334,9 @@ class QdrantClient(VectorClient):
                 id=document.id,
                 vector=embedding,
                 payload={
+                    "document_id": document.id,
                     "content": document.content,
-                    "metadata": document.doc_metadata or {},
+                    "metadata": document.metadata or {},
                 }
             )
 
@@ -398,7 +423,12 @@ class QdrantClient(VectorClient):
                 details={"text_length": len(text)}
             ) from e
 
-    def _build_filter(self, filters: dict) -> object:
+    def _build_filter(
+        self,
+        filters: dict,
+        *,
+        metadata_prefix: bool = False,
+    ) -> object:
         """
         Build Qdrant filter from dict.
 
@@ -408,15 +438,65 @@ class QdrantClient(VectorClient):
         Returns:
             Qdrant Filter object
         """
-        from qdrant_client.models import FieldCondition, MatchValue
+        FieldCondition = self._qdrant_model("FieldCondition")
+        MatchValue = self._qdrant_model("MatchValue")
 
         conditions = []
         for key, value in filters.items():
+            payload_key = f"metadata.{key}" if metadata_prefix else key
             condition = FieldCondition(
-                key=f"metadata.{key}",
+                key=payload_key,
                 match=MatchValue(value=value),
             )
             conditions.append(condition)
 
-        from qdrant_client.models import Filter
+        Filter = self._qdrant_model("Filter")
         return Filter(must=conditions)
+
+    def _qdrant_model(self, name: str):
+        """Load a Qdrant SDK model, with a lightweight injected-client fallback."""
+        try:
+            from qdrant_client import models
+
+            return getattr(models, name)
+        except (ImportError, AttributeError):
+            if self._client_injected:
+                return _InjectedClientModel
+            raise ImportError(
+                "qdrant-client is required for vector database operations"
+            )
+
+    async def _ensure_collection(self) -> None:
+        """Create the configured collection lazily on a fresh demo stack."""
+        if self._client_injected or self._collection_ready:
+            return
+
+        async with self._collection_lock:
+            if self._collection_ready:
+                return
+
+            collection_exists = getattr(self.client, "collection_exists", None)
+            if collection_exists is not None:
+                exists = await collection_exists(self.collection_name)
+            else:
+                collections = await self.client.get_collections()
+                exists = any(
+                    collection.name == self.collection_name
+                    for collection in collections.collections
+                )
+
+            if not exists:
+                Distance = self._qdrant_model("Distance")
+                VectorParams = self._qdrant_model("VectorParams")
+                vector_size = int(
+                    getattr(self.embedding_service, "dimensions", 1024)
+                )
+                await self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(
+                        size=vector_size,
+                        distance=Distance.COSINE,
+                    ),
+                )
+
+            self._collection_ready = True

@@ -1,10 +1,15 @@
 """User database model"""
-from typing import List
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from sqlalchemy import String, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.database.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.database.session import ChatSession
 
 
 class User(Base, TimestampMixin):
@@ -38,7 +43,7 @@ class User(Base, TimestampMixin):
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Relationships
-    sessions: Mapped[List["ChatSession"]] = relationship(
+    sessions: Mapped[list[ChatSession]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )

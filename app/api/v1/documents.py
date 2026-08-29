@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from typing import Optional, List
 from pydantic import BaseModel, Field
 from io import BytesIO
+import logging
 
 from app.services.documents.ingestion import DocumentIngestionService
 from app.services.embeddings import EmbeddingFactory
@@ -20,6 +21,7 @@ from app.config.settings import get_settings
 
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+logger = logging.getLogger(__name__)
 
 
 # Request/Response Schemas
@@ -99,11 +101,30 @@ async def get_ingestion_service() -> DocumentIngestionService:
         embedding_service=embedding_service,
     )
 
+    graph_client = None
+    entity_extractor = None
+    if settings.GRAPH_RAG_ENABLED and settings.GRAPH_RAG_EXTRACTION_ENABLED:
+        try:
+            from app.api.v1.graph import get_graph_client
+            from app.services.graph.extraction import LLMEntityExtractor
+            from app.services.llm import LLMFactory
+
+            graph_client = get_graph_client()
+            if graph_client is not None:
+                entity_extractor = LLMEntityExtractor(
+                    llm_service=LLMFactory.create_from_settings()
+                )
+        except Exception as exc:
+            logger.warning("Graph extraction is unavailable for this upload: %s", exc)
+
     # Create ingestion service
     return DocumentIngestionService(
         qdrant_client=qdrant_client,
         embedding_provider=settings.EMBEDDING_PROVIDER,
         chunking_strategy="semantic",  # Default chunking strategy
+        graph_client=graph_client,
+        entity_extractor=entity_extractor,
+        embedding_service=embedding_service,
     )
 
 

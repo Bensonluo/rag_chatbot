@@ -1,9 +1,16 @@
 """Message database model"""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from sqlalchemy import ForeignKey, String, Text, Integer, JSON, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.database.base import Base, TimestampMixin
 from app.models.enums.message import MessageRole, MessageStatus
+
+if TYPE_CHECKING:
+    from app.models.database.session import ChatSession
 
 
 class Message(Base, TimestampMixin):
@@ -50,7 +57,7 @@ class Message(Base, TimestampMixin):
     feedback_text: Mapped[str | None] = mapped_column(Text, default=None)
 
     # Relationships
-    session: Mapped["ChatSession"] = relationship(
+    session: Mapped[ChatSession] = relationship(
         back_populates="messages",
     )
 

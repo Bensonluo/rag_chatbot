@@ -2,7 +2,7 @@
 Base document processing interfaces and data structures.
 """
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import Any
 from dataclasses import dataclass
 
 
@@ -22,7 +22,7 @@ class DocumentChunk:
     chunk_id: str
     document_id: str
     index: int
-    metadata: dict
+    metadata: dict[str, Any]
 
 
 @dataclass
@@ -41,7 +41,7 @@ class Document:
     title: str
     content: str
     file_type: str
-    metadata: dict
+    metadata: dict[str, Any]
 
 
 class ChunkingStrategy(ABC):
@@ -60,7 +60,7 @@ class ChunkingStrategy(ABC):
         document: Document,
         max_chunk_size: int = 512,
         chunk_overlap: int = 50
-    ) -> List[DocumentChunk]:
+    ) -> list[DocumentChunk]:
         """
         Split a document into chunks.
 

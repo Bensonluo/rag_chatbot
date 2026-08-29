@@ -306,10 +306,6 @@ class TestDocumentMetadataRepository:
         )
 
         mock_session = Mock()
-        mock_session.add = Mock()
-        mock_session.commit = AsyncMock()
-        mock_session.refresh = Mock()
-
         repo = DocumentMetadataRepository(session=mock_session)
 
         metadata_model = DocumentMetadataModel(
@@ -322,8 +318,10 @@ class TestDocumentMetadataRepository:
         result = await repo.create(metadata_model)
 
         # Assert
-        mock_session.add.assert_called_once()
-        mock_session.commit.assert_called_once()
+        assert result == metadata_model
+        stored = await repo.get_by_document_id("doc1")
+        assert stored is not None
+        assert stored.title == "Test"
 
     @pytest.mark.asyncio
     async def test_repository_get_by_document_id(self):
@@ -340,11 +338,8 @@ class TestDocumentMetadataRepository:
             document_id="doc1",
             title="Test"
         )
-        mock_result = Mock()
-        mock_result.scalar_one_or_none = Mock(return_value=mock_model)
-        mock_session.execute = AsyncMock(return_value=mock_result)
-
         repo = DocumentMetadataRepository(session=mock_session)
+        await repo.create(mock_model)
 
         # Act
         result = await repo.get_by_document_id("doc1")

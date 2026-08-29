@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.schemas.feedback import FeedbackCreate, FeedbackResponse
 from app.repositories.feedback_repository import FeedbackRepository
-from app.api.deps import get_current_user
+from app.api.deps import get_current_active_user
 from app.models.database.user import User
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ async def _get_db():
 async def submit_feedback(
     feedback: FeedbackCreate,
     db: AsyncSession = Depends(_get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Submit feedback (thumbs up/down) for an assistant message."""
     repo = FeedbackRepository(db)
@@ -48,7 +48,7 @@ async def submit_feedback(
 @router.get("/stats")
 async def get_feedback_stats(
     db: AsyncSession = Depends(_get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_active_user),
 ):
     """Get aggregate feedback statistics."""
     repo = FeedbackRepository(db)

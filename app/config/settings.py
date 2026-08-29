@@ -30,7 +30,7 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://postgres:postgres@localhost:5432/ragchatbot",
+        default="postgresql+asyncpg://postgres:postgres@localhost:5432/rag_chatbot",
         description="Database connection URL"
     )
     DATABASE_POOL_SIZE: int = Field(default=20, description="Database connection pool size")
@@ -61,7 +61,7 @@ class Settings(BaseSettings):
 
     # Embedding Models
     EMBEDDING_PROVIDER: str = Field(default="local", description="Embedding provider (local, glm, openai)")
-    EMBEDDING_MODEL: str = Field(default="bge-m3-v2-zh", description="Embedding model name")
+    EMBEDDING_MODEL: str = Field(default="bge-m3", description="Embedding model name")
     EMBEDDING_CACHE_TTL: int = Field(default=604800, description="Embedding cache TTL in seconds (7 days)")
     EMBEDDING_DEVICE: str = Field(default="cpu", description="Device for local embeddings (cpu, cuda)")
 

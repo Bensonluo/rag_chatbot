@@ -7,7 +7,7 @@ structured data import, and health checks.
 import logging
 from typing import Optional, List
 
-from fastapi import APIRouter, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -23,13 +23,19 @@ def set_graph_client(client):
     _graph_client = client
 
 
+def get_graph_client():
+    """Return the connected graph client, or ``None`` when GraphRAG is disabled."""
+    return _graph_client
+
+
 def _get_client():
-    if _graph_client is None:
+    client = get_graph_client()
+    if client is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Graph service not initialized. Set GRAPH_RAG_ENABLED=true.",
         )
-    return _graph_client
+    return client
 
 
 # --- Schemas ---
@@ -183,8 +189,8 @@ async def import_structured(request: StructuredImportRequest):
 
 @router.post("/communities/detect")
 async def detect_communities(
-    min_size: int = Field(3, gt=0),
-    max_levels: int = Field(5, gt=0),
+    min_size: int = Query(3, gt=0),
+    max_levels: int = Query(5, gt=0),
 ):
     """Run community detection on the knowledge graph."""
     from app.services.graph.community import CommunityDetectionService

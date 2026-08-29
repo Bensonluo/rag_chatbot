@@ -18,8 +18,9 @@ from app.models.schemas.user import (
 )
 from app.api.deps import (
     get_auth_service,
-    get_current_user,
+    get_current_active_user,
 )
+from app.core.exceptions import ConflictError, ValidationError
 from app.services.auth_service import AuthenticationService
 from app.models.database.user import User
 
@@ -54,6 +55,16 @@ async def register(
         return user
     except HTTPException:
         raise
+    except ConflictError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        ) from e
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(e),
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -138,7 +149,7 @@ async def refresh_token(
     summary="Get current user",
 )
 async def get_current_user_info(
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> User:
     """
     Get information about the currently authenticated user.

@@ -24,7 +24,7 @@ async def test_local_embeddings():
     try:
         # Initialize service
         print("\n🔧 Initializing local embedding service...")
-        service = LocalEmbeddingService(model="bge-m3-v2-zh")
+        service = LocalEmbeddingService(model="bge-m3")
 
         print(f"✅ Model: {service.model_name}")
         print(f"✅ Dimensions: {service.dimensions}")
@@ -185,7 +185,7 @@ async def test_cached_embeddings():
         print("\n🔧 Initializing cached embedding service...")
 
         # Create base embedding service
-        base_service = LocalEmbeddingService(model="bge-m3-v2-zh")
+        base_service = LocalEmbeddingService(model="bge-m3")
 
         # Wrap with cache
         cached_service = CachedEmbeddingService(

@@ -28,6 +28,14 @@ class MessageRepository(BaseRepository[Message]):
         """
         super().__init__(session)
 
+    async def get_by_id(
+        self,
+        id: int,
+        model: type[Message] = Message,
+    ) -> Message | None:
+        """Get a message by ID without requiring callers to repeat the model."""
+        return await super().get_by_id(id, model)
+
     async def get_recent_messages(
         self,
         session_id: int,

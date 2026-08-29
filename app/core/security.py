@@ -6,15 +6,12 @@ and password validation.
 """
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict
+from typing import Any, cast
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.config.settings import settings
-
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -28,7 +25,13 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         bool: True if passwords match, False otherwise
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"),
+            hashed_password.encode("utf-8"),
+        )
+    except (TypeError, ValueError):
+        return False
 
 
 def hash_password(password: str) -> str:
@@ -41,11 +44,14 @@ def hash_password(password: str) -> str:
     Returns:
         str: Hashed password
     """
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt(),
+    ).decode("utf-8")
 
 
 def create_access_token(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     expires_delta: timedelta | None = None,
 ) -> str:
     """
@@ -68,11 +74,11 @@ def create_access_token(
     to_encode.update({"exp": expire, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
-    return encoded_jwt
+    return cast(str, encoded_jwt)
 
 
 def create_refresh_token(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     expires_delta: timedelta | None = None,
 ) -> str:
     """
@@ -95,10 +101,10 @@ def create_refresh_token(
     to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
-    return encoded_jwt
+    return cast(str, encoded_jwt)
 
 
-def decode_access_token(token: str) -> Dict[str, Any]:
+def decode_access_token(token: str) -> dict[str, Any]:
     """
     Decode and verify a JWT access token.
 
@@ -113,12 +119,12 @@ def decode_access_token(token: str) -> Dict[str, Any]:
     """
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        return payload
+        return cast(dict[str, Any], payload)
     except JWTError as e:
         raise JWTError(f"Invalid token: {str(e)}") from e
 
 
-def validate_password(password: str) -> Dict[str, Any]:
+def validate_password(password: str) -> dict[str, Any]:
     """
     Validate password strength.
 
@@ -134,7 +140,7 @@ def validate_password(password: str) -> Dict[str, Any]:
     Returns:
         dict: Dictionary with 'is_valid' bool and 'errors' list
     """
-    errors = []
+    errors: list[str] = []
 
     if len(password) < 8:
         errors.append("Password must be at least 8 characters long")

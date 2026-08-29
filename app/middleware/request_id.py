@@ -23,7 +23,7 @@ def get_request_id(request: Request) -> Optional[str]:
     Returns:
         str | None: Request ID if set
     """
-    return request.state.get("request_id")
+    return getattr(request.state, "request_id", None)
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):

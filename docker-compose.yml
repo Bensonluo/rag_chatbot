@@ -10,7 +10,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5433:5433"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -99,7 +99,7 @@ services:
 
       # Embedding Models
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
-      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3-v2-zh}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
       EMBEDDING_CACHE_TTL: ${EMBEDDING_CACHE_TTL:-604800}
       EMBEDDING_DEVICE: ${EMBEDDING_DEVICE:-cpu}
 
@@ -122,8 +122,6 @@ services:
       LOG_LEVEL: INFO
     volumes:
       - ./app:/home/appuser/app/app
-    user: root
-    entrypoint: ["/bin/bash", "-c", "source /opt/venv/bin/activate && pip install -q PyJWT neo4j && exec /home/appuser/app/scripts/entrypoint.sh"]
     ports:
       - "8000:8000"
     depends_on:
@@ -157,6 +155,9 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+    depends_on:
+      api:
+        condition: service_healthy
     networks:
       - rag-network
     profiles:
@@ -174,8 +175,9 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./deploy/grafana/dashboards:/etc/grafana/provisioning/dashboards
       - ./deploy/grafana/datasources:/etc/grafana/provisioning/datasources
+    depends_on:
+      - prometheus
     networks:
       - rag-network
     profiles:

@@ -29,12 +29,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         debug=settings.DEBUG,
     )
 
+    app.state.chat_ready = False
+
     # Initialize chat service
     try:
         from app.api.database import async_session_maker
         from app.api.v1.chat import initialize_chat_service
         async with async_session_maker() as db:
             await initialize_chat_service(db)
+        app.state.chat_ready = True
         logger.info("Chat service initialized successfully")
     except Exception as e:
         logger.warning("Failed to initialize chat service: %s", e)
@@ -53,12 +56,13 @@ def create_app() -> FastAPI:
     """
     app = FastAPI(
         title="RAG Chatbot",
-        description="Production-grade RAG-based chatbot with memory management and intent detection",
+        description="GraphRAG chatbot technical demo with dialogue state and hybrid retrieval",
         version="0.1.0",
         docs_url="/docs" if settings.DEBUG else None,
         redoc_url="/redoc" if settings.DEBUG else None,
         lifespan=lifespan,
     )
+    app.state.chat_ready = False
 
     # Configure CORS
     app.add_middleware(
@@ -93,7 +97,26 @@ def create_app() -> FastAPI:
         """Basic health check endpoint"""
         return {
             "status": "healthy",
+            "service": "rag_chatbot",
             "environment": settings.ENVIRONMENT,
+        }
+
+    @app.get("/ready")
+    async def readiness_check():
+        """Report whether the demo chat graph finished initialization."""
+        if not app.state.chat_ready:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "not_ready",
+                    "service": "rag_chatbot",
+                    "chat": "not_initialized",
+                },
+            )
+        return {
+            "status": "ready",
+            "service": "rag_chatbot",
+            "chat": "initialized",
         }
 
     # Prometheus metrics endpoint

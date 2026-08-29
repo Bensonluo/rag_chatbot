@@ -10,9 +10,9 @@ class TestPasswordHashing:
     def test_verify_password_correct(self):
         """Test verifying a correct password"""
         # Arrange
-        from app.core.security import verify_password
+        from app.core.security import hash_password, verify_password
         plain_password = "securepassword123"
-        hashed_password = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYzpLaEmc0W"  # bcrypt hash
+        hashed_password = hash_password(plain_password)
 
         # Act
         is_valid = verify_password(plain_password, hashed_password)
@@ -23,9 +23,9 @@ class TestPasswordHashing:
     def test_verify_password_incorrect(self):
         """Test verifying an incorrect password"""
         # Arrange
-        from app.core.security import verify_password
+        from app.core.security import hash_password, verify_password
         plain_password = "wrongpassword"
-        hashed_password = "$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyYzpLaEmc0W"
+        hashed_password = hash_password("securepassword123")
 
         # Act
         is_valid = verify_password(plain_password, hashed_password)

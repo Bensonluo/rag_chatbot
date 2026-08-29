@@ -23,7 +23,7 @@ class TestHybridSearchService:
 
         # Assert
         assert service.vector_weight == 0.7
-        assert service.keyword_weight == 0.3  # 1.0 - 0.7
+        assert service.keyword_weight == pytest.approx(0.3)  # 1.0 - 0.7
 
     def test_service_initialization_default_weights(self):
         """Test service initialization with default weights"""
@@ -44,7 +44,7 @@ class TestHybridSearchService:
         assert service.keyword_weight == 0.5  # Default
 
     def test_weight_validation(self):
-        """Test that weights must sum to 1.0"""
+        """Test that vector weight stays within its supported range."""
         # Arrange
         from app.services.retrieval.hybrid_search import HybridSearchService
         from app.core.exceptions import ValidationError
@@ -57,7 +57,7 @@ class TestHybridSearchService:
             HybridSearchService(
                 vector_client=mock_vector_client,
                 keyword_search=mock_keyword_search,
-                vector_weight=0.8  # Should fail (0.8 + 0.5 != 1.0)
+                vector_weight=1.1
             )
 
     @pytest.mark.asyncio
@@ -100,12 +100,15 @@ class TestHybridSearchService:
 
         # doc1 should have highest score (appears in both)
         doc1_result = next(r for r in results if r.document_id == "doc1")
-        assert doc1_result.score > 0.7  # Combined score
+        assert results[0].document_id == "doc1"
+        assert doc1_result.score > results[-1].score
 
         # Verify metadata shows hybrid scoring
         assert doc1_result.metadata is not None
         assert "vector_score" in doc1_result.metadata
         assert "keyword_score" in doc1_result.metadata
+        assert doc1_result.metadata["vector_score"] == 0.9
+        assert doc1_result.metadata["keyword_score"] == 0.7
 
     @pytest.mark.asyncio
     async def test_hybrid_search_vector_only(self):

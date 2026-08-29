@@ -3,7 +3,7 @@ Anthropic LLM client implementation.
 
 Provides integration with Anthropic's Claude models.
 """
-from typing import AsyncGenerator, Optional, List
+from typing import Any, AsyncGenerator, Optional, List
 
 from anthropic import AsyncAnthropic
 
@@ -33,6 +33,7 @@ class AnthropicClient(LLMServiceBase):
         model: str = "claude-3-opus-20240229",
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        client: Optional[Any] = None,
     ) -> None:
         """
         Initialize Anthropic client.
@@ -46,7 +47,7 @@ class AnthropicClient(LLMServiceBase):
         super().__init__(api_key, model, max_tokens, temperature)
 
         # Initialize async Anthropic client
-        self.client = AsyncAnthropic(api_key=api_key)
+        self.client = client if client is not None else AsyncAnthropic(api_key=api_key)
 
     async def generate(
         self,
@@ -87,8 +88,14 @@ class AnthropicClient(LLMServiceBase):
             params = {
                 "model": self.model,
                 "messages": conversation_messages,
-                "max_tokens": max_tokens or self.max_tokens or 4096,
-                "temperature": temperature or self.temperature,
+                "max_tokens": (
+                    max_tokens
+                    if max_tokens is not None
+                    else self.max_tokens or 4096
+                ),
+                "temperature": (
+                    temperature if temperature is not None else self.temperature
+                ),
             }
 
             # Add system message if present
@@ -168,8 +175,14 @@ class AnthropicClient(LLMServiceBase):
             params = {
                 "model": self.model,
                 "messages": conversation_messages,
-                "max_tokens": max_tokens or self.max_tokens or 4096,
-                "temperature": temperature or self.temperature,
+                "max_tokens": (
+                    max_tokens
+                    if max_tokens is not None
+                    else self.max_tokens or 4096
+                ),
+                "temperature": (
+                    temperature if temperature is not None else self.temperature
+                ),
             }
 
             # Add system message if present

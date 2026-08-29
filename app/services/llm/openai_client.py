@@ -3,7 +3,7 @@ OpenAI LLM client implementation.
 
 Provides integration with OpenAI's GPT models.
 """
-from typing import AsyncGenerator, Optional, List
+from typing import Any, AsyncGenerator, Optional, List
 
 from openai import AsyncOpenAI
 
@@ -34,6 +34,7 @@ class OpenAIClient(LLMServiceBase):
         model: str = "gpt-4-turbo-preview",
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
+        client: Optional[Any] = None,
     ) -> None:
         """
         Initialize OpenAI client.
@@ -47,7 +48,7 @@ class OpenAIClient(LLMServiceBase):
         super().__init__(api_key, model, max_tokens, temperature)
 
         # Initialize async OpenAI client
-        self.client = AsyncOpenAI(api_key=api_key)
+        self.client = client if client is not None else AsyncOpenAI(api_key=api_key)
 
     async def generate(
         self,
@@ -76,8 +77,10 @@ class OpenAIClient(LLMServiceBase):
             params = {
                 "model": self.model,
                 "messages": self._format_messages(messages),
-                "max_tokens": max_tokens or self.max_tokens,
-                "temperature": temperature or self.temperature,
+                "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
+                "temperature": (
+                    temperature if temperature is not None else self.temperature
+                ),
             }
 
             # Add any additional parameters
@@ -139,8 +142,10 @@ class OpenAIClient(LLMServiceBase):
             params = {
                 "model": self.model,
                 "messages": self._format_messages(messages),
-                "max_tokens": max_tokens or self.max_tokens,
-                "temperature": temperature or self.temperature,
+                "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
+                "temperature": (
+                    temperature if temperature is not None else self.temperature
+                ),
                 "stream": True,
             }
 
