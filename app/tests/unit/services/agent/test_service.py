@@ -84,6 +84,7 @@ class TestHappyPath:
             "query_order_status",
             "track_shipping",
             "submit_complaint",
+            "get_recent_orders",
         }
 
     async def test_system_prompt_and_context_note(self):
@@ -117,6 +118,73 @@ class TestConfirmationGate:
         result = await _make_service(llm).run("退货", user_id=1)
         assert result.pending_confirmation is not None
         assert result.pending_confirmation["intent"] == "return"
+
+
+class TestOrderContextResolution:
+    """get_recent_orders lets the agent resolve "my order" itself.
+
+    Industry baseline (阿里小蜜 / Intercom Fin): the bot pulls the
+    customer's order context from the account instead of interrogating
+    the user for an order number first.
+    """
+
+    async def test_recent_orders_then_tracking_chain(self):
+        llm = ScriptedLLM(
+            [
+                _tool_call_response("get_recent_orders", {}),
+                _tool_call_response("track_shipping", {"order_id": "ORD1001"}),
+                _final_response("您 ORD1001 的包裹正在北京分拨中心，预计明天送达。"),
+            ]
+        )
+        result = await _make_service(llm).run("我的订单到哪了", user_id=1)
+
+        assert result.response == "您 ORD1001 的包裹正在北京分拨中心，预计明天送达。"
+        assert result.executed_tools == ["get_recent_orders", "track_shipping"]
+        assert result.pending_confirmation is None
+        assert not result.truncated
+
+        # Round 2 saw the caller's own orders (both of user 1, newest first).
+        listing = json.loads(
+            [m for m in llm.requests[1]["messages"] if m.role == "tool"][0].content
+        )
+        assert [o["order_id"] for o in listing["orders"]] == ["ORD1001", "ORD1002"]
+
+        # Round 3 saw the shipping facts fetched with the resolved id
+        # (history carries both tool results — the last one is tracking).
+        tool_msgs = [m for m in llm.requests[2]["messages"] if m.role == "tool"]
+        tracking = json.loads(tool_msgs[-1].content)
+        assert tracking["order_id"] == "ORD1001"
+
+    async def test_listing_is_isolated_to_the_caller(self):
+        llm = ScriptedLLM(
+            [
+                _tool_call_response("get_recent_orders", {}),
+                _final_response("您有一笔订单。"),
+            ]
+        )
+        await _make_service(llm).run("我的订单", user_id=2)
+
+        listing = json.loads(
+            [m for m in llm.requests[1]["messages"] if m.role == "tool"][0].content
+        )
+        # User 2 sees only their own order — never user 1's.
+        assert [o["order_id"] for o in listing["orders"]] == ["ORD2001"]
+
+    async def test_anonymous_caller_gets_empty_listing(self):
+        llm = ScriptedLLM(
+            [
+                _tool_call_response("get_recent_orders", {}),
+                _final_response("请先登录后再查询订单。"),
+            ]
+        )
+        result = await _make_service(llm).run("我的订单")
+
+        listing = json.loads(
+            [m for m in llm.requests[1]["messages"] if m.role == "tool"][0].content
+        )
+        assert listing["orders"] == []
+        assert "未登录" in listing["message"]
+        assert result.executed_tools == ["get_recent_orders"]
 
 
 class TestAuthorization:

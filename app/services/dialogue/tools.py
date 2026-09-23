@@ -102,7 +102,14 @@ class ToolRegistry:
             return ToolResult(success=False, data={}, message=f"No tool for intent: {intent}")
         call_args = dict(args)
         if user_id is not None:
-            call_args.setdefault("user_id", user_id)
+            # Identity is server truth: a forged user_id inside LLM- or
+            # request-supplied args must never override the authenticated
+            # caller (the agent loop passes model-generated args through).
+            call_args["user_id"] = user_id
+        else:
+            # Anonymous callers get no identity at all — strip any
+            # supplied one instead of trusting it.
+            call_args.pop("user_id", None)
         try:
             result = tool.handler(call_args)
             return ToolResult(success=True, data=result, message="OK")
@@ -246,6 +253,33 @@ def mock_complaint(args: dict) -> dict:
     }
 
 
+def mock_get_recent_orders(args: dict[str, Any]) -> dict[str, Any]:
+    """List the caller's own orders, newest first.
+
+    The user_id is injected server-side by ToolRegistry.execute — the
+    model never supplies it, so the listing is isolated per customer by
+    construction. Industry baseline (阿里小蜜/Intercom Fin): the bot
+    resolves "my order" from the account instead of asking for an
+    order number first.
+    """
+    user_id = args.get("user_id")
+    if not user_id:
+        return {"orders": [], "count": 0, "message": "当前未登录，无法查询订单列表"}
+    orders = [
+        {
+            "order_id": order_id,
+            "status": order["status"],
+            "items": order["items"],
+            "total_amount": order["total_amount"],
+            "created_at": order["created_at"],
+        }
+        for order_id, order in MOCK_ORDERS.items()
+        if order["user_id"] == user_id
+    ]
+    orders.sort(key=lambda order: order["created_at"], reverse=True)
+    return {"orders": orders, "count": len(orders)}
+
+
 def create_default_tool_registry() -> ToolRegistry:
     """Create and populate registry with all mock tools."""
     registry = ToolRegistry()
@@ -356,6 +390,26 @@ DEFAULT_TOOLS: list[ToolDefinition] = [
                 },
             },
             "required": ["category", "description"],
+        },
+    ),
+    ToolDefinition(
+        name="get_recent_orders",
+        # Registry key only — deliberately not a dialogue intent, so the
+        # slot pipeline can never route here; this tool exists for the
+        # agent loop to resolve order context without asking the user.
+        intent="recent_orders",
+        description=(
+            "查询当前用户本人最近的订单列表（订单号、状态、金额、商品、下单时间）。"
+            "当用户没有提供订单号时，先调用此工具获取，再从结果中选择订单。"
+        ),
+        required_slots=[],
+        handler=mock_get_recent_orders,
+        parameters_schema={
+            # No model-supplied parameters: user identity is injected
+            # server-side, so cross-customer listing is impossible.
+            "type": "object",
+            "properties": {},
+            "required": [],
         },
     ),
 ]
