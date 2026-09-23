@@ -213,6 +213,7 @@ testpaths = [
     "app/tests/unit/services/test_auth_service.py",
     "app/tests/integration/api/test_auth_endpoints.py",
     "app/tests/integration/api/test_session_endpoints.py",
+    "app/tests/integration/test_chat_pipeline.py",
     "app/tests/unit/repositories",
     "app/tests/unit/api/v1/test_chat_rate_limit.py",
 ]

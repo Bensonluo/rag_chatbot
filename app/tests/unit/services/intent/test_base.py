@@ -15,7 +15,7 @@ class TestIntentDetector:
 
         # Act & Assert - ABC with abstract methods cannot be instantiated
         with pytest.raises(TypeError, match="abstract"):
-            IntentDetector()
+            IntentDetector()  # type: ignore[abstract]
 
     def test_subclass_must_implement_detect(self):
         """Test that subclass must implement detect method"""
@@ -27,7 +27,7 @@ class TestIntentDetector:
 
         # Act & Assert
         with pytest.raises(TypeError, match="abstract"):
-            IncompleteDetector()
+            IncompleteDetector()  # type: ignore[abstract]
 
 
 class TestIntentEnum:
@@ -39,26 +39,26 @@ class TestIntentEnum:
         from app.models.enums.intent import Intent
 
         # Assert - Task-oriented intents
-        assert Intent.REFUND == "refund"
-        assert Intent.RETURN == "return"
-        assert Intent.QUERY_ORDER == "query_order"
-        assert Intent.TRACK_SHIPPING == "track_shipping"
-        assert Intent.COMPLAINT == "complaint"
+        assert Intent.REFUND.value == "refund"
+        assert Intent.RETURN.value == "return"
+        assert Intent.QUERY_ORDER.value == "query_order"
+        assert Intent.TRACK_SHIPPING.value == "track_shipping"
+        assert Intent.COMPLAINT.value == "complaint"
         # Knowledge intents
-        assert Intent.FAQ == "faq"
-        assert Intent.POLICY == "policy"
+        assert Intent.FAQ.value == "faq"
+        assert Intent.POLICY.value == "policy"
         # Dialogue intents
-        assert Intent.CHITCHAT == "chitchat"
-        assert Intent.GREETING == "greeting"
+        assert Intent.CHITCHAT.value == "chitchat"
+        assert Intent.GREETING.value == "greeting"
         # Meta intents
-        assert Intent.CONFIRM == "confirm"
-        assert Intent.DENY == "deny"
-        assert Intent.CANCEL == "cancel"
-        assert Intent.UNKNOWN == "unknown"
+        assert Intent.CONFIRM.value == "confirm"
+        assert Intent.DENY.value == "deny"
+        assert Intent.CANCEL.value == "cancel"
+        assert Intent.UNKNOWN.value == "unknown"
         # Graph-related intents
-        assert Intent.RELATIONSHIP_QUERY == "relationship_query"
-        assert Intent.GLOBAL_SUMMARY == "global_summary"
-        assert Intent.ENTITY_LOOKUP == "entity_lookup"
+        assert Intent.RELATIONSHIP_QUERY.value == "relationship_query"
+        assert Intent.GLOBAL_SUMMARY.value == "global_summary"
+        assert Intent.ENTITY_LOOKUP.value == "entity_lookup"
 
     def test_intent_completeness(self):
         """Test that we have all required intents"""
@@ -119,6 +119,7 @@ class TestIntentResult:
         # Assert
         assert result.intent == Intent.TRACK_SHIPPING
         assert result.confidence == 0.88
+        assert result.metadata is not None
         assert result.metadata["matched_keyword"] == "快递"
 
     def test_create_intent_result_default_confidence(self):

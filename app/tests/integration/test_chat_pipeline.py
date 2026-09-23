@@ -1,383 +1,112 @@
-"""Integration tests for chat pipeline"""
+"""Integration contract: ChatService adapter over the dialogue graph.
 
-from unittest.mock import AsyncMock, Mock
+process_message maps the graph result into ChatResponse, threads the
+persister and knowledge-gap recorder side effects, and surfaces the
+executed-tool audit trail for irreversible support actions. These
+tests run the adapter against a scripted in-process graph; the
+node-level pipeline itself is pinned in
+app/tests/unit/services/dialogue/.
+"""
 
-import pytest
+from typing import Any
+from unittest.mock import AsyncMock
 
-from app.models.enums.intent import Intent
-
-
-class TestChatPipelineIntegration:
-    """Test complete chat pipeline integration"""
-
-    @pytest.mark.asyncio
-    async def test_full_chat_pipeline_with_retrieval(self):
-        """Test complete pipeline: intent -> retrieval -> memory -> generation"""
-        # Arrange
-        from app.services.chat.chat_service import ChatService
-        from app.services.intent.base import Intent, IntentResult
-        from app.services.llm.base import LLMResponse
-        from app.services.retrieval.vector_base import SearchResult
-
-        # Mock LLM
-        mock_llm = Mock()
-        mock_llm.generate = AsyncMock(
-            return_value=LLMResponse(
-                content="Python is a high-level programming language.",
-                model="gpt-4",
-                usage={"total_tokens": 30},
-            )
-        )
-
-        # Mock memory
-        mock_memory = Mock()
-        mock_memory.get_context = AsyncMock(return_value=[])
-        mock_memory.add_message = AsyncMock()
-
-        # Mock intent detector
-        mock_intent = Mock()
-        mock_intent.detect_with_confidence = AsyncMock(
-            return_value=IntentResult(intent=Intent.QUESTION, confidence=0.95, metadata={})
-        )
-
-        # Mock retrieval pipeline
-        mock_retrieval = {
-            "hybrid_search": Mock(
-                search=AsyncMock(
-                    return_value=[
-                        SearchResult(
-                            document_id="doc1",
-                            content="Python is a programming language created by Guido van Rossum.",
-                            score=0.95,
-                        )
-                    ]
-                )
-            ),
-            "reranker": Mock(
-                rerank=AsyncMock(
-                    return_value=[
-                        SearchResult(
-                            document_id="doc1",
-                            content="Python is a programming language created by Guido van Rossum.",
-                            score=0.95,
-                        )
-                    ]
-                )
-            ),
-            "metadata_service": Mock(
-                enrich_search_results=AsyncMock(
-                    return_value=[
-                        SearchResult(
-                            document_id="doc1",
-                            content="Python is a programming language created by Guido van Rossum.",
-                            score=0.95,
-                            metadata={"title": "Python Documentation"},
-                        )
-                    ]
-                )
-            ),
-        }
-
-        # Create service
-        service = ChatService(
-            llm_service=mock_llm,
-            memory_strategy=mock_memory,
-            intent_detector=mock_intent,
-            retrieval_pipeline=mock_retrieval,
-        )
-
-        # Act
-        response = await service.process_message(
-            session_id=1,
-            message="What is Python?",
-            user_id=1,
-        )
-
-        # Assert - Complete pipeline executed
-        assert response.content is not None
-        assert "Python" in response.content
-        assert response.intent == "question"
-        assert response.sources is not None
-        assert len(response.sources) == 1
-        assert response.sources[0] == "doc1"
-
-        # Verify all components were called
-        mock_intent.detect_with_confidence.assert_called_once_with("What is Python?")
-        mock_memory.get_context.assert_called_once()
-        mock_retrieval["hybrid_search"].search.assert_called_once()
-        mock_retrieval["reranker"].rerank.assert_called_once()
-        mock_retrieval["metadata_service"].enrich_search_results.assert_called_once()
-        mock_llm.generate.assert_called_once()
-        assert mock_memory.add_message.call_count == 2  # User + Assistant
-
-    @pytest.mark.asyncio
-    async def test_chat_pipeline_with_conversation_memory(self):
-        """Test pipeline with conversation context from memory"""
-        # Arrange
-        from app.services.chat.chat_service import ChatService
-        from app.services.intent.base import Intent, IntentResult
-        from app.services.llm.base import LLMResponse
-        from app.services.memory.base import MessageContent
-
-        mock_llm = Mock()
-        mock_llm.generate = AsyncMock(
-            return_value=LLMResponse(content="You said your name is Alice.", model="gpt-4")
-        )
-
-        mock_memory = Mock()
-        # Simulate conversation history
-        mock_memory.get_context = AsyncMock(
-            return_value=[
-                MessageContent(role="user", content="My name is Alice"),
-                MessageContent(role="assistant", content="Nice to meet you, Alice!"),
-            ]
-        )
-        mock_memory.add_message = AsyncMock()
-
-        mock_intent = Mock()
-        mock_intent.detect_with_confidence = AsyncMock(
-            return_value=IntentResult(intent=Intent.QUESTION, confidence=0.9, metadata={})
-        )
-
-        service = ChatService(
-            llm_service=mock_llm,
-            memory_strategy=mock_memory,
-            intent_detector=mock_intent,
-            retrieval_pipeline=None,
-        )
-
-        # Act
-        response = await service.process_message(
-            session_id=1,
-            message="What's my name?",
-            user_id=1,
-        )
-
-        # Assert
-        assert "Alice" in response.content
-
-        # Verify LLM was called with context
-        call_args = mock_llm.generate.call_args
-        messages = call_args[0][0]  # First positional arg
-        assert len(messages) >= 3  # System + 2 context messages + current
-
-    @pytest.mark.asyncio
-    async def test_chat_pipeline_streaming(self):
-        """Test complete pipeline with streaming response"""
-        # Arrange
-        from app.services.chat.chat_service import ChatService
-        from app.services.intent.base import Intent, IntentResult
-
-        mock_llm = Mock()
-        mock_memory = Mock()
-        mock_intent = Mock()
-
-        # Mock streaming response
-        async def mock_stream():
-            yield "Hello"
-            yield " Alice"
-            yield "!"
-
-        mock_llm.generate_stream = AsyncMock(return_value=mock_stream())
-        mock_memory.get_context = AsyncMock(return_value=[])
-        mock_memory.add_message = AsyncMock()
-        mock_intent.detect_with_confidence = AsyncMock(
-            return_value=IntentResult(intent=Intent.GREETING, confidence=0.95, metadata={})
-        )
-
-        service = ChatService(
-            llm_service=mock_llm,
-            memory_strategy=mock_memory,
-            intent_detector=mock_intent,
-            retrieval_pipeline=None,
-        )
-
-        # Act
-        chunks = []
-        async for chunk in service.process_message_stream(
-            session_id=1,
-            message="Hello",
-            user_id=1,
-        ):
-            chunks.append(chunk)
-
-        # Assert
-        assert chunks == ["Hello", " Alice", "!"]
-
-    @pytest.mark.asyncio
-    async def test_chat_pipeline_error_recovery(self):
-        """Test pipeline handles errors gracefully"""
-        # Arrange
-        from app.services.chat.chat_service import ChatService
-
-        mock_llm = Mock()
-        mock_memory = Mock()
-        mock_intent = Mock()
-        mock_retrieval = {
-            "hybrid_search": Mock(search=AsyncMock(side_effect=Exception("Search failed")))
-        }
-
-        mock_llm.generate = AsyncMock(return_value=Mock(content="Fallback response", model="gpt-4"))
-        mock_memory.get_context = AsyncMock(return_value=[])
-        mock_memory.add_message = AsyncMock()
-        mock_intent.detect_with_confidence = AsyncMock(
-            return_value=Mock(intent=Intent.QUESTION, confidence=0.9)
-        )
-
-        service = ChatService(
-            llm_service=mock_llm,
-            memory_strategy=mock_memory,
-            intent_detector=mock_intent,
-            retrieval_pipeline=mock_retrieval,
-        )
-
-        # Act - Should not fail even if retrieval fails
-        response = await service.process_message(
-            session_id=1,
-            message="Test message",
-            user_id=1,
-        )
-
-        # Assert - Should have response (without sources)
-        assert response.content is not None
-        assert response.sources is None  # No sources due to retrieval failure
-
-    @pytest.mark.asyncio
-    async def test_chat_pipeline_with_factory(self):
-        """Test creating complete pipeline with factory"""
-        # Arrange
-        from app.services.chat.factory import ChatServiceFactory
-
-        mock_llm = Mock()
-        mock_message_repo = Mock()
-        mock_session_repo = Mock()
-
-        # Mock methods
-        mock_llm.generate = AsyncMock(
-            return_value=Mock(content="Response", model="gpt-4", usage={})
-        )
-        mock_message_repo.get_recent_messages = AsyncMock(return_value=[])
-        mock_message_repo.create = AsyncMock()
-        mock_message_repo.count_messages = AsyncMock(return_value=0)
-
-        # Create service with factory
-        service = ChatServiceFactory.create_with_defaults(
-            llm_service=mock_llm,
-            message_repo=mock_message_repo,
-            session_repo=mock_session_repo,
-            memory_type="sliding_window",
-            intent_type="rule_based",
-        )
-
-        # Act
-        response = await service.process_message(
-            session_id=1,
-            message="Hello",
-            user_id=1,
-        )
-
-        # Assert
-        assert response.content == "Response"
-        assert service is not None
+from app.services.chat.chat_service import ChatService
 
 
-class TestChatEndToEndScenarios:
-    """Test end-to-end chat scenarios"""
+class _ScriptedGraph:
+    """Fake compiled graph returning a canned result dict."""
 
-    @pytest.mark.asyncio
-    async def test_question_answering_scenario(self):
-        """Test QA scenario with retrieval"""
-        # Arrange
-        from app.services.chat.chat_service import ChatService
-        from app.services.intent.base import Intent, IntentResult
-        from app.services.llm.base import LLMResponse
-        from app.services.retrieval.vector_base import SearchResult
+    def __init__(self, result: dict[str, Any]) -> None:
+        self._result = result
+        self.calls: list[tuple[dict[str, Any], dict[str, Any]]] = []
 
-        mock_llm = Mock()
-        mock_memory = Mock()
-        mock_intent = Mock()
-        mock_retrieval = {
-            "hybrid_search": Mock(
-                search=AsyncMock(
-                    return_value=[
-                        SearchResult(
-                            document_id="doc1",
-                            content="FastAPI is a modern web framework for building APIs with Python.",
-                            score=0.95,
-                        )
-                    ]
-                )
-            ),
-            "reranker": Mock(rerank=AsyncMock(lambda x, r: x)),
-            "metadata_service": Mock(enrich_search_results=AsyncMock(lambda x: x)),
-        }
+    async def ainvoke(self, state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append((state, config))
+        return self._result
 
-        mock_llm.generate = AsyncMock(
-            return_value=LLMResponse(
-                content="FastAPI is a modern web framework for building APIs with Python.",
-                model="gpt-4",
-            )
-        )
-        mock_memory.get_context = AsyncMock(return_value=[])
-        mock_memory.add_message = AsyncMock()
-        mock_intent.detect_with_confidence = AsyncMock(
-            return_value=IntentResult(intent=Intent.QUESTION, confidence=0.95, metadata={})
-        )
 
-        service = ChatService(
-            llm_service=mock_llm,
-            memory_strategy=mock_memory,
-            intent_detector=mock_intent,
-            retrieval_pipeline=mock_retrieval,
-        )
+GRAPH_RESULT: dict[str, Any] = {
+    "response": "退款已发起，预计 1-3 个工作日到账。",
+    "intent": "refund",
+    "sources": ["doc1", "doc2"],
+    "confidence": 0.91,
+    "pending_slots": [],
+    "filled_slots": {"order_id": "A1"},
+    "retrieved_docs": [{"id": "doc1"}],
+    # Durable audit trail: refunds must stay traceable.
+    "executed_tools": [{"name": "create_refund", "args": {"order_id": "A1"}}],
+}
 
-        # Act
-        response = await service.process_message(
-            session_id=1,
-            message="What is FastAPI?",
-            user_id=1,
-        )
 
-        # Assert
-        assert "FastAPI" in response.content
-        assert response.sources is not None
-        assert len(response.sources) == 1
+class TestProcessMessageContract:
+    async def test_graph_result_mapped_to_chat_response(self):
+        service = ChatService(graph=_ScriptedGraph(GRAPH_RESULT))
 
-    @pytest.mark.asyncio
-    async def test_greeting_scenario(self):
-        """Test greeting scenario without retrieval"""
-        # Arrange
-        from app.services.chat.chat_service import ChatService
-        from app.services.intent.base import Intent, IntentResult
-        from app.services.llm.base import LLMResponse
+        response = await service.process_message(session_id=7, message="我要退款", user_id=42)
 
-        mock_llm = Mock()
-        mock_memory = Mock()
-        mock_intent = Mock()
+        assert response.content == GRAPH_RESULT["response"]
+        assert response.session_id == 7
+        assert response.intent == "refund"
+        assert response.sources == ["doc1", "doc2"]
+        assert response.metadata is not None
+        assert response.metadata["executed_tools"] == GRAPH_RESULT["executed_tools"]
+        assert response.metadata["confidence"] == 0.91
+        assert response.metadata["filled_slots"] == {"order_id": "A1"}
 
-        mock_llm.generate = AsyncMock(
-            return_value=LLMResponse(content="Hello! How can I help you today?", model="gpt-4")
-        )
-        mock_memory.get_context = AsyncMock(return_value=[])
-        mock_memory.add_message = AsyncMock()
-        mock_intent.detect_with_confidence = AsyncMock(
-            return_value=IntentResult(intent=Intent.GREETING, confidence=0.95, metadata={})
-        )
+    async def test_state_and_thread_forwarded_to_graph(self):
+        graph = _ScriptedGraph(GRAPH_RESULT)
+        service = ChatService(graph=graph)
 
-        service = ChatService(
-            llm_service=mock_llm,
-            memory_strategy=mock_memory,
-            intent_detector=mock_intent,
-            retrieval_pipeline=None,
-        )
+        await service.process_message(session_id=7, message="我要退款", user_id=42)
 
-        # Act
-        response = await service.process_message(
-            session_id=1,
-            message="Hello",
-            user_id=1,
-        )
+        state, config = graph.calls[0]
+        assert state == {"message": "我要退款", "session_id": 7, "user_id": 42}
+        assert config["configurable"]["thread_id"] == "7"
 
-        # Assert
-        assert "Hello" in response.content or "help" in response.content
-        assert response.sources is None  # No retrieval for greetings
+    async def test_persister_receives_full_turn(self):
+        graph = _ScriptedGraph(GRAPH_RESULT)
+        persister = AsyncMock()
+        service = ChatService(graph=graph, persister=persister)
+
+        await service.process_message(session_id=7, message="我要退款", user_id=42)
+
+        persister.persist_turn.assert_awaited_once()
+        kwargs = persister.persist_turn.await_args.kwargs
+        assert kwargs["user_message"] == "我要退款"
+        assert kwargs["response"] == GRAPH_RESULT["response"]
+        assert kwargs["intent"] == "refund"
+        assert kwargs["sources"] == ["doc1", "doc2"]
+        assert kwargs["metadata"]["executed_tools"]
+
+    async def test_gap_recorder_receives_retrieval_inputs(self):
+        graph = _ScriptedGraph(GRAPH_RESULT)
+        recorder = AsyncMock()
+        service = ChatService(graph=graph, gap_recorder=recorder)
+
+        await service.process_message(session_id=7, message="我要退款", user_id=42)
+
+        recorder.record_if_gap.assert_awaited_once()
+        kwargs = recorder.record_if_gap.await_args.kwargs
+        assert kwargs["query"] == "我要退款"
+        assert kwargs["retrieved_docs"] == GRAPH_RESULT["retrieved_docs"]
+        assert kwargs["session_id"] == 7
+        assert kwargs["user_id"] == 42
+
+    async def test_no_optional_services_is_fine(self):
+        service = ChatService(graph=_ScriptedGraph(GRAPH_RESULT))
+
+        response = await service.process_message(session_id=7, message="我要退款", user_id=42)
+
+        assert response.content == GRAPH_RESULT["response"]
+
+    async def test_sparse_graph_result_defaults_safely(self):
+        service = ChatService(graph=_ScriptedGraph({}))
+
+        response = await service.process_message(session_id=7, message="你好", user_id=42)
+
+        assert response.content == ""
+        assert response.intent == "unknown"
+        assert response.sources is None
+        assert response.metadata is not None
+        assert "executed_tools" not in response.metadata

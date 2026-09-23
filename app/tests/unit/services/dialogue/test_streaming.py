@@ -10,50 +10,77 @@ the graph task while persisting the partial turn.
 """
 
 import asyncio
+from collections.abc import AsyncGenerator
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from langchain_core.runnables import RunnableConfig
 
 from app.services.chat.chat_service import HEARTBEAT, ChatService
 from app.services.dialogue.nodes import NodeFactory
-from app.services.llm.base import LLMResponse
+from app.services.dialogue.state import DialogueState
+from app.services.dialogue.tools import ToolRegistry
+from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
 
 _FALLBACK = "抱歉，生成回复时出现错误，请稍后重试。"
 
 
-class _StreamLLM:
+class _StreamLLM(LLMServiceBase):
     """Fake LLM whose generate_stream yields tokens then optionally raises."""
 
-    def __init__(self, tokens: list[str], raise_after: int | None = None):
+    def __init__(self, tokens: list[str], raise_after: int | None = None) -> None:
+        super().__init__(api_key="fake", model="fake")
         self._tokens = tokens
         self._raise_after = raise_after
 
-    async def generate(self, messages, max_tokens=None, temperature=None, **kwargs):
+    async def generate(
+        self,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
         return LLMResponse(content="".join(self._tokens), model="fake")
 
-    async def generate_stream(self, messages, max_tokens=None, temperature=None, **kwargs):
+    async def generate_stream(
+        self,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[str, None]:
         for i, token in enumerate(self._tokens):
             if self._raise_after is not None and i >= self._raise_after:
                 raise RuntimeError("mid-stream drop")
             yield token
 
+    def estimate_tokens(self, text: str) -> int:
+        return len(text)
 
-def _drain(queue: asyncio.Queue) -> list:
-    items = []
+    async def count_tokens(self, messages: list[LLMMessage]) -> int:
+        return sum(len(m.content) for m in messages)
+
+
+def _drain(queue: asyncio.Queue[str]) -> list[str]:
+    items: list[str] = []
     while not queue.empty():
         items.append(queue.get_nowait())
     return items
 
 
-def _config_with_queue() -> tuple[dict, asyncio.Queue]:
-    queue: asyncio.Queue = asyncio.Queue()
-    config = {"configurable": {"thread_id": "t", "stream_queue": queue}}
+def _config_with_queue() -> tuple[RunnableConfig, asyncio.Queue[str]]:
+    queue: asyncio.Queue[str] = asyncio.Queue()
+    config: RunnableConfig = {"configurable": {"thread_id": "t", "stream_queue": queue}}
     return config, queue
 
 
-def _factory(llm=None, tool_registry=None) -> NodeFactory:
+def _factory(
+    llm: LLMServiceBase | None = None,
+    tool_registry: ToolRegistry | None = None,
+) -> NodeFactory:
     return NodeFactory(
-        intent_detector=None,
+        intent_detector=Mock(),
         slot_filler=None,
         tool_registry=tool_registry or Mock(),
         llm_service=llm,
@@ -63,7 +90,9 @@ def _factory(llm=None, tool_registry=None) -> NodeFactory:
 class TestChatServiceStreamBridge:
     async def test_tokens_forwarded_in_order(self):
         class _Graph:
-            async def ainvoke(self, state, config):
+            async def ainvoke(
+                self, state: dict[str, Any], config: dict[str, Any]
+            ) -> dict[str, Any]:
                 queue = config["configurable"]["stream_queue"]
                 queue.put_nowait("您")
                 queue.put_nowait("好")
@@ -75,7 +104,9 @@ class TestChatServiceStreamBridge:
 
     async def test_heartbeat_when_queue_idle(self):
         class _SlowGraph:
-            async def ainvoke(self, state, config):
+            async def ainvoke(
+                self, state: dict[str, Any], config: dict[str, Any]
+            ) -> dict[str, Any]:
                 queue = config["configurable"]["stream_queue"]
                 queue.put_nowait("首块")
                 await asyncio.sleep(0.1)
@@ -90,10 +121,12 @@ class TestChatServiceStreamBridge:
 
     async def test_disconnect_persists_partial_and_cancels_graph(self):
         class _HangingGraph:
-            def __init__(self):
+            def __init__(self) -> None:
                 self.cancelled = False
 
-            async def ainvoke(self, state, config):
+            async def ainvoke(
+                self, state: dict[str, Any], config: dict[str, Any]
+            ) -> dict[str, Any]:
                 queue = config["configurable"]["stream_queue"]
                 queue.put_nowait("部分回答")
                 try:
@@ -102,6 +135,7 @@ class TestChatServiceStreamBridge:
                     self.cancelled = True
                     raise
                 queue.put_nowait("永不到达")
+                return {}
 
         graph = _HangingGraph()
         persister = AsyncMock()
@@ -116,7 +150,9 @@ class TestChatServiceStreamBridge:
 
     async def test_graph_exception_propagates_with_partial_persisted(self):
         class _BoomGraph:
-            async def ainvoke(self, state, config):
+            async def ainvoke(
+                self, state: dict[str, Any], config: dict[str, Any]
+            ) -> dict[str, Any]:
                 config["configurable"]["stream_queue"].put_nowait("半")
                 raise RuntimeError("graph blew up")
 
@@ -131,7 +167,9 @@ class TestChatServiceStreamBridge:
 
     async def test_empty_stream_persists_nothing(self):
         class _QuietGraph:
-            async def ainvoke(self, state, config):  # noqa: ARG002
+            async def ainvoke(
+                self, state: dict[str, Any], config: dict[str, Any]
+            ) -> dict[str, Any]:  # noqa: ARG002
                 return {}
 
         persister = AsyncMock()
@@ -145,7 +183,12 @@ class TestNodeStreaming:
     async def test_llm_tokens_stream_without_full_text_duplicate(self):
         config, queue = _config_with_queue()
         factory = _factory(llm=_StreamLLM(["您", "好", "呀"]))
-        state = {"message": "你好", "session_id": 1, "user_id": 1, "intent": "chitchat"}
+        state: DialogueState = {
+            "message": "你好",
+            "session_id": 1,
+            "user_id": 1,
+            "intent": "chitchat",
+        }
 
         updates = await factory.generate_response_node(state, config)
 
@@ -156,7 +199,11 @@ class TestNodeStreaming:
     async def test_template_response_pushed_whole(self):
         config, queue = _config_with_queue()
         factory = _factory(llm=_StreamLLM(["unused"]))
-        state = {"message": "退款", "intent": "refund", "slot_prompt": "请提供订单号"}
+        state: DialogueState = {
+            "message": "退款",
+            "intent": "refund",
+            "slot_prompt": "请提供订单号",
+        }
 
         updates = await factory.generate_response_node(state, config)
 
@@ -169,7 +216,7 @@ class TestNodeStreaming:
         registry = Mock()
         registry.get_tool_for_intent.return_value = tool
         factory = _factory(tool_registry=registry)
-        state = {
+        state: DialogueState = {
             "message": "退款",
             "intent": "refund",
             "filled_slots": {"order_id": "A1"},
@@ -190,7 +237,12 @@ class TestNodeStreaming:
     async def test_midstream_failure_appends_fallback_without_duplication(self):
         config, queue = _config_with_queue()
         factory = _factory(llm=_StreamLLM(["部分", "回答"], raise_after=1))
-        state = {"message": "你好", "session_id": 1, "user_id": 1, "intent": "chitchat"}
+        state: DialogueState = {
+            "message": "你好",
+            "session_id": 1,
+            "user_id": 1,
+            "intent": "chitchat",
+        }
 
         updates = await factory.generate_response_node(state, config)
 
@@ -201,7 +253,12 @@ class TestNodeStreaming:
     async def test_sync_path_untouched_without_queue(self):
         # No stream queue in config: nodes must behave exactly as before.
         factory = _factory(llm=_StreamLLM(["整", "段"]))
-        state = {"message": "你好", "session_id": 1, "user_id": 1, "intent": "chitchat"}
+        state: DialogueState = {
+            "message": "你好",
+            "session_id": 1,
+            "user_id": 1,
+            "intent": "chitchat",
+        }
 
         updates = await factory.generate_response_node(state, None)
 
