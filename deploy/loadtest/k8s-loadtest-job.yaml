@@ -1,0 +1,78 @@
+# Load-generator Job: runs the CS traffic profile against the
+# in-cluster API from a pod (avoids laptop-network skew and exercises
+# service/pod networking).
+#
+#   kubectl -n rag-chatbot apply -f k8s-loadtest-job.yaml
+#   kubectl -n rag-chatbot logs -f job/rag-chatbot-loadtest
+#
+# Scale via LOAD_USERS / LOAD_SPAWN_RATE / LOAD_RUN_TIME (capacity math
+# in locustfile.py). Each apply needs the previous Job deleted first:
+#   kubectl -n rag-chatbot delete job rag-chatbot-loadtest
+#
+# The image is the repo image (locust rides in the dev deps) with the
+# locustfile mounted from a ConfigMap; rebuild only the ConfigMap when
+# the traffic profile changes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rag-chatbot-loadtest-profile
+  namespace: rag-chatbot
+data:
+  locustfile.py: |
+    # Placeholder — inject the real locustfile with:
+    #   kubectl -n rag-chatbot create configmap rag-chatbot-loadtest-profile \
+    #     --from-file=locustfile.py=deploy/loadtest/locustfile.py --dry-run=client -o yaml \
+    #     | kubectl apply -f -
+    # (kept as an empty map so the Job below is always applyable)
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: rag-chatbot-loadtest
+  namespace: rag-chatbot
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 3700  # hard stop just past a 1h soak
+  template:
+    metadata:
+      labels:
+        app: rag-chatbot
+        component: loadtest
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: locust
+          image: rag-chatbot:latest
+          command: ["locust", "--headless", "-f", "/profile/locustfile.py"]
+          env:
+            - name: HOST
+              value: "http://rag-chatbot-api.rag-chatbot.svc.cluster.local:8000"
+          args:
+            - "--host"
+            - "$(HOST)"
+            - "--users"
+            - "200"
+            - "--spawn-rate"
+            - "10"
+            - "--run-time"
+            - "30m"
+            - "--csv"
+            - "/results/locust"
+          volumeMounts:
+            - name: profile
+              mountPath: /profile
+            - name: results
+              mountPath: /results
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: profile
+          configMap:
+            name: rag-chatbot-loadtest-profile
+        - name: results
+          emptyDir: {}

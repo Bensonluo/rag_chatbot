@@ -100,6 +100,9 @@ dev = [
 
     # Type Stubs
     "types-redis>=4.6.0",
+
+    # Load testing (deploy/loadtest/locustfile.py)
+    "locust>=2.46.0",
 ]
 
 [project.urls]
