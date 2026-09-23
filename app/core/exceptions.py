@@ -4,6 +4,8 @@ Custom exception classes for the application.
 Provides domain-specific exceptions that can be caught and handled appropriately.
 """
 
+from typing import Any
+
 
 class AppException(Exception):
     """Base exception for all application errors"""
@@ -62,13 +64,19 @@ class RateLimitError(AppException):
 class ExternalServiceError(AppException):
     """Raised when an external service call fails"""
 
-    def __init__(self, service: str, message: str = "External service error"):
+    def __init__(
+        self,
+        service: str,
+        message: str = "External service error",
+        status_code: int | None = None,
+    ):
+        self.status_code = status_code
         super().__init__(f"{service}: {message}", code="EXTERNAL_SERVICE_ERROR")
 
 
 class BaseServiceError(AppException):
     """Base exception for service layer errors"""
 
-    def __init__(self, message: str, details: dict | None = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         self.details = details or {}
         super().__init__(message, code="SERVICE_ERROR")

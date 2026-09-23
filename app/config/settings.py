@@ -91,6 +91,24 @@ class Settings(BaseSettings):
     GLM_API_KEY: str | None = Field(default=None, description="Zhipu AI GLM API key")
     GLM_MODEL: str = Field(default="glm-5.3-flash", description="GLM model name")
 
+    # LLM Resilience (retry + circuit breaker + provider failover)
+    LLM_RESILIENCE_ENABLED: bool = Field(
+        default=True,
+        description="Wrap the LLM chain with retry/backoff, circuit breaker, failover",
+    )
+    LLM_MAX_RETRIES: int = Field(
+        default=2, ge=0, description="Retries per provider for transient LLM failures"
+    )
+    LLM_RETRY_BACKOFF_BASE: float = Field(
+        default=0.5, description="Base delay (seconds) for exponential backoff"
+    )
+    LLM_CIRCUIT_FAILURE_THRESHOLD: int = Field(
+        default=5, ge=1, description="Consecutive failures before a provider circuit opens"
+    )
+    LLM_CIRCUIT_RECOVERY_SECONDS: float = Field(
+        default=30.0, description="Seconds an open circuit waits before probing again"
+    )
+
     # Embedding Models
     EMBEDDING_PROVIDER: str = Field(
         default="local", description="Embedding provider (local, glm, openai)"

@@ -3,14 +3,14 @@ Factory for creating LLM service instances.
 
 Provides a simple interface for creating LLM clients based on configuration.
 """
-from typing import Optional
 
-from app.services.llm.base import LLMServiceBase
-from app.services.llm.openai_client import OpenAIClient
-from app.services.llm.anthropic_client import AnthropicClient
-from app.services.llm.glm_client import GLMClient
 from app.config.settings import get_settings
 from app.core.exceptions import ValidationError
+from app.services.llm.anthropic_client import AnthropicClient
+from app.services.llm.base import LLMServiceBase
+from app.services.llm.glm_client import GLMClient
+from app.services.llm.openai_client import OpenAIClient
+from app.services.llm.resilience import ResilientLLMService
 
 
 class LLMFactory:
@@ -25,10 +25,10 @@ class LLMFactory:
     @staticmethod
     def create(
         provider: str = "openai",
-        api_key: Optional[str] = None,
-        model: Optional[str] = None,
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
+        api_key: str | None = None,
+        model: str | None = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> LLMServiceBase:
         """
         Create an LLM service instance for the specified provider.
@@ -114,14 +114,11 @@ class LLMFactory:
             raise ValidationError(f"Provider {provider} not implemented")
 
     @staticmethod
-    def create_from_settings(settings_override: Optional[dict] = None) -> LLMServiceBase:
+    def create_from_settings() -> LLMServiceBase:
         """
         Create LLM service from settings with automatic provider selection.
 
         Uses the first available API key in the order: GLM, OpenAI, Anthropic.
-
-        Args:
-            settings_override: Optional settings dict to override defaults
 
         Returns:
             LLMServiceBase: Configured LLM service instance
@@ -135,31 +132,56 @@ class LLMFactory:
         """
         settings = get_settings()
 
-        # Check for GLM first (highest priority for this user)
+        # Build the full configured chain in priority order: a hard
+        # failure on the primary serves from the next provider.
+        providers: list[tuple[str, LLMServiceBase]] = []
         if settings.GLM_API_KEY:
-            return LLMFactory.create(
-                provider="glm",
-                api_key=settings.GLM_API_KEY,
-                model=settings.GLM_MODEL,
+            providers.append(
+                (
+                    "glm",
+                    LLMFactory.create(
+                        provider="glm",
+                        api_key=settings.GLM_API_KEY,
+                        model=settings.GLM_MODEL,
+                    ),
+                )
             )
-
-        # Check for OpenAI
         if settings.OPENAI_API_KEY:
-            return LLMFactory.create(
-                provider="openai",
-                api_key=settings.OPENAI_API_KEY,
-                model=settings.OPENAI_MODEL,
+            providers.append(
+                (
+                    "openai",
+                    LLMFactory.create(
+                        provider="openai",
+                        api_key=settings.OPENAI_API_KEY,
+                        model=settings.OPENAI_MODEL,
+                    ),
+                )
             )
-
-        # Check for Anthropic
         if settings.ANTHROPIC_API_KEY:
-            return LLMFactory.create(
-                provider="anthropic",
-                api_key=settings.ANTHROPIC_API_KEY,
-                model=settings.ANTHROPIC_MODEL,
+            providers.append(
+                (
+                    "anthropic",
+                    LLMFactory.create(
+                        provider="anthropic",
+                        api_key=settings.ANTHROPIC_API_KEY,
+                        model=settings.ANTHROPIC_MODEL,
+                    ),
+                )
             )
 
-        raise ValidationError(
-            "No LLM provider configured. Please set at least one of: "
-            "GLM_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY"
+        if not providers:
+            raise ValidationError(
+                "No LLM provider configured. Please set at least one of: "
+                "GLM_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY"
+            )
+
+        if not settings.LLM_RESILIENCE_ENABLED:
+            return providers[0][1]
+
+        return ResilientLLMService(
+            providers,
+            max_retries=settings.LLM_MAX_RETRIES,
+            backoff_base=settings.LLM_RETRY_BACKOFF_BASE,
+            circuit_failure_threshold=settings.LLM_CIRCUIT_FAILURE_THRESHOLD,
+            circuit_recovery_seconds=settings.LLM_CIRCUIT_RECOVERY_SECONDS,
         )

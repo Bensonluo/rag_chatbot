@@ -3,15 +3,18 @@ GLM (Zhipu AI) LLM client implementation.
 
 Provides integration with GLM models from Zhipu AI.
 """
+
 import time
-from typing import AsyncGenerator, Optional, List, Dict, Any
+from collections.abc import AsyncGenerator
+from types import TracebackType
+from typing import Any
 
 import httpx
 import jwt
 
-from app.services.llm.base import LLMServiceBase, LLMMessage, LLMResponse
-from app.services.llm.token_counter import TokenCounter
 from app.core.exceptions import ExternalServiceError
+from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
+from app.services.llm.token_counter import TokenCounter
 
 
 def _generate_token(api_key: str, exp_seconds: int = 3600) -> str:
@@ -61,8 +64,8 @@ class GLMClient(LLMServiceBase):
         self,
         api_key: str,
         model: str = "glm-5.3-flash",
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> None:
         """
         Initialize GLM client.
@@ -81,15 +84,15 @@ class GLMClient(LLMServiceBase):
             timeout=120.0,
         )
 
-    def _auth_headers(self) -> Dict[str, str]:
+    def _auth_headers(self) -> dict[str, str]:
         return {"Authorization": _generate_token(self.api_key)}
 
     async def generate(
         self,
-        messages: List[LLMMessage],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        **kwargs,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
     ) -> LLMResponse:
         """
         Generate a completion from GLM.
@@ -149,7 +152,8 @@ class GLMClient(LLMServiceBase):
         except httpx.HTTPStatusError as e:
             raise ExternalServiceError(
                 service="GLM",
-                message=f"HTTP error occurred: {e.response.status_code} - {e.response.text}",
+                message=f"HTTP error occurred: {e.response.status_code}",
+                status_code=e.response.status_code,
             ) from e
         except Exception as e:
             raise ExternalServiceError(
@@ -159,10 +163,10 @@ class GLMClient(LLMServiceBase):
 
     async def generate_stream(
         self,
-        messages: List[LLMMessage],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        **kwargs,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
     ) -> AsyncGenerator[str, None]:
         """
         Generate a streaming completion from GLM.
@@ -227,6 +231,7 @@ class GLMClient(LLMServiceBase):
             raise ExternalServiceError(
                 service="GLM",
                 message=f"HTTP error occurred during streaming: {e.response.status_code}",
+                status_code=e.response.status_code,
             ) from e
         except Exception as e:
             raise ExternalServiceError(
@@ -246,7 +251,7 @@ class GLMClient(LLMServiceBase):
         """
         return TokenCounter.estimate(text)
 
-    async def count_tokens(self, messages: List[LLMMessage]) -> int:
+    async def count_tokens(self, messages: list[LLMMessage]) -> int:
         """
         Count actual tokens in messages.
 
@@ -287,6 +292,11 @@ class GLMClient(LLMServiceBase):
         """Async context manager entry."""
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Async context manager exit."""
         await self.close()

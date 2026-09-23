@@ -3,9 +3,11 @@ Base LLM service interface and data structures.
 
 Provides abstract interfaces for LLM providers to implement.
 """
+
 from abc import ABC, abstractmethod
-from typing import Optional, AsyncGenerator, List, Dict, Any
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -17,10 +19,11 @@ class LLMMessage:
         role: Message role ("user", "assistant", or "system")
         content: Message content
     """
+
     role: str
     content: str
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> dict[str, str]:
         """
         Convert message to dictionary format.
 
@@ -33,7 +36,7 @@ class LLMMessage:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, str]) -> "LLMMessage":
+    def from_dict(cls, data: dict[str, str]) -> "LLMMessage":
         """
         Create message from dictionary.
 
@@ -57,10 +60,11 @@ class LLMResponse:
         finish_reason: Reason the generation finished
         usage: Token usage information
     """
+
     content: str
     model: str
-    finish_reason: Optional[str] = None
-    usage: Optional[dict] = None
+    finish_reason: str | None = None
+    usage: dict[str, Any] | None = None
 
 
 class LLMServiceBase(ABC):
@@ -75,8 +79,8 @@ class LLMServiceBase(ABC):
         self,
         api_key: str,
         model: str,
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> None:
         """
         Initialize the LLM service.
@@ -95,10 +99,10 @@ class LLMServiceBase(ABC):
     @abstractmethod
     async def generate(
         self,
-        messages: List[LLMMessage],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        **kwargs,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
     ) -> LLMResponse:
         """
         Generate a completion from the LLM.
@@ -120,13 +124,16 @@ class LLMServiceBase(ABC):
     @abstractmethod
     async def generate_stream(
         self,
-        messages: List[LLMMessage],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        **kwargs,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
     ) -> AsyncGenerator[str, None]:
         """
         Generate a streaming completion from the LLM.
+
+        Implementations are async generator functions (contain ``yield``),
+        so calling this returns an async iterator directly — no ``await``.
 
         Args:
             messages: List of conversation messages
@@ -141,6 +148,7 @@ class LLMServiceBase(ABC):
             NotImplementedError: Must be implemented by subclass
         """
         raise NotImplementedError("generate_stream() must be implemented by subclass")
+        yield  # unreachable — marks this method as an async generator function
 
     @abstractmethod
     def estimate_tokens(self, text: str) -> int:
@@ -159,7 +167,7 @@ class LLMServiceBase(ABC):
         raise NotImplementedError("estimate_tokens() must be implemented by subclass")
 
     @abstractmethod
-    async def count_tokens(self, messages: List[LLMMessage]) -> int:
+    async def count_tokens(self, messages: list[LLMMessage]) -> int:
         """
         Count the actual number of tokens in messages.
 
@@ -174,7 +182,7 @@ class LLMServiceBase(ABC):
         """
         raise NotImplementedError("count_tokens() must be implemented by subclass")
 
-    def _validate_max_tokens(self, max_tokens: Optional[int]) -> Optional[int]:
+    def _validate_max_tokens(self, max_tokens: int | None) -> int | None:
         """
         Validate max_tokens parameter.
 
@@ -195,7 +203,7 @@ class LLMServiceBase(ABC):
 
         return max_tokens
 
-    def _validate_temperature(self, temperature: Optional[float]) -> Optional[float]:
+    def _validate_temperature(self, temperature: float | None) -> float | None:
         """
         Validate temperature parameter.
 
@@ -216,7 +224,7 @@ class LLMServiceBase(ABC):
 
         return temperature
 
-    def _format_messages(self, messages: List[LLMMessage]) -> List[Dict[str, str]]:
+    def _format_messages(self, messages: list[LLMMessage]) -> list[dict[str, str]]:
         """
         Format messages for API request.
 

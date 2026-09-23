@@ -190,6 +190,7 @@ testpaths = [
     "app/tests/unit/middleware/test_rate_limiter_redis.py",
     "app/tests/unit/services/llm/test_anthropic_client.py",
     "app/tests/unit/services/llm/test_openai_client.py",
+    "app/tests/unit/services/llm/test_resilience.py",
     "app/tests/unit/services/test_auth_service.py",
     "app/tests/integration/api/test_auth_endpoints.py",
     "app/tests/integration/api/test_session_endpoints.py",
