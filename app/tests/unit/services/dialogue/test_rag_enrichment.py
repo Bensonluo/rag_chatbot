@@ -8,7 +8,10 @@ entity hints are forwarded to graph retrieval via the
 message; a disabled filler (None) leaves behavior unchanged.
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from app.services.dialogue.nodes import NodeFactory
 from app.services.slot_filling.base import ExtractedSlot, SlotFillingResult
@@ -138,3 +141,73 @@ class TestGraphEntityHints:
         await factory.rag_lookup_node({"message": "退货政策", "intent": "entity_lookup"})
 
         assert graph_service.search.await_args.args[0] == "退货政策"
+
+
+class TestMetadataFilters:
+    """Slot entities flow into VectorSearchRequest.filters via the allow-list.
+
+    The chunk-metadata contract says only certain payload keys are
+    filterable; task-flow slots (issue, order_id, ...) have no payload
+    counterpart and must never become filters. A filtered miss falls
+    back to an unfiltered retry so metadata gaps never zero recall.
+    """
+
+    @pytest.mark.asyncio
+    async def test_slot_product_becomes_metadata_filter(self):
+        hybrid = Mock()
+        hybrid.search = AsyncMock(return_value=[])
+
+        factory = _make_factory(hybrid=hybrid, filler=_filler(SLOT_PRODUCT))
+        await factory.rag_lookup_node({"message": "我的手机怎么了", "intent": "question"})
+
+        # Anchor on the first call: an empty mock return triggers the
+        # unfiltered fallback, which would overwrite await_args.
+        assert hybrid.search.await_args_list[0].args[0].filters == {"product": "iPhone 13"}
+
+    @pytest.mark.asyncio
+    async def test_non_contract_slots_are_dropped(self):
+        # "issue" has no metadata counterpart — filtering on it would
+        # match an empty set (worse than no filter), so it is dropped.
+        hybrid = Mock()
+        hybrid.search = AsyncMock(return_value=[])
+
+        factory = _make_factory(hybrid=hybrid, filler=_filler(SLOT_ISSUE))
+        await factory.rag_lookup_node({"message": "手机坏了", "intent": "question"})
+
+        assert hybrid.search.await_args.args[0].filters is None
+
+    @pytest.mark.asyncio
+    async def test_filtered_miss_falls_back_to_unfiltered(self):
+        result = SimpleNamespace(document_id="d1", content="政策", score=0.9)
+        hybrid = Mock()
+        hybrid.search = AsyncMock(side_effect=[[], [result]])
+
+        factory = _make_factory(hybrid=hybrid, filler=_filler(SLOT_PRODUCT))
+        state = await factory.rag_lookup_node({"message": "iPhone 退款政策", "intent": "question"})
+
+        assert hybrid.search.await_count == 2
+        assert hybrid.search.await_args_list[0].args[0].filters == {"product": "iPhone 13"}
+        assert hybrid.search.await_args_list[1].args[0].filters is None
+        assert state["retrieved_docs"][0]["document_id"] == "d1"
+
+    @pytest.mark.asyncio
+    async def test_filtered_hit_skips_fallback(self):
+        result = SimpleNamespace(document_id="d1", content="政策", score=0.9)
+        hybrid = Mock()
+        hybrid.search = AsyncMock(return_value=[result])
+
+        factory = _make_factory(hybrid=hybrid, filler=_filler(SLOT_PRODUCT))
+        await factory.rag_lookup_node({"message": "iPhone 退款政策", "intent": "question"})
+
+        assert hybrid.search.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_no_filler_means_no_filters(self):
+        hybrid = Mock()
+        hybrid.search = AsyncMock(return_value=[])
+
+        factory = _make_factory(hybrid=hybrid, filler=None)
+        await factory.rag_lookup_node({"message": "退货政策", "intent": "question"})
+
+        assert hybrid.search.await_args.args[0].filters is None
+        assert hybrid.search.await_count == 1

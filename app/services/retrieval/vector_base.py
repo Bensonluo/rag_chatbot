@@ -61,6 +61,20 @@ class VectorSearchRequest:
     filters: dict[str, Any] | None = None
 
 
+# Chunk-metadata filter contract: payload keys under "metadata." that
+# search-time filters may reference. Slot types outside this set (order_id,
+# reason, issue, ...) have no payload counterpart — filtering on them would
+# match an empty set and silently zero out retrieval.
+FILTERABLE_METADATA_KEYS = frozenset(
+    {"product", "category", "doc_type", "source", "language", "tags"}
+)
+
+
+def intersect_metadata_filters(filters: dict[str, Any] | None) -> dict[str, Any]:
+    """Keep only filters whose keys are part of the chunk-metadata contract."""
+    return {k: v for k, v in (filters or {}).items() if k in FILTERABLE_METADATA_KEYS}
+
+
 class VectorClient(ABC):
     """
     Abstract base class for vector database clients.

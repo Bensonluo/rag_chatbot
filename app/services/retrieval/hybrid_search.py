@@ -19,6 +19,25 @@ from app.services.retrieval.vector_base import (
 )
 
 
+def _matches_metadata_filters(doc: dict[str, Any], filters: dict[str, Any]) -> bool:
+    """
+    Check a keyword-index doc against metadata filters.
+
+    A doc matches when every filter key is present in its metadata and
+    equals the filter value; list-valued metadata (e.g. tags) matches on
+    membership. Docs without metadata never match a filtered request.
+    """
+    metadata = doc.get("metadata") or {}
+    for key, value in filters.items():
+        field = metadata.get(key)
+        if isinstance(field, list):
+            if value not in field:
+                return False
+        elif field != value:
+            return False
+    return True
+
+
 class KeywordSearch:
     """
     Simple keyword-based search implementation.
@@ -60,15 +79,25 @@ class KeywordSearch:
         Returns:
             List[SearchResult]: Ranked search results
         """
+        # Metadata filters apply before ranking: a doc outside the filter
+        # set must not compete for top_k slots even when it matches terms.
+        doc_ids: list[str] = list(self.documents)
+        if request.filters:
+            doc_ids = [
+                doc_id
+                for doc_id in doc_ids
+                if _matches_metadata_filters(self.documents[doc_id], request.filters)
+            ]
+
         if not request.query.strip():
-            # Return all documents with zero score for empty query
+            # Return all (filtered) documents with zero score for empty query
             return [
                 SearchResult(
                     document_id=doc_id,
-                    content=doc["content"],
+                    content=self.documents[doc_id]["content"],
                     score=0.0,
                 )
-                for doc_id, doc in self.documents.items()
+                for doc_id in doc_ids
             ]
 
         # Extract query terms
@@ -76,8 +105,8 @@ class KeywordSearch:
 
         # Score each document
         scores = []
-        for doc_id, terms in self.document_terms.items():
-            score = self._compute_bm25_score(query_terms, terms)
+        for doc_id in doc_ids:
+            score = self._compute_bm25_score(query_terms, self.document_terms[doc_id])
             if score > 0:
                 scores.append(
                     SearchResult(

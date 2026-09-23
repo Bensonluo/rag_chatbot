@@ -338,3 +338,122 @@ class TestKeywordSearch:
         # Assert - Should return all results with same score
         assert len(results) == 1
         assert results[0].score == 0.0  # Empty query gets zero score
+
+
+class TestKeywordMetadataFilters:
+    """The BM25 leg honors request.filters against chunk metadata."""
+
+    @pytest.mark.asyncio
+    async def test_filter_keeps_only_matching_docs(self):
+        from app.services.retrieval.hybrid_search import KeywordSearch
+        from app.services.retrieval.vector_base import VectorSearchRequest
+
+        search = KeywordSearch()
+        await search.add_documents(
+            [
+                {"id": "a", "content": "iPhone 退款 政策", "metadata": {"product": "iPhone 13"}},
+                {"id": "b", "content": "iPhone 退款 政策", "metadata": {"product": "MacBook"}},
+            ]
+        )
+
+        results = await search.search(
+            VectorSearchRequest(query="退款", top_k=10, filters={"product": "iPhone 13"})
+        )
+
+        assert [r.document_id for r in results] == ["a"]
+
+    @pytest.mark.asyncio
+    async def test_list_metadata_matches_membership(self):
+        from app.services.retrieval.hybrid_search import KeywordSearch
+        from app.services.retrieval.vector_base import VectorSearchRequest
+
+        search = KeywordSearch()
+        await search.add_documents(
+            [
+                {
+                    "id": "a",
+                    "content": "退货 政策",
+                    "metadata": {"tags": ["手机", "苹果"]},
+                },
+            ]
+        )
+
+        results = await search.search(
+            VectorSearchRequest(query="退货", top_k=10, filters={"tags": "手机"})
+        )
+
+        assert [r.document_id for r in results] == ["a"]
+
+    @pytest.mark.asyncio
+    async def test_doc_without_metadata_excluded_when_filtered(self):
+        from app.services.retrieval.hybrid_search import KeywordSearch
+        from app.services.retrieval.vector_base import VectorSearchRequest
+
+        search = KeywordSearch()
+        await search.add_documents(
+            [
+                {"id": "a", "content": "iPhone 退款 政策", "metadata": {"product": "iPhone 13"}},
+                {"id": "b", "content": "iPhone 退款 政策"},  # no metadata at all
+            ]
+        )
+
+        results = await search.search(
+            VectorSearchRequest(query="退款", top_k=10, filters={"product": "iPhone 13"})
+        )
+
+        assert [r.document_id for r in results] == ["a"]
+
+    @pytest.mark.asyncio
+    async def test_no_filters_keeps_all_docs(self):
+        from app.services.retrieval.hybrid_search import KeywordSearch
+        from app.services.retrieval.vector_base import VectorSearchRequest
+
+        search = KeywordSearch()
+        await search.add_documents(
+            [
+                {"id": "a", "content": "iPhone 退款 政策", "metadata": {"product": "iPhone 13"}},
+                {"id": "b", "content": "iPhone 退款 政策", "metadata": {"product": "MacBook"}},
+            ]
+        )
+
+        results = await search.search(VectorSearchRequest(query="退款", top_k=10))
+
+        assert {r.document_id for r in results} == {"a", "b"}
+
+    @pytest.mark.asyncio
+    async def test_empty_query_branch_honors_filters(self):
+        from app.services.retrieval.hybrid_search import KeywordSearch
+        from app.services.retrieval.vector_base import VectorSearchRequest
+
+        search = KeywordSearch()
+        await search.add_documents(
+            [
+                {"id": "a", "content": "iPhone 退款 政策", "metadata": {"product": "iPhone 13"}},
+                {"id": "b", "content": "MacBook 退款 政策", "metadata": {"product": "MacBook"}},
+            ]
+        )
+
+        results = await search.search(
+            VectorSearchRequest(query="", top_k=10, filters={"product": "iPhone 13"})
+        )
+
+        assert [r.document_id for r in results] == ["a"]
+
+    @pytest.mark.asyncio
+    async def test_service_forwards_filters_to_both_legs(self):
+        from app.services.retrieval.hybrid_search import HybridSearchService
+        from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
+
+        result = SearchResult(document_id="a", content="退款政策", score=0.9)
+        vector_client = Mock()
+        vector_client.search = AsyncMock(return_value=[result])
+        keyword_search = Mock()
+        keyword_search.search = AsyncMock(return_value=[result])
+
+        service = HybridSearchService(vector_client=vector_client, keyword_search=keyword_search)
+        await service.search(
+            VectorSearchRequest(query="退款", top_k=5, filters={"product": "iPhone 13"})
+        )
+
+        assert vector_client.search.await_args.args[0].filters == {"product": "iPhone 13"}
+        assert keyword_search.search.await_args.args[0].filters == {"product": "iPhone 13"}

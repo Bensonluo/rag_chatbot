@@ -515,10 +515,20 @@ class NodeFactory:
         hybrid_search = self._retrieval_pipeline.get("hybrid_search")
         if hybrid_search is not None:
             try:
-                from app.services.retrieval.vector_base import VectorSearchRequest
+                from app.services.retrieval.vector_base import (
+                    VectorSearchRequest,
+                    intersect_metadata_filters,
+                )
 
-                search_req = VectorSearchRequest(query=query, top_k=3)
+                filters = (
+                    intersect_metadata_filters(fill_result.to_filters()) if fill_result else {}
+                )
+                search_req = VectorSearchRequest(query=query, top_k=3, filters=filters or None)
                 search_results = await hybrid_search.search(search_req)
+                if not search_results and filters:
+                    # A metadata miss must not zero out recall: retry unfiltered.
+                    search_req = VectorSearchRequest(query=query, top_k=3)
+                    search_results = await hybrid_search.search(search_req)
                 retrieved_docs = [_search_result_to_dict(r) for r in search_results]
                 sources = _extract_sources(retrieved_docs)
             except Exception:
