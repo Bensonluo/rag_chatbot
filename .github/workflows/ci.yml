@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # GitHub-hosted runners reach PyPI directly (no regional mirror needed).
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      # The test suite is hermetic (SQLite in-memory, fakes for Redis and
+      # external services); the coverage gate (fail_under=70) is enforced
+      # by pyproject addopts.
+      - name: Run tests with coverage gate
+        run: pytest
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: |
+            htmlcov/
+            coverage.xml
+          retention-days: 7
+
+  migrations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e .
+
+      # Guards against model/migration drift: applying the full chain to a
+      # fresh database, then autogenerating a diff, must produce no changes.
+      # Settings only accepts postgres+asyncpg URLs, so the scratch DB URL
+      # is injected after import (same approach as local verification).
+      - name: Verify migration chain (upgrade, downgrade, re-upgrade, zero drift)
+        run: |
+          python - <<'EOF'
+          import os, sys
+          sys.path.insert(0, os.getcwd())
+          from app.config import settings as settings_module
+          settings_module.settings.DATABASE_URL = "sqlite:///./ci_scratch.db"
+          from alembic import command
+          from alembic.config import Config
+          cfg = Config("alembic.ini")
+          cfg.set_main_option("script_location", "migrations")
+          command.upgrade(cfg, "head")
+          command.downgrade(cfg, "base")
+          command.upgrade(cfg, "head")
+          command.revision(cfg, message="ci drift check", autogenerate=True)
+          EOF
+          # The drift-check revision must be an empty no-op.
+          FILE=$(ls migrations/versions/*ci_drift_check*.py)
+          if grep -A2 "def upgrade" "$FILE" | grep -qv "^def upgrade\|pass\|#"; then
+            echo "::error::Model/migration drift detected — regenerate the migration"
+            exit 1
+          fi
+          echo "No drift: migration chain matches Base.metadata"

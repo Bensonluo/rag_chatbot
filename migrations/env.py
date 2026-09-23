@@ -3,21 +3,24 @@ Alembic environment configuration.
 
 This file is used by Alembic to configure the migration environment.
 """
+
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from alembic import context
+from app.config.settings import settings
 
 # Import models and settings
 from app.models.database.base import Base
-from app.config.settings import settings
 
 # Import all models to ensure they're registered with SQLAlchemy
-from app.models.database.user import User
-from app.models.database.session import ChatSession
-from app.models.database.message import Message
-from app.models.database.document import Document
+# (side-effect imports — removing them empties Base.metadata and would
+# make autogenerate diff against an empty model set)
+from app.models.database.document import Document  # noqa: F401
+from app.models.database.message import Message  # noqa: F401
+from app.models.database.session import ChatSession  # noqa: F401
+from app.models.database.user import User  # noqa: F401
 
 # Alembic config object
 config = context.config
