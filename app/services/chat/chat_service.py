@@ -8,12 +8,20 @@ history management and fallback use.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.services.chat.persistence import ChatMessagePersister
+
+# Sentinel yielded by process_message_stream when no token has arrived
+# within the heartbeat window. The SSE layer translates it to a keepalive
+# comment; transport-agnostic consumers simply skip it. Nodes never emit
+# empty strings, so it cannot collide with real content.
+HEARTBEAT = ""
 
 
 @dataclass
@@ -133,38 +141,62 @@ class ChatService:
         session_id: int,
         message: str,
         user_id: int,
+        heartbeat_seconds: float = 15.0,
     ) -> AsyncGenerator[str, None]:
         """
-        Process a user message with streaming via LangGraph.
+        Process a user message with true token streaming.
 
-        Yields response chunks from the ``generate_response`` or
-        ``direct_response`` graph nodes.
+        The graph runs in a background task; terminal nodes push LLM
+        tokens (or complete template responses) onto a per-request
+        queue carried in the invoke config, and this coroutine forwards
+        them as they arrive. The queue — not node-name parsing — is the
+        single source of streamed content.
+
+        When nothing arrives for ``heartbeat_seconds`` a ``HEARTBEAT``
+        sentinel is yielded so the SSE layer can emit a keepalive. On
+        client disconnect the generator is closed: the graph task is
+        cancelled and the partial turn is persisted (checkpointer state
+        was already committed by the graph itself).
 
         Args:
             session_id: Session identifier
             message: User message
             user_id: User identifier
+            heartbeat_seconds: Idle window before yielding a heartbeat
 
         Yields:
-            str: Response text chunks
+            str: Response text chunks (HEARTBEAT sentinel on idle)
         """
-        config = {"configurable": {"thread_id": str(session_id)}}
-        streamed_content: list[str] = []
-        try:
-            async for event in self.graph.astream(
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        config = {"configurable": {"thread_id": str(session_id), "stream_queue": queue}}
+        # The sentinel is enqueued only after the graph task settles, so
+        # the consumer can never exit before the task is observed done.
+        invoke_task = asyncio.create_task(
+            self.graph.ainvoke(
                 {"message": message, "session_id": session_id, "user_id": user_id},
                 config,
-            ):
-                for node_name, node_state in event.items():
-                    if (
-                        node_name == "generate_response"
-                        and "response" in node_state
-                        or node_name == "direct_response"
-                        and "response" in node_state
-                    ):
-                        streamed_content.append(node_state["response"])
-                        yield node_state["response"]
+            )
+        )
+        invoke_task.add_done_callback(lambda _task: queue.put_nowait(None))
+        streamed_content: list[str] = []
+        try:
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(queue.get(), timeout=heartbeat_seconds)
+                except TimeoutError:
+                    yield HEARTBEAT
+                    continue
+                if chunk is None:
+                    break
+                streamed_content.append(chunk)
+                yield chunk
+            # Surface graph failures (sentinel already delivered above).
+            invoke_task.result()
         finally:
+            if not invoke_task.done():
+                invoke_task.cancel()
+            with contextlib.suppress(BaseException):
+                await invoke_task
             # Persist the full streamed turn (partial content if the client
             # disconnected mid-stream) so history and memory stay accurate.
             if self.persister is not None and streamed_content:

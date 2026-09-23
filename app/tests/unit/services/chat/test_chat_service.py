@@ -84,12 +84,14 @@ class TestChatService:
 
     @pytest.mark.asyncio
     async def test_process_message_with_streaming(self):
-        async def mock_astream(*args, **kwargs):
-            yield {"generate_response": {"response": "您好"}}
-            yield {"generate_response": {"response": "有什么可以帮您"}}
+        async def mock_ainvoke(state, config):
+            queue = config["configurable"]["stream_queue"]
+            queue.put_nowait("您好")
+            queue.put_nowait("有什么可以帮您")
+            return {"response": "您好有什么可以帮您"}
 
         mock_graph = Mock()
-        mock_graph.astream = mock_astream
+        mock_graph.ainvoke = mock_ainvoke
         service = ChatService(graph=mock_graph)
         chunks = []
         async for chunk in service.process_message_stream(
@@ -98,7 +100,7 @@ class TestChatService:
             user_id=1,
         ):
             chunks.append(chunk)
-        assert len(chunks) == 2
+        assert chunks == ["您好", "有什么可以帮您"]
 
     @pytest.mark.asyncio
     async def test_get_chat_history(self):

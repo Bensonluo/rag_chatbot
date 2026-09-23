@@ -15,18 +15,22 @@ from app.services.chat.persistence import ChatMessagePersister
 
 
 class _FakeGraph:
-    """Minimal stand-in for a compiled LangGraph."""
+    """Minimal stand-in for a compiled LangGraph.
 
-    def __init__(self, result: dict | None = None, events: list[dict] | None = None):
+    ``chunks`` are pushed onto the request's stream queue during ainvoke,
+    mimicking terminal nodes under token streaming.
+    """
+
+    def __init__(self, result: dict | None = None, chunks: list[str] | None = None):
         self._result = result or {}
-        self._events = events or []
+        self._chunks = chunks or []
 
-    async def ainvoke(self, state, config):  # noqa: ARG002
+    async def ainvoke(self, state, config):
+        queue = (config.get("configurable") or {}).get("stream_queue")
+        if queue is not None:
+            for chunk in self._chunks:
+                queue.put_nowait(chunk)
         return self._result
-
-    async def astream(self, state, config):  # noqa: ARG002
-        for event in self._events:
-            yield event
 
 
 @pytest.fixture
@@ -121,11 +125,10 @@ class TestChatServicePersistence:
         """Streaming persists the concatenated chunks when the stream ends"""
         # Arrange
         persister = AsyncMock()
-        events = [
-            {"generate_response": {"response": "您"}},
-            {"generate_response": {"response": "好"}},
-        ]
-        service = ChatService(graph=_FakeGraph(events=events), persister=persister)
+        service = ChatService(
+            graph=_FakeGraph(result={"response": "您好"}, chunks=["您", "好"]),
+            persister=persister,
+        )
 
         # Act
         chunks = [c async for c in service.process_message_stream(3, "查订单", 9)]

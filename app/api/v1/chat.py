@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.api.rate_limit import check_rate_limit
 from app.models.database.user import User
-from app.services.chat.chat_service import ChatService
+from app.services.chat.chat_service import HEARTBEAT, ChatService
 from app.services.chat.factory import ChatServiceFactory
 from app.services.embeddings import EmbeddingFactory
 from app.services.llm import LLMFactory
@@ -274,6 +274,12 @@ async def chat(
         ) from e
 
 
+def _sse_frame(chunk: str) -> str:
+    """Encode a text chunk as one SSE event (safe for embedded newlines)."""
+    lines = chunk.splitlines() or [""]
+    return "".join(f"data: {line}\n" for line in lines) + "\n"
+
+
 @router.post("/stream")
 async def chat_stream(
     request: ChatRequest,
@@ -281,7 +287,7 @@ async def chat_stream(
     current_user: User | None = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
 ):
-    """Process a chat message with streaming response."""
+    """Process a chat message with a true token-streaming SSE response."""
     check_rate_limit(http_req)
 
     try:
@@ -293,7 +299,12 @@ async def chat_stream(
                 message=request.message,
                 user_id=user_id or 0,
             ):
-                yield f"data: {chunk}\n\n"
+                if chunk == HEARTBEAT:
+                    # SSE comment keepalive — ignored by EventSource parsers,
+                    # keeps proxies from closing an idle connection.
+                    yield ": ping\n\n"
+                else:
+                    yield _sse_frame(chunk)
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(

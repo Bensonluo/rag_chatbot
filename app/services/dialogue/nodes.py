@@ -4,9 +4,18 @@ LangGraph dialogue nodes and conditional edge functions.
 Each node is a function (state: DialogueState) -> dict that returns
 only the fields it updates. The NodeFactory injects services via closure
 so nodes stay pure with respect to the graph.
+
+Terminal nodes accept an optional second ``config`` parameter: LangGraph
+inspects the signature and injects the invoke-time RunnableConfig, whose
+``configurable`` carries the per-request ``stream_queue`` used for true
+token streaming (see ChatService.process_message_stream).
 """
 
+import asyncio
 import logging
+from typing import Any
+
+from langchain_core.runnables import RunnableConfig
 
 from app.models.enums.intent import (
     DIRECT_INTENTS,
@@ -24,6 +33,32 @@ from app.services.slot_filling.slot_types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _stream_queue(config: RunnableConfig | None) -> asyncio.Queue[Any] | None:
+    """Extract the per-request stream queue from a LangGraph invoke config."""
+    if config is None:
+        return None
+    queue = (config.get("configurable") or {}).get("stream_queue")
+    return queue if isinstance(queue, asyncio.Queue) else None
+
+
+def _emit_response(text: str, config: RunnableConfig | None) -> None:
+    """Push a complete response to the stream queue.
+
+    Terminal nodes call this after producing their final response. LLM
+    paths have already streamed token-by-token (flagged on the config),
+    so only template/guardrail-generated responses go through here —
+    which is what makes the stream interface uniform: every response the
+    consumer sees came from the queue, never from node-name parsing.
+    """
+    queue = _stream_queue(config)
+    if queue is None or not text:
+        return
+    configurable = config.get("configurable") if config else None
+    if isinstance(configurable, dict) and configurable.get("streamed_response"):
+        return  # tokens already streamed; pushing the full text would duplicate
+    queue.put_nowait(text)
 
 
 class NodeFactory:
@@ -285,7 +320,9 @@ class NodeFactory:
             "slot_prompt": next_prompt or "",
         }
 
-    async def execute_tool_node(self, state: DialogueState) -> dict:
+    async def execute_tool_node(
+        self, state: DialogueState, config: RunnableConfig | None = None
+    ) -> dict:
         """Execute the tool associated with the current intent.
 
         Irreversible tools (refund, return) are staged instead of run:
@@ -304,6 +341,7 @@ class NodeFactory:
             # Gate every prepared irreversible action, overwriting any
             # stale pending confirmation from an earlier turn.
             summary = _build_confirmation_summary(tool, filled_slots)
+            _emit_response(summary, config)
             return {
                 "pending_confirmation": {"intent": intent, "args": dict(filled_slots)},
                 "response": summary,
@@ -352,16 +390,20 @@ class NodeFactory:
 
         return {"retrieved_docs": retrieved_docs, "sources": sources}
 
-    async def generate_response_node(self, state: DialogueState) -> dict:
+    async def generate_response_node(
+        self, state: DialogueState, config: RunnableConfig | None = None
+    ) -> dict:
         """Generate the final response, then run the output guardrail.
 
         The inner logic builds the response; this wrapper applies the
         output-side safety check / PII redaction before the response
-        leaves the graph.
+        leaves the graph, and emits the final text to the stream queue
+        when it was not already streamed token-by-token.
         """
-        updates = await self._generate_response_logic(state)
+        updates = await self._generate_response_logic(state, config)
 
         if self._guardrail_service is None or state.get("blocked"):
+            _emit_response(updates.get("response", ""), config)
             return updates
 
         response = updates.get("response", "")
@@ -373,9 +415,12 @@ class NodeFactory:
             updates["response"] = "抱歉，该回复未能通过安全检查，请重新提问。"
         elif result.sanitized_content and result.sanitized_content != response:
             updates["response"] = result.sanitized_content
+        _emit_response(updates.get("response", ""), config)
         return updates
 
-    async def _generate_response_logic(self, state: DialogueState) -> dict:
+    async def _generate_response_logic(
+        self, state: DialogueState, config: RunnableConfig | None = None
+    ) -> dict:
         """Generate the final response based on the current state.
 
         Handles five cases:
@@ -395,7 +440,7 @@ class NodeFactory:
 
         # Case 2: meta intent (cancel/confirm/deny) — handle before slot prompt
         if intent in META_INTENTS:
-            return await self._handle_meta_intent(state)
+            return await self._handle_meta_intent(state, config)
 
         # Case 3: slots still missing — prompt the user.
         slot_prompt = state.get("slot_prompt")
@@ -405,20 +450,22 @@ class NodeFactory:
         # Case 4: tool result.
         tool_result = state.get("tool_result")
         if tool_result:
-            return await self._generate_with_tool(intent, message, tool_result, state)
+            return await self._generate_with_tool(intent, message, tool_result, state, config)
 
         # Case 4: RAG context.
         retrieved_docs = state.get("retrieved_docs")
         if retrieved_docs:
-            return await self._generate_with_rag(intent, message, retrieved_docs, state)
+            return await self._generate_with_rag(intent, message, retrieved_docs, state, config)
 
         # Case 5: direct LLM call.
-        return await self._generate_direct(message)
+        return await self._generate_direct(message, config)
 
-    async def direct_response_node(self, state: DialogueState) -> dict:
+    async def direct_response_node(
+        self, state: DialogueState, config: RunnableConfig | None = None
+    ) -> dict:
         """Simple LLM call for chitchat / greeting."""
         message = state.get("message", "")
-        response = await self._generate_direct(message)
+        response = await self._generate_direct(message, config)
         return response
 
     # ── Conditional edges ────────────────────────────────────────────────────
@@ -549,6 +596,7 @@ class NodeFactory:
         message: str,
         tool_result: dict,
         state: DialogueState,
+        config: RunnableConfig | None = None,
     ) -> dict:
         """Generate response incorporating tool execution results."""
         display_name = INTENT_DISPLAY_NAMES.get(intent, intent)
@@ -558,7 +606,7 @@ class NodeFactory:
             f"工具执行结果: {_safe_json(tool_result)}\n"
             "请根据以上工具执行结果，用友好专业的语气回答用户。"
         )
-        response_text = await self._call_llm(context)
+        response_text = await self._call_llm(context, config)
         response_text = _maybe_append_resume_hint(response_text, state)
         return {"response": response_text}
 
@@ -568,6 +616,7 @@ class NodeFactory:
         message: str,
         retrieved_docs: list[dict],
         state: DialogueState,
+        config: RunnableConfig | None = None,
     ) -> dict:
         """Generate response incorporating retrieved documents."""
         docs_text = "\n\n".join(
@@ -578,16 +627,18 @@ class NodeFactory:
             f"用户问题: {message}\n"
             "请根据以上参考资料回答用户的问题。如果资料中没有相关内容，请如实告知。"
         )
-        response_text = await self._call_llm(context)
+        response_text = await self._call_llm(context, config)
         response_text = _maybe_append_resume_hint(response_text, state)
         return {"response": response_text}
 
-    async def _generate_direct(self, message: str) -> dict:
+    async def _generate_direct(self, message: str, config: RunnableConfig | None = None) -> dict:
         """Generate a direct response without additional context."""
-        response_text = await self._call_llm(message)
+        response_text = await self._call_llm(message, config)
         return {"response": response_text}
 
-    async def _handle_meta_intent(self, state: DialogueState) -> dict:
+    async def _handle_meta_intent(
+        self, state: DialogueState, config: RunnableConfig | None = None
+    ) -> dict:
         """Handle confirm / deny / cancel meta intents.
 
         ``confirm`` first checks for a staged irreversible action
@@ -638,6 +689,7 @@ class NodeFactory:
                     state.get("message", ""),
                     tool_result,
                     state,
+                    config,
                 )
                 updates.update(generated)
                 return updates
@@ -667,15 +719,51 @@ class NodeFactory:
 
         return {"response": "抱歉，我没有理解您的意思，请重新描述。"}
 
-    async def _call_llm(self, user_content: str) -> str:
-        """Call the LLM service with a single user message and return text."""
+    async def _call_llm(self, user_content: str, config: RunnableConfig | None = None) -> str:
+        """Call the LLM service with a single user message and return text.
+
+        When the request carries a stream queue (token streaming), chunks
+        are pushed to the queue as they arrive and the accumulated text is
+        returned; the ``streamed_response`` flag tells terminal nodes not
+        to re-emit the full response after the fact.
+        """
         if self._llm_service is None:
             return user_content
 
-        try:
-            from app.services.llm.base import LLMMessage
+        from app.services.llm.base import LLMMessage
 
-            messages = [LLMMessage(role="user", content=user_content)]
+        messages = [LLMMessage(role="user", content=user_content)]
+        queue = _stream_queue(config)
+
+        if queue is not None:
+            chunks: list[str] = []
+            try:
+                async for chunk in self._llm_service.generate_stream(messages):
+                    if not chunk:
+                        continue
+                    chunks.append(chunk)
+                    queue.put_nowait(chunk)
+            except Exception:
+                logger.exception("LLM streaming generation failed")
+                fallback = "抱歉，生成回复时出现错误，请稍后重试。"
+                if chunks:
+                    # Partial tokens already reached the consumer; append a
+                    # visible apology rather than silently truncating. The
+                    # consumer has now seen the entire response (tokens +
+                    # fallback), so flag it streamed to prevent the
+                    # terminal-node full-text push from duplicating it.
+                    queue.put_nowait(fallback)
+                    configurable = config.get("configurable") if config else None
+                    if isinstance(configurable, dict):
+                        configurable["streamed_response"] = True
+                    return "".join(chunks) + fallback
+                return fallback
+            configurable = config.get("configurable") if config else None
+            if isinstance(configurable, dict):
+                configurable["streamed_response"] = True
+            return "".join(chunks)
+
+        try:
             response = await self._llm_service.generate(messages)
             return response.content
         except Exception:
