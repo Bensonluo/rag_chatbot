@@ -7,21 +7,27 @@ all operations are no-ops.
 """
 
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_tracer_provider = None
+_tracer_provider: Any = None
 
 
 def setup_tracing(
-    app=None, endpoint: str = "http://jaeger:4317", service_name: str = "rag-chatbot"
+    app: Any = None, endpoint: str = "http://jaeger:4317", service_name: str = "rag-chatbot"
 ) -> bool:
     """Initialize OpenTelemetry tracing. Returns True if setup succeeded."""
     global _tracer_provider
 
     try:
         from opentelemetry import trace
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
+        # Optional exporter package (not a declared dependency); the
+        # ImportError below degrades tracing to a no-op when absent.
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # type: ignore[import-not-found]
+            OTLPSpanExporter,
+        )
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -54,7 +60,7 @@ def setup_tracing(
         return False
 
 
-def get_tracer(name: str = "rag-chatbot"):
+def get_tracer(name: str = "rag-chatbot") -> Any:
     """Get an OTel tracer, or a no-op tracer if OTel is not configured."""
     try:
         from opentelemetry import trace
@@ -67,30 +73,32 @@ def get_tracer(name: str = "rag-chatbot"):
 class _NoOpTracer:
     """Fallback tracer when OTel is not installed."""
 
-    def start_as_current_span(self, name, **kwargs):  # noqa: ARG002  # OTel Tracer API conformance
+    def start_as_current_span(self, name: str, **kwargs: Any) -> "_NoOpSpan":  # noqa: ARG002  # OTel Tracer API conformance
         return _NoOpSpan()
 
-    def start_span(self, name, **kwargs):  # noqa: ARG002  # OTel Tracer API conformance
+    def start_span(self, name: str, **kwargs: Any) -> "_NoOpSpan":  # noqa: ARG002  # OTel Tracer API conformance
         return _NoOpSpan()
 
 
 class _NoOpSpan:
     """Fallback span that does nothing."""
 
-    def __enter__(self):
+    def __enter__(self) -> "_NoOpSpan":
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, *args: Any) -> None:
         pass
 
-    def set_attribute(self, key, value):
+    def set_attribute(self, key: str, value: Any) -> None:
         pass
 
-    def add_event(self, name, attributes=None):
+    def add_event(self, name: str, attributes: dict[str, Any] | None = None) -> None:
         pass
 
-    def record_exception(self, exception, attributes=None):
+    def record_exception(
+        self, exception: BaseException, attributes: dict[str, Any] | None = None
+    ) -> None:
         pass
 
-    def is_recording(self):
+    def is_recording(self) -> bool:
         return False

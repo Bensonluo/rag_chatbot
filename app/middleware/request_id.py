@@ -6,9 +6,11 @@ Generates unique request IDs for tracing and debugging.
 
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +33,13 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     Middleware to add unique request IDs.
     """
 
-    def __init__(self, app, header_name: str = "X-Request-ID"):
+    def __init__(self, app: ASGIApp, header_name: str = "X-Request-ID") -> None:
         super().__init__(app)
         self.header_name = header_name
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """
         Process request and add request ID.
 

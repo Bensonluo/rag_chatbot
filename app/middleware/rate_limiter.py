@@ -6,8 +6,10 @@ Provides IP-based rate limiting for API endpoints.
 
 import logging
 import time
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-from fastapi import Request, status
+from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
 
 from app.middleware.error_handler import ErrorResponse
@@ -75,11 +77,11 @@ class RateLimiterMiddleware:
 
     def __init__(
         self,
-        app,
+        app: Any,
         requests_per_minute: int = 60,
         bucket_size: int | None = None,
         whitelist_paths: list[str] | None = None,
-    ):
+    ) -> None:
         """
         Initialize rate limiter middleware.
 
@@ -100,7 +102,7 @@ class RateLimiterMiddleware:
         # Calculate refill rate (tokens per second)
         self.refill_rate = requests_per_minute / 60.0
 
-    async def __call__(self, scope, receive, send):
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         """
         ASGI middleware entry point.
 
@@ -136,7 +138,9 @@ class RateLimiterMiddleware:
             response = self._rate_limit_response(bucket, client_ip)
             await response(scope, receive, send)
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """
         Process request and enforce rate limit.
 
@@ -211,7 +215,7 @@ class RateLimiterMiddleware:
 
     def _add_rate_limit_headers(
         self,
-        response,
+        response: Response,
         bucket: TokenBucket,
     ) -> None:
         """

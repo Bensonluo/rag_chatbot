@@ -1,6 +1,5 @@
 """Tests for error handler middleware"""
 
-from unittest.mock import Mock
 
 import pytest
 from fastapi import FastAPI, HTTPException, Request
@@ -58,6 +57,7 @@ class TestErrorHandlerMiddleware:
                 "path": "/test",
                 "headers": [],
                 "query_string": b"",
+                "app": app,
             },
             receive=None,
         )
@@ -81,7 +81,11 @@ class TestErrorHandlerMiddleware:
 
         @app.get("/test")
         async def test_route():
-            raise ValidationError(model=Mock, errors=[{"loc": ("field",), "msg": "error"}])
+            # pydantic_core ValidationError can only be built via from_exception_data
+            raise ValidationError.from_exception_data(
+                "TestModel",
+                [{"type": "string_type", "loc": ("field",), "input": 123}],
+            )
 
         request = Request(
             scope={
@@ -90,6 +94,7 @@ class TestErrorHandlerMiddleware:
                 "path": "/test",
                 "headers": [],
                 "query_string": b"",
+                "app": app,
             },
             receive=None,
         )
@@ -121,6 +126,7 @@ class TestErrorHandlerMiddleware:
                 "path": "/test",
                 "headers": [],
                 "query_string": b"",
+                "app": app,
             },
             receive=None,
         )
@@ -151,6 +157,7 @@ class TestErrorHandlerMiddleware:
                 "path": "/test",
                 "headers": [],
                 "query_string": b"",
+                "app": app,
             },
             receive=None,
         )
@@ -181,6 +188,7 @@ class TestErrorHandlerMiddleware:
                 "path": "/test",
                 "headers": [],
                 "query_string": b"",
+                "app": app,
             },
             receive=None,
         )
@@ -212,6 +220,7 @@ class TestErrorHandlerMiddleware:
                 "path": "/test",
                 "headers": [],
                 "query_string": b"",
+                "app": app,
             },
             receive=None,
         )
@@ -233,8 +242,8 @@ class TestErrorHandlerMiddleware:
     async def _get_response_body(self, response):
         """Extract response body for testing"""
         if hasattr(response, "body"):
-            body = await response.body()
-            return body.decode()
+            # starlette Response.body is a property (bytes), not a coroutine
+            return response.body.decode()
         return ""
 
 

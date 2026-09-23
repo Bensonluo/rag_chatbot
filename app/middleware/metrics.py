@@ -6,10 +6,12 @@ Collects and exposes metrics for monitoring.
 
 import logging
 import time
+from collections.abc import Awaitable, Callable
 
 from fastapi import Request, Response
 from prometheus_client import REGISTRY, Counter, Gauge, Histogram, generate_latest
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +48,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
     - Active requests (gauge)
     """
 
-    def __init__(self, app, app_name: str = "rag_chatbot"):
+    def __init__(self, app: ASGIApp, app_name: str = "rag_chatbot") -> None:
         super().__init__(app)
         self.app_name = app_name
 
@@ -54,7 +56,9 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
         self.request_latency = HTTP_REQUEST_LATENCY
         self.active_requests = HTTP_ACTIVE_REQUESTS
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """
         Process request and collect metrics.
 
@@ -100,7 +104,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
             self.active_requests.dec()
 
 
-def metrics_endpoint(request: Request):  # noqa: ARG001  # FastAPI DI: Request required by route signature
+def metrics_endpoint(request: Request) -> Response:  # noqa: ARG001  # FastAPI DI: Request required by route signature
     """
     FastAPI endpoint to expose Prometheus metrics.
 
@@ -118,7 +122,7 @@ def metrics_endpoint(request: Request):  # noqa: ARG001  # FastAPI DI: Request r
     )
 
 
-def health_check_endpoint():
+def health_check_endpoint() -> dict[str, str]:
     """
     FastAPI endpoint for health checks.
 
@@ -131,7 +135,7 @@ def health_check_endpoint():
     }
 
 
-def ready_check_endpoint():
+def ready_check_endpoint() -> dict[str, str]:
     """
     FastAPI endpoint for readiness checks.
 

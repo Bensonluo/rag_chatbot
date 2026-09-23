@@ -6,10 +6,13 @@ Catches and formats exceptions into proper HTTP responses.
 
 import logging
 import traceback
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-from fastapi import Request, status
+from fastapi import HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+from pydantic import ValidationError as PydanticValidationError
 
 from app.core.exceptions import BaseServiceError, ValidationError
 
@@ -21,8 +24,10 @@ class ErrorResponse(BaseModel):
 
     status_code: int = Field(..., description="HTTP status code")
     message: str = Field(..., description="Error message")
-    detail: str | None = Field(None, description="Detailed error information")
-    errors: list[dict] | None = Field(None, description="Validation errors")
+    detail: str | dict[str, Any] | None = Field(
+        None, description="Detailed error information"
+    )
+    errors: list[dict[str, Any]] | None = Field(None, description="Validation errors")
     path: str | None = Field(None, description="Request path")
 
 
@@ -34,7 +39,7 @@ class ErrorHandlerMiddleware:
     with consistent error format.
     """
 
-    def __init__(self, app, debug: bool = False):
+    def __init__(self, app: Any, debug: bool = False) -> None:
         """
         Initialize error handler middleware.
 
@@ -45,7 +50,9 @@ class ErrorHandlerMiddleware:
         self.app = app
         self.debug = debug
 
-    async def dispatch(self, request: Request, call_next):
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """
         Process request and handle errors.
 
@@ -60,8 +67,12 @@ class ErrorHandlerMiddleware:
             response = await call_next(request)
             return response
 
-        except ValidationError as e:
-            # Pydantic validation error
+        except HTTPException as e:
+            # Deliberate HTTP error raised by routes/dependencies — keep its status
+            return self._handle_http_exception(e, request)
+
+        except (ValidationError, PydanticValidationError) as e:
+            # App-custom or pydantic validation error
             return self._handle_validation_error(e, request)
 
         except BaseServiceError as e:
@@ -72,9 +83,36 @@ class ErrorHandlerMiddleware:
             # Unexpected error
             return self._handle_unexpected_error(e, request)
 
+    def _handle_http_exception(
+        self,
+        error: HTTPException,
+        request: Request,
+    ) -> JSONResponse:
+        """
+        Handle HTTPException by preserving its status code and detail.
+
+        Args:
+            error: HTTPException raised by routes or dependencies
+            request: Request that caused error
+
+        Returns:
+            JSONResponse: Formatted error response with the original status
+        """
+        response = ErrorResponse(
+            status_code=error.status_code,
+            message=str(error.detail) if error.detail is not None else "HTTP error",
+            path=request.url.path,
+        )
+
+        return JSONResponse(
+            status_code=error.status_code,
+            content=response.model_dump(),
+            headers=error.headers,
+        )
+
     def _handle_validation_error(
         self,
-        error: ValidationError,
+        error: ValidationError | PydanticValidationError,
         request: Request,
     ) -> JSONResponse:
         """
@@ -92,9 +130,9 @@ class ErrorHandlerMiddleware:
             for err in error.errors():
                 errors.append(
                     {
-                        "field": ".".join(str(loc) for loc in err["loc"]),
-                        "message": err["msg"],
-                        "type": err["type"],
+                        "field": ".".join(str(loc) for loc in err.get("loc", ())),
+                        "message": err.get("msg", ""),
+                        "type": err.get("type", "value_error"),
                     }
                 )
 
