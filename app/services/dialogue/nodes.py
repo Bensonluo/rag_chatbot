@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from app.services.intent.base import IntentDetector
     from app.services.llm.base import LLMServiceBase
     from app.services.retrieval.vector_base import SearchResult
-    from app.services.slot_filling.base import SlotFiller
+    from app.services.slot_filling.base import SlotFiller, SlotFillingResult
 
 from langchain_core.runnables import RunnableConfig
 
@@ -90,8 +90,8 @@ class NodeFactory:
         self,
         intent_detector: IntentDetector,
         # Nullable: the API wiring passes None when slot filling is
-        # disabled. Note: the stored filler is not consumed by node
-        # logic yet — slots are extracted via extract_slots_from_message.
+        # disabled. Consumed by rag_lookup_node for retrieval
+        # enrichment; task slots use extract_slots_from_message.
         slot_filler: SlotFiller | None,
         tool_registry: ToolRegistry,
         retrieval_pipeline: dict[str, Any] | None = None,
@@ -478,11 +478,22 @@ class NodeFactory:
         }
 
     async def rag_lookup_node(self, state: DialogueState) -> dict[str, Any]:
-        """Retrieve relevant documents via hybrid search."""
+        """Retrieve relevant documents via hybrid search.
+
+        Entities extracted from the raw message by the slot filler
+        enrich both retrieval paths: normalized slot values are
+        appended to the search query (recall for BM25 + vector), and
+        entity hints anchor graph retrieval's Cypher generation.
+        Extraction failure degrades to searching the raw message.
+        """
         message = state.get("message", "")
         intent = state.get("intent", "")
         retrieved_docs: list[dict[str, Any]] = []
         sources: list[str] = []
+
+        fill_result = await self._extract_query_entities(message)
+        entity_hints = fill_result.to_entity_hints() if fill_result else []
+        query = _enriched_query(message, fill_result)
 
         # Graph intents go through graph retrieval.
         if intent in GRAPH_INTENTS and self._graph_retrieval_service is not None:
@@ -490,7 +501,9 @@ class NodeFactory:
                 # GraphRetrievalService exposes search() returning a fused,
                 # ranked list — the old .query() call raised AttributeError
                 # and silently degraded every graph-intent lookup to empty.
-                graph_results = await self._graph_retrieval_service.search(message)
+                graph_results = await self._graph_retrieval_service.search(
+                    query, entity_hints=entity_hints or None
+                )
                 if graph_results:
                     retrieved_docs = [_graph_doc_to_dict(r) for r in graph_results]
                     sources = _extract_sources(retrieved_docs)
@@ -504,7 +517,7 @@ class NodeFactory:
             try:
                 from app.services.retrieval.vector_base import VectorSearchRequest
 
-                search_req = VectorSearchRequest(query=message, top_k=3)
+                search_req = VectorSearchRequest(query=query, top_k=3)
                 search_results = await hybrid_search.search(search_req)
                 retrieved_docs = [_search_result_to_dict(r) for r in search_results]
                 sources = _extract_sources(retrieved_docs)
@@ -512,6 +525,20 @@ class NodeFactory:
                 logger.exception("Hybrid search failed")
 
         return {"retrieved_docs": retrieved_docs, "sources": sources}
+
+    async def _extract_query_entities(self, message: str) -> SlotFillingResult | None:
+        """Run the slot filler over the raw message for retrieval enrichment.
+
+        Best-effort: a disabled filler (None) or any extraction error
+        degrades to None, and callers search the raw message unchanged.
+        """
+        if self._slot_filler is None:
+            return None
+        try:
+            return await self._slot_filler.fill_slots(message, intent=None)
+        except Exception:
+            logger.warning("Slot extraction for retrieval enrichment failed", exc_info=True)
+            return None
 
     async def generate_response_node(
         self, state: DialogueState, config: RunnableConfig | None = None
@@ -1081,6 +1108,25 @@ def _build_handoff_response(reason: str, ticket: dict[str, Any]) -> str:
         parts.append("您已在排队中，请耐心等待")
     parts.append("人工客服可查看本次会话的完整上下文，请稍候")
     return "，".join(parts) + "。"
+
+
+def _enriched_query(message: str, fill_result: SlotFillingResult | None) -> str:
+    """Append normalized slot values not already present in the message.
+
+    Slot values that already appear verbatim add nothing (the vector
+    and BM25 scorers see them); appending them would only bloat the
+    query. Capped at four extras to bound query length.
+    """
+    if fill_result is None:
+        return message
+    extras: list[str] = []
+    for slot in fill_result.slots:
+        value = slot.normalized_value.strip()
+        if value and value not in message and value not in extras:
+            extras.append(value)
+    if not extras:
+        return message
+    return f"{message} {' '.join(extras[:4])}"
 
 
 def _search_result_to_dict(result: SearchResult) -> dict[str, Any]:
