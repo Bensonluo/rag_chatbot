@@ -17,7 +17,7 @@ import logging
 import time
 from typing import Any
 
-from fastapi import status
+from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from redis import exceptions as redis_exceptions
 from redis.asyncio import Redis
@@ -45,6 +45,10 @@ if count < limit then
 end
 return {0, 0}
 """
+
+# Errors meaning "Redis is unreachable / call failed": the caller degrades
+# to its per-process fallback instead of failing the request.
+_REDIS_ERRORS = (redis_exceptions.RedisError, OSError, ValueError)
 
 
 class _RedisClientHolder:
@@ -85,6 +89,90 @@ class _RedisClientHolder:
 async def close_rate_limit_redis() -> None:
     """Close the shared rate-limit Redis connection (call on app shutdown)."""
     await _RedisClientHolder.close()
+
+
+async def _redis_sliding_window(
+    client_ip: str, *, key: str, limit: int, window_seconds: float
+) -> tuple[bool, int]:
+    """Check-and-consume one slot in the shared Redis sliding window.
+
+    Raises the Redis/unreachable errors upward so each limiter can apply
+    its own fallback policy.
+    """
+    client = _RedisClientHolder.get()
+    now = time.time()
+    member = f"{now}-{client_ip}"
+    result = await client.eval(  # type: ignore[no-untyped-call]
+        _SLIDING_WINDOW_LUA,
+        1,
+        key,
+        int(now * 1000),
+        int(window_seconds * 1000),
+        limit,
+        member,
+    )
+    return int(result[0]) == 1, int(result[1])
+
+
+def _fallback_check(
+    buckets: dict[str, TokenBucket], client_ip: str, limit: int, window: float
+) -> tuple[bool, int]:
+    """Per-process token bucket used when Redis is unavailable."""
+    bucket = buckets.get(client_ip)
+    if bucket is None:
+        bucket = TokenBucket(
+            capacity=limit,
+            refill_rate=limit / window if window else 1.0,
+        )
+        buckets[client_ip] = bucket
+    allowed = bucket.consume()
+    return allowed, max(0, int(bucket.tokens))
+
+
+def client_ip_from_request(request: Request) -> str:
+    """Resolve client IP, honouring X-Forwarded-For from trusted proxies."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+class EndpointRateLimiter:
+    """
+    Redis sliding-window limiter for one expensive endpoint group.
+
+    LLM-backed chat turns cost orders of magnitude more than other
+    requests, so they get a tighter per-IP budget than the global
+    middleware. Keys are namespaced per scope, and — like the
+    middleware — a Redis outage degrades to a per-process token bucket:
+    protection degrades, availability does not.
+    """
+
+    def __init__(
+        self,
+        scope: str,
+        requests_per_minute: int,
+        window_seconds: int = 60,
+    ) -> None:
+        self.scope = scope
+        self.requests_per_minute = requests_per_minute
+        self._limit = requests_per_minute
+        self._window = float(window_seconds)
+        # Per-process fallback buckets used only while Redis is unreachable.
+        self._fallback_buckets: dict[str, TokenBucket] = {}
+
+    async def check(self, client_ip: str) -> tuple[bool, int]:
+        """Check and consume one request slot. Returns (allowed, remaining)."""
+        try:
+            return await _redis_sliding_window(
+                client_ip,
+                key=f"ratelimit:{self.scope}:{client_ip}",
+                limit=self._limit,
+                window_seconds=self._window,
+            )
+        except _REDIS_ERRORS:
+            _RedisClientHolder.warn_degraded()
+            return _fallback_check(self._fallback_buckets, client_ip, self._limit, self._window)
 
 
 class DistributedRateLimiterMiddleware:
@@ -140,39 +228,15 @@ class DistributedRateLimiterMiddleware:
     async def _check(self, client_ip: str) -> tuple[bool, int]:
         """Check and consume one request slot. Returns (allowed, remaining)."""
         try:
-            client = _RedisClientHolder.get()
-            now = time.time()
-            member = f"{now}-{client_ip}"
-            result = await client.eval(  # type: ignore[no-untyped-call]
-                _SLIDING_WINDOW_LUA,
-                1,
-                f"ratelimit:{client_ip}",
-                int(now * 1000),
-                int(self._window * 1000),
-                self._limit,
-                member,
+            return await _redis_sliding_window(
+                client_ip,
+                key=f"ratelimit:{client_ip}",
+                limit=self._limit,
+                window_seconds=self._window,
             )
-            allowed = int(result[0]) == 1
-            remaining = int(result[1])
-            return allowed, remaining
-        except redis_exceptions.RedisError:
+        except _REDIS_ERRORS:
             _RedisClientHolder.warn_degraded()
-            return self._fallback_check(client_ip)
-        except (OSError, ValueError):
-            _RedisClientHolder.warn_degraded()
-            return self._fallback_check(client_ip)
-
-    def _fallback_check(self, client_ip: str) -> tuple[bool, int]:
-        """Per-process token bucket used when Redis is unavailable."""
-        bucket = self._fallback_buckets.get(client_ip)
-        if bucket is None:
-            bucket = TokenBucket(
-                capacity=self._limit,
-                refill_rate=self._limit / self._window if self._window else 1.0,
-            )
-            self._fallback_buckets[client_ip] = bucket
-        allowed = bucket.consume()
-        return allowed, max(0, int(bucket.tokens))
+            return _fallback_check(self._fallback_buckets, client_ip, self._limit, self._window)
 
     def _client_ip(self, scope: dict[str, Any]) -> str:
         """Resolve client IP, honouring X-Forwarded-For from trusted proxies."""

@@ -68,6 +68,10 @@ class Settings(BaseSettings):
         default_factory=lambda: ["/health", "/ready", "/metrics"],
         description="Paths excluded from rate limiting",
     )
+    CHAT_RATE_LIMIT_REQUESTS_PER_MINUTE: int = Field(
+        default=10,
+        description="Tighter per-IP budget for LLM-backed chat endpoints (Redis-backed)",
+    )
 
     # Vector DB Service (external)
     VECTOR_DB_URL: str = Field(

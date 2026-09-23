@@ -15,7 +15,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
-from app.api.rate_limit import check_rate_limit
+from app.config.settings import settings
+from app.middleware.rate_limiter_redis import EndpointRateLimiter, client_ip_from_request
 from app.models.database.user import User
 from app.services.chat.chat_service import HEARTBEAT, ChatService
 from app.services.chat.factory import ChatServiceFactory
@@ -29,6 +30,28 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 
 # Global chat service instance (initialized on startup)
 _chat_service: ChatService | None = None
+
+# Tighter per-IP budget for LLM-backed turns. Redis-backed sliding window
+# so N replicas enforce one shared limit (a per-process limiter would give
+# each replica its own budget at scale).
+_chat_rate_limiter = EndpointRateLimiter(
+    scope="chat",
+    requests_per_minute=settings.CHAT_RATE_LIMIT_REQUESTS_PER_MINUTE,
+    window_seconds=settings.RATE_LIMIT_WINDOW_SECONDS,
+)
+
+
+async def _enforce_chat_rate_limit(http_req: Request) -> None:
+    """Reject with 429 when the caller has exhausted the chat-path budget."""
+    if not settings.RATE_LIMIT_ENABLED:
+        return
+    allowed, _remaining = await _chat_rate_limiter.check(client_ip_from_request(http_req))
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Chat request rate limit exceeded. Please retry shortly.",
+            headers={"Retry-After": str(settings.RATE_LIMIT_WINDOW_SECONDS)},
+        )
 
 
 async def initialize_chat_service(db: AsyncSession, checkpointer=None):
@@ -238,7 +261,7 @@ async def chat(
     chat_service: ChatService = Depends(get_chat_service),
 ):
     """Process a chat message and generate response."""
-    check_rate_limit(http_req)
+    await _enforce_chat_rate_limit(http_req)
 
     try:
         user_id = current_user.id if current_user else request.user_id
@@ -290,7 +313,7 @@ async def chat_stream(
     chat_service: ChatService = Depends(get_chat_service),
 ):
     """Process a chat message with a true token-streaming SSE response."""
-    check_rate_limit(http_req)
+    await _enforce_chat_rate_limit(http_req)
 
     try:
         user_id = current_user.id if current_user else request.user_id
