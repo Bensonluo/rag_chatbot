@@ -34,6 +34,9 @@ class DialogueState(TypedDict, total=False):
 
     # Routing
     route: str
+    # Agent-path routing decision: "agent_done" ends the turn,
+    # "agent_fallback" rejoins the slot pipeline (see handle_agent_node).
+    route_after_agent: str
 
     # Tool execution
     tool_name: str

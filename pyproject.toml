@@ -173,6 +173,7 @@ minversion = "7.0"
 testpaths = [
     "app/tests/unit/core/test_security.py",
     "app/tests/unit/services/dialogue",
+    "app/tests/unit/services/agent",
     "app/tests/unit/services/chat",
     "app/tests/unit/services/handoff",
     "app/tests/unit/services/intent",

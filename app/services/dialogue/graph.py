@@ -25,6 +25,7 @@ def build_dialogue_graph(
     graph_retrieval_service=None,
     checkpointer=None,
     handoff_service=None,
+    agent_service=None,
 ):
     """Build and compile the dialogue StateGraph.
 
@@ -41,6 +42,10 @@ def build_dialogue_graph(
         handoff_service: Optional HandoffService for human-agent
             escalation tickets; when None the handoff node still
             responds but creates no ticket.
+        agent_service: Optional AgentService (LLM function-calling
+            loop). When provided, task intents route through the agent
+            node, which falls back to the slot pipeline whenever the
+            provider lacks tool support or the loop fails.
 
     Returns:
         Compiled StateGraph with the requested checkpointer.
@@ -56,6 +61,7 @@ def build_dialogue_graph(
         guardrail_service=guardrail_service,
         graph_retrieval_service=graph_retrieval_service,
         handoff_service=handoff_service,
+        agent_service=agent_service,
     )
 
     graph = StateGraph(DialogueState)
@@ -71,6 +77,7 @@ def build_dialogue_graph(
     graph.add_node("generate_response", factory.generate_response_node)
     graph.add_node("direct_response", factory.direct_response_node)
     graph.add_node("handle_handoff", factory.handle_handoff_node)
+    graph.add_node("handle_agent", factory.handle_agent_node)
 
     # ── Fixed edges ──────────────────────────────────────────────────────────
     graph.add_edge(START, "guardrail")
@@ -100,6 +107,19 @@ def build_dialogue_graph(
             "direct": "direct_response",
             "meta": "generate_response",
             "handoff": "handle_handoff",
+            "agent": "handle_agent",
+        },
+    )
+
+    # Agent mode: a successful run is terminal; a failed one (provider
+    # without function calling, LLM outage) rejoins the deterministic
+    # slot pipeline mid-flow so the user is still served.
+    graph.add_conditional_edges(
+        "handle_agent",
+        factory.route_after_agent,
+        {
+            "agent_done": END,
+            "agent_fallback": "collect_slots",
         },
     )
 

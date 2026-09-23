@@ -16,24 +16,37 @@ class LLMMessage:
     Represents a message in a conversation with an LLM.
 
     Attributes:
-        role: Message role ("user", "assistant", or "system")
+        role: Message role ("user", "assistant", "system", or "tool")
         content: Message content
+        tool_calls: Tool invocations the model requested (assistant
+            messages only, function-calling wire format: list of
+            ``{"id", "type", "function": {"name", "arguments"}}``)
+        tool_call_id: Links a "tool" message to the assistant
+            tool_call it answers
     """
 
     role: str
     content: str
+    tool_calls: list[dict[str, Any]] | None = None
+    tool_call_id: str | None = None
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert message to dictionary format.
 
         Returns:
-            dict: Message as dictionary with role and content
+            dict: Message as dictionary with role and content, plus
+            the function-calling fields when present
         """
-        return {
+        data: dict[str, Any] = {
             "role": self.role,
             "content": self.content,
         }
+        if self.tool_calls is not None:
+            data["tool_calls"] = self.tool_calls
+        if self.tool_call_id is not None:
+            data["tool_call_id"] = self.tool_call_id
+        return data
 
     @classmethod
     def from_dict(cls, data: dict[str, str]) -> "LLMMessage":
@@ -59,12 +72,17 @@ class LLMResponse:
         model: Model name/identifier used
         finish_reason: Reason the generation finished
         usage: Token usage information
+        tool_calls: Tool invocations the model requested, when the
+            request carried tool schemas and the model chose to call
+            one (each item: ``{"id", "name", "arguments"}`` with
+            arguments as a raw JSON string). None on plain responses.
     """
 
     content: str
     model: str
     finish_reason: str | None = None
     usage: dict[str, Any] | None = None
+    tool_calls: list[dict[str, Any]] | None = None
 
 
 class LLMServiceBase(ABC):
@@ -150,6 +168,43 @@ class LLMServiceBase(ABC):
         raise NotImplementedError("generate_stream() must be implemented by subclass")
         yield  # unreachable — marks this method as an async generator function
 
+    async def generate_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[dict[str, Any]],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        """
+        Generate a completion with function-calling tool schemas.
+
+        Providers whose API supports the OpenAI-compatible ``tools``
+        wire format override this; the base implementation raises so
+        callers can probe capability (and fall back to a plain
+        pipeline) via NotImplementedError.
+
+        Args:
+            messages: Conversation so far, including "tool" result
+                messages from earlier iterations
+            tools: Tool schemas in OpenAI format (``{"type":
+                "function", "function": {...}}``)
+            max_tokens: Override max tokens for this request
+            temperature: Override temperature for this request
+            **kwargs: Additional provider-specific parameters
+
+        Returns:
+            LLMResponse: Response whose ``tool_calls`` is populated
+            when the model requested a tool invocation
+
+        Raises:
+            NotImplementedError: Provider does not support function
+                calling
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support function calling"
+        )
+
     @abstractmethod
     def estimate_tokens(self, text: str) -> int:
         """
@@ -224,7 +279,7 @@ class LLMServiceBase(ABC):
 
         return temperature
 
-    def _format_messages(self, messages: list[LLMMessage]) -> list[dict[str, str]]:
+    def _format_messages(self, messages: list[LLMMessage]) -> list[dict[str, Any]]:
         """
         Format messages for API request.
 

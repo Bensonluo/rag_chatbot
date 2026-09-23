@@ -3,13 +3,15 @@ OpenAI LLM client implementation.
 
 Provides integration with OpenAI's GPT models.
 """
-from typing import Any, AsyncGenerator, Optional, List
+
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from openai import AsyncOpenAI
 
-from app.services.llm.base import LLMServiceBase, LLMMessage, LLMResponse
-from app.services.llm.token_counter import TokenCounter
 from app.core.exceptions import ExternalServiceError
+from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
+from app.services.llm.token_counter import TokenCounter
 
 
 class OpenAIClient(LLMServiceBase):
@@ -32,9 +34,9 @@ class OpenAIClient(LLMServiceBase):
         self,
         api_key: str,
         model: str = "gpt-4-turbo-preview",
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        client: Optional[Any] = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        client: Any | None = None,
     ) -> None:
         """
         Initialize OpenAI client.
@@ -52,9 +54,9 @@ class OpenAIClient(LLMServiceBase):
 
     async def generate(
         self,
-        messages: List[LLMMessage],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
         **kwargs,
     ) -> LLMResponse:
         """
@@ -78,9 +80,7 @@ class OpenAIClient(LLMServiceBase):
                 "model": self.model,
                 "messages": self._format_messages(messages),
                 "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
-                "temperature": (
-                    temperature if temperature is not None else self.temperature
-                ),
+                "temperature": (temperature if temperature is not None else self.temperature),
             }
 
             # Add any additional parameters
@@ -94,7 +94,24 @@ class OpenAIClient(LLMServiceBase):
 
             # Extract response data
             choice = response.choices[0]
-            content = choice.message.content
+            message = choice.message
+            # Tool-call responses may carry no content — keep the str
+            # contract instead of leaking None downstream.
+            content = message.content or ""
+            # The SDK returns a list of tool-call objects, or None when the
+            # model produced a plain answer; isinstance keeps malformed
+            # payloads (or test doubles) from breaking extraction.
+            raw_calls = getattr(message, "tool_calls", None)
+            tool_calls = None
+            if isinstance(raw_calls, list):
+                tool_calls = [
+                    {
+                        "id": call.id or "",
+                        "name": call.function.name if call.function else "",
+                        "arguments": call.function.arguments if call.function else "{}",
+                    }
+                    for call in raw_calls
+                ]
             finish_reason = choice.finish_reason
             usage = {
                 "prompt_tokens": response.usage.prompt_tokens,
@@ -107,6 +124,7 @@ class OpenAIClient(LLMServiceBase):
                 model=response.model,
                 finish_reason=finish_reason,
                 usage=usage,
+                tool_calls=tool_calls,
             )
 
         except Exception as e:
@@ -115,11 +133,47 @@ class OpenAIClient(LLMServiceBase):
                 message=f"Failed to generate completion: {str(e)}",
             ) from e
 
+    async def generate_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[dict],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs,
+    ) -> LLMResponse:
+        """
+        Generate a completion with function-calling tool schemas.
+
+        Routes through ``generate`` (the SDK accepts ``tools`` /
+        ``tool_choice`` natively) so tool calls inherit the same error
+        handling — and, when wrapped by ResilientLLMService, the same
+        retry / failover chain as every other LLM call.
+
+        Args:
+            messages: Conversation so far (includes "tool" messages)
+            tools: Tool schemas in OpenAI format
+            max_tokens: Override max tokens
+            temperature: Override temperature
+            **kwargs: Additional OpenAI parameters
+
+        Returns:
+            LLMResponse: Response with ``tool_calls`` populated when the
+            model requested a tool invocation
+        """
+        return await self.generate(
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            tools=tools,
+            tool_choice="auto",
+            **kwargs,
+        )
+
     async def generate_stream(
         self,
-        messages: List[LLMMessage],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
         """
@@ -143,9 +197,7 @@ class OpenAIClient(LLMServiceBase):
                 "model": self.model,
                 "messages": self._format_messages(messages),
                 "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
-                "temperature": (
-                    temperature if temperature is not None else self.temperature
-                ),
+                "temperature": (temperature if temperature is not None else self.temperature),
                 "stream": True,
             }
 
@@ -181,7 +233,7 @@ class OpenAIClient(LLMServiceBase):
         """
         return TokenCounter.estimate(text)
 
-    async def count_tokens(self, messages: List[LLMMessage]) -> int:
+    async def count_tokens(self, messages: list[LLMMessage]) -> int:
         """
         Count actual tokens in messages.
 

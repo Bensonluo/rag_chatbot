@@ -80,6 +80,7 @@ class NodeFactory:
         guardrail_service=None,
         graph_retrieval_service=None,
         handoff_service=None,
+        agent_service=None,
     ) -> None:
         self._intent_detector = intent_detector
         self._slot_filler = slot_filler
@@ -89,6 +90,7 @@ class NodeFactory:
         self._guardrail_service = guardrail_service
         self._graph_retrieval_service = graph_retrieval_service
         self._handoff_service = handoff_service
+        self._agent_service = agent_service
 
     # ── Nodes ────────────────────────────────────────────────────────────────
 
@@ -283,6 +285,12 @@ class NodeFactory:
         intent = state.get("intent", "")
 
         if intent in TASK_INTENTS:
+            # Agent mode: task intents go through the function-calling
+            # loop instead of the slot pipeline. The agent node falls
+            # back to the slot pipeline when the provider lacks tool
+            # support, so availability never depends on agent mode.
+            if self._agent_service is not None:
+                return {"route": "agent"}
             return {"route": "task"}
         if intent in RAG_INTENTS:
             return {"route": "rag"}
@@ -553,6 +561,71 @@ class NodeFactory:
 
         _emit_response(response, config)
         return updates
+
+    async def handle_agent_node(
+        self, state: DialogueState, config: RunnableConfig | None = None
+    ) -> dict[str, Any]:
+        """Run the function-calling agent loop for a task intent.
+
+        On success the agent's final answer (or confirmation question
+        for a staged irreversible action) is the response and the turn
+        ends here. On any failure — provider without function-calling
+        support, LLM outage mid-loop — the node routes back into the
+        deterministic slot pipeline so the user still gets served:
+        agent mode is an upgrade path, never a dependency.
+
+        The output guardrail runs on the LLM-generated answer (A6
+        invariant), and a successful non-staging run clears any stale
+        pending confirmation (same semantics as execute_tool_node).
+        """
+        if self._agent_service is None:
+            return {"route_after_agent": "agent_fallback"}
+
+        context_note = ""
+        filled = state.get("filled_slots") or {}
+        if filled:
+            context_note = "对话中已知信息：" + "，".join(
+                f"{k}={v}" for k, v in filled.items()
+            )
+
+        try:
+            result = await self._agent_service.run(
+                user_message=state.get("message", ""),
+                user_id=state.get("user_id"),
+                context_note=context_note,
+            )
+        except NotImplementedError:
+            logger.warning(
+                "Agent mode unavailable (provider lacks function calling); "
+                "falling back to slot pipeline"
+            )
+            return {"route_after_agent": "agent_fallback"}
+        except Exception:  # noqa: BLE001 - availability over agent mode
+            logger.exception("Agent loop failed; falling back to slot pipeline")
+            return {"route_after_agent": "agent_fallback"}
+
+        updates: dict[str, Any] = {
+            "route_after_agent": "agent_done",
+            "response": result.response,
+            # None when this run staged nothing — clears stale gates.
+            "pending_confirmation": result.pending_confirmation,
+        }
+
+        if self._guardrail_service is not None and result.response:
+            check = self._guardrail_service.check_output(result.response)
+            if check.was_blocked:
+                updates["response"] = "抱歉，该回复未能通过安全检查，请重新提问。"
+            elif check.sanitized_content and check.sanitized_content != result.response:
+                updates["response"] = check.sanitized_content
+
+        _emit_response(updates["response"], config)
+        return updates
+
+    @staticmethod
+    def route_after_agent(state: DialogueState) -> str:
+        """End the turn after a successful agent run; fall back to the
+        slot pipeline otherwise."""
+        return state.get("route_after_agent", "agent_fallback")
 
     # ── Conditional edges ────────────────────────────────────────────────────
 

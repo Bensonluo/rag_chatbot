@@ -12,6 +12,7 @@ explicit user confirmation before execution.
 import random
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from app.models.enums.intent import TASK_INTENTS  # noqa: F401 (re-exported)
 
@@ -31,6 +32,9 @@ class ToolDefinition:
     # Irreversible actions ask the user for explicit confirmation before
     # the handler runs (Sierra/Fin-style confirmation gate).
     requires_confirmation: bool = False
+    # JSON Schema for the function-calling API (LLM agent mode). When
+    # None the tool is only reachable via the slot-filling pipeline.
+    parameters_schema: dict[str, Any] | None = None
 
 
 @dataclass
@@ -53,6 +57,33 @@ class ToolRegistry:
 
     def get_tool_for_intent(self, intent: str) -> ToolDefinition | None:
         return self._tools.get(intent)
+
+    def get_tool_by_name(self, name: str) -> ToolDefinition | None:
+        """Look up a tool by its function name (LLM tool_call target)."""
+        for tool in self._tools.values():
+            if tool.name == name:
+                return tool
+        return None
+
+    def to_function_schemas(self) -> list[dict[str, Any]]:
+        """Export agent-reachable tools as OpenAI function schemas.
+
+        Only tools carrying a ``parameters_schema`` are exported — a
+        tool without one stays reachable via the slot-filling pipeline
+        only, keeping agent scope explicit.
+        """
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters_schema,
+                },
+            }
+            for tool in self._tools.values()
+            if tool.parameters_schema is not None
+        ]
 
     async def execute(
         self,
@@ -227,38 +258,104 @@ DEFAULT_TOOLS: list[ToolDefinition] = [
     ToolDefinition(
         name="process_refund",
         intent="refund",
-        description="处理退款申请",
+        description="处理退款申请。仅限用户本人的订单；执行前必须先向用户确认。",
         required_slots=["order_id", "reason"],
         handler=mock_refund,
         requires_confirmation=True,
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "description": "订单号，例如 ORD1001",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "退款原因，用用户原话概括",
+                },
+            },
+            "required": ["order_id", "reason"],
+        },
     ),
     ToolDefinition(
         name="process_return",
         intent="return",
-        description="处理退货申请",
+        description="处理退货申请。仅限用户本人的订单；执行前必须先向用户确认。",
         required_slots=["order_id", "reason"],
         handler=mock_return,
         requires_confirmation=True,
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "description": "订单号，例如 ORD1001",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "退货原因，用用户原话概括",
+                },
+            },
+            "required": ["order_id", "reason"],
+        },
     ),
     ToolDefinition(
         name="query_order_status",
         intent="query_order",
-        description="查询订单状态",
+        description="查询订单状态（状态、商品、金额、预计送达）。",
         required_slots=["order_id"],
         handler=mock_query_order,
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "description": "订单号，例如 ORD1001",
+                },
+            },
+            "required": ["order_id"],
+        },
     ),
     ToolDefinition(
         name="track_shipping",
         intent="track_shipping",
-        description="查询物流信息",
+        description="查询订单的物流配送信息。",
         required_slots=["order_id"],
         handler=mock_track_shipping,
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "description": "订单号，例如 ORD1001",
+                },
+            },
+            "required": ["order_id"],
+        },
     ),
     ToolDefinition(
         name="submit_complaint",
         intent="complaint",
-        description="提交投诉",
+        description="提交投诉工单。",
         required_slots=["category", "description"],
         handler=mock_complaint,
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "description": "投诉分类，如：物流/商品质量/服务态度",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "投诉内容描述",
+                },
+                "order_id": {
+                    "type": "string",
+                    "description": "相关订单号（如有）",
+                },
+            },
+            "required": ["category", "description"],
+        },
     ),
 ]

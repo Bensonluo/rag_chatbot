@@ -109,6 +109,17 @@ class Settings(BaseSettings):
         default=30.0, description="Seconds an open circuit waits before probing again"
     )
 
+    # Agent mode (LLM function-calling loop)
+    AGENT_TOOLS_ENABLED: bool = Field(
+        default=False,
+        description="Route task intents through the LLM function-calling agent loop",
+    )
+    AGENT_MAX_STEPS: int = Field(
+        default=3,
+        ge=1,
+        description="Maximum model rounds per agent run (loop bound)",
+    )
+
     # Embedding Models
     EMBEDDING_PROVIDER: str = Field(
         default="local", description="Embedding provider (local, glm, openai)"

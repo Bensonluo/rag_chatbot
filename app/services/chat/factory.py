@@ -141,11 +141,19 @@ class ChatServiceFactory:
         # Create tool registry and build LangGraph dialogue graph
         graph = None
         try:
+            from app.services.agent import AgentService
             from app.services.dialogue.graph import build_dialogue_graph
             from app.services.dialogue.tools import create_default_tool_registry
             from app.services.handoff import create_handoff_service
 
             tool_registry = create_default_tool_registry()
+            agent_service = None
+            if settings.AGENT_TOOLS_ENABLED and llm_service is not None:
+                agent_service = AgentService(
+                    llm_service=llm_service,
+                    tool_registry=tool_registry,
+                    max_steps=settings.AGENT_MAX_STEPS,
+                )
             graph = build_dialogue_graph(
                 intent_detector=intent_detector,
                 slot_filler=slot_filler,
@@ -156,6 +164,7 @@ class ChatServiceFactory:
                 graph_retrieval_service=graph_retrieval_service,
                 checkpointer=checkpointer,
                 handoff_service=create_handoff_service(),
+                agent_service=agent_service,
             )
         except Exception as exc:
             logger.warning("Failed to build LangGraph dialogue graph: %s", exc)

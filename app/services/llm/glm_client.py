@@ -42,6 +42,30 @@ def _generate_token(api_key: str, exp_seconds: int = 3600) -> str:
     )
 
 
+def _parse_tool_calls(raw: Any) -> list[dict[str, Any]] | None:
+    """Normalize wire-format tool_calls to flat dicts.
+
+    Accepts ``[{"id", "type", "function": {"name", "arguments"}}]``
+    (OpenAI/GLM wire format) and returns ``[{"id", "name",
+    "arguments"}]`` with arguments kept as the raw JSON string — the
+    caller parses it against the tool's schema. Returns None when the
+    model did not request any tool.
+    """
+    if not raw:
+        return None
+    parsed: list[dict[str, Any]] = []
+    for call in raw:
+        function = call.get("function") or {}
+        parsed.append(
+            {
+                "id": call.get("id", ""),
+                "name": function.get("name", ""),
+                "arguments": function.get("arguments", "{}"),
+            }
+        )
+    return parsed
+
+
 class GLMClient(LLMServiceBase):
     """
     GLM (Zhipu AI) LLM service implementation.
@@ -134,7 +158,11 @@ class GLMClient(LLMServiceBase):
 
             # Extract response data
             choice = data["choices"][0]
-            content = choice["message"]["content"]
+            message = choice["message"]
+            # Tool-call responses may carry no content at all — keep the
+            # str contract instead of leaking None downstream.
+            content = message.get("content") or ""
+            tool_calls = _parse_tool_calls(message.get("tool_calls"))
             finish_reason = choice.get("finish_reason")
             usage = {
                 "prompt_tokens": data["usage"]["prompt_tokens"],
@@ -147,6 +175,7 @@ class GLMClient(LLMServiceBase):
                 model=data["model"],
                 finish_reason=finish_reason,
                 usage=usage,
+                tool_calls=tool_calls,
             )
 
         except httpx.HTTPStatusError as e:
@@ -160,6 +189,44 @@ class GLMClient(LLMServiceBase):
                 service="GLM",
                 message=f"Failed to generate completion: {str(e)}",
             ) from e
+
+    async def generate_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[dict[str, Any]],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        """
+        Generate a completion with function-calling tool schemas.
+
+        GLM speaks the OpenAI-compatible wire format (verified against
+        docs.bigmodel.cn / docs.z.ai): tools + tool_choice in the
+        request, ``message.tool_calls`` in the response. Routes through
+        ``generate`` so tool calls inherit the same error handling —
+        and, when wrapped by ResilientLLMService, the same retry /
+        failover chain as every other LLM call.
+
+        Args:
+            messages: Conversation so far (includes "tool" messages)
+            tools: Tool schemas in OpenAI format
+            max_tokens: Override max tokens
+            temperature: Override temperature
+            **kwargs: Additional GLM parameters
+
+        Returns:
+            LLMResponse: Response with ``tool_calls`` populated when the
+            model requested a tool invocation
+        """
+        return await self.generate(
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            tools=tools,
+            tool_choice="auto",
+            **kwargs,
+        )
 
     async def generate_stream(
         self,
