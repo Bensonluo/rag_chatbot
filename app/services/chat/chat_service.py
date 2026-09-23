@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from app.services.chat.knowledge_gap_recorder import KnowledgeGapRecorder
@@ -112,6 +112,17 @@ class ChatService:
             config,
         )
 
+        metadata: dict[str, Any] = {
+            "confidence": result.get("confidence"),
+            "pending_slots": result.get("pending_slots", []),
+            "filled_slots": result.get("filled_slots", {}),
+        }
+        # Durable audit trail of agent tool executions (refunds and
+        # other irreversible support actions must be traceable).
+        executed_tools = result.get("executed_tools") or []
+        if executed_tools:
+            metadata["executed_tools"] = executed_tools
+
         if self.persister is not None:
             await self.persister.persist_turn(
                 session_id=session_id,
@@ -120,11 +131,7 @@ class ChatService:
                 response=result.get("response", ""),
                 intent=result.get("intent"),
                 sources=result.get("sources"),
-                metadata={
-                    "confidence": result.get("confidence"),
-                    "pending_slots": result.get("pending_slots", []),
-                    "filled_slots": result.get("filled_slots", {}),
-                },
+                metadata=metadata,
             )
         if self.gap_recorder is not None:
             await self.gap_recorder.record_if_gap(
@@ -140,11 +147,7 @@ class ChatService:
             session_id=session_id,
             intent=result.get("intent", "unknown"),
             sources=result.get("sources"),
-            metadata={
-                "confidence": result.get("confidence"),
-                "pending_slots": result.get("pending_slots", []),
-                "filled_slots": result.get("filled_slots", {}),
-            },
+            metadata=metadata,
         )
 
     async def process_message_stream(

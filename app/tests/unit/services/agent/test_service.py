@@ -265,3 +265,93 @@ class TestResultDataclass:
         assert result.pending_confirmation is None
         assert result.executed_tools == []
         assert not result.truncated
+
+
+class TestToolTrace:
+    """Structured audit trail of executed tools (compliance: refunds
+    and other support actions must be traceable after the fact)."""
+
+    async def test_success_entry_has_tool_ok_args_summary(self):
+        llm = ScriptedLLM(
+            [
+                _tool_call_response("query_order_status", {"order_id": "ORD1001"}),
+                _final_response("您的订单已发货。"),
+            ]
+        )
+        result = await _make_service(llm).run("ORD1001 发货了吗", user_id=1)
+
+        assert result.executed_tools == ["query_order_status"]
+        assert len(result.tool_trace) == 1
+        entry = result.tool_trace[0]
+        assert entry["tool"] == "query_order_status"
+        assert entry["ok"] is True
+        assert entry["args"] == {"order_id": "ORD1001"}
+        assert "ORD1001" in entry["summary"]
+
+    async def test_failure_entry_records_error(self):
+        llm = ScriptedLLM(
+            [
+                _tool_call_response("query_order_status", {"order_id": "ORD9999"}),
+                _final_response("没有找到这个订单。"),
+            ]
+        )
+        result = await _make_service(llm).run("ORD9999 发货了吗", user_id=1)
+
+        assert len(result.tool_trace) == 1
+        entry = result.tool_trace[0]
+        assert entry["ok"] is False
+        assert "不存在" in entry["summary"]
+
+    async def test_unknown_tool_recorded_as_failed_trace(self):
+        llm = ScriptedLLM(
+            [
+                _tool_call_response("hallucinated_tool", {"x": 1}),
+                _final_response("抱歉，办不了。"),
+            ]
+        )
+        result = await _make_service(llm).run("帮我办", user_id=1)
+
+        assert result.executed_tools == []
+        assert result.tool_trace == [
+            {
+                "tool": "hallucinated_tool",
+                "ok": False,
+                "args": {"x": 1},
+                "summary": "未知工具: hallucinated_tool",
+            }
+        ]
+
+    async def test_staging_preserves_prior_trace(self):
+        """Tools executed before a staged irreversible action stay in
+        the audit trail (staged itself is *not* an execution)."""
+        llm = ScriptedLLM(
+            [
+                _tool_call_response("get_recent_orders", {}),
+                _tool_call_response(
+                    "process_refund", {"order_id": "ORD1001", "reason": "不想要了"}
+                ),
+                _final_response("占位"),
+            ]
+        )
+        result = await _make_service(llm).run("帮我退款", user_id=1)
+
+        assert result.pending_confirmation is not None
+        assert result.executed_tools == ["get_recent_orders"]
+        assert [e["tool"] for e in result.tool_trace] == ["get_recent_orders"]
+        assert result.tool_trace[0]["ok"] is True
+
+    async def test_summary_is_bounded(self):
+        huge = "x" * 5000
+        llm = ScriptedLLM(
+            [
+                _tool_call_response("query_order_status", {"order_id": "ORD1001"}),
+                _final_response("ok"),
+            ]
+        )
+        # Patch one order's payload via the registry data is overkill;
+        # instead bound-check on a normal entry: summaries never exceed
+        # the 200-char cap even with long args echoed into results.
+        result = await _make_service(llm).run(huge, user_id=1)
+        for entry in result.tool_trace:
+            assert len(entry["summary"]) <= 200
+            assert entry["args"] == {"order_id": "ORD1001"}

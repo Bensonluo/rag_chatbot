@@ -6,7 +6,7 @@ representing the complete dialogue context including intent, slots,
 routing decisions, tool results, and intent switch stack.
 """
 
-from typing import TypedDict
+from typing import Any, TypedDict
 
 
 class DialogueState(TypedDict, total=False):
@@ -44,6 +44,11 @@ class DialogueState(TypedDict, total=False):
     # Tool execution
     tool_name: str
     tool_result: dict
+    # Structured agent audit trail ({"tool", "ok", "args", "summary"}
+    # per executed call) — persisted with the assistant message and
+    # included in handoff context. Declared explicitly per the
+    # route_after_agent lesson: undeclared keys are silently dropped.
+    executed_tools: list[dict[str, Any]]
     # Set while an irreversible tool is staged awaiting explicit user
     # confirmation: {"intent": ..., "args": {...}}
     pending_confirmation: dict | None

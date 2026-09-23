@@ -574,6 +574,11 @@ class NodeFactory:
             "intent": state.get("prev_intent") or state.get("intent", ""),
             "filled_slots": state.get("filled_slots") or {},
             "pending_slots": state.get("pending_slots") or [],
+            # What the bot already tried, so the human agent does not
+            # make the user repeat the story (industry-standard
+            # context transfer on escalation).
+            "bot_executed_tools": state.get("executed_tools") or [],
+            "last_tool_result": state.get("tool_result") or None,
         }
 
         ticket: dict[str, Any] = {
@@ -647,6 +652,9 @@ class NodeFactory:
         updates: dict[str, Any] = {
             "route_after_agent": "agent_done",
             "response": result.response,
+            # Structured audit trail of executed tools (empty list on
+            # staged runs where nothing executed yet).
+            "executed_tools": result.tool_trace,
             # None when this run staged nothing — clears stale gates.
             "pending_confirmation": result.pending_confirmation,
         }

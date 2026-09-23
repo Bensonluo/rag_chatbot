@@ -255,3 +255,36 @@ class TestChatResponse:
             intent="greeting",
         )
         assert response.sources is None
+
+
+class TestTurnAuditMetadata:
+    """Agent tool executions are persisted with the turn — irreversible
+    support actions must be traceable after the fact."""
+
+    @pytest.mark.asyncio
+    async def test_persists_executed_tools_in_metadata(self):
+        trace = [{"tool": "process_refund", "ok": True, "args": {"order_id": "O1"}, "summary": "s"}]
+        mock_graph = _make_graph(
+            {
+                "response": "退款已发起。",
+                "intent": "refund",
+                "executed_tools": trace,
+            }
+        )
+        persister = AsyncMock()
+        service = ChatService(graph=mock_graph, persister=persister)
+        response = await service.process_message(session_id=1, message="退款", user_id=1)
+
+        persisted_meta = persister.persist_turn.await_args.kwargs["metadata"]
+        assert persisted_meta["executed_tools"] == trace
+        assert response.metadata["executed_tools"] == trace
+
+    @pytest.mark.asyncio
+    async def test_omits_executed_tools_when_none_ran(self):
+        mock_graph = _make_graph({"response": "您好！", "intent": "greeting"})
+        persister = AsyncMock()
+        service = ChatService(graph=mock_graph, persister=persister)
+        await service.process_message(session_id=1, message="你好", user_id=1)
+
+        persisted_meta = persister.persist_turn.await_args.kwargs["metadata"]
+        assert "executed_tools" not in persisted_meta

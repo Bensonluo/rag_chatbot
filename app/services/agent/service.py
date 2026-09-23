@@ -47,6 +47,10 @@ _FALLBACK_RESPONSE = (
     "抱歉，您的请求处理超时了。您可以重新描述问题，或回复「转人工」由人工客服为您处理。"
 )
 
+# Audit-trace summaries are bounded so a chatty tool result cannot
+# bloat the persisted metadata.
+_TRACE_SUMMARY_MAX = 200
+
 
 @dataclass
 class AgentResult:
@@ -60,6 +64,10 @@ class AgentResult:
             slot-pipeline's staging shape.
         executed_tools: Names of tools actually executed (for tests
             and tracing).
+        tool_trace: Structured audit trail of every tool call —
+            ``{"tool", "ok", "args", "summary"}`` per entry. Persisted
+            with the assistant message so irreversible actions
+            (refunds) are traceable after the fact.
         truncated: True when the step budget ran out before a final
             answer.
     """
@@ -67,6 +75,7 @@ class AgentResult:
     response: str
     pending_confirmation: dict[str, Any] | None = None
     executed_tools: list[str] = field(default_factory=list)
+    tool_trace: list[dict[str, Any]] = field(default_factory=list)
     truncated: bool = False
 
 
@@ -119,6 +128,7 @@ class AgentService:
         messages.append(LLMMessage(role="user", content=user_message))
 
         executed: list[str] = []
+        trace: list[dict[str, Any]] = []
 
         for step in range(self._max_steps):
             response = await self._llm.generate_with_tools(messages, tools)
@@ -128,6 +138,7 @@ class AgentService:
                 return AgentResult(
                     response=response.content or _FALLBACK_RESPONSE,
                     executed_tools=executed,
+                    tool_trace=trace,
                 )
 
             # No budget left for another model round after executing —
@@ -140,6 +151,7 @@ class AgentService:
                 return AgentResult(
                     response=_FALLBACK_RESPONSE,
                     executed_tools=executed,
+                    tool_trace=trace,
                     truncated=True,
                 )
 
@@ -156,12 +168,17 @@ class AgentService:
             for call in calls:
                 staged = self._maybe_stage_confirmation(call)
                 if staged is not None:
+                    # Keep the audit trail of tools already run before
+                    # the staged (unexecuted) irreversible action.
+                    staged.executed_tools = executed
+                    staged.tool_trace = trace
                     return staged
-                await self._execute_call(call, messages, executed, user_id)
+                await self._execute_call(call, messages, executed, trace, user_id)
 
         return AgentResult(
             response=_FALLBACK_RESPONSE,
             executed_tools=executed,
+            tool_trace=trace,
             truncated=True,
         )
 
@@ -189,16 +206,21 @@ class AgentService:
         call: dict[str, Any],
         messages: list[LLMMessage],
         executed: list[str],
+        trace: list[dict[str, Any]],
         user_id: int | None,
     ) -> None:
         """Execute one tool call and append its result to the history."""
         tool = self._tools.get_tool_by_name(call.get("name", ""))
         if tool is None:
-            messages.append(
-                _tool_result_message(
-                    call.get("id", ""),
-                    {"error": f"未知工具: {call.get('name', '')}"},
-                )
+            unknown = f"未知工具: {call.get('name', '')}"
+            messages.append(_tool_result_message(call.get("id", ""), {"error": unknown}))
+            trace.append(
+                {
+                    "tool": str(call.get("name", "")),
+                    "ok": False,
+                    "args": _parse_arguments(call),
+                    "summary": unknown,
+                }
             )
             return
 
@@ -207,6 +229,16 @@ class AgentService:
         executed.append(tool.name)
         payload = result.data if result.success else {"error": result.message}
         messages.append(_tool_result_message(call.get("id", ""), payload))
+        trace.append(
+            {
+                "tool": tool.name,
+                "ok": result.success,
+                "args": args,
+                "summary": json.dumps(payload, ensure_ascii=False, default=str)[
+                    :_TRACE_SUMMARY_MAX
+                ],
+            }
+        )
 
 
 def _parse_arguments(call: dict[str, Any]) -> dict[str, Any]:

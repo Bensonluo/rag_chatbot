@@ -276,3 +276,58 @@ class TestRuleBasedHandoffDetection:
         detector = RuleBasedIntentDetector()
         result = detector.detect_with_confidence("投诉没用，给我转人工")
         assert result.intent == Intent.HANDOFF
+
+
+class TestHandoffContextIncludesBotAttempts:
+    async def test_ticket_context_carries_what_bot_tried(self):
+        """Industry context transfer: the human agent sees which tools
+        the bot already ran and the last result — the user must not
+        repeat the story."""
+        handoff = Mock()
+        handoff.create_ticket_for_session = AsyncMock(
+            return_value={"ticket_id": 9, "queue_position": 1, "reused": False}
+        )
+        factory = _make_factory(handoff_service=handoff)
+        config, _queue = _config_with_queue()
+        trace = [
+            {
+                "tool": "query_order_status",
+                "ok": True,
+                "args": {"order_id": "ORD1001"},
+                "summary": "...",
+            }
+        ]
+        state: DialogueState = {
+            "message": "算了，转人工",
+            "session_id": 3,
+            "user_id": 1,
+            "handoff_reason": "explicit",
+            "executed_tools": trace,
+            "tool_result": {"order_id": "ORD1001", "status": "shipped"},
+        }
+
+        await factory.handle_handoff_node(state, config)
+
+        context = handoff.create_ticket_for_session.await_args.kwargs["context"]
+        assert context["bot_executed_tools"] == trace
+        assert context["last_tool_result"] == {"order_id": "ORD1001", "status": "shipped"}
+
+    async def test_ticket_context_defaults_when_bot_ran_nothing(self):
+        handoff = Mock()
+        handoff.create_ticket_for_session = AsyncMock(
+            return_value={"ticket_id": 10, "queue_position": 1, "reused": False}
+        )
+        factory = _make_factory(handoff_service=handoff)
+        config, _queue = _config_with_queue()
+
+        state: DialogueState = {
+            "message": "转人工",
+            "session_id": 4,
+            "user_id": 1,
+            "handoff_reason": "explicit",
+        }
+        await factory.handle_handoff_node(state, config)
+
+        context = handoff.create_ticket_for_session.await_args.kwargs["context"]
+        assert context["bot_executed_tools"] == []
+        assert context["last_tool_result"] is None

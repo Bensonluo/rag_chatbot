@@ -240,3 +240,28 @@ class TestGraphAgentFlow:
         # Same end state as the pure slot pipeline: staged action + fixed question.
         assert turn["pending_confirmation"]["args"]["order_id"] == "ORD1001"
         assert "确认" in turn["response"]
+
+
+class TestHandleAgentTrace:
+    async def test_agent_trace_lands_in_state(self):
+        """The audit trail must be declared in DialogueState and carried
+        into the graph output — undeclared keys are silently dropped."""
+        trace = [{"tool": "get_recent_orders", "ok": True, "args": {}, "summary": "..."}]
+        agent = _agent_returning(AgentResult(response="查到了", tool_trace=trace))
+        factory = _make_factory(agent_service=agent)
+
+        updates = await factory.handle_agent_node({"message": "我的订单", "user_id": 1})
+
+        assert updates["executed_tools"] == trace
+
+
+class TestHandleAgentTraceOnFallback:
+    async def test_fallback_carries_no_trace(self):
+        agent = Mock()
+        agent.run = AsyncMock(side_effect=RuntimeError("llm down"))
+        factory = _make_factory(agent_service=agent)
+
+        updates = await factory.handle_agent_node({"message": "查订单", "user_id": 1})
+
+        assert updates["route_after_agent"] == "agent_fallback"
+        assert "executed_tools" not in updates
