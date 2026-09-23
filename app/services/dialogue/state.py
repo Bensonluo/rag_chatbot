@@ -5,7 +5,8 @@ Defines the TypedDict state that flows through all graph nodes,
 representing the complete dialogue context including intent, slots,
 routing decisions, tool results, and intent switch stack.
 """
-from typing import TypedDict, Optional
+
+from typing import TypedDict
 
 
 class DialogueState(TypedDict, total=False):
@@ -15,6 +16,7 @@ class DialogueState(TypedDict, total=False):
     LangGraph merges returned dicts into the state automatically.
     Each node returns only the fields it wants to update.
     """
+
     # Input
     message: str
     session_id: int
@@ -36,6 +38,9 @@ class DialogueState(TypedDict, total=False):
     # Tool execution
     tool_name: str
     tool_result: dict
+    # Set while an irreversible tool is staged awaiting explicit user
+    # confirmation: {"intent": ..., "args": {...}}
+    pending_confirmation: dict | None
 
     # RAG
     retrieved_docs: list[dict]

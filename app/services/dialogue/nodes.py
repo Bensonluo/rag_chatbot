@@ -5,16 +5,16 @@ Each node is a function (state: DialogueState) -> dict that returns
 only the fields it updates. The NodeFactory injects services via closure
 so nodes stay pure with respect to the graph.
 """
+
 import logging
-from typing import Optional
 
 from app.models.enums.intent import (
-    TASK_INTENTS,
-    RAG_INTENTS,
     DIRECT_INTENTS,
-    META_INTENTS,
     GRAPH_INTENTS,
     INTENT_DISPLAY_NAMES,
+    META_INTENTS,
+    RAG_INTENTS,
+    TASK_INTENTS,
 )
 from app.services.dialogue.state import DialogueState
 from app.services.slot_filling.slot_types import (
@@ -34,7 +34,7 @@ class NodeFactory:
         intent_detector,
         slot_filler,
         tool_registry,
-        retrieval_pipeline: Optional[dict] = None,
+        retrieval_pipeline: dict | None = None,
         llm_service=None,
         guardrail_service=None,
         graph_retrieval_service=None,
@@ -68,7 +68,9 @@ class NodeFactory:
         if result.was_blocked:
             return {
                 "blocked": True,
-                "blocked_reason": ", ".join(result.violations) if result.violations else "内容安全检查未通过",
+                "blocked_reason": ", ".join(result.violations)
+                if result.violations
+                else "内容安全检查未通过",
                 "response": "抱歉，您的消息未通过安全检查，请重新描述您的问题。",
             }
 
@@ -99,6 +101,16 @@ class NodeFactory:
         if detected_intent == "cancel":
             return {
                 "intent": "cancel",
+                "prev_intent": prev_intent,
+                "confidence": confidence,
+            }
+
+        # A confirm/deny answering a staged irreversible action must resolve
+        # to the meta intent (which executes or discards the staged action);
+        # preserving the task intent here would re-enter the gate forever.
+        if detected_intent in ("confirm", "deny") and state.get("pending_confirmation"):
+            return {
+                "intent": detected_intent,
                 "prev_intent": prev_intent,
                 "confidence": confidence,
             }
@@ -237,12 +249,26 @@ class NodeFactory:
             and state.get("pending_slots")
             and len(message.strip()) > 1
             and len(message.strip()) < 30
-            and not any(kw in message for kw in (
-                "退款", "退货", "订单", "物流", "投诉", "查询", "取消",
-                "refund", "return", "order", "shipping", "complaint",
-            ))
+            and not any(
+                kw in message
+                for kw in (
+                    "退款",
+                    "退货",
+                    "订单",
+                    "物流",
+                    "投诉",
+                    "查询",
+                    "取消",
+                    "refund",
+                    "return",
+                    "order",
+                    "shipping",
+                    "complaint",
+                )
+            )
         ):
             from app.services.slot_filling.slot_types import INTENT_SLOT_SCHEMAS
+
             schema = INTENT_SLOT_SCHEMAS.get(intent, {})
             required = schema.get("required", [])
             for slot_name in required:
@@ -260,17 +286,38 @@ class NodeFactory:
         }
 
     async def execute_tool_node(self, state: DialogueState) -> dict:
-        """Execute the tool associated with the current intent."""
+        """Execute the tool associated with the current intent.
+
+        Irreversible tools (refund, return) are staged instead of run:
+        the node stores the prepared action in ``pending_confirmation``
+        and returns a fixed-template confirmation question. The action
+        only executes when the user's next turn resolves to the
+        ``confirm`` meta intent (see ``_handle_meta_intent``).
+        """
         intent = state.get("intent", "")
         filled_slots = state.get("filled_slots") or {}
+        user_id = state.get("user_id")
 
-        result = await self._tool_registry.execute(intent, filled_slots)
+        tool = self._tool_registry.get_tool_for_intent(intent)
+
+        if tool is not None and tool.requires_confirmation:
+            # Gate every prepared irreversible action, overwriting any
+            # stale pending confirmation from an earlier turn.
+            summary = _build_confirmation_summary(tool, filled_slots)
+            return {
+                "pending_confirmation": {"intent": intent, "args": dict(filled_slots)},
+                "response": summary,
+            }
+
+        # Reversible tools run immediately; clear any stale pending
+        # confirmation so it cannot gate a later action.
+        result = await self._tool_registry.execute(intent, filled_slots, user_id=user_id)
 
         if result.success:
-            return {"tool_result": result.data}
+            return {"tool_result": result.data, "pending_confirmation": None}
 
         logger.warning("Tool execution failed for intent %s: %s", intent, result.message)
-        return {"tool_result": {"error": result.message}}
+        return {"tool_result": {"error": result.message}, "pending_confirmation": None}
 
     async def rag_lookup_node(self, state: DialogueState) -> dict:
         """Retrieve relevant documents via hybrid search."""
@@ -348,7 +395,7 @@ class NodeFactory:
 
         # Case 2: meta intent (cancel/confirm/deny) — handle before slot prompt
         if intent in META_INTENTS:
-            return self._handle_meta_intent(state)
+            return await self._handle_meta_intent(state)
 
         # Case 3: slots still missing — prompt the user.
         slot_prompt = state.get("slot_prompt")
@@ -365,11 +412,7 @@ class NodeFactory:
         if retrieved_docs:
             return await self._generate_with_rag(intent, message, retrieved_docs, state)
 
-        # Case 5: meta intent.
-        if intent in META_INTENTS:
-            return self._handle_meta_intent(state)
-
-        # Case 6: direct LLM call.
+        # Case 5: direct LLM call.
         return await self._generate_direct(message)
 
     async def direct_response_node(self, state: DialogueState) -> dict:
@@ -397,22 +440,50 @@ class NodeFactory:
             return "full"
 
         # Cancel / abort keywords always go through full detection.
-        if any(kw in message for kw in (
-            "取消", "算了", "不要了", "不了", "不想", "不想退", "cancel",
-        )):
+        if any(
+            kw in message
+            for kw in (
+                "取消",
+                "算了",
+                "不要了",
+                "不了",
+                "不想",
+                "不想退",
+                "cancel",
+            )
+        ):
             return "full"
 
         # Greeting / chitchat go through full detection.
-        if any(kw in message for kw in (
-            "你好", "hello", "hi", "在吗", "谢谢", "再见",
-        )):
+        if any(
+            kw in message
+            for kw in (
+                "你好",
+                "hello",
+                "hi",
+                "在吗",
+                "谢谢",
+                "再见",
+            )
+        ):
             return "full"
 
         # Question patterns — unlikely to be slot answers.
-        if any(kw in message for kw in (
-            "怎么", "什么", "为什么", "哪", "怎么样", "天气",
-            "能不", "可以", "帮忙", "请问",
-        )):
+        if any(
+            kw in message
+            for kw in (
+                "怎么",
+                "什么",
+                "为什么",
+                "哪",
+                "怎么样",
+                "天气",
+                "能不",
+                "可以",
+                "帮忙",
+                "请问",
+            )
+        ):
             return "full"
 
         # Questions (contains ？ or ?) likely aren't slot answers.
@@ -420,11 +491,26 @@ class NodeFactory:
             return "full"
 
         # Task-switching keywords go through full detection.
-        if any(kw in message for kw in (
-            "退款", "退货", "订单", "物流", "投诉", "查询",
-            "政策", "faq", "FAQ",
-            "refund", "return", "order", "shipping", "complaint", "policy",
-        )):
+        if any(
+            kw in message
+            for kw in (
+                "退款",
+                "退货",
+                "订单",
+                "物流",
+                "投诉",
+                "查询",
+                "政策",
+                "faq",
+                "FAQ",
+                "refund",
+                "return",
+                "order",
+                "shipping",
+                "complaint",
+                "policy",
+            )
+        ):
             return "full"
 
         # Message is long (> 50 chars) — might be a complex query, detect fully.
@@ -438,6 +524,17 @@ class NodeFactory:
         """Return 'complete' when all required slots are filled, else 'missing'."""
         pending = state.get("pending_slots") or []
         return "missing" if pending else "complete"
+
+    @staticmethod
+    def after_execute_tool(state: DialogueState) -> str:
+        """Route after tool execution.
+
+        Returns "confirm" when an irreversible action has been staged
+        awaiting the user's explicit confirmation (the fixed-template
+        question skips LLM generation so the wording cannot drift),
+        otherwise "done" to generate the tool-based response.
+        """
+        return "confirm" if state.get("pending_confirmation") else "done"
 
     @staticmethod
     def route_by_intent(state: DialogueState) -> str:
@@ -467,15 +564,14 @@ class NodeFactory:
 
     async def _generate_with_rag(
         self,
-        intent: str,
+        intent: str,  # noqa: ARG002 - reserved for intent-conditioned prompts
         message: str,
         retrieved_docs: list[dict],
         state: DialogueState,
     ) -> dict:
         """Generate response incorporating retrieved documents."""
         docs_text = "\n\n".join(
-            f"[文档{i + 1}] {doc.get('content', '')}"
-            for i, doc in enumerate(retrieved_docs)
+            f"[文档{i + 1}] {doc.get('content', '')}" for i, doc in enumerate(retrieved_docs)
         )
         context = (
             f"参考资料:\n{docs_text}\n\n"
@@ -491,8 +587,13 @@ class NodeFactory:
         response_text = await self._call_llm(message)
         return {"response": response_text}
 
-    def _handle_meta_intent(self, state: DialogueState) -> dict:
-        """Handle confirm / deny / cancel meta intents."""
+    async def _handle_meta_intent(self, state: DialogueState) -> dict:
+        """Handle confirm / deny / cancel meta intents.
+
+        ``confirm`` first checks for a staged irreversible action
+        (``pending_confirmation``) and executes it with the caller's
+        user_id; ``deny`` / ``cancel`` discard any staged action.
+        """
         intent = state.get("intent", "")
 
         if intent == "cancel":
@@ -506,20 +607,49 @@ class NodeFactory:
                     "intent": restored.get("intent", ""),
                     "filled_slots": restored.get("filled_slots", {}),
                     "pending_slots": restored.get("pending_slots", []),
+                    "pending_confirmation": None,
                 }
             return {
                 "response": "已取消当前操作。",
                 "filled_slots": {},
                 "pending_slots": [],
+                "pending_confirmation": None,
             }
 
         if intent == "confirm":
-            state_stack: list[dict] = list(state.get("state_stack") or [])
+            pending = state.get("pending_confirmation")
+            if pending:
+                # Execute the staged irreversible action with the
+                # caller's identity so ownership checks apply.
+                result = await self._tool_registry.execute(
+                    pending.get("intent", ""),
+                    pending.get("args") or {},
+                    user_id=state.get("user_id"),
+                )
+                tool_result = result.data if result.success else {"error": result.message}
+                updates: dict = {
+                    "pending_confirmation": None,
+                    "intent": pending.get("intent", ""),
+                    "filled_slots": dict(pending.get("args") or {}),
+                    "tool_result": tool_result,
+                }
+                generated = await self._generate_with_tool(
+                    pending.get("intent", ""),
+                    state.get("message", ""),
+                    tool_result,
+                    state,
+                )
+                updates.update(generated)
+                return updates
+
+            state_stack = list(state.get("state_stack") or [])
             if state_stack:
                 restored = state_stack.pop()
                 display = INTENT_DISPLAY_NAMES.get(restored.get("intent", ""), "")
                 return {
-                    "response": f"好的，继续为您处理{display}。" if display else "好的，继续为您处理。",
+                    "response": f"好的，继续为您处理{display}。"
+                    if display
+                    else "好的，继续为您处理。",
                     "state_stack": state_stack,
                     "intent": restored.get("intent", ""),
                     "filled_slots": restored.get("filled_slots", {}),
@@ -528,6 +658,11 @@ class NodeFactory:
             return {"response": "好的，已确认。请稍等，我正在为您处理。"}
 
         if intent == "deny":
+            if state.get("pending_confirmation"):
+                return {
+                    "pending_confirmation": None,
+                    "response": "好的，已取消本次操作，未执行任何更改。请问还有什么可以帮您的？",
+                }
             return {"response": "好的，已取消。请问还有什么可以帮您的？"}
 
         return {"response": "抱歉，我没有理解您的意思，请重新描述。"}
@@ -549,6 +684,21 @@ class NodeFactory:
 
 
 # ── Module-level helpers ─────────────────────────────────────────────────────
+
+
+def _build_confirmation_summary(tool, filled_slots: dict) -> str:
+    """Fixed-template confirmation question for a staged irreversible action.
+
+    Deliberately not LLM-generated: the wording of a gate that protects a
+    money-moving action must be deterministic.
+    """
+    display = INTENT_DISPLAY_NAMES.get(tool.intent, tool.description)
+    parts = [f"{slot}={value}" for slot, value in filled_slots.items()]
+    detail = "，".join(parts) if parts else "（无附加信息）"
+    return (
+        f"⚠️ 即将为您执行「{display}」：{detail}。\n"
+        "该操作不可自动撤销。请回复「确认」执行，或回复「取消」放弃。"
+    )
 
 
 def _search_result_to_dict(result) -> dict:

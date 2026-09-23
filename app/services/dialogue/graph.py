@@ -4,10 +4,11 @@ LangGraph StateGraph builder for dialogue management.
 Assembles the node graph, conditional edges, and memory checkpointer
 into a compiled graph ready for invocation.
 """
+
 import logging
 
-from langgraph.graph import END, START, StateGraph
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, START, StateGraph
 
 from app.services.dialogue.state import DialogueState
 
@@ -102,8 +103,19 @@ def build_dialogue_graph(
         },
     )
 
+    # After tool execution: irreversible tools stage the action and emit a
+    # fixed confirmation question (straight to END, no LLM rewording);
+    # everything else flows into response generation.
+    graph.add_conditional_edges(
+        "execute_tool",
+        factory.after_execute_tool,
+        {
+            "confirm": END,
+            "done": "generate_response",
+        },
+    )
+
     # ── Terminal edges ───────────────────────────────────────────────────────
-    graph.add_edge("execute_tool", "generate_response")
     graph.add_edge("rag_lookup", "generate_response")
     graph.add_edge("direct_response", END)
     graph.add_edge("generate_response", END)
