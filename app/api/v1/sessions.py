@@ -3,23 +3,27 @@ Session API endpoints.
 
 Provides endpoints for managing chat sessions.
 """
+
+import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.api.deps import (
+    get_current_active_user,
+    get_session_repository,
+)
+from app.models.database.user import User
 from app.models.schemas.session import (
     SessionCreate,
-    SessionUpdate,
-    SessionResponse,
     SessionListResponse,
+    SessionResponse,
+    SessionUpdate,
 )
-from app.api.deps import (
-    get_session_repository,
-    get_current_active_user,
-)
-from app.services.session_service import SessionService
 from app.repositories.session_repository import SessionRepository
-from app.models.database.user import User
+from app.services.session_service import SessionService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -70,9 +74,10 @@ async def create_session(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Failed to create session: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create session: {str(e)}",
+            detail="Failed to create session",
         ) from e
 
 
@@ -112,7 +117,7 @@ async def list_sessions(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list sessions: {str(e)}",
+            detail="Failed to list sessions",
         ) from e
 
 
@@ -137,9 +142,10 @@ async def get_session(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Session lookup failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Session not found: {str(e)}",
+            detail="Session not found",
         ) from e
 
 
@@ -172,9 +178,10 @@ async def update_session(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Failed to update session: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update session: {str(e)}",
+            detail="Failed to update session",
         ) from e
 
 
@@ -199,7 +206,8 @@ async def delete_session(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Failed to delete session: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete session: {str(e)}",
+            detail="Failed to delete session",
         ) from e

@@ -4,25 +4,28 @@ Authentication API endpoints.
 Provides endpoints for user registration, login, token refresh,
 and getting current user information.
 """
-from typing import Annotated, Dict
+
+import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
 
-from app.models.schemas.user import (
-    UserCreate,
-    UserResponse,
-    UserLogin,
-    TokenResponse,
-    RefreshTokenRequest,
-)
 from app.api.deps import (
     get_auth_service,
     get_current_active_user,
 )
 from app.core.exceptions import ConflictError, ValidationError
-from app.services.auth_service import AuthenticationService
 from app.models.database.user import User
+from app.models.schemas.user import (
+    RefreshTokenRequest,
+    TokenResponse,
+    UserCreate,
+    UserLogin,
+    UserResponse,
+)
+from app.services.auth_service import AuthenticationService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -66,9 +69,10 @@ async def register(
             detail=str(e),
         ) from e
     except Exception as e:
+        logger.error("Registration failed: %s", e)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Registration failed: {str(e)}",
+            detail="Registration failed",
         ) from e
 
 
@@ -80,7 +84,7 @@ async def register(
 async def login(
     user_credentials: UserLogin,
     auth_service: Annotated[AuthenticationService, Depends(get_auth_service)],
-) -> Dict[str, str | int]:
+) -> dict[str, str | int]:
     """
     Authenticate a user and return access and refresh tokens.
 
@@ -121,7 +125,7 @@ async def login(
 async def refresh_token(
     token_data: RefreshTokenRequest,
     auth_service: Annotated[AuthenticationService, Depends(get_auth_service)],
-) -> Dict[str, str | int]:
+) -> dict[str, str | int]:
     """
     Refresh an access token using a refresh token.
 

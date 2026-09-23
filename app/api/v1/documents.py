@@ -3,22 +3,20 @@ Document management API endpoints.
 
 Provides REST API for document upload, search, and management.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
-from fastapi.responses import JSONResponse
-from typing import Optional, List
-from pydantic import BaseModel, Field
-from io import BytesIO
+
 import logging
 
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from pydantic import BaseModel, Field
+
+from app.api.deps import get_current_active_user, get_current_user
+from app.config.settings import get_settings
+from app.models.database.user import User
 from app.services.documents.ingestion import DocumentIngestionService
 from app.services.embeddings import EmbeddingFactory
-from app.services.retrieval.qdrant_client import QdrantClient
 from app.services.retrieval.factory import RetrievalFactory
+from app.services.retrieval.qdrant_client import QdrantClient
 from app.services.retrieval.vector_base import VectorSearchRequest
-from app.api.deps import get_current_user, get_current_active_user
-from app.models.database.user import User
-from app.config.settings import get_settings
-
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 logger = logging.getLogger(__name__)
@@ -27,13 +25,15 @@ logger = logging.getLogger(__name__)
 # Request/Response Schemas
 class DocumentUploadRequest(BaseModel):
     """Document upload request (for text-based upload)."""
+
     title: str = Field(..., min_length=1, max_length=500, description="Document title")
     content: str = Field(..., min_length=1, description="Document text content")
-    metadata: Optional[dict] = Field(default=None, description="Optional metadata")
+    metadata: dict | None = Field(default=None, description="Optional metadata")
 
 
 class DocumentUploadResponse(BaseModel):
     """Document upload response."""
+
     document_id: str
     title: str
     chunks_count: int
@@ -45,29 +45,33 @@ class DocumentUploadResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     """Search request."""
+
     query: str = Field(..., min_length=1, description="Search query")
     top_k: int = Field(default=5, ge=1, le=20, description="Number of results")
-    filters: Optional[dict] = Field(default=None, description="Optional filters")
+    filters: dict | None = Field(default=None, description="Optional filters")
 
 
 class SearchResult(BaseModel):
     """Single search result."""
+
     chunk_id: str
     document_id: str
     content: str
     score: float
-    metadata: Optional[dict] = None
+    metadata: dict | None = None
 
 
 class SearchResponse(BaseModel):
     """Search response."""
+
     query: str
-    results: List[SearchResult]
+    results: list[SearchResult]
     total_count: int
 
 
 class DocumentInfo(BaseModel):
     """Document information."""
+
     document_id: str
     title: str
     chunks_count: int
@@ -75,6 +79,7 @@ class DocumentInfo(BaseModel):
 
 class DeleteResponse(BaseModel):
     """Delete response."""
+
     document_id: str
     deleted_chunks: int
     message: str = "Document deleted successfully"
@@ -111,9 +116,7 @@ async def get_ingestion_service() -> DocumentIngestionService:
 
             graph_client = get_graph_client()
             if graph_client is not None:
-                entity_extractor = LLMEntityExtractor(
-                    llm_service=LLMFactory.create_from_settings()
-                )
+                entity_extractor = LLMEntityExtractor(llm_service=LLMFactory.create_from_settings())
         except Exception as exc:
             logger.warning("Graph extraction is unavailable for this upload: %s", exc)
 
@@ -150,7 +153,7 @@ async def get_qdrant_client() -> QdrantClient:
     "/upload",
     response_model=DocumentUploadResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload document text"
+    summary="Upload document text",
 )
 async def upload_document_text(
     request: DocumentUploadRequest,
@@ -174,29 +177,27 @@ async def upload_document_text(
 
         # Ingest document
         result = await ingestion_service.ingest_text(
-            text=request.content,
-            title=request.title,
-            metadata=metadata
+            text=request.content, title=request.title, metadata=metadata
         )
 
         return DocumentUploadResponse(**result)
 
     except Exception as e:
+        logger.error("Document text upload failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upload document: {str(e)}"
-        )
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to upload document"
+        ) from e
 
 
 @router.post(
     "/upload/file",
     response_model=DocumentUploadResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload document file"
+    summary="Upload document file",
 )
 async def upload_document_file(
     file: UploadFile = File(...),
-    title: Optional[str] = None,
+    title: str | None = None,
     current_user: User = Depends(get_current_active_user),
     ingestion_service: DocumentIngestionService = Depends(get_ingestion_service),
 ):
@@ -213,31 +214,26 @@ async def upload_document_file(
     try:
         # Validate file type
         if not file.filename:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No file provided"
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No file provided")
 
         # Check file extension
-        file_ext = file.filename.split('.')[-1].lower()
-        if file_ext not in ['pdf', 'txt', 'md']:
+        file_ext = file.filename.split(".")[-1].lower()
+        if file_ext not in ["pdf", "txt", "md"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported file type: .{file_ext}. Supported: pdf, txt, md"
+                detail=f"Unsupported file type: .{file_ext}. Supported: pdf, txt, md",
             )
 
         # Read file content
         content = await file.read()
 
         # Save to temp file for ingestion service
-        import tempfile
         import os
+        import tempfile
 
         # Create temp file
         with tempfile.NamedTemporaryFile(
-            mode='wb',
-            delete=False,
-            suffix=f'.{file_ext}'
+            mode="wb", delete=False, suffix=f".{file_ext}"
         ) as temp_file:
             temp_file.write(content)
             temp_path = temp_file.name
@@ -254,10 +250,7 @@ async def upload_document_file(
                 metadata["title"] = title
 
             # Ingest file
-            result = await ingestion_service.ingest_file(
-                file_path=temp_path,
-                metadata=metadata
-            )
+            result = await ingestion_service.ingest_file(file_path=temp_path, metadata=metadata)
 
             return DocumentUploadResponse(**result)
 
@@ -269,20 +262,16 @@ async def upload_document_file(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error("Document file upload failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upload file: {str(e)}"
-        )
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to upload file"
+        ) from e
 
 
-@router.post(
-    "/search",
-    response_model=SearchResponse,
-    summary="Search documents"
-)
+@router.post("/search", response_model=SearchResponse, summary="Search documents")
 async def search_documents(
     request: SearchRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),  # noqa: ARG001 (auth gate)
     qdrant_client: QdrantClient = Depends(get_qdrant_client),
 ):
     """
@@ -297,9 +286,7 @@ async def search_documents(
     try:
         # Create search request
         search_request = VectorSearchRequest(
-            query=request.query,
-            top_k=request.top_k,
-            filters=request.filters
+            query=request.query, top_k=request.top_k, filters=request.filters
         )
 
         # Perform search
@@ -308,35 +295,31 @@ async def search_documents(
         # Convert to response format
         search_results = []
         for result in results:
-            search_results.append(SearchResult(
-                chunk_id=result.metadata.get("chunk_id", "") if result.metadata else "",
-                document_id=result.document_id,
-                content=result.content,
-                score=result.score,
-                metadata=result.metadata
-            ))
+            search_results.append(
+                SearchResult(
+                    chunk_id=result.metadata.get("chunk_id", "") if result.metadata else "",
+                    document_id=result.document_id,
+                    content=result.content,
+                    score=result.score,
+                    metadata=result.metadata,
+                )
+            )
 
         return SearchResponse(
-            query=request.query,
-            results=search_results,
-            total_count=len(search_results)
+            query=request.query, results=search_results, total_count=len(search_results)
         )
 
     except Exception as e:
+        logger.error("Document search failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Search failed: {str(e)}"
-        )
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Search failed"
+        ) from e
 
 
-@router.delete(
-    "/{document_id}",
-    response_model=DeleteResponse,
-    summary="Delete document"
-)
+@router.delete("/{document_id}", response_model=DeleteResponse, summary="Delete document")
 async def delete_document(
     document_id: str,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),  # noqa: ARG001 (auth gate)
     ingestion_service: DocumentIngestionService = Depends(get_ingestion_service),
 ):
     """
@@ -350,21 +333,18 @@ async def delete_document(
         return DeleteResponse(**result)
 
     except Exception as e:
+        logger.error("Document delete failed: %s", e)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete document: {str(e)}"
-        )
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete document"
+        ) from e
 
 
-@router.get(
-    "/health",
-    summary="Document service health check"
-)
+@router.get("/health", summary="Document service health check")
 async def health_check():
     """Check if document service is healthy."""
     return {
         "status": "healthy",
         "service": "document-management",
         "embedding_enabled": True,
-        "vector_db_enabled": True
+        "vector_db_enabled": True,
     }
