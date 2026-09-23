@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from app.config.settings import settings
 from app.core.exceptions import ValidationError
 from app.repositories.message_repository import MessageRepository
 from app.repositories.session_repository import SessionRepository

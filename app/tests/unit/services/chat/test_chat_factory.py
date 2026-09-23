@@ -141,3 +141,33 @@ class TestChatServiceFactory:
             )
         assert isinstance(service, ChatService)
         assert service.graph is None
+
+    @patch("app.services.embeddings.EmbeddingFactory")
+    @patch("app.services.chat.factory.MemoryFactory")
+    @patch("app.services.chat.factory.IntentFactory")
+    @patch("app.services.handoff.create_handoff_service", return_value=Mock())
+    def test_create_with_defaults_builds_real_graph(
+        self, mock_handoff, mock_intent_fac, mock_mem_fac, mock_emb
+    ):
+        """The graph-build try block must never die on a NameError.
+
+        Regression guard: a shipped commit referenced ``settings`` inside
+        the factory without importing it; the exception was swallowed by
+        the graceful-fallback except and every deployment silently ran
+        graphless (legacy pipeline only). Run the real graph builder and
+        pin that the compiled LangGraph is wired in.
+        """
+        mock_mem_fac.create.return_value = Mock()
+        mock_intent_fac.create.return_value = Mock()
+        mock_emb.create_from_settings.return_value = Mock()
+
+        service = ChatServiceFactory.create_with_defaults(
+            llm_service=Mock(),
+            message_repo=Mock(),
+            session_repo=Mock(),
+            memory_type="optimized",
+            intent_type="rule_based",
+        )
+
+        assert isinstance(service, ChatService)
+        assert service.graph is not None
