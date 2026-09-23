@@ -40,6 +40,19 @@ class Settings(BaseSettings):
     REDIS_URL: str = Field(default="redis://localhost:6379/0", description="Redis connection URL")
     REDIS_CACHE_TTL: int = Field(default=3600, description="Redis cache TTL in seconds")
 
+    # Rate Limiting (distributed, Redis-backed)
+    RATE_LIMIT_ENABLED: bool = Field(default=True, description="Enable global rate limiting middleware")
+    RATE_LIMIT_REQUESTS_PER_MINUTE: int = Field(default=120, description="Requests allowed per client IP per window")
+    RATE_LIMIT_WINDOW_SECONDS: int = Field(default=60, description="Sliding window size in seconds")
+    RATE_LIMIT_REDIS_URL: str | None = Field(
+        default=None,
+        description="Dedicated Redis URL for rate limiting; defaults to REDIS_URL"
+    )
+    RATE_LIMIT_WHITELIST_PATHS: list[str] = Field(
+        default_factory=lambda: ["/health", "/ready", "/metrics"],
+        description="Paths excluded from rate limiting"
+    )
+
     # Vector DB Service (external)
     VECTOR_DB_URL: str = Field(default="http://localhost:6333", description="Vector database service URL")
     VECTOR_COLLECTION_NAME: str = Field(default="documents", description="Vector collection name")

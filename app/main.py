@@ -46,6 +46,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Shutdown
     logger.info("Shutting down RAG Chatbot")
 
+    # Close the shared rate-limit Redis connection
+    from app.middleware.rate_limiter_redis import close_rate_limit_redis
+    await close_rate_limit_redis()
+
 
 def create_app() -> FastAPI:
     """
@@ -76,6 +80,16 @@ def create_app() -> FastAPI:
     # Request ID middleware
     from app.middleware.request_id import RequestIDMiddleware
     app.add_middleware(RequestIDMiddleware)
+
+    # Distributed rate limiting (Redis-backed sliding window, per-IP)
+    if settings.RATE_LIMIT_ENABLED:
+        from app.middleware.rate_limiter_redis import DistributedRateLimiterMiddleware
+        app.add_middleware(
+            DistributedRateLimiterMiddleware,
+            requests_per_minute=settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
+            window_seconds=settings.RATE_LIMIT_WINDOW_SECONDS,
+            whitelist_paths=settings.RATE_LIMIT_WHITELIST_PATHS,
+        )
 
     # Prometheus metrics middleware
     if settings.ENABLE_METRICS:
