@@ -110,7 +110,7 @@ class CommunityDetectionService:
             return {}
 
         # Build networkx graph
-        G = nx.Graph()
+        G: nx.Graph[str] = nx.Graph()
         for node in nodes:
             G.add_node(node["name"], type=node["type"])
         for edge in edges:
@@ -128,8 +128,8 @@ class CommunityDetectionService:
             logger.warning("python-louvain not installed. Using connected components.")
             partition = {}
             for i, component in enumerate(nx.connected_components(G)):
-                for node in component:
-                    partition[node] = i
+                for member in component:
+                    partition[member] = i
 
         # Group by community
         community_groups: dict[int, list[str]] = {}

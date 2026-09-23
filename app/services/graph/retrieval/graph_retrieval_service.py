@@ -30,7 +30,7 @@ class GraphRetrievalService:
         self._embedding_weight = embedding_weight
 
     async def search(
-        self, query: str, top_k: int = 10, entity_hints: list | None = None
+        self, query: str, top_k: int = 10, entity_hints: list[dict[str, str]] | None = None
     ) -> list[GraphSearchResult]:
         """Run both search modes and fuse via RRF."""
         cypher_results: list[GraphSearchResult] = []

@@ -133,4 +133,5 @@ class TestMultiPathFusion:
         ]
         fused = fusion.fuse([], graph_results, top_k=5)
         assert len(fused) == 1
+        assert fused[0].metadata is not None
         assert fused[0].metadata.get("source_type") == "emb"

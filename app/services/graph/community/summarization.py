@@ -6,6 +6,7 @@ in the graph for later retrieval by global search queries.
 """
 
 import logging
+from typing import Any
 
 from app.services.embeddings.base import EmbeddingServiceBase
 from app.services.graph.base import (
@@ -100,7 +101,7 @@ class CommunitySummarizationService:
         )
 
     @staticmethod
-    def _parse_summary(content: str) -> dict | None:
+    def _parse_summary(content: str) -> dict[str, Any] | None:
         import json
 
         text = content.strip()
@@ -112,6 +113,9 @@ class CommunitySummarizationService:
             text = text.strip()
 
         try:
-            return json.loads(text)
+            parsed: object = json.loads(text)
         except json.JSONDecodeError:
             return None
+        # The prompt demands a {"title", "summary"} object; a bare string
+        # or list means the model broke contract, not that parsing failed.
+        return parsed if isinstance(parsed, dict) else None

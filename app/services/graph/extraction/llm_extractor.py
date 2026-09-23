@@ -63,7 +63,7 @@ class LLMEntityExtractor(EntityExtractor):
     def _build_prompt_template(self) -> str:
         entity_schema_parts: list[str] = []
         for name, info in self._entity_types.items():
-            props = ", ".join(info.get("properties", []))  # type: ignore[union-attr]
+            props = ", ".join(info.get("properties", []))
             entity_schema_parts.append(
                 f"  {name}: {info.get('description', '')}. Properties: [{props}]"
             )

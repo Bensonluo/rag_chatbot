@@ -67,6 +67,7 @@ class TestGraphSearchResult:
             source_type="text_to_cypher",
             metadata={"query": "test query"},
         )
+        assert result.metadata is not None
         assert result.metadata["query"] == "test query"
 
 

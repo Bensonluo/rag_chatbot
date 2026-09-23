@@ -6,6 +6,7 @@ individual entity lookups. Suitable for questions like "总结整个糖尿病药
 """
 
 import logging
+from typing import Any
 
 from app.services.embeddings.base import EmbeddingServiceBase
 from app.services.graph.base import GraphClient, GraphSearchResult
@@ -73,7 +74,7 @@ class GlobalSearchService:
         self,
         query_embedding: list[float],  # noqa: ARG002  # search API conformance (fallback ignores embedding)
         top_k: int,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fallback when vector index is not available."""
         try:
             return await self._graph.execute_cypher(

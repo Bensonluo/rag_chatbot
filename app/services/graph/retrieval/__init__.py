@@ -1,12 +1,14 @@
 """Graph retrieval services."""
 
+from typing import Any
+
 from app.services.graph.retrieval.graph_retrieval_service import GraphRetrievalService
 from app.services.graph.retrieval.multi_path_fusion import MultiPathRetrievalFusion
 
 __all__ = ["MultiPathRetrievalFusion", "GraphRetrievalService"]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     if name == "TextToCypherService":
         from app.services.graph.retrieval.text_to_cypher import TextToCypherService
 

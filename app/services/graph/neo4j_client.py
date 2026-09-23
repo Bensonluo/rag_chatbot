@@ -143,7 +143,9 @@ class Neo4jClient(GraphClient):
             ids.append(rel.id)
         return ids
 
-    async def execute_cypher(self, query: str, params: dict | None = None) -> list[dict[str, Any]]:
+    async def execute_cypher(
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         _validate_read_only(query)
         return await self._run_query(query, params or {})
 
@@ -292,13 +294,13 @@ class Neo4jClient(GraphClient):
             "relations": rel_count[0]["count"] if rel_count else 0,
         }
 
-    async def _run_query(self, query: str, params: dict) -> list[dict[str, Any]]:
+    async def _run_query(self, query: str, params: dict[str, Any]) -> list[dict[str, Any]]:
         if not self._driver:
             raise GraphClientError("Not connected to Neo4j")
 
         async with self._driver.session(database=self._database) as session:
             result = await session.run(query, params)
-            records = await result.data()
+            records: list[dict[str, Any]] = await result.data()
             return records
 
     async def _ensure_constraints(self) -> None:

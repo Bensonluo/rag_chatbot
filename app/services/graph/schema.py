@@ -100,11 +100,13 @@ def get_schema_prompt_text() -> str:
     lines = ["Entity Types:"]
 
     for name, info in ENTITY_TYPES.items():
-        props = ", ".join(info["properties"])  # type: ignore[union-attr]
+        props = ", ".join(info["properties"])
         lines.append(f"  {name}: {info['description']}. Properties: [{props}]")
 
     lines.append("\nRelationship Types:")
-    for name, info in RELATION_TYPES.items():
-        lines.append(f"  ({info['source']})-[{name}]->({info['target']}): {info['description']}")
+    for name, rel_info in RELATION_TYPES.items():
+        lines.append(
+            f"  ({rel_info['source']})-[{name}]->({rel_info['target']}): {rel_info['description']}"
+        )
 
     return "\n".join(lines)

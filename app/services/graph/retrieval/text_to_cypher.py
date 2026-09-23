@@ -62,7 +62,10 @@ class TextToCypherService:
         self._cache_ttl: float = 300.0  # 5 minutes
 
     async def query(
-        self, natural_language_query: str, max_results: int = 20, entity_hints: list | None = None
+        self,
+        natural_language_query: str,
+        max_results: int = 20,
+        entity_hints: list[dict[str, str]] | None = None,
     ) -> list[GraphSearchResult]:
         """Generate Cypher from NL, execute, and return results."""
         schema = await self._get_schema()
@@ -93,7 +96,11 @@ class TextToCypherService:
         return self._schema_cache
 
     async def _generate_cypher(
-        self, question: str, schema: str, max_results: int, entity_hints: list | None = None
+        self,
+        question: str,
+        schema: str,
+        max_results: int,
+        entity_hints: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         prompt = _CYPHER_PROMPT.format(
             schema=schema,
@@ -125,7 +132,12 @@ class TextToCypherService:
             text = text.strip()
 
         try:
-            data = json.loads(text)
+            # Guard against a bare string/list: the LLM contract is a JSON
+            # object with a "query" key, and .get would crash on non-dicts.
+            data: dict[str, Any] = json.loads(text)
+            if not isinstance(data, dict):
+                logger.warning("Cypher response was not a JSON object")
+                return {}
             query = data.get("query")
             if query and not query.strip().upper().startswith("MATCH"):
                 logger.warning("Generated query is not a MATCH query: %s", query[:100])
