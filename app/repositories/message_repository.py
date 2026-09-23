@@ -5,6 +5,7 @@ Provides database operations specific to the Message model.
 """
 
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database.message import Message
 from app.repositories.base import BaseRepository
@@ -17,7 +18,7 @@ class MessageRepository(BaseRepository[Message]):
     Extends BaseRepository with message-specific queries.
     """
 
-    def __init__(self, session) -> None:
+    def __init__(self, session: AsyncSession) -> None:
         """
         Initialize the message repository.
 

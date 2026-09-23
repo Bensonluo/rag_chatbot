@@ -124,7 +124,10 @@ async def run_intent_eval(
 
     report = EvalReport(total=len(cases))
     for case in cases:
-        result = detector.detect_with_confidence(case.query)
+        # Deliberate seam: real detectors are async, test doubles are sync.
+        # inspect.isawaitable below narrows both, which only type-checks
+        # through Any here.
+        result: Any = detector.detect_with_confidence(case.query)
         # All detector implementations are async now; the shim keeps
         # plain (sync) test doubles working without AsyncMock.
         if inspect.isawaitable(result):

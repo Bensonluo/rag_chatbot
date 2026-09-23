@@ -7,7 +7,7 @@ and password validation.
 
 import re
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 import bcrypt
 from jose import JWTError, jwt
@@ -75,7 +75,7 @@ def create_access_token(
     to_encode.update({"exp": expire, "type": "access"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
-    return cast(str, encoded_jwt)
+    return encoded_jwt
 
 
 def create_refresh_token(
@@ -102,7 +102,7 @@ def create_refresh_token(
     to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
-    return cast(str, encoded_jwt)
+    return encoded_jwt
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
@@ -120,7 +120,7 @@ def decode_access_token(token: str) -> dict[str, Any]:
     """
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        return cast(dict[str, Any], payload)
+        return payload
     except JWTError as e:
         raise JWTError(f"Invalid token: {str(e)}") from e
 

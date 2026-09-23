@@ -5,6 +5,7 @@ Handles text cleaning, normalization, and preparation before chunking.
 """
 
 import re
+from typing import Any
 
 
 class TextPreprocessor:
@@ -72,7 +73,7 @@ class TextPreprocessor:
 
     @staticmethod
     def remove_headers_footers(
-        text: str, header_pattern: str = None, footer_pattern: str = None
+        text: str, header_pattern: str | None = None, footer_pattern: str | None = None
     ) -> str:
         """
         Remove repeated headers and footers from text.
@@ -102,7 +103,7 @@ class TextPreprocessor:
         return text.strip()
 
     @staticmethod
-    def extract_metadata(text: str) -> dict:
+    def extract_metadata(text: str) -> dict[str, Any]:
         """
         Extract metadata from text content.
 
@@ -215,7 +216,9 @@ class DocumentPreprocessor:
         self.extract_metadata = extract_metadata
         self.max_length = max_length
 
-    async def process(self, text: str, metadata: dict = None) -> tuple[str, dict]:
+    async def process(
+        self, text: str, metadata: dict[str, Any] | None = None
+    ) -> tuple[str, dict[str, Any]]:
         """
         Process text through the preprocessing pipeline.
 

@@ -4,11 +4,13 @@ OpenAPI/Swagger documentation configuration.
 Enhances FastAPI auto-generated documentation with detailed descriptions.
 """
 
+from typing import Any
+
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
 
-def custom_openapi(app: FastAPI):
+def custom_openapi(app: FastAPI) -> dict[str, Any]:
     """
     Custom OpenAPI schema with enhanced documentation.
 
@@ -227,11 +229,12 @@ For issues and questions:
 """
 
 
-def setup_openapi(app: FastAPI):
+def setup_openapi(app: FastAPI) -> None:
     """
     Setup custom OpenAPI documentation for FastAPI app.
 
     Args:
         app: FastAPI application
     """
-    app.openapi = lambda: custom_openapi(app)
+    # Documented FastAPI idiom for customizing the schema endpoint.
+    app.openapi = lambda: custom_openapi(app)  # type: ignore[method-assign]

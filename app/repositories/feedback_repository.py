@@ -1,5 +1,7 @@
 """Feedback repository for message rating operations."""
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,7 +31,7 @@ class FeedbackRepository:
         await self._db.refresh(message)
         return message
 
-    async def get_feedback_stats(self) -> dict:
+    async def get_feedback_stats(self) -> dict[str, Any]:
         """Get aggregate feedback statistics."""
         result = await self._db.execute(
             select(Message.user_rating).where(Message.user_rating.isnot(None))

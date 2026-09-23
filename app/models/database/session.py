@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import JSON, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -52,7 +52,7 @@ class ChatSession(Base, TimestampMixin):
         default=10,
         nullable=False,
     )
-    session_metadata: Mapped[dict | None] = mapped_column(JSON, default=None)
+    session_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
 
     # Relationships
     user: Mapped[User] = relationship(

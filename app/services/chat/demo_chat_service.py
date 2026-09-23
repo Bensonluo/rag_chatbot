@@ -6,6 +6,7 @@ Provides simple responses without requiring full RAG pipeline setup.
 
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -16,7 +17,7 @@ class DemoChatResponse:
     session_id: int
     intent: str
     sources: list[str] | None = None
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -35,7 +36,7 @@ class DemoChatService:
     Returns simple responses without requiring LLM, embeddings, or vector DB.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize demo chat service."""
         self.demo_responses = {
             "hello": "Hello! I'm a demo RAG chatbot. How can I help you today?",

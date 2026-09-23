@@ -7,6 +7,7 @@ Provides async database session management with proper lifecycle handling.
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config.settings import settings
@@ -70,8 +71,10 @@ async def init_db() -> None:
     database connectivity.
     """
     async with engine.begin() as conn:
-        # Test connection
-        await conn.execute("SELECT 1")
+        # Test connection. SQLAlchemy 2.0 requires text() for raw SQL —
+        # a bare string is rejected by the async driver with a
+        # PlainQueryBaseStrategyError-style failure.
+        await conn.execute(text("SELECT 1"))
 
 
 async def close_db() -> None:

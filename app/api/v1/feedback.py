@@ -1,6 +1,8 @@
 """Feedback API endpoints for message rating."""
 
 import logging
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +17,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/feedback", tags=["feedback"])
 
 
-async def _get_db():
+async def _get_db() -> AsyncGenerator[AsyncSession, None]:
     from app.api.database import async_session_maker
 
     async with async_session_maker() as session:
@@ -27,7 +29,7 @@ async def submit_feedback(
     feedback: FeedbackCreate,
     db: AsyncSession = Depends(_get_db),
     current_user: User = Depends(get_current_active_user),  # noqa: ARG001  # FastAPI DI: enforces auth; value unused
-):
+) -> FeedbackResponse:
     """Submit feedback (thumbs up/down) for an assistant message."""
     repo = FeedbackRepository(db)
     message = await repo.submit_feedback(
@@ -51,7 +53,7 @@ async def submit_feedback(
 async def get_feedback_stats(
     db: AsyncSession = Depends(_get_db),
     current_user: User = Depends(get_current_active_user),  # noqa: ARG001  # FastAPI DI: enforces auth; value unused
-):
+) -> dict[str, Any]:
     """Get aggregate feedback statistics."""
     repo = FeedbackRepository(db)
     return await repo.get_feedback_stats()

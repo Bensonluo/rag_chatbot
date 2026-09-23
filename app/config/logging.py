@@ -82,7 +82,10 @@ def configure_logging() -> structlog.stdlib.BoundLogger:
         cache_logger_on_first_use=True,
     )
 
-    return structlog.get_logger()
+    # structlog.get_logger() is typed as Any in the stubs; the annotated
+    # variable pins the declared return type without a cast.
+    logger: structlog.stdlib.BoundLogger = structlog.get_logger()
+    return logger
 
 
 @lru_cache
@@ -96,7 +99,8 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
     Returns:
         structlog.stdlib.BoundLogger: Logger instance
     """
-    return structlog.get_logger(name)
+    logger: structlog.stdlib.BoundLogger = structlog.get_logger(name)
+    return logger
 
 
 # Configure logging on module import

@@ -8,7 +8,7 @@ configures middleware, and includes all routers.
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -127,7 +127,7 @@ def create_app() -> FastAPI:
 
     # Health check endpoint
     @app.get("/health")
-    async def health_check():
+    async def health_check() -> dict[str, str]:
         """Basic health check endpoint"""
         return {
             "status": "healthy",
@@ -135,8 +135,11 @@ def create_app() -> FastAPI:
             "environment": settings.ENVIRONMENT,
         }
 
-    @app.get("/ready")
-    async def readiness_check():
+    # response_model=None: the annotation mixes a dict branch with a
+    # JSONResponse branch, which FastAPI cannot turn into a response
+    # model — the documented escape hatch for Response-typed unions.
+    @app.get("/ready", response_model=None)
+    async def readiness_check() -> dict[str, str] | JSONResponse:
         """Report whether the demo chat graph finished initialization."""
         if not app.state.chat_ready:
             return JSONResponse(
@@ -161,7 +164,7 @@ def create_app() -> FastAPI:
 
     # Root endpoint
     @app.get("/")
-    async def root():
+    async def root() -> dict[str, str]:
         """Root endpoint with API information"""
         return {
             "name": "RAG Chatbot API",
@@ -172,7 +175,7 @@ def create_app() -> FastAPI:
 
     # Global exception handler
     @app.exception_handler(Exception)
-    async def global_exception_handler(request, exc):
+    async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         """Global exception handler for unhandled exceptions"""
         logger.error(
             "Unhandled exception",

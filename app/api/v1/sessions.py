@@ -5,7 +5,7 @@ Provides endpoints for managing chat sessions.
 """
 
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -13,6 +13,7 @@ from app.api.deps import (
     get_current_active_user,
     get_session_repository,
 )
+from app.models.database.session import ChatSession
 from app.models.database.user import User
 from app.models.schemas.session import (
     SessionCreate,
@@ -53,7 +54,7 @@ async def create_session(
     session_data: SessionCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
     session_service: Annotated[SessionService, Depends(get_session_service)],
-) -> dict:
+) -> ChatSession:
     """
     Create a new chat session for the authenticated user.
 
@@ -91,7 +92,7 @@ async def list_sessions(
     session_service: Annotated[SessionService, Depends(get_session_service)],
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
-) -> dict:
+) -> dict[str, Any]:
     """
     List all chat sessions for the authenticated user with pagination.
 
@@ -130,7 +131,7 @@ async def get_session(
     session_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     session_service: Annotated[SessionService, Depends(get_session_service)],
-) -> dict:
+) -> ChatSession:
     """
     Get a specific chat session by ID.
 
@@ -159,7 +160,7 @@ async def update_session(
     session_data: SessionUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
     session_service: Annotated[SessionService, Depends(get_session_service)],
-) -> dict:
+) -> ChatSession:
     """
     Update a chat session.
 

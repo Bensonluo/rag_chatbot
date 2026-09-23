@@ -101,6 +101,7 @@ dev = [
     # Type Stubs
     "types-redis>=4.6.0",
     "types-networkx>=3.0",
+    "types-python-jose>=3.3.4",
 
     # Load testing (deploy/loadtest/locustfile.py)
     "locust>=2.46.0",

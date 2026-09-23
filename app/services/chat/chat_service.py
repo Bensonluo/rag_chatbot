@@ -17,6 +17,9 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from app.services.chat.knowledge_gap_recorder import KnowledgeGapRecorder
     from app.services.chat.persistence import ChatMessagePersister
+    from app.services.guardrails.base import GuardrailService
+    from app.services.llm.base import LLMServiceBase
+    from app.services.memory.base import MemoryStrategy
 
 # Sentinel yielded by process_message_stream when no token has arrived
 # within the heartbeat window. The SSE layer translates it to a keepalive
@@ -42,7 +45,7 @@ class ChatResponse:
     session_id: int
     intent: str
     sources: list[str] | None = None
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -73,10 +76,10 @@ class ChatService:
 
     def __init__(
         self,
-        graph,  # Compiled LangGraph
-        llm_service=None,  # backward compat
-        memory_strategy=None,  # backward compat
-        guardrail_service=None,  # backward compat
+        graph: Any,  # Compiled LangGraph — no public stable type to reference
+        llm_service: LLMServiceBase | None = None,  # backward compat
+        memory_strategy: MemoryStrategy | None = None,  # backward compat
+        guardrail_service: GuardrailService | None = None,  # backward compat
         persister: ChatMessagePersister | None = None,
         gap_recorder: KnowledgeGapRecorder | None = None,
     ) -> None:
