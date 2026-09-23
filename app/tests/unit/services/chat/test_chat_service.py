@@ -154,6 +154,84 @@ class TestChatService:
         assert response.metadata["pending_slots"] == ["order_id", "reason"]
 
 
+class TestKnowledgeGapWiring:
+    """ChatService forwards every turn to the gap recorder; the recorder
+    (not the service) decides whether a turn is a knowledge gap."""
+
+    @pytest.mark.asyncio
+    async def test_recorder_called_with_graph_result(self):
+        mock_graph = _make_graph({"response": "抱歉", "intent": "faq", "retrieved_docs": []})
+        recorder = AsyncMock()
+        service = ChatService(graph=mock_graph, gap_recorder=recorder)
+        await service.process_message(session_id=3, message="发票怎么开", user_id=9)
+        recorder.record_if_gap.assert_awaited_once_with(
+            query="发票怎么开",
+            intent="faq",
+            retrieved_docs=[],
+            session_id=3,
+            user_id=9,
+        )
+
+    @pytest.mark.asyncio
+    async def test_recorder_forwarded_for_non_knowledge_intent_too(self):
+        # The recorder owns gap gating; the service forwards verbatim.
+        mock_graph = _make_graph({"response": "您好！", "intent": "greeting"})
+        recorder = AsyncMock()
+        service = ChatService(graph=mock_graph, gap_recorder=recorder)
+        await service.process_message(session_id=1, message="你好", user_id=1)
+        recorder.record_if_gap.assert_awaited_once_with(
+            query="你好",
+            intent="greeting",
+            retrieved_docs=None,
+            session_id=1,
+            user_id=1,
+        )
+
+    @pytest.mark.asyncio
+    async def test_recorder_called_in_stream_path(self):
+        async def mock_ainvoke(state, config):
+            queue = config["configurable"]["stream_queue"]
+            queue.put_nowait("抱歉")
+            return {"response": "抱歉", "intent": "policy", "retrieved_docs": []}
+
+        mock_graph = Mock()
+        mock_graph.ainvoke = mock_ainvoke
+        recorder = AsyncMock()
+        service = ChatService(graph=mock_graph, gap_recorder=recorder)
+        chunks = [
+            chunk
+            async for chunk in service.process_message_stream(
+                session_id=5, message="退货政策", user_id=2
+            )
+        ]
+        assert chunks == ["抱歉"]
+        recorder.record_if_gap.assert_awaited_once_with(
+            query="退货政策",
+            intent="policy",
+            retrieved_docs=[],
+            session_id=5,
+            user_id=2,
+        )
+
+    @pytest.mark.asyncio
+    async def test_recorder_not_called_when_graph_fails_in_stream(self):
+        async def mock_ainvoke(state, config):
+            queue = config["configurable"]["stream_queue"]
+            queue.put_nowait("部分")
+            raise RuntimeError("graph exploded")
+
+        mock_graph = Mock()
+        mock_graph.ainvoke = mock_ainvoke
+        recorder = AsyncMock()
+        service = ChatService(graph=mock_graph, gap_recorder=recorder)
+        with pytest.raises(RuntimeError):
+            async for _chunk in service.process_message_stream(
+                session_id=1, message="你好", user_id=1
+            ):
+                pass
+        recorder.record_if_gap.assert_not_awaited()
+
+
 class TestChatResponse:
     """Test ChatResponse dataclass"""
 

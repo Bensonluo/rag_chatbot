@@ -88,6 +88,7 @@ class ChatServiceFactory:
         slot_filler=None,
         guardrail_service=None,
         persister=None,
+        gap_recorder=None,
         checkpointer=None,
         **memory_kwargs,
     ) -> ChatService:
@@ -110,6 +111,8 @@ class ChatServiceFactory:
             guardrail_service: Optional guardrail service
             persister: Optional ChatMessagePersister for request-scoped
                 turn persistence and history reads
+            gap_recorder: Optional KnowledgeGapRecorder for knowledge-gap
+                telemetry on unanswered knowledge turns
             checkpointer: Optional shared LangGraph checkpointer
                 (Postgres-backed) for horizontally scaled deployments
             **memory_kwargs: Additional parameters for memory strategy
@@ -189,4 +192,5 @@ class ChatServiceFactory:
             memory_strategy=memory_strategy,
             guardrail_service=guardrail_service,
             persister=persister,
+            gap_recorder=gap_recorder,
         )

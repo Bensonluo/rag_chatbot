@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from app.services.chat.knowledge_gap_recorder import KnowledgeGapRecorder
     from app.services.chat.persistence import ChatMessagePersister
 
 # Sentinel yielded by process_message_stream when no token has arrived
@@ -77,12 +78,14 @@ class ChatService:
         memory_strategy=None,  # backward compat
         guardrail_service=None,  # backward compat
         persister: ChatMessagePersister | None = None,
+        gap_recorder: KnowledgeGapRecorder | None = None,
     ) -> None:
         self.graph = graph
         self.llm_service = llm_service
         self.memory_strategy = memory_strategy
         self.guardrail_service = guardrail_service
         self.persister = persister
+        self.gap_recorder = gap_recorder
 
     async def process_message(
         self,
@@ -122,6 +125,14 @@ class ChatService:
                     "pending_slots": result.get("pending_slots", []),
                     "filled_slots": result.get("filled_slots", {}),
                 },
+            )
+        if self.gap_recorder is not None:
+            await self.gap_recorder.record_if_gap(
+                query=message,
+                intent=result.get("intent"),
+                retrieved_docs=result.get("retrieved_docs"),
+                session_id=session_id,
+                user_id=user_id,
             )
 
         return ChatResponse(
@@ -191,7 +202,15 @@ class ChatService:
                 streamed_content.append(chunk)
                 yield chunk
             # Surface graph failures (sentinel already delivered above).
-            invoke_task.result()
+            result = invoke_task.result()
+            if self.gap_recorder is not None:
+                await self.gap_recorder.record_if_gap(
+                    query=message,
+                    intent=result.get("intent"),
+                    retrieved_docs=result.get("retrieved_docs"),
+                    session_id=session_id,
+                    user_id=user_id,
+                )
         finally:
             if not invoke_task.done():
                 invoke_task.cancel()

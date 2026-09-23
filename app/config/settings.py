@@ -177,6 +177,12 @@ class Settings(BaseSettings):
     )
     MEMORY_TOKEN_BUDGET: int = Field(default=4096, description="Max tokens for chat history")
 
+    # Knowledge-gap telemetry
+    KNOWLEDGE_GAP_SAMPLE_RATE: float = Field(
+        default=1.0,
+        description="Fraction of knowledge gaps to record (volume valve for hot paths)",
+    )
+
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = Field(default=60, description="Rate limit per minute")
     RATE_LIMIT_PER_HOUR: int = Field(default=1000, description="Rate limit per hour")

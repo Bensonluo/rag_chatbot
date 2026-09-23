@@ -6,7 +6,7 @@ Combines all v1 routers into a single router for inclusion in the main app.
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, chat, documents, feedback, handoff, sessions
+from app.api.v1 import analytics, auth, chat, documents, feedback, handoff, sessions
 
 api_router = APIRouter()
 
@@ -16,6 +16,7 @@ api_router.include_router(documents.router)
 api_router.include_router(chat.router)
 api_router.include_router(feedback.router)
 api_router.include_router(handoff.router)
+api_router.include_router(analytics.router)
 
 # Conditionally include graph router when GraphRAG is enabled
 try:
