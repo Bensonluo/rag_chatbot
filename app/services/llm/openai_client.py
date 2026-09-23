@@ -63,7 +63,7 @@ class OpenAIClient(LLMServiceBase):
         messages: list[LLMMessage],
         max_tokens: int | None = None,
         temperature: float | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> LLMResponse:
         """
         Generate a completion from OpenAI.
@@ -82,7 +82,7 @@ class OpenAIClient(LLMServiceBase):
         """
         try:
             # Prepare parameters
-            params = {
+            params: dict[str, Any] = {
                 "model": self.model,
                 "messages": self._format_messages(messages),
                 "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
@@ -108,7 +108,7 @@ class OpenAIClient(LLMServiceBase):
             # model produced a plain answer; isinstance keeps malformed
             # payloads (or test doubles) from breaking extraction.
             raw_calls = getattr(message, "tool_calls", None)
-            tool_calls = None
+            tool_calls: list[dict[str, str]] | None = None
             if isinstance(raw_calls, list):
                 tool_calls = [
                     {
@@ -142,10 +142,10 @@ class OpenAIClient(LLMServiceBase):
     async def generate_with_tools(
         self,
         messages: list[LLMMessage],
-        tools: list[dict],
+        tools: list[dict[str, Any]],
         max_tokens: int | None = None,
         temperature: float | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> LLMResponse:
         """
         Generate a completion with function-calling tool schemas.
@@ -180,7 +180,7 @@ class OpenAIClient(LLMServiceBase):
         messages: list[LLMMessage],
         max_tokens: int | None = None,
         temperature: float | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> AsyncGenerator[str, None]:
         """
         Generate a streaming completion from OpenAI.
@@ -199,7 +199,7 @@ class OpenAIClient(LLMServiceBase):
         """
         try:
             # Prepare parameters
-            params = {
+            params: dict[str, Any] = {
                 "model": self.model,
                 "messages": self._format_messages(messages),
                 "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,

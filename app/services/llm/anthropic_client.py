@@ -56,7 +56,7 @@ class AnthropicClient(LLMServiceBase):
         messages: list[LLMMessage],
         max_tokens: int | None = None,
         temperature: float | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> LLMResponse:
         """
         Generate a completion from Anthropic.
@@ -75,8 +75,8 @@ class AnthropicClient(LLMServiceBase):
         """
         try:
             # Extract system message if present
-            system_message = None
-            conversation_messages = []
+            system_message: str | None = None
+            conversation_messages: list[dict[str, Any]] = []
 
             for msg in messages:
                 if msg.role == "system":
@@ -87,7 +87,7 @@ class AnthropicClient(LLMServiceBase):
                     conversation_messages.append(msg.to_dict())
 
             # Prepare parameters
-            params = {
+            params: dict[str, Any] = {
                 "model": self.model,
                 "messages": conversation_messages,
                 "max_tokens": (max_tokens if max_tokens is not None else self.max_tokens or 4096),
@@ -137,7 +137,7 @@ class AnthropicClient(LLMServiceBase):
         messages: list[LLMMessage],
         max_tokens: int | None = None,
         temperature: float | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> AsyncGenerator[str, None]:
         """
         Generate a streaming completion from Anthropic.
@@ -156,8 +156,8 @@ class AnthropicClient(LLMServiceBase):
         """
         try:
             # Extract system message if present
-            system_message = None
-            conversation_messages = []
+            system_message: str | None = None
+            conversation_messages: list[dict[str, Any]] = []
 
             for msg in messages:
                 if msg.role == "system":
@@ -166,7 +166,7 @@ class AnthropicClient(LLMServiceBase):
                     conversation_messages.append(msg.to_dict())
 
             # Prepare parameters
-            params = {
+            params: dict[str, Any] = {
                 "model": self.model,
                 "messages": conversation_messages,
                 "max_tokens": (max_tokens if max_tokens is not None else self.max_tokens or 4096),
@@ -185,10 +185,14 @@ class AnthropicClient(LLMServiceBase):
 
             # Call Anthropic API with streaming
             async with self.client.messages.stream(**params) as stream:
-                # Yield text chunks as they arrive
+                # Yield text chunks as they arrive. The event union carries
+                # delta text only on content_block_delta events, so probe the
+                # attributes defensively rather than assuming the shape.
                 async for event in stream:
-                    if event.type == "content_block_delta" and hasattr(event.delta, "text"):
-                        yield event.delta.text
+                    if event.type == "content_block_delta":
+                        text = getattr(getattr(event, "delta", None), "text", None)
+                        if text:
+                            yield text
 
         except Exception as e:
             raise ExternalServiceError(

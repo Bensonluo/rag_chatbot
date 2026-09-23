@@ -7,6 +7,7 @@ tracking latency, token counts, model info, and errors.
 
 import logging
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from app.middleware.tracing import get_tracer
@@ -26,7 +27,7 @@ class LLMTracer:
         model: str | None = None,
         intent: str | None = None,
         slot_count: int = 0,
-    ):
+    ) -> AsyncIterator[None]:
         """Context manager to trace a single LLM generate call."""
         span = self._tracer.start_as_current_span("chat.generate")
         start_time = time.monotonic()

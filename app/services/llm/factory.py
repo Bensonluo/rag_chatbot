@@ -5,6 +5,7 @@ Provides a simple interface for creating LLM clients based on configuration.
 """
 
 import logging
+from typing import TYPE_CHECKING
 
 from app.config.settings import get_settings
 from app.core.exceptions import ValidationError
@@ -14,10 +15,13 @@ from app.services.llm.glm_client import GLMClient
 from app.services.llm.openai_client import OpenAIClient
 from app.services.llm.resilience import ResilientLLMService
 
+if TYPE_CHECKING:
+    from app.services.observability.llm_tracer import LLMTracer
+
 logger = logging.getLogger(__name__)
 
 
-def _build_llm_tracer():
+def _build_llm_tracer() -> "LLMTracer | None":
     """Construct the LLM tracer, degrading to None when OTel is broken.
 
     Tracing must never gate LLM availability: a broken tracing setup

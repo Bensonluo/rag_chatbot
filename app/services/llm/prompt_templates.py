@@ -4,6 +4,8 @@ Prompt templates for LLM interactions.
 Provides reusable prompt templates for different use cases.
 """
 
+from typing import Any
+
 
 class PromptTemplates:
     """
@@ -53,7 +55,7 @@ Guidelines:
         return PromptTemplates.RAG_SYSTEM_PROMPT
 
     @staticmethod
-    def format_chat_prompt(system_prompt: str, **kwargs) -> str:
+    def format_chat_prompt(system_prompt: str, **kwargs: Any) -> str:
         """
         Format a chat prompt with variables.
 
@@ -157,7 +159,7 @@ Respond with only the intent name, nothing else.
 Intent:"""
 
     @staticmethod
-    def format_template(template: str, **kwargs) -> str:
+    def format_template(template: str, **kwargs: Any) -> str:
         """
         Format a custom template with variables.
 

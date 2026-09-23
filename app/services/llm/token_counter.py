@@ -5,11 +5,13 @@ Provides token estimation and counting for different LLM providers.
 """
 
 try:
-    import tiktoken
+    import tiktoken  # type: ignore[import-not-found]  # optional tokenizer
 
     TIKTOKEN_AVAILABLE = True
 except ImportError:
     TIKTOKEN_AVAILABLE = False
+
+from app.services.llm.base import LLMMessage
 
 
 class TokenCounter:
@@ -87,7 +89,7 @@ class TokenCounter:
         return len(text) // 4
 
     @staticmethod
-    def count_messages(messages: list, model: str = "gpt-4") -> int:
+    def count_messages(messages: list[LLMMessage], model: str = "gpt-4") -> int:
         """
         Count total tokens in a list of messages.
 
@@ -115,7 +117,7 @@ class TokenCounter:
         return total
 
     @staticmethod
-    def estimate_messages(messages: list) -> int:
+    def estimate_messages(messages: list[LLMMessage]) -> int:
         """
         Estimate total tokens in messages without tiktoken.
 
@@ -142,7 +144,7 @@ class TokenCounter:
 
     @staticmethod
     def calculate_max_tokens(
-        messages: list,
+        messages: list[LLMMessage],
         model: str = "gpt-4",
         max_context_tokens: int = 128000,
         reserve_tokens: int = 1000,
@@ -170,10 +172,10 @@ class TokenCounter:
 
     @staticmethod
     def truncate_messages_by_tokens(
-        messages: list,
+        messages: list[LLMMessage],
         max_tokens: int,
         model: str = "gpt-4",
-    ) -> list:
+    ) -> list[LLMMessage]:
         """
         Truncate messages to fit within token limit.
 
@@ -191,7 +193,7 @@ class TokenCounter:
             return []
 
         # Start with most recent messages
-        truncated = []
+        truncated: list[LLMMessage] = []
         current_tokens = 0
 
         # Add messages from newest to oldest
