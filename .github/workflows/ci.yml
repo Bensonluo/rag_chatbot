@@ -18,7 +18,7 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       # Lint debt once reached 1033 violations because no gate existed.
-      # Both checks must stay green; fix new violations in the PR that
+      # All checks must stay green; fix new violations in the PR that
       # introduces them.
       - name: Install dependencies
         run: pip install -e ".[dev]"
@@ -28,6 +28,11 @@ jobs:
 
       - name: Ruff format check
         run: ruff format --check app/
+
+      # Type-check debt once stood at ~550 strict errors; the stock was
+      # cleared to zero over five batches. This gate keeps it there.
+      - name: Mypy strict check
+        run: mypy app/
 
   test:
     runs-on: ubuntu-latest
