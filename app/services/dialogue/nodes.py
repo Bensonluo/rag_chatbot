@@ -338,6 +338,24 @@ class NodeFactory:
 
         merged = extract_slots_from_message(intent, message, filled_slots)
 
+        # LLM pass: when regex found nothing new during an active
+        # collection, let the LLM pull free-form answers into slots
+        # before the whole-message heuristic guesses. Failures return
+        # {} inside, so behavior degrades to the pre-LLM path.
+        if (
+            len(merged) == len(filled_slots)
+            and state.get("pending_slots")
+            and self._llm_service is not None
+        ):
+            from app.config.settings import get_settings
+
+            if get_settings().SLOT_LLM_EXTRACTION_ENABLED:
+                from app.services.dialogue.slot_extraction import llm_extract_slots
+
+                extra = await llm_extract_slots(intent, message, filled_slots, self._llm_service)
+                for key, value in extra.items():
+                    merged.setdefault(key, value)
+
         # Fallback: when in a slot-collection flow and the message looks like
         # a direct answer (short, no task keywords), assign it to the first
         # missing required slot.

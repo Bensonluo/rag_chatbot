@@ -234,6 +234,10 @@ class Settings(BaseSettings):
     SLOT_FILLING_TYPE: str = Field(
         default="hybrid", description="Slot filler type: rule_based, hybrid"
     )
+    SLOT_LLM_EXTRACTION_ENABLED: bool = Field(
+        default=True,
+        description="LLM pass for task slot extraction when regex finds nothing new",
+    )
 
     # Guardrails
     GUARDRAILS_ENABLED: bool = Field(default=True, description="Enable input/output guardrails")
