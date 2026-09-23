@@ -98,9 +98,12 @@ class TestRetrievalFactory:
         mock_llm = Mock()
 
         # Act
+        from app.services.retrieval.reranking import RerankingService
+
         reranker = RetrievalFactory.create_reranker(llm_service=mock_llm, top_n=10)
 
         # Assert
+        assert isinstance(reranker, RerankingService)
         assert reranker.top_n == 10
 
     def test_create_reranking_service_default_top_n(self):
@@ -111,9 +114,12 @@ class TestRetrievalFactory:
         mock_llm = Mock()
 
         # Act
+        from app.services.retrieval.reranking import RerankingService
+
         reranker = RetrievalFactory.create_reranker(llm_service=mock_llm)
 
         # Assert
+        assert isinstance(reranker, RerankingService)
         assert reranker.top_n == 5
 
     def test_create_noop_reranker(self):
@@ -221,11 +227,14 @@ class TestRetrievalFactory:
         mock_llm = Mock()
 
         # Act
+        from app.services.retrieval.reranking import RerankingService
+
         reranker = RetrievalFactory.create_reranker(
             llm_service=mock_llm, reranker_type="llm", top_n=15
         )
 
         # Assert
+        assert isinstance(reranker, RerankingService)
         assert reranker.top_n == 15
 
     def test_create_cross_encoder_reranker(self):
@@ -314,6 +323,10 @@ class TestRetrievalFactory:
         with patch("app.config.settings.get_settings", return_value=mock_settings):
             reranker = RetrievalFactory.create_reranker_from_settings(llm_service=mock_llm)
 
+        from app.services.retrieval.reranking import RerankingService
+
         assert isinstance(reranker, ChainedReranker)
-        assert reranker.second_stage is not None
-        assert reranker.second_stage.top_n == 3
+        second = reranker.second_stage
+        assert second is not None
+        assert isinstance(second, RerankingService)
+        assert second.top_n == 3

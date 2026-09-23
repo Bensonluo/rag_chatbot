@@ -6,6 +6,8 @@ access. This pins the matrix and the happy-path ticket lifecycle over
 an in-memory database.
 """
 
+from collections.abc import AsyncIterator, Iterator
+
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -45,21 +47,21 @@ def app() -> FastAPI:
 
 
 @pytest.fixture
-def admin(app) -> User:
+def admin(app: FastAPI) -> Iterator[User]:
     app.dependency_overrides[get_current_active_user] = lambda: _make_user(is_admin=True)
     yield _make_user(is_admin=True)
     app.dependency_overrides.clear()
 
 
 @pytest.fixture
-def plain_user(app) -> User:
+def plain_user(app: FastAPI) -> Iterator[User]:
     app.dependency_overrides[get_current_active_user] = lambda: _make_user(is_admin=False)
     yield _make_user(is_admin=False)
     app.dependency_overrides.clear()
 
 
 @pytest.fixture
-async def db_service():
+async def db_service() -> AsyncIterator[HandoffService]:
     """Real HandoffService over an in-memory sqlite database."""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:

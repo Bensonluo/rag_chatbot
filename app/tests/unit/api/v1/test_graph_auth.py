@@ -9,6 +9,7 @@ authenticated non-admin → 403 on admin endpoints, admin → full access,
 and internal error details never leak into responses.
 """
 
+from collections.abc import Iterator
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -41,7 +42,7 @@ def app() -> FastAPI:
 
 
 @pytest.fixture
-def user(app) -> User:
+def user(app: FastAPI) -> Iterator[User]:
     """Override auth to a non-admin user for the duration of a test."""
     app.dependency_overrides[get_current_active_user] = lambda: _make_user(is_admin=False)
     yield _make_user(is_admin=False)
@@ -49,7 +50,7 @@ def user(app) -> User:
 
 
 @pytest.fixture
-def admin(app) -> User:
+def admin(app: FastAPI) -> Iterator[User]:
     """Override auth to an admin for the duration of a test."""
     app.dependency_overrides[get_current_active_user] = lambda: _make_user(is_admin=True)
     yield _make_user(is_admin=True)

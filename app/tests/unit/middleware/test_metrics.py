@@ -1,9 +1,17 @@
 """Tests for Prometheus metrics middleware"""
 
+from collections.abc import MutableMapping
+from typing import Any
+
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from prometheus_client import REGISTRY
+
+
+async def _receive() -> MutableMapping[str, Any]:
+    """No-op ASGI receive channel — these tests never read a request body."""
+    return {}
 
 
 async def _ok_call_next(request):
@@ -58,7 +66,7 @@ class TestPrometheusMetrics:
                 "headers": [],
                 "query_string": b"",
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act - Make multiple requests
@@ -91,7 +99,7 @@ class TestPrometheusMetrics:
                 "headers": [],
                 "query_string": b"",
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -118,7 +126,7 @@ class TestPrometheusMetrics:
                 "headers": [],
                 "query_string": b"",
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -151,7 +159,7 @@ class TestPrometheusMetrics:
                 "headers": [],
                 "query_string": b"",
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -288,17 +296,16 @@ class TestMetricsIntegration:
                 "query_string": b"",
                 "app": app,
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
         await middleware.dispatch(request, _ok_call_next)
 
         # Assert - Metrics should be recorded
-        assert (
-            REGISTRY.get_sample_value(
-                "http_requests_total",
-                {"method": "GET", "endpoint": "/test", "status": "200"},
-            )
-            > 0
+        total = REGISTRY.get_sample_value(
+            "http_requests_total",
+            {"method": "GET", "endpoint": "/test", "status": "200"},
         )
+        assert total is not None
+        assert total > 0

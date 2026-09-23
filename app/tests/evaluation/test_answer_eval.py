@@ -1,6 +1,7 @@
 """Answer-quality eval: loading, think-stripping, judge parsing, scoring."""
 
 import json
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -84,15 +85,15 @@ class TestBuildJudgeMessages:
         assert "JSON" in content
 
 
-def _judge_responding(text: str):
+def _judge_responding(text: str) -> Mock:
     """LLM mock whose generate returns a response object with .content."""
     llm = Mock()
     llm.generate = AsyncMock(return_value=Mock(content=text))
     return llm
 
 
-def _case(**overrides) -> AnswerCase:
-    base = {
+def _case(**overrides: Any) -> AnswerCase:
+    base: dict[str, Any] = {
         "id": "c1",
         "query": "q",
         "category": "cat",

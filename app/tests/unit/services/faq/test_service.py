@@ -8,6 +8,7 @@ the chat pipeline.
 """
 
 import json
+from typing import Any
 
 from app.services.faq import FAQEntry, FAQService, create_faq_service, load_faq_entries
 from app.services.faq.store import DEFAULT_FAQ_FILE
@@ -22,7 +23,7 @@ class FakeEmbeddings:
         self.bulk_calls = 0
         self.query_texts: list[str] = []
 
-    async def embed(self, texts):
+    async def embed(self, texts: list[str]) -> "SimpleEmbedding":
         if len(texts) > 1:
             self.bulk_calls += 1
             if self.fail_on_bulk:
@@ -64,7 +65,7 @@ MAPPING = {
 }
 
 
-def _service(threshold: float = 0.8, **embed_kwargs) -> tuple[FAQService, FakeEmbeddings]:
+def _service(threshold: float = 0.8, **embed_kwargs: Any) -> tuple[FAQService, FakeEmbeddings]:
     fake = FakeEmbeddings(MAPPING, **embed_kwargs)
     return FAQService(fake, [FAQ1, FAQ2], threshold), fake
 
@@ -169,14 +170,16 @@ class TestTableLifecycle:
         service = FAQService(fake, [FAQ1], 0.8)
 
         original_embed = fake.embed
+        armed = False
 
-        async def flaky_embed(texts):
-            if not getattr(flaky_embed, "armed", False):
-                flaky_embed.armed = True
+        async def flaky_embed(texts: list[str]) -> "SimpleEmbedding":
+            nonlocal armed
+            if not armed:
+                armed = True
                 raise RuntimeError("transient")
             return await original_embed(texts)
 
-        fake.embed = flaky_embed  # noqa: B010
+        fake.embed = flaky_embed  # type: ignore[method-assign]  # noqa: B010
         assert await service.match("怎么退货") is None  # query embed failed
         assert await service.match("怎么退货") is not None  # recovered
 

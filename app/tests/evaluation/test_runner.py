@@ -1,7 +1,6 @@
 """Evaluation runner: loading, route buckets, scoring math."""
 
 import json
-from unittest.mock import Mock
 
 from app.models.enums.intent import Intent
 from app.services.evaluation import (
@@ -12,12 +11,11 @@ from app.services.evaluation import (
     run_intent_eval,
 )
 from app.services.evaluation.runner import GOLDEN_SET_FILE
+from app.services.intent.base import IntentResult
 
 
-def _result(intent: Intent):
-    mock = Mock()
-    mock.intent = Mock(value=intent.value)
-    return mock
+def _result(intent: Intent) -> IntentResult:
+    return IntentResult(intent=intent, confidence=0.95)
 
 
 class SyncFakeDetector:
@@ -26,7 +24,7 @@ class SyncFakeDetector:
     def __init__(self, mapping: dict[str, Intent]) -> None:
         self.mapping = mapping
 
-    def detect_with_confidence(self, query: str):
+    def detect_with_confidence(self, query: str) -> IntentResult:
         return _result(self.mapping.get(query, Intent.UNKNOWN))
 
 
@@ -36,7 +34,7 @@ class AsyncFakeDetector:
     def __init__(self, mapping: dict[str, Intent]) -> None:
         self.mapping = mapping
 
-    async def detect_with_confidence(self, query: str):
+    async def detect_with_confidence(self, query: str) -> IntentResult:
         return _result(self.mapping.get(query, Intent.UNKNOWN))
 
 
@@ -99,7 +97,9 @@ class TestRunIntentEval:
             GoldenCase(id="c", query="随便说点什么", expect_intent="unknown"),
         ]
 
-        report = await run_intent_eval(SyncFakeDetector(mapping), cases)
+        report = await run_intent_eval(
+            SyncFakeDetector(mapping), cases  # type: ignore[arg-type]
+        )
 
         assert report.total == 3
         assert report.passed == 2
@@ -113,12 +113,16 @@ class TestRunIntentEval:
         mapping = {"我要退款": Intent.REFUND}
         cases = [GoldenCase(id="a", query="我要退款", expect_intent="refund")]
 
-        report = await run_intent_eval(AsyncFakeDetector(mapping), cases)
+        report = await run_intent_eval(
+            AsyncFakeDetector(mapping), cases  # type: ignore[arg-type]
+        )
 
         assert report.accuracy == 1.0
 
     async def test_empty_cases_yield_zeroed_report(self):
-        report = await run_intent_eval(SyncFakeDetector({}), [])
+        report = await run_intent_eval(
+            SyncFakeDetector({}), []  # type: ignore[arg-type]
+        )
         assert report.total == 0
         assert report.accuracy == 0.0  # no divide-by-zero on empty sets
 

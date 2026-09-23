@@ -1,5 +1,6 @@
 """Tests for chat service"""
 
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -7,7 +8,7 @@ import pytest
 from app.services.chat.chat_service import ChatResponse, ChatService
 
 
-def _make_graph(return_value: dict):
+def _make_graph(return_value: dict[str, Any]) -> Mock:
     """Create a mock compiled LangGraph that returns the given value on ainvoke."""
     graph = Mock()
     graph.ainvoke = AsyncMock(return_value=return_value)
@@ -151,7 +152,9 @@ class TestChatService:
             message="我要退款",
             user_id=1,
         )
-        assert response.metadata["pending_slots"] == ["order_id", "reason"]
+        metadata = response.metadata
+        assert metadata is not None
+        assert metadata["pending_slots"] == ["order_id", "reason"]
 
 
 class TestKnowledgeGapWiring:
@@ -246,7 +249,9 @@ class TestChatResponse:
         assert response.content == "Hello!"
         assert response.session_id == 1
         assert response.intent == "greeting"
-        assert len(response.sources) == 2
+        sources = response.sources
+        assert sources is not None
+        assert len(sources) == 2
 
     def test_chat_response_without_sources(self):
         response = ChatResponse(
@@ -277,7 +282,9 @@ class TestTurnAuditMetadata:
 
         persisted_meta = persister.persist_turn.await_args.kwargs["metadata"]
         assert persisted_meta["executed_tools"] == trace
-        assert response.metadata["executed_tools"] == trace
+        metadata = response.metadata
+        assert metadata is not None
+        assert metadata["executed_tools"] == trace
 
     @pytest.mark.asyncio
     async def test_omits_executed_tools_when_none_ran(self):

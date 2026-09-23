@@ -1,7 +1,7 @@
 """TicketRepository queue ordering (priority → FIFO) and claim/resolve guards."""
 
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models.database.base import Base
 from app.models.database.session import ChatSession  # noqa: F401 (registers table)
@@ -19,7 +19,7 @@ async def session_maker():
     await engine.dispose()
 
 
-async def _seed(session_maker, n: int) -> list[int]:
+async def _seed(session_maker: async_sessionmaker[AsyncSession], n: int) -> list[int]:
     """Create n open tickets, returning their ids."""
     ids: list[int] = []
     async with session_maker() as session:
@@ -148,6 +148,7 @@ class TestResolve:
             repo = TicketRepository(session)
             await repo.claim(ids[0], agent_id=1)
             ticket = await repo.resolve(ids[0], agent_id=1)
+        assert ticket is not None
         assert ticket.status == "resolved"
         assert ticket.assigned_to == 1
 
@@ -156,6 +157,7 @@ class TestResolve:
         async with session_maker() as session:
             repo = TicketRepository(session)
             ticket = await repo.resolve(ids[0], agent_id=5)
+        assert ticket is not None
         assert ticket.status == "resolved"
         assert ticket.assigned_to == 5
 

@@ -8,7 +8,7 @@ import pytest
 from app.services.memory.base import MessageContent
 
 
-def _llm_responding(text):
+def _llm_responding(text: str) -> Mock:
     """LLM mock whose generate returns a response object with .content."""
     llm = Mock()
     llm.generate = AsyncMock(return_value=Mock(content=text))

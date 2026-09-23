@@ -28,8 +28,8 @@ router = APIRouter(prefix="/handoff", tags=["handoff"])
 _handoff_service: HandoffService | None = None
 
 
-def set_handoff_service(service: HandoffService) -> None:
-    """Set the handoff service instance (called during startup / tests)."""
+def set_handoff_service(service: HandoffService | None) -> None:
+    """Set (or clear, with None) the handoff service — startup / tests."""
     global _handoff_service
     _handoff_service = service
 

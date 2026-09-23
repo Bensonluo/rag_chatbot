@@ -6,11 +6,17 @@ This file contains shared fixtures and configuration for all tests.
 
 import asyncio
 from collections.abc import AsyncGenerator as AsyncGeneratorType
+from collections.abc import Generator
 from unittest.mock import AsyncMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.pool import StaticPool
 
 from app.main import create_app
@@ -21,7 +27,7 @@ TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
 @pytest.fixture(scope="session")
-def event_loop() -> asyncio.AbstractEventLoop:
+def event_loop() -> Generator[asyncio.AbstractEventLoop, None, None]:
     """
     Create an instance of the event loop for the test session.
 
@@ -49,7 +55,9 @@ async def test_engine():
 
 
 @pytest.fixture(scope="function")
-async def db_session(test_engine) -> AsyncGeneratorType[AsyncSession, None]:
+async def db_session(
+    test_engine: AsyncEngine,
+) -> AsyncGeneratorType[AsyncSession, None]:
     """
     Create a test database session.
 
@@ -185,7 +193,7 @@ async def app_client(db_session):
 
 
 @pytest.fixture
-async def test_token(app_client) -> str:
+async def test_token(app_client: AsyncClient) -> str:
     """
     Create a test authentication token.
 
@@ -210,4 +218,6 @@ async def test_token(app_client) -> str:
         },
     )
 
-    return response.json()["access_token"]
+    token = response.json()["access_token"]
+    assert isinstance(token, str)
+    return token

@@ -1,6 +1,7 @@
 """Tests for LLM-assisted slot extraction in the task slot pipeline."""
 
-from types import SimpleNamespace
+from collections.abc import AsyncGenerator
+from typing import Any
 from unittest.mock import Mock, patch
 
 from app.services.dialogue.nodes import NodeFactory
@@ -10,27 +11,56 @@ from app.services.dialogue.slot_extraction import (
     parse_slot_json,
 )
 from app.services.dialogue.state import DialogueState
+from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
 
 
-class _StubLLM:
+class _StubLLM(LLMServiceBase):
     """Minimal LLMServiceBase stand-in returning canned content."""
 
     def __init__(self, content: str = "{}") -> None:
+        super().__init__(api_key="fake", model="fake")
         self.content = content
-        self.calls = []
+        self.calls: list[Any] = []
 
-    async def generate(self, messages, **kwargs):  # noqa: ANN001, ANN002
+    async def generate(
+        self,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
         self.calls.append(messages)
-        return SimpleNamespace(content=self.content)
+        return LLMResponse(content=self.content, model="fake")
+
+    async def generate_stream(
+        self,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[str, None]:
+        yield self.content
+
+    def estimate_tokens(self, text: str) -> int:
+        return len(text) // 4
+
+    async def count_tokens(self, messages: list[LLMMessage]) -> int:
+        return sum(len(m.content) for m in messages) // 4
 
 
 class _RaisingLLM(_StubLLM):
-    async def generate(self, messages, **kwargs):  # noqa: ANN001, ANN002
+    async def generate(
+        self,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
         self.calls.append(messages)
         raise RuntimeError("provider down")
 
 
-def _factory(llm) -> NodeFactory:
+def _factory(llm: LLMServiceBase | None) -> NodeFactory:
     return NodeFactory(
         intent_detector=Mock(),
         slot_filler=None,

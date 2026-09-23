@@ -9,13 +9,16 @@ never “您好，请问有什么可以帮您”.
 import asyncio
 from unittest.mock import AsyncMock, Mock
 
+from langchain_core.runnables import RunnableConfig
+
 from app.models.enums.intent import Intent
 from app.services.dialogue.nodes import NodeFactory
 from app.services.dialogue.state import DialogueState
+from app.services.handoff.service import HandoffService
 from app.services.intent.base import IntentResult
 
 
-def _make_factory(handoff_service=None) -> NodeFactory:
+def _make_factory(handoff_service: HandoffService | None = None) -> NodeFactory:
     """NodeFactory with stub services and an optional handoff service."""
     intent_detector = Mock()
     intent_detector.detect_with_confidence = AsyncMock()
@@ -39,9 +42,10 @@ def _detector_returning(intent: Intent, confidence: float = 0.9) -> Mock:
     return detector
 
 
-def _config_with_queue() -> tuple[dict, asyncio.Queue]:
-    queue: asyncio.Queue = asyncio.Queue()
-    return {"configurable": {"stream_queue": queue}}, queue
+def _config_with_queue() -> tuple[RunnableConfig, asyncio.Queue[str]]:
+    queue: asyncio.Queue[str] = asyncio.Queue()
+    config: RunnableConfig = {"configurable": {"stream_queue": queue}}
+    return config, queue
 
 
 # ── Intent priority ────────────────────────────────────────────────────────
