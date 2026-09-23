@@ -74,6 +74,7 @@ class EmbeddingFactory:
             )
 
         # Create service based on provider
+        service: EmbeddingServiceBase
         if provider == "local":
             model = model or getattr(settings, "EMBEDDING_MODEL", "bge-m3")
             service = get_local_embedding_service(

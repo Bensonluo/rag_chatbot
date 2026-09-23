@@ -4,10 +4,16 @@ Cached embedding service wrapper using Redis.
 Caches embeddings to reduce redundant API calls and computation.
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
+from typing import TYPE_CHECKING, Any
 
 from app.core.exceptions import ExternalServiceError
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 from app.services.embeddings.base import EmbeddingResult, EmbeddingServiceBase
 
 
@@ -46,9 +52,9 @@ class CachedEmbeddingService(EmbeddingServiceBase):
         self.prefix = prefix
 
         # Redis client (lazy loaded)
-        self._redis = None
+        self._redis: Redis[str] | None = None
 
-    async def _get_redis(self):
+    async def _get_redis(self) -> Redis[str]:
         """Get or create Redis client."""
         if self._redis is None:
             try:
@@ -84,7 +90,7 @@ class CachedEmbeddingService(EmbeddingServiceBase):
 
         return f"{self.prefix}:{self.model}:{hash_value}"
 
-    async def _get_cached_embeddings(self, texts: list[str]) -> dict[str, list[float] | None]:
+    async def _get_cached_embeddings(self, texts: list[str]) -> dict[int, list[float] | None]:
         """
         Get cached embeddings for multiple texts.
 
@@ -103,11 +109,12 @@ class CachedEmbeddingService(EmbeddingServiceBase):
         cached_values = await redis.mget(cache_keys)
 
         # Parse results
-        result = {}
+        result: dict[int, list[float] | None] = {}
         for idx, value in enumerate(cached_values):
             if value is not None:
                 try:
-                    result[idx] = json.loads(value)
+                    parsed: Any = json.loads(value)
+                    result[idx] = parsed
                 except json.JSONDecodeError:
                     result[idx] = None
             else:
@@ -126,7 +133,7 @@ class CachedEmbeddingService(EmbeddingServiceBase):
         redis = await self._get_redis()
 
         # Prepare cache data
-        cache_data = {}
+        cache_data: dict[str, str] = {}
         for text, embedding in zip(texts, embeddings, strict=True):
             key = self._generate_cache_key(text)
             value = json.dumps(embedding)
@@ -161,7 +168,7 @@ class CachedEmbeddingService(EmbeddingServiceBase):
         uncached_indices = [i for i, emb in cached.items() if emb is None]
         cached_indices = [i for i, emb in cached.items() if emb is not None]
 
-        result_embeddings = [None] * len(texts)
+        result_embeddings: list[list[float] | None] = [None] * len(texts)
 
         # Fill in cached embeddings
         for idx in cached_indices:
@@ -181,11 +188,22 @@ class CachedEmbeddingService(EmbeddingServiceBase):
             # Cache the new embeddings
             await self._set_cached_embeddings(uncached_texts, new_result.embeddings)
 
+        # Every index is filled from cache or fresh generation; a None
+        # here means a bookkeeping bug — fail loudly instead of returning
+        # a misaligned vector list.
+        if any(emb is None for emb in result_embeddings):
+            raise ExternalServiceError(
+                service="EmbeddingCache",
+                message="Internal error: unresolved embeddings after cache fill",
+            )
+
+        final_embeddings = [emb for emb in result_embeddings if emb is not None]
+
         # Calculate tokens (estimate)
         tokens_used = sum(self.estimate_tokens(text) for text in texts)
 
         return EmbeddingResult(
-            embeddings=result_embeddings,
+            embeddings=final_embeddings,
             model=self.model,
             dimensions=self.dimensions,
             tokens_used=tokens_used,
@@ -214,7 +232,7 @@ class CachedEmbeddingService(EmbeddingServiceBase):
 
         # Scan for all keys with our prefix
         pattern = f"{self.prefix}:{self.model}:*"
-        keys = []
+        keys: list[str] = []
         async for key in redis.scan_iter(match=pattern):
             keys.append(key)
 

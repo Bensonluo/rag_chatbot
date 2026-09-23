@@ -189,6 +189,7 @@ testpaths = [
     "app/tests/unit/services/guardrails",
     "app/tests/unit/services/documents",
     "app/tests/unit/services/embeddings/test_factory.py",
+    "app/tests/unit/services/embeddings/test_embeddings_services.py",
     "app/tests/unit/services/retrieval",
     "app/tests/unit/services/graph",
     "app/tests/unit/api/v1/test_chat_initialization.py",

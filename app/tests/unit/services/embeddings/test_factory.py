@@ -21,3 +21,17 @@ def test_local_embedding_factory_reuses_the_cached_model_service() -> None:
 
     assert result is local_service
     get_local.assert_called_once_with(model="bge-m3", device="cpu")
+
+
+def test_openai_embedding_factory_creates_service() -> None:
+    from app.services.embeddings.factory import EmbeddingFactory
+    from app.services.embeddings.openai_embeddings import OpenAIEmbeddingService
+
+    result = EmbeddingFactory.create(
+        provider="openai",
+        api_key="test-key",
+        use_cache=False,
+    )
+
+    assert isinstance(result, OpenAIEmbeddingService)
+    assert result.model  # resolved from settings/model table

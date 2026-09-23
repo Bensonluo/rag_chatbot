@@ -9,6 +9,7 @@ from app.services.embeddings.cached_embeddings import CachedEmbeddingService
 from app.services.embeddings.factory import EmbeddingFactory
 from app.services.embeddings.glm_embeddings import GLMEmbeddingService
 from app.services.embeddings.local_embeddings import LocalEmbeddingService
+from app.services.embeddings.openai_embeddings import OpenAIEmbeddingService
 
 __all__ = [
     # Base classes
@@ -17,6 +18,7 @@ __all__ = [
     # Providers
     "LocalEmbeddingService",
     "GLMEmbeddingService",
+    "OpenAIEmbeddingService",
     # Caching
     "CachedEmbeddingService",
     # Factory

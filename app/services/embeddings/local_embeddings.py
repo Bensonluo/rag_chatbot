@@ -5,10 +5,16 @@ Supports BGE-M3 and other sentence-transformer models.
 Runs entirely on-premises with no API calls.
 """
 
+from __future__ import annotations
+
 import asyncio
 from functools import lru_cache
+from typing import TYPE_CHECKING, Any
 
 from app.core.exceptions import ExternalServiceError
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 from app.services.embeddings.base import EmbeddingResult, EmbeddingServiceBase
 
 
@@ -35,7 +41,7 @@ class LocalEmbeddingService(EmbeddingServiceBase):
         self,
         model: str = "bge-m3",
         device: str = "cpu",
-        dimensions: int = None,
+        dimensions: int | None = None,
     ) -> None:
         """
         Initialize local embedding service.
@@ -65,22 +71,22 @@ class LocalEmbeddingService(EmbeddingServiceBase):
         super().__init__(model=model, dimensions=dimensions)
 
         # Lazy loading: model loaded on first use
-        self._model = None
+        self._model: SentenceTransformer | None = None
         self._load_lock = asyncio.Lock()
 
-    async def _load_model(self):
+    async def _load_model(self) -> SentenceTransformer:
         """
         Load the sentence-transformer model (lazy loading).
 
         Runs in thread pool to avoid blocking event loop.
         """
         if self._model is not None:
-            return
+            return self._model
 
         async with self._load_lock:
             # Double-check after acquiring lock
             if self._model is not None:
-                return
+                return self._model
 
             try:
                 # Import here to avoid unnecessary import if not used;
@@ -88,10 +94,13 @@ class LocalEmbeddingService(EmbeddingServiceBase):
                 from sentence_transformers import SentenceTransformer
 
                 # Load model in thread pool
+                def _download() -> SentenceTransformer:
+                    return SentenceTransformer(self.hf_model_id, device=self.device)
+
                 loop = asyncio.get_event_loop()
-                self._model = await loop.run_in_executor(
-                    None, lambda: SentenceTransformer(self.hf_model_id, device=self.device)
-                )
+                self._model = await loop.run_in_executor(None, _download)
+
+                return self._model
 
             except ImportError as e:
                 raise ExternalServiceError(
@@ -119,7 +128,7 @@ class LocalEmbeddingService(EmbeddingServiceBase):
         """
         try:
             # Ensure model is loaded
-            await self._load_model()
+            model = await self._load_model()
 
             if not texts:
                 return EmbeddingResult(
@@ -130,13 +139,11 @@ class LocalEmbeddingService(EmbeddingServiceBase):
             total_tokens = sum(self.estimate_tokens(text) for text in texts)
 
             # Run encoding in thread pool to avoid blocking
+            def _encode() -> Any:
+                return model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+
             loop = asyncio.get_event_loop()
-            embeddings = await loop.run_in_executor(
-                None,
-                lambda: self._model.encode(
-                    texts, normalize_embeddings=True, show_progress_bar=False
-                ),
-            )
+            embeddings = await loop.run_in_executor(None, _encode)
 
             # Convert to list of lists
             embedding_list = embeddings.tolist()

@@ -5,6 +5,7 @@ Provides integration with GLM embedding models via API.
 """
 
 import time
+from types import TracebackType
 
 import httpx
 import jwt
@@ -54,7 +55,7 @@ class GLMEmbeddingService(EmbeddingServiceBase):
         self,
         api_key: str,
         model: str = "embedding-2",
-        dimensions: int = None,
+        dimensions: int | None = None,
     ) -> None:
         """
         Initialize GLM embedding client.
@@ -77,7 +78,7 @@ class GLMEmbeddingService(EmbeddingServiceBase):
             timeout=60.0,
         )
 
-    def _auth_headers(self) -> dict:
+    def _auth_headers(self) -> dict[str, str]:
         return {"Authorization": _generate_token(self.api_key)}
 
     async def embed(self, texts: list[str]) -> EmbeddingResult:
@@ -169,6 +170,11 @@ class GLMEmbeddingService(EmbeddingServiceBase):
         """Async context manager entry."""
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
         """Async context manager exit."""
         await self.close()
