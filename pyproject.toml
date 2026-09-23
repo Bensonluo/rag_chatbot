@@ -184,7 +184,7 @@ testpaths = [
     "app/tests/unit/services/handoff",
     "app/tests/unit/services/intent",
     "app/tests/unit/services/memory",
-    "app/tests/unit/services/llm/test_openai_client.py",
+    "app/tests/unit/services/llm",
     "app/tests/unit/services/slot_filling",
     "app/tests/unit/services/guardrails",
     "app/tests/unit/services/documents",

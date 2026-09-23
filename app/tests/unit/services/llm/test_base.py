@@ -2,6 +2,30 @@
 
 import pytest
 
+from app.services.llm.base import LLMMessage, LLMServiceBase
+
+
+class StubService(LLMServiceBase):
+    """Minimal concrete subclass so the ABC's own method bodies can be
+    exercised (the class itself can no longer be instantiated)."""
+
+    async def generate(self, messages, max_tokens=None, temperature=None, **kwargs):
+        return await super().generate(
+            messages, max_tokens=max_tokens, temperature=temperature, **kwargs
+        )
+
+    async def generate_stream(self, messages, max_tokens=None, temperature=None, **kwargs):
+        async for chunk in super().generate_stream(
+            messages, max_tokens=max_tokens, temperature=temperature, **kwargs
+        ):
+            yield chunk
+
+    def estimate_tokens(self, text):
+        return super().estimate_tokens(text)
+
+    async def count_tokens(self, messages):
+        return await super().count_tokens(messages)
+
 
 class TestLLMMessage:
     """Test LLM message data structure"""
@@ -9,7 +33,6 @@ class TestLLMMessage:
     def test_create_user_message(self):
         """Test creating a user message"""
         # Arrange & Act
-        from app.services.llm.base import LLMMessage
 
         message = LLMMessage(role="user", content="Hello, world!")
 
@@ -20,7 +43,6 @@ class TestLLMMessage:
     def test_create_system_message(self):
         """Test creating a system message"""
         # Arrange & Act
-        from app.services.llm.base import LLMMessage
 
         message = LLMMessage(role="system", content="You are a helpful assistant.")
 
@@ -31,7 +53,6 @@ class TestLLMMessage:
     def test_create_assistant_message(self):
         """Test creating an assistant message"""
         # Arrange & Act
-        from app.services.llm.base import LLMMessage
 
         message = LLMMessage(role="assistant", content="Hi there!")
 
@@ -42,7 +63,6 @@ class TestLLMMessage:
     def test_message_to_dict(self):
         """Test converting message to dictionary"""
         # Arrange
-        from app.services.llm.base import LLMMessage
 
         message = LLMMessage(role="user", content="Test")
 
@@ -55,7 +75,6 @@ class TestLLMMessage:
     def test_message_from_dict(self):
         """Test creating message from dictionary"""
         # Arrange
-        from app.services.llm.base import LLMMessage
 
         msg_dict = {"role": "user", "content": "Test"}
 
@@ -98,80 +117,80 @@ class TestLLMResponse:
 
 
 class TestLLMServiceBase:
-    """Test LLM service base class"""
+    """Test LLM service base class via a minimal concrete subclass."""
+
+    def test_abc_cannot_be_instantiated_directly(self):
+        """The abstract class itself cannot be instantiated"""
+        from app.services.llm.base import LLMServiceBase
+
+        with pytest.raises(TypeError):
+            LLMServiceBase(api_key="k", model="m")  # type: ignore[abstract]
+
+    def test_stub_initialization_stores_config(self):
+        """__init__ stores key/model and normalizes token/temperature fields"""
+
+        service = StubService(api_key="k", model="gpt-4", max_tokens=100, temperature=0.5)
+
+        assert service.api_key == "k"
+        assert service.model == "gpt-4"
+        assert service.max_tokens == 100
+        assert service.temperature == 0.5
+        # to_dict contract on the message model used across the suite
+        assert LLMMessage(role="user", content="x").to_dict() == {
+            "role": "user",
+            "content": "x",
+        }
 
     @pytest.mark.asyncio
     async def test_generate_not_implemented(self):
-        """Test that generate raises NotImplementedError in base class"""
-        # Arrange
-        from app.services.llm.base import LLMMessage, LLMServiceBase
+        """The ABC body for generate raises NotImplementedError"""
 
-        service = LLMServiceBase()
+        service = StubService(api_key="k", model="m")
         messages = [LLMMessage(role="user", content="Test")]
 
-        # Act & Assert
         with pytest.raises(NotImplementedError):
             await service.generate(messages=messages)
 
     @pytest.mark.asyncio
     async def test_generate_stream_not_implemented(self):
-        """Test that generate_stream raises NotImplementedError in base class"""
-        # Arrange
-        from app.services.llm.base import LLMMessage, LLMServiceBase
+        """The ABC body for generate_stream raises NotImplementedError"""
 
-        service = LLMServiceBase()
+        service = StubService(api_key="k", model="m")
         messages = [LLMMessage(role="user", content="Test")]
 
-        # Act & Assert
         with pytest.raises(NotImplementedError):
             async for _ in service.generate_stream(messages=messages):
                 pass
 
     def test_estimate_tokens_not_implemented(self):
-        """Test that estimate_tokens raises NotImplementedError in base class"""
-        # Arrange
-        from app.services.llm.base import LLMServiceBase
+        """The ABC body for estimate_tokens raises NotImplementedError"""
+        service = StubService(api_key="k", model="m")
 
-        service = LLMServiceBase()
-        text = "Sample text"
-
-        # Act & Assert
         with pytest.raises(NotImplementedError):
-            service.estimate_tokens(text)
+            service.estimate_tokens("Sample text")
 
     @pytest.mark.asyncio
     async def test_count_tokens_not_implemented(self):
-        """Test that count_tokens raises NotImplementedError in base class"""
-        # Arrange
-        from app.services.llm.base import LLMMessage, LLMServiceBase
+        """The ABC body for count_tokens raises NotImplementedError"""
 
-        service = LLMServiceBase()
+        service = StubService(api_key="k", model="m")
         messages = [LLMMessage(role="user", content="Test")]
 
-        # Act & Assert
         with pytest.raises(NotImplementedError):
             await service.count_tokens(messages)
 
     def test_validate_max_tokens(self):
-        """Test max_tokens validation"""
-        # Arrange
-        from app.services.llm.base import LLMServiceBase
+        """max_tokens validation accepts positive ints and None"""
+        service = StubService(api_key="k", model="m")
 
-        service = LLMServiceBase()
-
-        # Act & Assert - Valid max_tokens
         assert service._validate_max_tokens(100) == 100
         assert service._validate_max_tokens(1) == 1
         assert service._validate_max_tokens(None) is None
 
     def test_validate_max_tokens_invalid(self):
-        """Test max_tokens validation with invalid values"""
-        # Arrange
-        from app.services.llm.base import LLMServiceBase
+        """max_tokens validation rejects non-positive values"""
+        service = StubService(api_key="k", model="m")
 
-        service = LLMServiceBase()
-
-        # Act & Assert - Invalid max_tokens
         with pytest.raises(ValueError):
             service._validate_max_tokens(0)
 
@@ -179,26 +198,18 @@ class TestLLMServiceBase:
             service._validate_max_tokens(-1)
 
     def test_validate_temperature(self):
-        """Test temperature validation"""
-        # Arrange
-        from app.services.llm.base import LLMServiceBase
+        """temperature validation accepts [0.0, 1.0] and None"""
+        service = StubService(api_key="k", model="m")
 
-        service = LLMServiceBase()
-
-        # Act & Assert - Valid temperatures
         assert service._validate_temperature(0.5) == 0.5
         assert service._validate_temperature(0.0) == 0.0
         assert service._validate_temperature(1.0) == 1.0
         assert service._validate_temperature(None) is None
 
     def test_validate_temperature_invalid(self):
-        """Test temperature validation with invalid values"""
-        # Arrange
-        from app.services.llm.base import LLMServiceBase
+        """temperature validation rejects values outside [0.0, 1.0]"""
+        service = StubService(api_key="k", model="m")
 
-        service = LLMServiceBase()
-
-        # Act & Assert - Invalid temperatures
         with pytest.raises(ValueError):
             service._validate_temperature(-0.1)
 
