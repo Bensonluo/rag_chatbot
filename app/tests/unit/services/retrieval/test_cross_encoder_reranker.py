@@ -1,7 +1,9 @@
 """Tests for cross-encoder reranking service."""
-import pytest
+
+from unittest.mock import MagicMock, patch
+
 import numpy as np
-from unittest.mock import Mock, patch, MagicMock
+import pytest
 
 from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
 
@@ -81,8 +83,7 @@ class TestCrossEncoderReranker:
         reranker._model = mock_model
 
         results = [
-            SearchResult(document_id=f"doc{i}", content=f"content {i}", score=0.5)
-            for i in range(5)
+            SearchResult(document_id=f"doc{i}", content=f"content {i}", score=0.5) for i in range(5)
         ]
         request = VectorSearchRequest(query="test")
 
@@ -142,8 +143,8 @@ class TestCrossEncoderReranker:
     @pytest.mark.asyncio
     @patch("app.services.retrieval.cross_encoder_reranker.CrossEncoderReranker._load_model")
     async def test_rerank_handles_predict_error(self, mock_load):
-        from app.services.retrieval.cross_encoder_reranker import CrossEncoderReranker
         from app.core.exceptions import ExternalServiceError
+        from app.services.retrieval.cross_encoder_reranker import CrossEncoderReranker
 
         reranker = CrossEncoderReranker()
 
@@ -169,9 +170,7 @@ class TestCrossEncoderReranker:
             return_value=mock_ce,
         ) as mock_cls:
             await reranker._load_model()
-            mock_cls.assert_called_once_with(
-                "cross-encoder/ms-marco-MiniLM-L-6-v2", device="cpu"
-            )
+            mock_cls.assert_called_once_with("cross-encoder/ms-marco-MiniLM-L-6-v2", device="cpu")
             assert reranker._model is mock_ce
 
     @pytest.mark.asyncio
@@ -181,8 +180,6 @@ class TestCrossEncoderReranker:
         reranker = CrossEncoderReranker()
         reranker._model = MagicMock()
 
-        with patch(
-            "sentence_transformers.CrossEncoder"
-        ) as mock_cls:
+        with patch("sentence_transformers.CrossEncoder") as mock_cls:
             await reranker._load_model()
             mock_cls.assert_not_called()

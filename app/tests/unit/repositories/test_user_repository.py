@@ -1,6 +1,6 @@
 """Tests for User repository"""
+
 import pytest
-from sqlalchemy.exc import IntegrityError
 
 
 class TestUserRepository:
@@ -10,8 +10,8 @@ class TestUserRepository:
     async def test_create_user(self, db_session):
         """Test creating a new user"""
         # Arrange
-        from app.repositories.user_repository import UserRepository
         from app.models.database.user import User
+        from app.repositories.user_repository import UserRepository
 
         user_data = User(
             email="test@example.com",
@@ -34,8 +34,8 @@ class TestUserRepository:
     async def test_get_user_by_id(self, db_session):
         """Test getting a user by ID"""
         # Arrange
-        from app.repositories.user_repository import UserRepository
         from app.models.database.user import User
+        from app.repositories.user_repository import UserRepository
 
         user = User(
             email="test@example.com",
@@ -73,8 +73,8 @@ class TestUserRepository:
     async def test_get_user_by_email(self, db_session):
         """Test getting a user by email"""
         # Arrange
-        from app.repositories.user_repository import UserRepository
         from app.models.database.user import User
+        from app.repositories.user_repository import UserRepository
 
         user = User(
             email="test@example.com",
@@ -111,8 +111,8 @@ class TestUserRepository:
     async def test_get_user_by_email_case_insensitive(self, db_session):
         """Test that email lookup is case-insensitive"""
         # Arrange
-        from app.repositories.user_repository import UserRepository
         from app.models.database.user import User
+        from app.repositories.user_repository import UserRepository
 
         user = User(
             email="Test@Example.com",
@@ -134,8 +134,8 @@ class TestUserRepository:
     async def test_update_user(self, db_session):
         """Test updating a user"""
         # Arrange
-        from app.repositories.user_repository import UserRepository
         from app.models.database.user import User
+        from app.repositories.user_repository import UserRepository
 
         user = User(
             email="test@example.com",
@@ -159,8 +159,8 @@ class TestUserRepository:
     async def test_delete_user(self, db_session):
         """Test deleting a user"""
         # Arrange
-        from app.repositories.user_repository import UserRepository
         from app.models.database.user import User
+        from app.repositories.user_repository import UserRepository
 
         user = User(
             email="test@example.com",
@@ -183,8 +183,8 @@ class TestUserRepository:
     async def test_user_exists_by_email(self, db_session):
         """Test checking if user exists by email"""
         # Arrange
-        from app.repositories.user_repository import UserRepository
         from app.models.database.user import User
+        from app.repositories.user_repository import UserRepository
 
         user = User(
             email="test@example.com",
@@ -219,8 +219,8 @@ class TestUserRepository:
     async def test_list_users_with_pagination(self, db_session):
         """Test listing users with pagination"""
         # Arrange
-        from app.repositories.user_repository import UserRepository
         from app.models.database.user import User
+        from app.repositories.user_repository import UserRepository
 
         for i in range(5):
             user = User(

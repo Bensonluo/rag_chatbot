@@ -3,27 +3,29 @@ Demo chat service for open API testing.
 
 Provides simple responses without requiring full RAG pipeline setup.
 """
-from dataclasses import dataclass, field
-from typing import Optional, List, AsyncGenerator
-import random
+
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 
 
 @dataclass
 class DemoChatResponse:
     """Demo chat response data."""
+
     content: str
     session_id: int
     intent: str
-    sources: Optional[List[str]] = None
-    metadata: Optional[dict] = None
+    sources: list[str] | None = None
+    metadata: dict | None = None
 
 
 @dataclass
 class DemoChatMessage:
     """Demo chat message data."""
+
     role: str
     content: str
-    timestamp: Optional[str] = None
+    timestamp: str | None = None
 
 
 class DemoChatService:
@@ -48,8 +50,8 @@ class DemoChatService:
         self,
         session_id: int,
         message: str,
-        user_id: int,
-        max_tokens: Optional[int] = None,
+        user_id: int,  # noqa: ARG002  # ChatService base signature conformance
+        max_tokens: int | None = None,  # noqa: ARG002  # ChatService base signature conformance
     ) -> DemoChatResponse:
         """
         Process a user message and generate demo response.
@@ -118,9 +120,9 @@ class DemoChatService:
 
     async def get_chat_history(
         self,
-        session_id: int,
-        limit: int = 50,
-    ) -> List[DemoChatMessage]:
+        session_id: int,  # noqa: ARG002  # ChatService base signature conformance
+        limit: int = 50,  # noqa: ARG002  # ChatService base signature conformance
+    ) -> list[DemoChatMessage]:
         """
         Get demo chat history.
 

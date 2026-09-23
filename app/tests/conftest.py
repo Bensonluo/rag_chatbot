@@ -3,20 +3,18 @@ Pytest configuration and fixtures.
 
 This file contains shared fixtures and configuration for all tests.
 """
+
 import asyncio
+from collections.abc import AsyncGenerator as AsyncGeneratorType
+from unittest.mock import AsyncMock
+
 import pytest
-from collections.abc import AsyncGenerator, Generator
-from typing import AsyncGenerator as AsyncGeneratorType
-from unittest.mock import AsyncMock, Mock
-
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
-from httpx import AsyncClient, ASGITransport
 
-from app.models.database.base import Base
-from app.config.settings import settings
 from app.main import create_app
-
+from app.models.database.base import Base
 
 # Test database URL (in-memory SQLite for speed)
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
@@ -166,7 +164,6 @@ async def app_client(db_session):
     This fixture uses the real FastAPI app with a test database.
     """
     # Import here to avoid circular imports
-    from unittest.mock import AsyncMock, patch
 
     # Create app
     app = create_app()
@@ -176,13 +173,11 @@ async def app_client(db_session):
         yield db_session
 
     from app.api.deps import get_db
+
     app.dependency_overrides[get_db] = override_get_db
 
     # Create test client
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
-    ) as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
 
     # Clean up
@@ -203,7 +198,7 @@ async def test_token(app_client) -> str:
             "email": "test@example.com",
             "password": "TestPass123",
             "full_name": "Test User",
-        }
+        },
     )
 
     # Login to get token
@@ -212,7 +207,7 @@ async def test_token(app_client) -> str:
         json={
             "email": "test@example.com",
             "password": "TestPass123",
-        }
+        },
     )
 
     return response.json()["access_token"]

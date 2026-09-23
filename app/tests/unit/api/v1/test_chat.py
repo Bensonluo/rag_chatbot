@@ -1,6 +1,8 @@
 """Tests for chat API endpoints"""
+
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
 from fastapi.testclient import TestClient
 
 from app.api.v1.chat import get_chat_service
@@ -27,7 +29,7 @@ class TestChatEndpoints:
                 session_id=1,
                 intent="greeting",
                 sources=None,
-                metadata={"tokens": 20}
+                metadata={"tokens": 20},
             )
         )
         service.get_chat_history = AsyncMock(return_value=[])
@@ -97,7 +99,8 @@ class TestChatEndpoints:
 
         assert response.status_code == 200
         mock_chat_service.get_chat_history.assert_called_once_with(
-            session_id=1, limit=10,
+            session_id=1,
+            limit=10,
         )
 
     def test_chat_history_missing_session_id(self, client, mock_chat_service):
@@ -118,6 +121,7 @@ class TestChatEndpoints:
 
     def test_chat_stream_endpoint(self, client, mock_chat_service):
         """Test streaming chat endpoint"""
+
         async def mock_stream(**kwargs):
             yield "Hello"
             yield " there"
@@ -146,7 +150,7 @@ class TestChatEndpoints:
                 session_id=1,
                 intent="question",
                 sources=["doc1", "doc2"],
-                metadata={"tokens": 50}
+                metadata={"tokens": 50},
             )
         )
         self._override_chat_service(client.app, mock_chat_service)
@@ -192,7 +196,10 @@ class TestChatSchemas:
         from app.api.v1.chat import ChatRequest
 
         request = ChatRequest(
-            message="Hello", session_id=1, user_id=1, max_tokens=100,
+            message="Hello",
+            session_id=1,
+            user_id=1,
+            max_tokens=100,
         )
         assert request.message == "Hello"
         assert request.session_id == 1
@@ -210,8 +217,11 @@ class TestChatSchemas:
         from app.api.v1.chat import ChatResponse
 
         response = ChatResponse(
-            content="Hello!", session_id=1, intent="greeting",
-            sources=None, metadata={"tokens": 20},
+            content="Hello!",
+            session_id=1,
+            intent="greeting",
+            sources=None,
+            metadata={"tokens": 20},
         )
         assert response.content == "Hello!"
         assert response.intent == "greeting"

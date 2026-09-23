@@ -1,7 +1,6 @@
 """Tests for LLM base interface and service"""
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
-from typing import List
 
 
 class TestLLMMessage:
@@ -11,6 +10,7 @@ class TestLLMMessage:
         """Test creating a user message"""
         # Arrange & Act
         from app.services.llm.base import LLMMessage
+
         message = LLMMessage(role="user", content="Hello, world!")
 
         # Assert
@@ -21,6 +21,7 @@ class TestLLMMessage:
         """Test creating a system message"""
         # Arrange & Act
         from app.services.llm.base import LLMMessage
+
         message = LLMMessage(role="system", content="You are a helpful assistant.")
 
         # Assert
@@ -31,6 +32,7 @@ class TestLLMMessage:
         """Test creating an assistant message"""
         # Arrange & Act
         from app.services.llm.base import LLMMessage
+
         message = LLMMessage(role="assistant", content="Hi there!")
 
         # Assert
@@ -41,6 +43,7 @@ class TestLLMMessage:
         """Test converting message to dictionary"""
         # Arrange
         from app.services.llm.base import LLMMessage
+
         message = LLMMessage(role="user", content="Test")
 
         # Act
@@ -53,6 +56,7 @@ class TestLLMMessage:
         """Test creating message from dictionary"""
         # Arrange
         from app.services.llm.base import LLMMessage
+
         msg_dict = {"role": "user", "content": "Test"}
 
         # Act
@@ -70,10 +74,11 @@ class TestLLMResponse:
         """Test creating an LLM response"""
         # Arrange & Act
         from app.services.llm.base import LLMResponse
+
         response = LLMResponse(
             content="Hello!",
             model="gpt-4",
-            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         )
 
         # Assert
@@ -85,11 +90,8 @@ class TestLLMResponse:
         """Test response with finish reason"""
         # Arrange & Act
         from app.services.llm.base import LLMResponse
-        response = LLMResponse(
-            content="Test",
-            model="gpt-4",
-            finish_reason="stop"
-        )
+
+        response = LLMResponse(content="Test", model="gpt-4", finish_reason="stop")
 
         # Assert
         assert response.finish_reason == "stop"
@@ -102,8 +104,7 @@ class TestLLMServiceBase:
     async def test_generate_not_implemented(self):
         """Test that generate raises NotImplementedError in base class"""
         # Arrange
-        from app.services.llm.base import LLMServiceBase
-        from app.services.llm.base import LLMMessage
+        from app.services.llm.base import LLMMessage, LLMServiceBase
 
         service = LLMServiceBase()
         messages = [LLMMessage(role="user", content="Test")]
@@ -116,8 +117,7 @@ class TestLLMServiceBase:
     async def test_generate_stream_not_implemented(self):
         """Test that generate_stream raises NotImplementedError in base class"""
         # Arrange
-        from app.services.llm.base import LLMServiceBase
-        from app.services.llm.base import LLMMessage
+        from app.services.llm.base import LLMMessage, LLMServiceBase
 
         service = LLMServiceBase()
         messages = [LLMMessage(role="user", content="Test")]
@@ -143,8 +143,7 @@ class TestLLMServiceBase:
     async def test_count_tokens_not_implemented(self):
         """Test that count_tokens raises NotImplementedError in base class"""
         # Arrange
-        from app.services.llm.base import LLMServiceBase
-        from app.services.llm.base import LLMMessage
+        from app.services.llm.base import LLMMessage, LLMServiceBase
 
         service = LLMServiceBase()
         messages = [LLMMessage(role="user", content="Test")]

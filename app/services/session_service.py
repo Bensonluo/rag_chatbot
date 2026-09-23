@@ -3,11 +3,10 @@ Session service for chat session management.
 
 Handles session creation, retrieval, updating, and deletion.
 """
-from typing import Optional, List
 
-from app.repositories.session_repository import SessionRepository
-from app.models.database.session import ChatSession
 from app.core.exceptions import NotFoundError, ValidationError
+from app.models.database.session import ChatSession
+from app.repositories.session_repository import SessionRepository
 
 
 class SessionService:
@@ -30,7 +29,7 @@ class SessionService:
     async def create_session(
         self,
         user_id: int,
-        title: Optional[str] = None,
+        title: str | None = None,
         memory_type: str = "sliding_window",
         context_window: int = 10,
     ) -> ChatSession:
@@ -53,8 +52,7 @@ class SessionService:
         valid_memory_types = ["sliding_window", "summarization", "hybrid"]
         if memory_type not in valid_memory_types:
             raise ValidationError(
-                f"Invalid memory_type: {memory_type}. "
-                f"Must be one of {valid_memory_types}"
+                f"Invalid memory_type: {memory_type}. Must be one of {valid_memory_types}"
             )
 
         # Validate context window
@@ -77,7 +75,7 @@ class SessionService:
         user_id: int,
         skip: int = 0,
         limit: int = 100,
-    ) -> List[ChatSession]:
+    ) -> list[ChatSession]:
         """
         Get all sessions for a user with pagination.
 
@@ -123,9 +121,9 @@ class SessionService:
         self,
         session_id: int,
         user_id: int,
-        title: Optional[str] = None,
-        memory_type: Optional[str] = None,
-        context_window: Optional[int] = None,
+        title: str | None = None,
+        memory_type: str | None = None,
+        context_window: int | None = None,
     ) -> ChatSession:
         """
         Update a session.
@@ -155,8 +153,7 @@ class SessionService:
             valid_memory_types = ["sliding_window", "summarization", "hybrid"]
             if memory_type not in valid_memory_types:
                 raise ValidationError(
-                    f"Invalid memory_type: {memory_type}. "
-                    f"Must be one of {valid_memory_types}"
+                    f"Invalid memory_type: {memory_type}. Must be one of {valid_memory_types}"
                 )
             session.memory_type = memory_type
 

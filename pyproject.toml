@@ -140,6 +140,7 @@ ignore = [
     "B008",   # do not perform function calls in argument defaults
     "W191",   # indentation contains tabs
     "UP007",  # use X | Y for type annotation
+    "UP042",  # StrEnum changes str(enum) semantics (name -> value); risky migration
 ]
 
 [tool.ruff.lint.per-file-ignores]

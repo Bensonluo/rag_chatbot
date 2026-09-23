@@ -3,8 +3,8 @@ Document chunking strategies.
 
 Implements various strategies for splitting documents into chunks.
 """
+
 import re
-from typing import List
 import uuid
 
 from app.services.documents.base import ChunkingStrategy, Document, DocumentChunk
@@ -19,11 +19,8 @@ class FixedSizeChunking(ChunkingStrategy):
     """
 
     async def chunk(
-        self,
-        document: Document,
-        max_chunk_size: int = 512,
-        chunk_overlap: int = 50
-    ) -> List[DocumentChunk]:
+        self, document: Document, max_chunk_size: int = 512, chunk_overlap: int = 50
+    ) -> list[DocumentChunk]:
         """
         Split document into fixed-size chunks.
 
@@ -48,7 +45,7 @@ class FixedSizeChunking(ChunkingStrategy):
             # If not the last chunk, try to break at word boundary
             if end < len(content):
                 # Find last space before end
-                last_space = content.rfind(' ', start, end)
+                last_space = content.rfind(" ", start, end)
                 if last_space != -1:
                     end = last_space + 1
 
@@ -73,7 +70,7 @@ class FixedSizeChunking(ChunkingStrategy):
                     "start_pos": start,
                     "end_pos": end,
                     "chunk_size": len(chunk_content),
-                }
+                },
             )
             chunks.append(chunk)
 
@@ -96,8 +93,8 @@ class SemanticChunking(ChunkingStrategy):
         self,
         document: Document,
         max_chunk_size: int = 512,
-        chunk_overlap: int = 50
-    ) -> List[DocumentChunk]:
+        chunk_overlap: int = 50,  # noqa: ARG002  # base chunker API conformance
+    ) -> list[DocumentChunk]:
         """
         Split document into semantic chunks.
 
@@ -118,7 +115,7 @@ class SemanticChunking(ChunkingStrategy):
         chunks = []
 
         # First split by paragraphs (double newlines)
-        paragraphs = re.split(r'\n\s*\n', content)
+        paragraphs = re.split(r"\n\s*\n", content)
 
         current_chunk = ""
         index = 0
@@ -186,7 +183,7 @@ class SemanticChunking(ChunkingStrategy):
 
         return chunks
 
-    def _split_sentences(self, text: str) -> List[str]:
+    def _split_sentences(self, text: str) -> list[str]:
         """
         Split text into sentences.
 
@@ -198,15 +195,11 @@ class SemanticChunking(ChunkingStrategy):
         """
         # Simple sentence splitting regex
         # Handles periods, question marks, exclamation marks
-        sentences = re.split(r'(?<=[.!?。！？])\s+', text)
+        sentences = re.split(r"(?<=[.!?。！？])\s+", text)
         return [s.strip() for s in sentences if s.strip()]
 
     def _create_chunk(
-        self,
-        document: Document,
-        content: str,
-        index: int,
-        start: int
+        self, document: Document, content: str, index: int, start: int
     ) -> DocumentChunk:
         """Create a DocumentChunk with proper metadata."""
         return DocumentChunk(
@@ -222,7 +215,7 @@ class SemanticChunking(ChunkingStrategy):
                 "end_pos": start + len(content),
                 "chunk_size": len(content),
                 "chunking_strategy": "semantic",
-            }
+            },
         )
 
 
@@ -242,11 +235,8 @@ class RecursiveCharacterChunking(ChunkingStrategy):
     SEPARATORS = ["\n\n", "\n", ". ", "! ", "? ", "。", "！", "？", " ", ""]
 
     async def chunk(
-        self,
-        document: Document,
-        max_chunk_size: int = 512,
-        chunk_overlap: int = 50
-    ) -> List[DocumentChunk]:
+        self, document: Document, max_chunk_size: int = 512, chunk_overlap: int = 50
+    ) -> list[DocumentChunk]:
         """
         Split document using recursive character chunking.
 
@@ -283,7 +273,7 @@ class RecursiveCharacterChunking(ChunkingStrategy):
                     "end_pos": position + len(chunk_content),
                     "chunk_size": len(chunk_content),
                     "chunking_strategy": "recursive",
-                }
+                },
             )
             result.append(chunk)
             position += len(chunk_content) - chunk_overlap
@@ -293,10 +283,10 @@ class RecursiveCharacterChunking(ChunkingStrategy):
     def _recursive_split(
         self,
         text: str,
-        separators: List[str],
+        separators: list[str],
         max_size: int,
         overlap: int,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Recursively split text using separators.
 
@@ -338,12 +328,7 @@ class RecursiveCharacterChunking(ChunkingStrategy):
 
                 # If split is too large, recurse
                 if len(split) > max_size:
-                    sub_chunks = self._recursive_split(
-                        split,
-                        separators[1:],
-                        max_size,
-                        overlap
-                    )
+                    sub_chunks = self._recursive_split(split, separators[1:], max_size, overlap)
                     chunks.extend(sub_chunks)
                     current_chunk = ""
                 else:
@@ -355,12 +340,7 @@ class RecursiveCharacterChunking(ChunkingStrategy):
 
         return chunks
 
-    def _split_by_size(
-        self,
-        text: str,
-        max_size: int,
-        overlap: int
-    ) -> List[str]:
+    def _split_by_size(self, text: str, max_size: int, overlap: int) -> list[str]:
         """Split text by character count with overlap."""
         chunks = []
         start = 0

@@ -201,9 +201,7 @@ class LLMServiceBase(ABC):
             NotImplementedError: Provider does not support function
                 calling
         """
-        raise NotImplementedError(
-            f"{type(self).__name__} does not support function calling"
-        )
+        raise NotImplementedError(f"{type(self).__name__} does not support function calling")
 
     @abstractmethod
     def estimate_tokens(self, text: str) -> int:

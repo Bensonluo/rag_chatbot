@@ -1,9 +1,10 @@
 """Chat session database model"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Integer, JSON
+from sqlalchemy import JSON, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.database.base import Base, TimestampMixin
@@ -27,6 +28,7 @@ class ChatSession(Base, TimestampMixin):
         user: Relationship to User
         messages: Relationship to Message objects
     """
+
     __tablename__ = "chat_sessions"
 
     id: Mapped[int] = mapped_column(primary_key=True)

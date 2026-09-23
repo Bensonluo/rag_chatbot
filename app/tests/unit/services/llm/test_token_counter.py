@@ -1,5 +1,4 @@
 """Tests for token counter utilities"""
-import pytest
 
 
 class TestTokenCounter:
@@ -20,6 +19,7 @@ class TestTokenCounter:
         """Test counting tokens in simple text"""
         # Arrange
         from app.services.llm.token_counter import TokenCounter
+
         text = "Hello, world!"
 
         # Act
@@ -35,6 +35,7 @@ class TestTokenCounter:
         """Test counting tokens in longer text"""
         # Arrange
         from app.services.llm.token_counter import TokenCounter
+
         text = "This is a longer piece of text that should have more tokens. " * 10
 
         # Act
@@ -47,6 +48,7 @@ class TestTokenCounter:
         """Test counting tokens with special characters"""
         # Arrange
         from app.services.llm.token_counter import TokenCounter
+
         text = "Hello! @#$%^&*()_+-=[]{}|;':\",./<>?"
 
         # Act
@@ -59,6 +61,7 @@ class TestTokenCounter:
         """Test counting tokens in code"""
         # Arrange
         from app.services.llm.token_counter import TokenCounter
+
         code = """
         def hello_world():
             print("Hello, world!")
@@ -75,6 +78,7 @@ class TestTokenCounter:
         """Test simple token estimation"""
         # Arrange
         from app.services.llm.token_counter import TokenCounter
+
         text = "Hello world"
 
         # Act
@@ -89,6 +93,7 @@ class TestTokenCounter:
         """Test that estimate is close to actual count"""
         # Arrange
         from app.services.llm.token_counter import TokenCounter
+
         text = "This is a sample text for testing token counting and estimation."
 
         # Act
@@ -104,7 +109,7 @@ class TestTokenCounter:
         """Test counting tokens in empty message list"""
         # Arrange
         from app.services.llm.token_counter import TokenCounter
-        from app.services.llm.base import LLMMessage
+
         messages = []
 
         # Act
@@ -116,11 +121,10 @@ class TestTokenCounter:
     def test_count_messages_single(self):
         """Test counting tokens in single message"""
         # Arrange
-        from app.services.llm.token_counter import TokenCounter
         from app.services.llm.base import LLMMessage
-        messages = [
-            LLMMessage(role="user", content="Hello, world!")
-        ]
+        from app.services.llm.token_counter import TokenCounter
+
+        messages = [LLMMessage(role="user", content="Hello, world!")]
 
         # Act
         count = TokenCounter.count_messages(messages)
@@ -131,8 +135,9 @@ class TestTokenCounter:
     def test_count_messages_multiple(self):
         """Test counting tokens in multiple messages"""
         # Arrange
-        from app.services.llm.token_counter import TokenCounter
         from app.services.llm.base import LLMMessage
+        from app.services.llm.token_counter import TokenCounter
+
         messages = [
             LLMMessage(role="system", content="You are a helpful assistant."),
             LLMMessage(role="user", content="Hello! How are you?"),
@@ -149,6 +154,7 @@ class TestTokenCounter:
         """Test counting tokens in multilingual text"""
         # Arrange
         from app.services.llm.token_counter import TokenCounter
+
         text = "Hello 你好 مرحبا 안녕하세요"
 
         # Act
@@ -161,6 +167,7 @@ class TestTokenCounter:
         """Test counting tokens with numbers"""
         # Arrange
         from app.services.llm.token_counter import TokenCounter
+
         text = "The numbers are: 123, 4567, and 89.012"
 
         # Act

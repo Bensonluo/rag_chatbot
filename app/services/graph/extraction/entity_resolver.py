@@ -4,9 +4,10 @@ Entity resolution and deduplication.
 Normalizes entity names across chunks and merges properties from multiple
 extractions to ensure consistency in the knowledge graph.
 """
+
 import logging
 import re
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any
 
 from app.services.graph.extraction.base import ExtractionResult
 
@@ -17,18 +18,18 @@ class EntityResolver:
     """Resolve and deduplicate extracted entities across chunks."""
 
     def __init__(self) -> None:
-        self._entity_registry: Dict[str, Dict[str, Any]] = {}
+        self._entity_registry: dict[str, dict[str, Any]] = {}
 
     def resolve(
-        self, extraction_results: List[ExtractionResult]
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        self, extraction_results: list[ExtractionResult]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Process extraction results and return deduplicated entities/relations.
 
         Returns:
             Tuple of (resolved_entities, resolved_relations)
         """
-        resolved_entities: Dict[str, Dict[str, Any]] = {}
-        resolved_relations: List[Dict[str, Any]] = []
+        resolved_entities: dict[str, dict[str, Any]] = {}
+        resolved_relations: list[dict[str, Any]] = []
 
         for result in extraction_results:
             for entity in result.entities:
@@ -47,12 +48,14 @@ class EntityResolver:
                 source_key = self._resolve_name(relation["source"], resolved_entities)
                 target_key = self._resolve_name(relation["target"], resolved_entities)
                 if source_key and target_key:
-                    resolved_relations.append({
-                        "source": resolved_entities[source_key]["name"],
-                        "target": resolved_entities[target_key]["name"],
-                        "type": relation["type"],
-                        "properties": dict(relation.get("properties", {})),
-                    })
+                    resolved_relations.append(
+                        {
+                            "source": resolved_entities[source_key]["name"],
+                            "target": resolved_entities[target_key]["name"],
+                            "type": relation["type"],
+                            "properties": dict(relation.get("properties", {})),
+                        }
+                    )
 
         return list(resolved_entities.values()), resolved_relations
 
@@ -67,14 +70,12 @@ class EntityResolver:
         return name
 
     @staticmethod
-    def _merge_entity(existing: Dict[str, Any], new: Dict[str, Any]) -> None:
+    def _merge_entity(existing: dict[str, Any], new: dict[str, Any]) -> None:
         if not existing.get("description") and new.get("description"):
             existing["description"] = new["description"]
         existing["properties"].update(new.get("properties", {}))
 
-    def _resolve_name(
-        self, name: str, entities: Dict[str, Dict[str, Any]]
-    ) -> Optional[str]:
+    def _resolve_name(self, name: str, entities: dict[str, dict[str, Any]]) -> str | None:
         normalized = self._normalize_name(name)
         for key, entity in entities.items():
             if self._normalize_name(entity["name"]) == normalized:

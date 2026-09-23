@@ -1,20 +1,22 @@
 """Unit tests for graph base models and interfaces."""
-import pytest
 
 from app.services.graph.base import (
+    CommunitySummary,
+    GraphClientError,
     GraphEntity,
     GraphRelation,
     GraphSearchResult,
-    CommunitySummary,
-    GraphClientError,
 )
 
 
 class TestGraphEntity:
     def test_create_entity(self):
         entity = GraphEntity(
-            id="123", name="登录失败", type="Issue",
-            properties={"severity": "high"}, description="用户无法登录",
+            id="123",
+            name="登录失败",
+            type="Issue",
+            properties={"severity": "high"},
+            description="用户无法登录",
         )
         assert entity.id == "123"
         assert entity.name == "登录失败"
@@ -58,8 +60,11 @@ class TestGraphSearchResult:
 
     def test_result_metadata(self):
         result = GraphSearchResult(
-            content="test", entities=[], relations=[],
-            score=0.5, source_type="text_to_cypher",
+            content="test",
+            entities=[],
+            relations=[],
+            score=0.5,
+            source_type="text_to_cypher",
             metadata={"query": "test query"},
         )
         assert result.metadata["query"] == "test query"
@@ -68,9 +73,12 @@ class TestGraphSearchResult:
 class TestCommunitySummary:
     def test_create_summary(self):
         summary = CommunitySummary(
-            community_id="c1", level=0, title="Login Issues",
+            community_id="c1",
+            level=0,
+            title="Login Issues",
             summary="Community of login-related issues and solutions",
-            entity_count=5, entities=["登录失败", "密码错误"],
+            entity_count=5,
+            entities=["登录失败", "密码错误"],
         )
         assert summary.level == 0
         assert summary.entity_count == 5

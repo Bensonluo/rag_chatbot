@@ -1,8 +1,10 @@
 """Tests for logging configuration"""
+
 import logging
+from unittest.mock import patch
+
 import pytest
 import structlog
-from unittest.mock import Mock, patch
 
 
 class TestLoggingConfig:
@@ -16,6 +18,7 @@ class TestLoggingConfig:
 
         # Act
         from app.config.logging import configure_logging
+
         logger = configure_logging()
 
         # Assert
@@ -30,6 +33,7 @@ class TestLoggingConfig:
 
         # Act
         from app.config.logging import configure_logging
+
         logger = configure_logging()
 
         # Assert
@@ -59,6 +63,7 @@ class TestLoggingConfig:
 
         # Act
         from app.config.logging import configure_logging
+
         configure_logging()
         stdlib_logger = logging.getLogger()
 
@@ -72,6 +77,7 @@ class TestLoggingConfig:
 
         # Act
         from app.config.logging import configure_logging
+
         logger = configure_logging()
 
         # Assert - logger should be callable
@@ -87,6 +93,7 @@ class TestLoggingConfig:
 
         # Act
         from app.config.logging import configure_logging
+
         logger = configure_logging()
 
         # Assert - logger should use JSON renderer
@@ -99,6 +106,7 @@ class TestLoggingConfig:
 
         # Act
         from app.config.logging import configure_logging
+
         logger = configure_logging()
 
         # Assert - logger should use console renderer

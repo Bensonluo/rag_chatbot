@@ -1,7 +1,6 @@
 """Tests for configuration settings"""
-import os
+
 import pytest
-from pathlib import Path
 from pydantic import ValidationError
 
 
@@ -46,8 +45,9 @@ class TestSettings:
 
         # Act & Assert
         from app.config.settings import settings
+
         with pytest.raises(ValidationError) as exc_info:
-            settings.DATABASE_URL  # Access property to trigger validation
+            _ = settings.DATABASE_URL  # Access property to trigger validation
         assert "database" in str(exc_info.value).lower() or "url" in str(exc_info.value).lower()
 
     def test_settings_validation_missing_secret_key(self, monkeypatch):
@@ -57,7 +57,7 @@ class TestSettings:
 
         # Act & Assert
         with pytest.raises(ValidationError) as exc_info:
-            from app.config.settings import settings
+            pass
         assert "secret" in str(exc_info.value).lower() or "key" in str(exc_info.value).lower()
 
     def test_settings_cors_origins_parsing(self, monkeypatch):

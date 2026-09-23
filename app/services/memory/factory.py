@@ -3,17 +3,16 @@ Factory for creating memory strategy instances.
 
 Provides a simple interface for creating the appropriate memory strategy.
 """
-from typing import Optional
 
+from app.core.exceptions import ValidationError
+from app.repositories.message_repository import MessageRepository
+from app.services.embeddings import EmbeddingFactory
+from app.services.llm.base import LLMServiceBase
 from app.services.memory.base import MemoryStrategy
-from app.services.memory.sliding_window import SlidingWindowMemory
-from app.services.memory.summarization import SummarizationMemory
 from app.services.memory.hybrid import HybridMemory
 from app.services.memory.optimized_context import OptimizedContextBuilder
-from app.repositories.message_repository import MessageRepository
-from app.services.llm.base import LLMServiceBase
-from app.services.embeddings import EmbeddingFactory
-from app.core.exceptions import ValidationError
+from app.services.memory.sliding_window import SlidingWindowMemory
+from app.services.memory.summarization import SummarizationMemory
 
 
 class MemoryFactory:
@@ -28,7 +27,7 @@ class MemoryFactory:
     def create(
         memory_type: str,
         message_repo: MessageRepository,
-        llm_service: Optional[LLMServiceBase] = None,
+        llm_service: LLMServiceBase | None = None,
         **kwargs,
     ) -> MemoryStrategy:
         """
@@ -52,9 +51,7 @@ class MemoryFactory:
 
             # Validate
             if not (1 <= window_size <= 100):
-                raise ValidationError(
-                    f"window_size must be between 1 and 100, got {window_size}"
-                )
+                raise ValidationError(f"window_size must be between 1 and 100, got {window_size}")
 
             return SlidingWindowMemory(
                 message_repo=message_repo,
@@ -64,9 +61,7 @@ class MemoryFactory:
         elif memory_type == "summarization":
             # Check required LLM service
             if llm_service is None:
-                raise ValidationError(
-                    "llm_service is required for summarization memory"
-                )
+                raise ValidationError("llm_service is required for summarization memory")
 
             # Extract summarization parameters
             summary_threshold = kwargs.get("summary_threshold", 20)
@@ -93,9 +88,7 @@ class MemoryFactory:
         elif memory_type == "hybrid":
             # Check required LLM service
             if llm_service is None:
-                raise ValidationError(
-                    "llm_service is required for hybrid memory"
-                )
+                raise ValidationError("llm_service is required for hybrid memory")
 
             # Extract hybrid parameters
             window_size = kwargs.get("window_size", 10)
@@ -105,9 +98,7 @@ class MemoryFactory:
 
             # Validate
             if not (1 <= window_size <= 100):
-                raise ValidationError(
-                    f"window_size must be between 1 and 100, got {window_size}"
-                )
+                raise ValidationError(f"window_size must be between 1 and 100, got {window_size}")
 
             if summary_threshold < 5:
                 raise ValidationError(
@@ -169,9 +160,7 @@ class MemoryFactory:
                 )
 
             if token_budget < 512:
-                raise ValidationError(
-                    f"token_budget must be at least 512, got {token_budget}"
-                )
+                raise ValidationError(f"token_budget must be at least 512, got {token_budget}")
 
             return OptimizedContextBuilder(
                 message_repo=message_repo,

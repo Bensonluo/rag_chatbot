@@ -3,12 +3,11 @@ Hybrid intent detector combining rule-based and LLM approaches.
 
 Uses fast rule-based detection when confident, falls back to LLM for complex queries.
 """
-from typing import Optional, Dict
 
-from app.services.intent.base import IntentDetector, IntentResult
-from app.services.intent.rule_based import RuleBasedIntentDetector
-from app.services.intent.llm_based import LLMIntentDetector
 from app.models.enums.intent import Intent
+from app.services.intent.base import IntentDetector, IntentResult
+from app.services.intent.llm_based import LLMIntentDetector
+from app.services.intent.rule_based import RuleBasedIntentDetector
 
 
 class HybridIntentDetector(IntentDetector):
@@ -42,7 +41,7 @@ class HybridIntentDetector(IntentDetector):
     async def detect(
         self,
         query: str,
-        context: Optional[dict] = None,
+        context: dict | None = None,
     ) -> Intent:
         """
         Detect intent using hybrid approach.
@@ -60,7 +59,7 @@ class HybridIntentDetector(IntentDetector):
     async def detect_with_confidence(
         self,
         query: str,
-        context: Optional[dict] = None,
+        context: dict | None = None,
     ) -> IntentResult:
         """
         Detect intent with confidence using hybrid approach.
@@ -83,7 +82,7 @@ class HybridIntentDetector(IntentDetector):
                 metadata={
                     "method": "rule_based",
                     "threshold": self.confidence_threshold,
-                    **(rule_result.metadata or {})
+                    **(rule_result.metadata or {}),
                 },
             )
 
@@ -98,6 +97,6 @@ class HybridIntentDetector(IntentDetector):
                 "rule_confidence": rule_result.confidence,
                 "threshold": self.confidence_threshold,
                 "rule_intent": rule_result.intent.value,
-                **(llm_result.metadata or {})
+                **(llm_result.metadata or {}),
             },
         )

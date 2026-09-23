@@ -1,9 +1,11 @@
 """Unit tests for Neo4j client with mocked driver."""
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.services.graph.neo4j_client import Neo4jClient, _validate_read_only, _sanitize_label
-from app.services.graph.base import GraphEntity, GraphClientError
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from app.services.graph.base import GraphClientError, GraphEntity
+from app.services.graph.neo4j_client import Neo4jClient, _sanitize_label, _validate_read_only
 
 
 class TestNeo4jClient:
@@ -63,8 +65,11 @@ class TestNeo4jClient:
         self.client._driver.session = MagicMock(return_value=mock_session)
 
         from app.services.graph.base import GraphRelation
+
         relations = [
-            GraphRelation(id="r1", source_entity_id="e1", target_entity_id="e2", relation_type="RESOLVES"),
+            GraphRelation(
+                id="r1", source_entity_id="e1", target_entity_id="e2", relation_type="RESOLVES"
+            ),
         ]
         ids = await self.client.add_relations(relations)
         assert "r1" in ids

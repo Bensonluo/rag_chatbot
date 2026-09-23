@@ -9,7 +9,10 @@ ENTITY_TYPES: dict[str, dict[str, str | list[str]]] = {
     "Product": {
         "description": "A product or service offered by the company",
         "properties": [
-            "product_name", "version", "product_type", "release_date",
+            "product_name",
+            "version",
+            "product_type",
+            "release_date",
         ],
     },
     "Feature": {
@@ -102,9 +105,6 @@ def get_schema_prompt_text() -> str:
 
     lines.append("\nRelationship Types:")
     for name, info in RELATION_TYPES.items():
-        lines.append(
-            f"  ({info['source']})-[{name}]->({info['target']}): "
-            f"{info['description']}"
-        )
+        lines.append(f"  ({info['source']})-[{name}]->({info['target']}): {info['description']}")
 
     return "\n".join(lines)

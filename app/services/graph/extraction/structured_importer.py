@@ -3,10 +3,11 @@ Structured data importer for CSV/Excel sources.
 
 Maps columns to entity/relation types via a configurable schema mapping.
 """
+
 import csv
 import io
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 from app.services.graph.base import GraphEntity, GraphRelation
 
@@ -20,8 +21,8 @@ class ColumnMapping:
         self,
         entity_type: str,
         name_column: str,
-        property_columns: Optional[Dict[str, str]] = None,
-        description_column: Optional[str] = None,
+        property_columns: dict[str, str] | None = None,
+        description_column: str | None = None,
     ) -> None:
         self.entity_type = entity_type
         self.name_column = name_column
@@ -39,7 +40,7 @@ class RelationMapping:
         target_entity_type: str,
         target_name_column: str,
         relation_type: str,
-        relation_properties: Optional[Dict[str, str]] = None,
+        relation_properties: dict[str, str] | None = None,
     ) -> None:
         self.source_entity_type = source_entity_type
         self.source_name_column = source_name_column
@@ -55,11 +56,11 @@ class StructuredDataImporter:
     def import_csv(
         self,
         csv_content: str,
-        entity_mappings: List[ColumnMapping],
-        relation_mappings: Optional[List[RelationMapping]] = None,
+        entity_mappings: list[ColumnMapping],
+        relation_mappings: list[RelationMapping] | None = None,
         delimiter: str = ",",
-        encoding: str = "utf-8",
-    ) -> tuple[List[GraphEntity], List[GraphRelation]]:
+        encoding: str = "utf-8",  # noqa: ARG002  # importer interface conformance
+    ) -> tuple[list[GraphEntity], list[GraphRelation]]:
         """Parse CSV content and produce graph entities and relations.
 
         Args:
@@ -72,11 +73,11 @@ class StructuredDataImporter:
             Tuple of (entities, relations)
         """
         reader = csv.DictReader(io.StringIO(csv_content), delimiter=delimiter)
-        entities: List[GraphEntity] = []
-        relations: List[GraphRelation] = []
+        entities: list[GraphEntity] = []
+        relations: list[GraphRelation] = []
 
         for row_idx, row in enumerate(reader):
-            row_entities: Dict[str, GraphEntity] = {}
+            row_entities: dict[str, GraphEntity] = {}
 
             for mapping in entity_mappings:
                 name = row.get(mapping.name_column, "").strip()
@@ -84,7 +85,7 @@ class StructuredDataImporter:
                     continue
 
                 entity_id = f"{mapping.entity_type}_{name}_{row_idx}"
-                props: Dict[str, Any] = {}
+                props: dict[str, Any] = {}
                 for prop_name, col_name in mapping.property_columns.items():
                     val = row.get(col_name, "").strip()
                     if val:
@@ -111,7 +112,7 @@ class StructuredDataImporter:
                     if not source or not target:
                         continue
 
-                    rel_props: Dict[str, Any] = {}
+                    rel_props: dict[str, Any] = {}
                     for prop_name, col_name in rmap.relation_properties.items():
                         val = row.get(col_name, "").strip()
                         if val:

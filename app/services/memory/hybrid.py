@@ -3,9 +3,8 @@ Hybrid memory strategy combining sliding window and summarization.
 
 Automatically switches strategies based on conversation length.
 """
-from typing import Optional, List
 
-from app.services.memory.base import MemoryStrategy, MemoryContent, MessageContent
+from app.services.memory.base import MemoryStrategy, MessageContent
 from app.services.memory.sliding_window import SlidingWindowMemory
 from app.services.memory.summarization import SummarizationMemory
 
@@ -43,8 +42,8 @@ class HybridMemory(MemoryStrategy):
     async def get_context(
         self,
         session_id: int,
-        max_tokens: Optional[int] = None,
-    ) -> List[MessageContent]:
+        max_tokens: int | None = None,
+    ) -> list[MessageContent]:
         """
         Retrieve context using the appropriate strategy.
 
@@ -97,7 +96,7 @@ class HybridMemory(MemoryStrategy):
         # Either strategy works - use sliding_window for simplicity
         await self.sliding_window.message_repo.delete_by_session(session_id)
 
-    async def estimate_tokens(self, messages: List[MessageContent]) -> int:
+    async def estimate_tokens(self, messages: list[MessageContent]) -> int:
         """
         Estimate the number of tokens in messages.
 
@@ -111,9 +110,9 @@ class HybridMemory(MemoryStrategy):
 
     async def truncate_by_tokens(
         self,
-        messages: List[MessageContent],
+        messages: list[MessageContent],
         max_tokens: int,
-    ) -> List[MessageContent]:
+    ) -> list[MessageContent]:
         """
         Truncate messages to fit within token limit.
 

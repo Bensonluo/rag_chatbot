@@ -1,10 +1,12 @@
 """Unit tests for HybridSlotFiller."""
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from app.services.slot_filling.hybrid import HybridSlotFiller
-from app.services.slot_filling.rule_based import RuleBasedSlotFiller
 from app.services.slot_filling.llm_based import LLMSlotFiller
+from app.services.slot_filling.rule_based import RuleBasedSlotFiller
 
 
 class TestHybridSlotFiller:
@@ -16,7 +18,8 @@ class TestHybridSlotFiller:
     @pytest.mark.asyncio
     async def test_rule_based_finds_slots_no_llm_call(self):
         hybrid = HybridSlotFiller(
-            rule_based=self.rule_based, llm_based=self.llm_based,
+            rule_based=self.rule_based,
+            llm_based=self.llm_based,
         )
         result = await hybrid.fill_slots("iPhone的屏幕碎了")
         assert result.has_slots()
@@ -32,7 +35,8 @@ class TestHybridSlotFiller:
             )
         )
         hybrid = HybridSlotFiller(
-            rule_based=self.rule_based, llm_based=self.llm_based,
+            rule_based=self.rule_based,
+            llm_based=self.llm_based,
         )
         result = await hybrid.fill_slots("我的测试设备出问题了")
         assert result.has_slots()
@@ -42,7 +46,8 @@ class TestHybridSlotFiller:
     @pytest.mark.asyncio
     async def test_no_fallback_when_disabled(self):
         hybrid = HybridSlotFiller(
-            rule_based=self.rule_based, llm_based=self.llm_based,
+            rule_based=self.rule_based,
+            llm_based=self.llm_based,
             llm_fallback=False,
         )
         result = await hybrid.fill_slots("随便聊聊")
@@ -52,7 +57,8 @@ class TestHybridSlotFiller:
     @pytest.mark.asyncio
     async def test_no_fallback_when_no_llm_service(self):
         hybrid = HybridSlotFiller(
-            rule_based=self.rule_based, llm_based=None,
+            rule_based=self.rule_based,
+            llm_based=None,
         )
         result = await hybrid.fill_slots("随便聊聊")
         assert not result.has_slots()

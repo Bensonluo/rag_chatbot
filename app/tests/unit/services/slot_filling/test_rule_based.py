@@ -1,8 +1,9 @@
 """Unit tests for RuleBasedSlotFiller."""
+
 import pytest
 
-from app.services.slot_filling.rule_based import RuleBasedSlotFiller
 from app.models.enums.intent import Intent
+from app.services.slot_filling.rule_based import RuleBasedSlotFiller
 
 
 class TestRuleBasedSlotFiller:

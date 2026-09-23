@@ -1,4 +1,5 @@
 """Tests for Session repository"""
+
 import pytest
 
 
@@ -9,10 +10,9 @@ class TestSessionRepository:
     async def test_create_session(self, db_session):
         """Test creating a new session"""
         # Arrange
-        from app.repositories.session_repository import SessionRepository
-        from app.repositories.user_repository import UserRepository
-        from app.models.database.user import User
         from app.models.database.session import ChatSession
+        from app.models.database.user import User
+        from app.repositories.session_repository import SessionRepository
 
         # Create user
         user = User(
@@ -43,10 +43,9 @@ class TestSessionRepository:
     async def test_get_sessions_by_user(self, db_session):
         """Test getting all sessions for a user"""
         # Arrange
-        from app.repositories.session_repository import SessionRepository
-        from app.repositories.user_repository import UserRepository
-        from app.models.database.user import User
         from app.models.database.session import ChatSession
+        from app.models.database.user import User
+        from app.repositories.session_repository import SessionRepository
 
         # Create user
         user = User(
@@ -79,12 +78,11 @@ class TestSessionRepository:
     async def test_get_session_with_messages(self, db_session):
         """Test getting a session with messages preloaded"""
         # Arrange
-        from app.repositories.session_repository import SessionRepository
-        from app.repositories.user_repository import UserRepository
-        from app.models.database.user import User
-        from app.models.database.session import ChatSession
         from app.models.database.message import Message
+        from app.models.database.session import ChatSession
+        from app.models.database.user import User
         from app.models.enums.message import MessageRole, MessageStatus
+        from app.repositories.session_repository import SessionRepository
 
         # Create user and session
         user = User(
@@ -128,10 +126,9 @@ class TestSessionRepository:
     async def test_delete_session(self, db_session):
         """Test deleting a session"""
         # Arrange
-        from app.repositories.session_repository import SessionRepository
-        from app.repositories.user_repository import UserRepository
-        from app.models.database.user import User
         from app.models.database.session import ChatSession
+        from app.models.database.user import User
+        from app.repositories.session_repository import SessionRepository
 
         user = User(
             email="test@example.com",
@@ -162,10 +159,9 @@ class TestSessionRepository:
     async def test_count_user_sessions(self, db_session):
         """Test counting sessions for a user"""
         # Arrange
-        from app.repositories.session_repository import SessionRepository
-        from app.repositories.user_repository import UserRepository
-        from app.models.database.user import User
         from app.models.database.session import ChatSession
+        from app.models.database.user import User
+        from app.repositories.session_repository import SessionRepository
 
         user = User(
             email="test@example.com",
@@ -196,10 +192,9 @@ class TestSessionRepository:
     async def test_update_session(self, db_session):
         """Test updating a session"""
         # Arrange
-        from app.repositories.session_repository import SessionRepository
-        from app.repositories.user_repository import UserRepository
-        from app.models.database.user import User
         from app.models.database.session import ChatSession
+        from app.models.database.user import User
+        from app.repositories.session_repository import SessionRepository
 
         user = User(
             email="test@example.com",

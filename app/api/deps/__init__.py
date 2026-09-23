@@ -3,17 +3,19 @@ FastAPI dependencies for dependency injection.
 
 Provides common dependencies for endpoints.
 """
-from typing import AsyncGenerator, Optional
+
+from collections.abc import AsyncGenerator
+from typing import Optional
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import decode_access_token
 from app.core.exceptions import AuthenticationError, NotFoundError
+from app.core.security import decode_access_token
 from app.models.database.user import User
-from app.repositories.user_repository import UserRepository
 from app.repositories.session_repository import SessionRepository
+from app.repositories.user_repository import UserRepository
 from app.services.auth_service import AuthenticationService
 
 # HTTP Bearer token scheme - auto_error=False for demo mode (allows anonymous access)
@@ -28,6 +30,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         AsyncSession: Database session
     """
     from app.api.database import get_db as _get_db
+
     async for session in _get_db():
         yield session
 
@@ -78,9 +81,9 @@ async def get_session_repository(
 
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
     auth_service: AuthenticationService = Depends(get_auth_service),
-) -> Optional[User]:
+) -> User | None:
     """
     Dependency to get the current authenticated user from JWT token.
 
@@ -137,7 +140,7 @@ async def get_current_user(
 
 
 async def get_current_active_user(
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user),
 ) -> User:
     """
     Dependency to get the current active user.

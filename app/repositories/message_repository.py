@@ -3,10 +3,8 @@ Message repository for message data access.
 
 Provides database operations specific to the Message model.
 """
-from typing import List
 
-from sqlalchemy import select, desc
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select
 
 from app.models.database.message import Message
 from app.repositories.base import BaseRepository
@@ -40,7 +38,7 @@ class MessageRepository(BaseRepository[Message]):
         self,
         session_id: int,
         limit: int = 50,
-    ) -> List[Message]:
+    ) -> list[Message]:
         """
         Get recent messages for a session.
 
@@ -65,7 +63,7 @@ class MessageRepository(BaseRepository[Message]):
         session_id: int,
         skip: int = 0,
         limit: int = 100,
-    ) -> List[Message]:
+    ) -> list[Message]:
         """
         Get all messages for a session with pagination.
 
@@ -102,10 +100,7 @@ class MessageRepository(BaseRepository[Message]):
         """
         stmt = (
             select(Message)
-            .where(
-                Message.session_id == session_id,
-                Message.role == "system"
-            )
+            .where(Message.session_id == session_id, Message.role == "system")
             .order_by(Message.created_at.desc())
             .limit(1)
         )
@@ -116,7 +111,7 @@ class MessageRepository(BaseRepository[Message]):
         self,
         session_id: int,
         limit: int = 20,
-    ) -> List[Message]:
+    ) -> list[Message]:
         """
         Get messages before the latest summary.
 
@@ -137,10 +132,7 @@ class MessageRepository(BaseRepository[Message]):
         # Get messages created before the summary
         stmt = (
             select(Message)
-            .where(
-                Message.session_id == session_id,
-                Message.created_at < summary.created_at
-            )
+            .where(Message.session_id == session_id, Message.created_at < summary.created_at)
             .order_by(Message.created_at.desc())
             .limit(limit)
         )
@@ -215,8 +207,6 @@ class MessageRepository(BaseRepository[Message]):
         """
         from sqlalchemy import func
 
-        stmt = select(func.count()).select_from(Message).where(
-            Message.session_id == session_id
-        )
+        stmt = select(func.count()).select_from(Message).where(Message.session_id == session_id)
         result = await self.session.execute(stmt)
         return result.scalar() or 0

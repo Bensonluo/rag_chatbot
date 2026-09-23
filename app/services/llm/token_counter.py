@@ -3,11 +3,10 @@ Token counting utilities for LLM interactions.
 
 Provides token estimation and counting for different LLM providers.
 """
-import re
-from typing import List
 
 try:
     import tiktoken
+
     TIKTOKEN_AVAILABLE = True
 except ImportError:
     TIKTOKEN_AVAILABLE = False

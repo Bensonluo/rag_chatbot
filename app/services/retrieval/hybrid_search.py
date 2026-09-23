@@ -4,17 +4,18 @@ Hybrid search service combining vector and keyword search.
 Implements Reciprocal Rank Fusion (RRF) to combine results from
 vector similarity search and keyword-based search.
 """
-from typing import Optional, List, Dict
+
+import contextlib
 import re
 from collections import defaultdict
 
-from app.services.retrieval.vector_base import (
-    VectorClient,
-    VectorSearchRequest,
-    SearchResult,
-    VectorClientError,
-)
 from app.core.exceptions import ValidationError
+from app.services.retrieval.vector_base import (
+    SearchResult,
+    VectorClient,
+    VectorClientError,
+    VectorSearchRequest,
+)
 
 
 class KeywordSearch:
@@ -26,12 +27,12 @@ class KeywordSearch:
 
     def __init__(self) -> None:
         """Initialize keyword search."""
-        self.documents: Dict[str, dict] = {}
-        self.document_terms: Dict[str, set[str]] = {}
+        self.documents: dict[str, dict] = {}
+        self.document_terms: dict[str, set[str]] = {}
 
     async def add_documents(
         self,
-        documents: List[dict],
+        documents: list[dict],
     ) -> None:
         """
         Add documents to keyword search index.
@@ -48,7 +49,7 @@ class KeywordSearch:
     async def search(
         self,
         request: VectorSearchRequest,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Search documents by keyword matching.
 
@@ -162,9 +163,7 @@ class HybridSearchService:
         keyword_weight = 1.0 - vector_weight
 
         if not (0.0 <= vector_weight <= 1.0):
-            raise ValidationError(
-                f"vector_weight must be between 0.0 and 1.0, got {vector_weight}"
-            )
+            raise ValidationError(f"vector_weight must be between 0.0 and 1.0, got {vector_weight}")
 
         self.vector_client = vector_client
         self.keyword_search = keyword_search
@@ -174,7 +173,7 @@ class HybridSearchService:
     async def search(
         self,
         request: VectorSearchRequest,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Perform hybrid search combining vector and keyword results.
 
@@ -191,24 +190,17 @@ class HybridSearchService:
         keyword_results = []
 
         # Try vector search
-        try:
+        # Log error but continue with keyword-only
+        with contextlib.suppress(Exception):
             vector_results = await self.vector_client.search(request)
-        except Exception as e:
-            # Log error but continue with keyword-only
-            pass
 
-        # Try keyword search
-        try:
+        # Log error but continue with vector-only
+        with contextlib.suppress(Exception):
             keyword_results = await self.keyword_search.search(request)
-        except Exception as e:
-            # Log error but continue with vector-only
-            pass
 
         # If both failed, raise error
         if not vector_results and not keyword_results:
-            raise VectorClientError(
-                "Both vector and keyword search failed"
-            )
+            raise VectorClientError("Both vector and keyword search failed")
 
         # Combine results using RRF
         combined = self._reciprocal_rank_fusion(
@@ -221,10 +213,10 @@ class HybridSearchService:
 
     def _reciprocal_rank_fusion(
         self,
-        vector_results: List[SearchResult],
-        keyword_results: List[SearchResult],
+        vector_results: list[SearchResult],
+        keyword_results: list[SearchResult],
         k: int = 60,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Combine rankings using Reciprocal Rank Fusion (RRF).
 
@@ -239,8 +231,8 @@ class HybridSearchService:
             List[SearchResult]: Fused and reranked results
         """
         # Accumulate RRF scores
-        scores: Dict[str, float] = defaultdict(float)
-        doc_data: Dict[str, dict] = {}
+        scores: dict[str, float] = defaultdict(float)
+        doc_data: dict[str, dict] = {}
 
         # Process vector results
         for rank, result in enumerate(vector_results, start=1):

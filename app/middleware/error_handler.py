@@ -3,26 +3,27 @@ Error handler middleware.
 
 Catches and formats exceptions into proper HTTP responses.
 """
+
+import logging
+import traceback
+
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from typing import Optional, List
-import traceback
-import logging
 
 from app.core.exceptions import BaseServiceError, ValidationError
-
 
 logger = logging.getLogger(__name__)
 
 
 class ErrorResponse(BaseModel):
     """Standard error response format."""
+
     status_code: int = Field(..., description="HTTP status code")
     message: str = Field(..., description="Error message")
-    detail: Optional[str] = Field(None, description="Detailed error information")
-    errors: Optional[List[dict]] = Field(None, description="Validation errors")
-    path: Optional[str] = Field(None, description="Request path")
+    detail: str | None = Field(None, description="Detailed error information")
+    errors: list[dict] | None = Field(None, description="Validation errors")
+    path: str | None = Field(None, description="Request path")
 
 
 class ErrorHandlerMiddleware:
@@ -89,11 +90,13 @@ class ErrorHandlerMiddleware:
         errors = []
         if hasattr(error, "errors"):
             for err in error.errors():
-                errors.append({
-                    "field": ".".join(str(loc) for loc in err["loc"]),
-                    "message": err["msg"],
-                    "type": err["type"],
-                })
+                errors.append(
+                    {
+                        "field": ".".join(str(loc) for loc in err["loc"]),
+                        "message": err["msg"],
+                        "type": err["type"],
+                    }
+                )
 
         response = ErrorResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -131,7 +134,10 @@ class ErrorHandlerMiddleware:
 
         logger.error(
             f"Service error: {error}",
-            extra={"path": request.url.path, "details": error.details if hasattr(error, "details") else None}
+            extra={
+                "path": request.url.path,
+                "details": error.details if hasattr(error, "details") else None,
+            },
         )
 
         return JSONResponse(
@@ -155,11 +161,7 @@ class ErrorHandlerMiddleware:
             JSONResponse: Formatted error response
         """
         # Log error with traceback
-        logger.error(
-            f"Unexpected error: {error}",
-            exc_info=True,
-            extra={"path": request.url.path}
-        )
+        logger.error(f"Unexpected error: {error}", exc_info=True, extra={"path": request.url.path})
 
         # Build error response
         error_detail = str(error)

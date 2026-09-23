@@ -1,8 +1,10 @@
 """Tests for error handler middleware"""
+
+from unittest.mock import Mock
+
 import pytest
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
-from unittest.mock import Mock, patch
 
 
 class TestErrorHandlerMiddleware:
@@ -40,7 +42,6 @@ class TestErrorHandlerMiddleware:
         """Test handling HTTP exceptions"""
         # Arrange
         from app.middleware.error_handler import ErrorHandlerMiddleware
-        from fastapi import HTTPException
 
         app = FastAPI()
         middleware = ErrorHandlerMiddleware(app)
@@ -71,18 +72,16 @@ class TestErrorHandlerMiddleware:
     async def test_handles_validation_error(self):
         """Test handling validation errors"""
         # Arrange
-        from app.middleware.error_handler import ErrorHandlerMiddleware
         from pydantic import ValidationError
+
+        from app.middleware.error_handler import ErrorHandlerMiddleware
 
         app = FastAPI()
         middleware = ErrorHandlerMiddleware(app)
 
         @app.get("/test")
         async def test_route():
-            raise ValidationError(
-                model=Mock,
-                errors=[{"loc": ("field",), "msg": "error"}]
-            )
+            raise ValidationError(model=Mock, errors=[{"loc": ("field",), "msg": "error"}])
 
         request = Request(
             scope={
@@ -105,8 +104,8 @@ class TestErrorHandlerMiddleware:
     async def test_handles_base_service_error(self):
         """Test handling BaseServiceError"""
         # Arrange
-        from app.middleware.error_handler import ErrorHandlerMiddleware
         from app.core.exceptions import BaseServiceError
+        from app.middleware.error_handler import ErrorHandlerMiddleware
 
         app = FastAPI()
         middleware = ErrorHandlerMiddleware(app)
@@ -252,7 +251,7 @@ class TestErrorResponse:
             status_code=500,
             message="Internal server error",
             detail="Database connection failed",
-            path="/api/v1/chat"
+            path="/api/v1/chat",
         )
 
         # Assert
@@ -272,9 +271,9 @@ class TestErrorResponse:
             message="Validation error",
             errors=[
                 {"field": "email", "message": "Invalid email format"},
-                {"field": "password", "message": "Password too short"}
+                {"field": "password", "message": "Password too short"},
             ],
-            path="/api/v1/register"
+            path="/api/v1/register",
         )
 
         # Assert
@@ -285,14 +284,14 @@ class TestErrorResponse:
     def test_error_response_serialization(self):
         """Test error response JSON serialization"""
         # Arrange
+
         from app.middleware.error_handler import ErrorResponse
-        import json
 
         response = ErrorResponse(
             status_code=404,
             message="Not found",
             detail="Resource not found",
-            path="/api/v1/users/123"
+            path="/api/v1/users/123",
         )
 
         # Act

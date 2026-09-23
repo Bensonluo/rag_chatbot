@@ -4,13 +4,14 @@ Rule-based slot filler using keyword matching and regex patterns.
 Fast, deterministic extraction with zero LLM cost. Suitable for common
 pharmaceutical domain entities with well-known names.
 """
-import re
-import logging
-from typing import Optional, Dict, Any, List
 
-from app.services.slot_filling.base import SlotFiller, ExtractedSlot, SlotFillingResult
-from app.services.slot_filling.slot_types import SLOT_DEFINITIONS
+import logging
+import re
+from typing import Any
+
 from app.models.enums.intent import RAG_INTENTS, Intent
+from app.services.slot_filling.base import ExtractedSlot, SlotFiller, SlotFillingResult
+from app.services.slot_filling.slot_types import SLOT_DEFINITIONS
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +21,13 @@ class RuleBasedSlotFiller(SlotFiller):
 
     def __init__(
         self,
-        slot_definitions: Optional[Dict[str, Dict[str, Any]]] = None,
+        slot_definitions: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         self._definitions = slot_definitions or SLOT_DEFINITIONS
         self._compiled_patterns = self._compile_patterns()
 
-    def _compile_patterns(self) -> Dict[str, List[re.Pattern]]:
-        compiled: Dict[str, List[re.Pattern]] = {}
+    def _compile_patterns(self) -> dict[str, list[re.Pattern]]:
+        compiled: dict[str, list[re.Pattern]] = {}
         for slot_type, definition in self._definitions.items():
             patterns = []
             for pattern_str in definition.get("patterns", []):
@@ -40,15 +41,17 @@ class RuleBasedSlotFiller(SlotFiller):
     async def fill_slots(
         self,
         query: str,
-        intent: Optional[Intent] = None,
-        context: Optional[Dict[str, Any]] = None,
+        intent: Intent | None = None,
+        context: dict[str, Any] | None = None,  # noqa: ARG002  # SlotFiller base signature conformance
     ) -> SlotFillingResult:
         if intent and intent.value not in RAG_INTENTS:
             return SlotFillingResult(
-                slots=[], raw_query=query, metadata={"method": "skipped"},
+                slots=[],
+                raw_query=query,
+                metadata={"method": "skipped"},
             )
 
-        slots: List[ExtractedSlot] = []
+        slots: list[ExtractedSlot] = []
         matched_types: set = set()
         normalized = query.lower()
 
@@ -58,14 +61,16 @@ class RuleBasedSlotFiller(SlotFiller):
             # 1. Keyword matching
             for variant, canonical in definition.get("keywords", {}).items():
                 if variant.lower() in normalized:
-                    slots.append(ExtractedSlot(
-                        slot_type=slot_type,
-                        entity_type=entity_type,
-                        value=variant,
-                        normalized_value=canonical,
-                        confidence=0.9,
-                        source="rule",
-                    ))
+                    slots.append(
+                        ExtractedSlot(
+                            slot_type=slot_type,
+                            entity_type=entity_type,
+                            value=variant,
+                            normalized_value=canonical,
+                            confidence=0.9,
+                            source="rule",
+                        )
+                    )
                     matched_types.add(slot_type)
                     break
 
@@ -77,16 +82,20 @@ class RuleBasedSlotFiller(SlotFiller):
                         for group_name, group_value in match.groupdict().items():
                             if group_value:
                                 normalized_val = self._normalize_match(
-                                    slot_type, group_name, group_value,
+                                    slot_type,
+                                    group_name,
+                                    group_value,
                                 )
-                                slots.append(ExtractedSlot(
-                                    slot_type=slot_type,
-                                    entity_type=entity_type,
-                                    value=group_value,
-                                    normalized_value=normalized_val,
-                                    confidence=0.85,
-                                    source="rule",
-                                ))
+                                slots.append(
+                                    ExtractedSlot(
+                                        slot_type=slot_type,
+                                        entity_type=entity_type,
+                                        value=group_value,
+                                        normalized_value=normalized_val,
+                                        confidence=0.85,
+                                        source="rule",
+                                    )
+                                )
                         matched_types.add(slot_type)
                         break
 

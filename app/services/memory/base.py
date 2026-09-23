@@ -3,12 +3,11 @@ Base interface for memory management strategies.
 
 Provides abstract classes for conversation memory management.
 """
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
 
 from app.models.database.message import Message
-
 
 # Type alias for MessageContent - could be a Message object or dict
 MessageContent = dict
@@ -24,9 +23,10 @@ class MemoryContent:
         summary: Optional summary of the content
         metadata: Optional additional metadata
     """
-    messages: List[Message] = field(default_factory=list)
-    summary: Optional[str] = None
-    metadata: Optional[dict] = None
+
+    messages: list[Message] = field(default_factory=list)
+    summary: str | None = None
+    metadata: dict | None = None
 
 
 class MemoryStrategy(ABC):
@@ -50,8 +50,8 @@ class MemoryStrategy(ABC):
     async def get_context(
         self,
         session_id: int,
-        max_tokens: Optional[int] = None,
-    ) -> List[MessageContent]:
+        max_tokens: int | None = None,
+    ) -> list[MessageContent]:
         """
         Retrieve relevant context for the session.
 
@@ -98,7 +98,7 @@ class MemoryStrategy(ABC):
         """
         raise NotImplementedError("clear_session() must be implemented by subclass")
 
-    async def estimate_tokens(self, messages: List[MessageContent]) -> int:
+    async def estimate_tokens(self, messages: list[MessageContent]) -> int:
         """
         Estimate the number of tokens in messages.
 
@@ -113,9 +113,9 @@ class MemoryStrategy(ABC):
 
     async def truncate_by_tokens(
         self,
-        messages: List[MessageContent],
+        messages: list[MessageContent],
         max_tokens: int,
-    ) -> List[MessageContent]:
+    ) -> list[MessageContent]:
         """
         Truncate messages to fit within token limit.
 

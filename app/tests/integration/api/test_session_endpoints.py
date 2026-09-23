@@ -1,4 +1,5 @@
 """Tests for session endpoints"""
+
 import pytest
 from httpx import AsyncClient
 
@@ -252,7 +253,9 @@ class TestSessionEndpoints:
         assert response.status_code == 401  # Unauthorized
 
     @pytest.mark.asyncio
-    async def test_update_session_invalid_memory_type(self, app_client: AsyncClient, test_token: str):
+    async def test_update_session_invalid_memory_type(
+        self, app_client: AsyncClient, test_token: str
+    ):
         """Test updating session with invalid memory type"""
         # Arrange
         headers = {"Authorization": f"Bearer {test_token}"}
@@ -275,7 +278,9 @@ class TestSessionEndpoints:
         assert response.status_code == 422  # Validation error
 
     @pytest.mark.asyncio
-    async def test_update_session_invalid_context_window(self, app_client: AsyncClient, test_token: str):
+    async def test_update_session_invalid_context_window(
+        self, app_client: AsyncClient, test_token: str
+    ):
         """Test updating session with invalid context window"""
         # Arrange
         headers = {"Authorization": f"Bearer {test_token}"}

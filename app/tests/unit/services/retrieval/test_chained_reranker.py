@@ -1,6 +1,8 @@
 """Tests for chained reranker (two-stage orchestration)."""
-import pytest
+
 from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
 
@@ -13,9 +15,11 @@ class TestChainedReranker:
         from app.services.retrieval.chained_reranker import ChainedReranker
 
         mock_first = Mock()
-        mock_first.rerank = AsyncMock(return_value=[
-            SearchResult(document_id="doc1", content="a", score=0.9),
-        ])
+        mock_first.rerank = AsyncMock(
+            return_value=[
+                SearchResult(document_id="doc1", content="a", score=0.9),
+            ]
+        )
 
         chained = ChainedReranker(first_stage=mock_first, second_stage=None)
         request = VectorSearchRequest(query="test")

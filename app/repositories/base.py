@@ -4,12 +4,12 @@ Base repository with common CRUD operations.
 Provides generic database operations using SQLAlchemy async.
 All repositories should inherit from this base class.
 """
-from typing import TypeVar, Type, Generic, List, Dict, Any
+
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel
-from sqlalchemy import select, delete, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import DeclarativeMeta
 
 from app.models.database.base import Base
 
@@ -45,7 +45,7 @@ class BaseRepository(Generic[ModelType]):
     async def get_by_id(
         self,
         id: int,
-        model: Type[ModelType],
+        model: type[ModelType],
     ) -> ModelType | None:
         """
         Get an entity by its primary key ID.
@@ -63,10 +63,10 @@ class BaseRepository(Generic[ModelType]):
 
     async def get_all(
         self,
-        model: Type[ModelType],
+        model: type[ModelType],
         skip: int = 0,
         limit: int = 100,
-    ) -> List[ModelType]:
+    ) -> list[ModelType]:
         """
         Get all entities with pagination.
 
@@ -135,7 +135,7 @@ class BaseRepository(Generic[ModelType]):
 
     async def count(
         self,
-        model: Type[ModelType],
+        model: type[ModelType],
     ) -> int:
         """
         Count all entities of a given model.

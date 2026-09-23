@@ -1,7 +1,6 @@
 """Feedback repository for message rating operations."""
-from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database.message import Message
@@ -17,8 +16,8 @@ class FeedbackRepository:
         self,
         message_id: int,
         rating: int,
-        text: Optional[str] = None,
-    ) -> Optional[Message]:
+        text: str | None = None,
+    ) -> Message | None:
         """Update a message with user feedback. Returns the message or None if not found."""
         message = await self._db.get(Message, message_id)
         if message is None:

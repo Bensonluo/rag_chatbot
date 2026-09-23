@@ -4,13 +4,14 @@ LLM-based entity and relationship extraction from unstructured text.
 Sends text chunks to the LLM with a structured prompt that includes the
 domain schema, requesting JSON output of entities and relations.
 """
+
 import json
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 from app.services.graph.extraction.base import EntityExtractor, ExtractionResult
 from app.services.graph.schema import ENTITY_TYPES, RELATION_TYPES
-from app.services.llm.base import LLMServiceBase, LLMMessage
+from app.services.llm.base import LLMMessage, LLMServiceBase
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +52,8 @@ class LLMEntityExtractor(EntityExtractor):
     def __init__(
         self,
         llm_service: LLMServiceBase,
-        entity_types: Optional[Dict[str, Dict[str, Any]]] = None,
-        relation_types: Optional[Dict[str, Dict[str, Any]]] = None,
+        entity_types: dict[str, dict[str, Any]] | None = None,
+        relation_types: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         self._llm = llm_service
         self._entity_types = entity_types or ENTITY_TYPES
@@ -60,14 +61,14 @@ class LLMEntityExtractor(EntityExtractor):
         self._prompt = self._build_prompt_template()
 
     def _build_prompt_template(self) -> str:
-        entity_schema_parts: List[str] = []
+        entity_schema_parts: list[str] = []
         for name, info in self._entity_types.items():
             props = ", ".join(info.get("properties", []))  # type: ignore[union-attr]
             entity_schema_parts.append(
                 f"  {name}: {info.get('description', '')}. Properties: [{props}]"
             )
 
-        relation_schema_parts: List[str] = []
+        relation_schema_parts: list[str] = []
         for name, info in self._relation_types.items():
             relation_schema_parts.append(
                 f"  ({info.get('source', '')})-[{name}]->({info.get('target', '')}): "
@@ -76,17 +77,20 @@ class LLMEntityExtractor(EntityExtractor):
 
         prompt = _EXTRACTION_PROMPT.replace(
             "{entity_schema}", "\n".join(entity_schema_parts)
-        ).replace(
-            "{relation_schema}", "\n".join(relation_schema_parts)
-        )
+        ).replace("{relation_schema}", "\n".join(relation_schema_parts))
         return prompt
 
     async def extract(
-        self, text: str, context: Optional[Dict[str, Any]] = None
+        self,
+        text: str,
+        context: dict[str, Any] | None = None,  # noqa: ARG002  # extractor interface conformance
     ) -> ExtractionResult:
         prompt = self._prompt.format(text=text)
         messages = [
-            LLMMessage(role="system", content="You extract structured knowledge about products, issues, and solutions from customer service text. Output only valid JSON."),
+            LLMMessage(
+                role="system",
+                content="You extract structured knowledge about products, issues, and solutions from customer service text. Output only valid JSON.",
+            ),
             LLMMessage(role="user", content=prompt),
         ]
 
@@ -98,9 +102,9 @@ class LLMEntityExtractor(EntityExtractor):
             return ExtractionResult(raw_text=text)
 
     async def extract_batch(
-        self, texts: List[str], context: Optional[Dict[str, Any]] = None
-    ) -> List[ExtractionResult]:
-        results: List[ExtractionResult] = []
+        self, texts: list[str], context: dict[str, Any] | None = None
+    ) -> list[ExtractionResult]:
+        results: list[ExtractionResult] = []
         for text in texts:
             result = await self.extract(text, context)
             results.append(result)
@@ -126,7 +130,7 @@ class LLMEntityExtractor(EntityExtractor):
         relations = data.get("relations", [])
 
         # Validate entity types against schema
-        valid_entities: List[Dict[str, Any]] = []
+        valid_entities: list[dict[str, Any]] = []
         for ent in entities:
             if not isinstance(ent, dict) or "name" not in ent or "type" not in ent:
                 continue
@@ -136,7 +140,7 @@ class LLMEntityExtractor(EntityExtractor):
                 logger.debug("Skipping entity with unknown type: %s", ent.get("type"))
 
         # Validate relation types against schema
-        valid_relations: List[Dict[str, Any]] = []
+        valid_relations: list[dict[str, Any]] = []
         for rel in relations:
             if not isinstance(rel, dict) or "source" not in rel or "target" not in rel:
                 continue

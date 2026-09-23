@@ -1,6 +1,8 @@
 """Tests for base repository"""
+
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
 
 
 class TestBaseRepository:
@@ -10,6 +12,7 @@ class TestBaseRepository:
         """Test that base repository can be initialized"""
         # Arrange & Act
         from app.repositories.base import BaseRepository
+
         mock_session = Mock()
 
         repo = BaseRepository(mock_session)
@@ -21,8 +24,8 @@ class TestBaseRepository:
     async def test_get_by_id(self):
         """Test getting entity by ID"""
         # Arrange
-        from app.repositories.base import BaseRepository
         from app.models.database.user import User
+        from app.repositories.base import BaseRepository
 
         mock_session = Mock()
         mock_result = Mock()
@@ -47,8 +50,8 @@ class TestBaseRepository:
     async def test_get_by_id_not_found(self):
         """Test getting entity by ID when not found"""
         # Arrange
-        from app.repositories.base import BaseRepository
         from app.models.database.user import User
+        from app.repositories.base import BaseRepository
 
         mock_session = Mock()
         mock_result = Mock()
@@ -67,8 +70,8 @@ class TestBaseRepository:
     async def test_get_all(self):
         """Test getting all entities"""
         # Arrange
-        from app.repositories.base import BaseRepository
         from app.models.database.user import User
+        from app.repositories.base import BaseRepository
 
         mock_session = Mock()
         mock_result = Mock()
@@ -92,8 +95,8 @@ class TestBaseRepository:
     async def test_create(self):
         """Test creating a new entity"""
         # Arrange
-        from app.repositories.base import BaseRepository
         from app.models.database.user import User
+        from app.repositories.base import BaseRepository
 
         mock_session = Mock()
         mock_session.add = Mock()
@@ -104,7 +107,7 @@ class TestBaseRepository:
             email="new@example.com",
             hashed_password="hash",
         )
-        mock_session.refresh.side_effect = lambda obj: setattr(obj, 'id', 1)
+        mock_session.refresh.side_effect = lambda obj: setattr(obj, "id", 1)
 
         repo = BaseRepository(mock_session)
 
@@ -120,8 +123,8 @@ class TestBaseRepository:
     async def test_update(self):
         """Test updating an entity"""
         # Arrange
-        from app.repositories.base import BaseRepository
         from app.models.database.user import User
+        from app.repositories.base import BaseRepository
 
         mock_session = Mock()
         mock_session.commit = AsyncMock()
@@ -147,8 +150,8 @@ class TestBaseRepository:
     async def test_delete(self):
         """Test deleting an entity"""
         # Arrange
-        from app.repositories.base import BaseRepository
         from app.models.database.user import User
+        from app.repositories.base import BaseRepository
 
         mock_session = Mock()
         mock_session.delete = AsyncMock()
@@ -173,8 +176,8 @@ class TestBaseRepository:
     async def test_count(self):
         """Test counting entities"""
         # Arrange
-        from app.repositories.base import BaseRepository
         from app.models.database.user import User
+        from app.repositories.base import BaseRepository
 
         mock_session = Mock()
         mock_result = Mock()
@@ -193,8 +196,8 @@ class TestBaseRepository:
     async def test_exists_true(self):
         """Test checking if entity exists (returns True)"""
         # Arrange
-        from app.repositories.base import BaseRepository
         from app.models.database.user import User
+        from app.repositories.base import BaseRepository
 
         mock_session = Mock()
         mock_result = Mock()
@@ -213,8 +216,8 @@ class TestBaseRepository:
     async def test_exists_false(self):
         """Test checking if entity exists (returns False)"""
         # Arrange
-        from app.repositories.base import BaseRepository
         from app.models.database.user import User
+        from app.repositories.base import BaseRepository
 
         mock_session = Mock()
         mock_result = Mock()

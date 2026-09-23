@@ -3,18 +3,21 @@ Output guardrail — checks LLM output before returning to the user.
 
 Redacts PII that the LLM may have leaked, and flags off-domain content.
 """
-import re
+
 import logging
-from typing import List, Dict, Optional, Pattern
+import re
+from re import Pattern
 
 from app.services.guardrails.base import GuardrailResult, OutputGuardrail
 
 logger = logging.getLogger(__name__)
 
 # Reuse PII patterns from input guard
-_PII_PATTERNS: Dict[str, Pattern] = {
+_PII_PATTERNS: dict[str, Pattern] = {
     "phone_cn": re.compile(r"1[3-9]\d{9}"),
-    "id_card_cn": re.compile(r"[1-9]\d{5}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]"),
+    "id_card_cn": re.compile(
+        r"[1-9]\d{5}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]"
+    ),
     "email": re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"),
     "bank_card": re.compile(r"6[0-9]{15,18}"),
 }
@@ -34,10 +37,13 @@ class DefaultOutputGuardrail(OutputGuardrail):
     def check(self, content: str) -> GuardrailResult:
         if not content:
             return GuardrailResult(
-                passed=True, action="allow", original_content=content, sanitized_content=content,
+                passed=True,
+                action="allow",
+                original_content=content,
+                sanitized_content=content,
             )
 
-        violations: List[str] = []
+        violations: list[str] = []
         sanitized = content
 
         # PII redaction on output
@@ -47,14 +53,17 @@ class DefaultOutputGuardrail(OutputGuardrail):
 
         action = "redact" if violations else "allow"
         return GuardrailResult(
-            passed=True, action=action, original_content=content,
-            sanitized_content=sanitized, violations=violations,
+            passed=True,
+            action=action,
+            original_content=content,
+            sanitized_content=sanitized,
+            violations=violations,
         )
 
     @staticmethod
     def _redact_pii(text: str) -> tuple:
         sanitized = text
-        found_types: List[str] = []
+        found_types: list[str] = []
         for pii_type, pattern in _PII_PATTERNS.items():
             matches = pattern.findall(sanitized)
             if matches:

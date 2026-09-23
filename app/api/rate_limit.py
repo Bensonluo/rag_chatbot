@@ -3,9 +3,10 @@ Simple rate limiter dependency using in-memory token bucket.
 
 Provides rate limiting for API endpoints without external dependencies.
 """
-from fastapi import Request, HTTPException, status
-from typing import Dict
+
 import time
+
+from fastapi import HTTPException, Request, status
 
 
 class InMemoryRateLimiter:
@@ -24,7 +25,7 @@ class InMemoryRateLimiter:
         """
         self.requests_per_minute = requests_per_minute
         self.bucket_size = requests_per_minute
-        self.buckets: Dict[str, Dict] = {}
+        self.buckets: dict[str, dict] = {}
 
     def _get_client_ip(self, request: Request) -> str:
         """Get client IP from request."""

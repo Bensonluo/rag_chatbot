@@ -1,7 +1,12 @@
 """Tests for summarization memory strategy"""
-import pytest
+
 from datetime import datetime
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+
+from app.models.database.message import Message
+from app.services.memory.base import MessageContent
 
 
 class TestSummarizationMemory:
@@ -11,18 +16,15 @@ class TestSummarizationMemory:
     async def test_get_context_with_summary(self):
         """Test that get_context includes summary and recent messages"""
         # Arrange
-        from app.services.memory.summarization import SummarizationMemory
-        from app.models.schemas.chat import MessageContent
+
         from app.models.database.message import Message
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.summarization import SummarizationMemory
 
         mock_repo = Mock(spec=MessageRepository)
         llm_service = Mock()
         memory = SummarizationMemory(
-            message_repo=mock_repo,
-            llm_service=llm_service,
-            summary_threshold=5,
-            summary_interval=3
+            message_repo=mock_repo, llm_service=llm_service, summary_threshold=5, summary_interval=3
         )
 
         # Mock summary message
@@ -30,13 +32,17 @@ class TestSummarizationMemory:
             id=1,
             role="system",
             content="Conversation summary: User asked about AI",
-            created_at=datetime.now()
+            created_at=datetime.now(),
         )
 
         # Mock recent messages
         recent_messages = [
-            Message(id=2, role="user", content="What is machine learning?", created_at=datetime.now()),
-            Message(id=3, role="assistant", content="ML is a subset of AI", created_at=datetime.now()),
+            Message(
+                id=2, role="user", content="What is machine learning?", created_at=datetime.now()
+            ),
+            Message(
+                id=3, role="assistant", content="ML is a subset of AI", created_at=datetime.now()
+            ),
         ]
 
         mock_repo.get_latest_summary = AsyncMock(return_value=summary_msg)
@@ -54,17 +60,15 @@ class TestSummarizationMemory:
     async def test_add_message_triggers_summary_when_threshold_reached(self):
         """Test that summary is created when message count reaches threshold"""
         # Arrange
-        from app.services.memory.summarization import SummarizationMemory
         from app.models.schemas.chat import MessageContent
+
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.summarization import SummarizationMemory
 
         mock_repo = Mock(spec=MessageRepository)
         llm_service = Mock()
         memory = SummarizationMemory(
-            message_repo=mock_repo,
-            llm_service=llm_service,
-            summary_threshold=5,
-            summary_interval=3
+            message_repo=mock_repo, llm_service=llm_service, summary_threshold=5, summary_interval=3
         )
 
         # Mock message count
@@ -88,9 +92,10 @@ class TestSummarizationMemory:
     async def test_add_message_below_threshold(self):
         """Test that summary is NOT created when below threshold"""
         # Arrange
-        from app.services.memory.summarization import SummarizationMemory
         from app.models.schemas.chat import MessageContent
+
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.summarization import SummarizationMemory
 
         mock_repo = Mock(spec=MessageRepository)
         llm_service = Mock()
@@ -98,7 +103,7 @@ class TestSummarizationMemory:
             message_repo=mock_repo,
             llm_service=llm_service,
             summary_threshold=10,
-            summary_interval=5
+            summary_interval=5,
         )
 
         # Mock message count below threshold
@@ -118,15 +123,12 @@ class TestSummarizationMemory:
     async def test_clear_session(self):
         """Test that clear_session works correctly"""
         # Arrange
-        from app.services.memory.summarization import SummarizationMemory
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.summarization import SummarizationMemory
 
         mock_repo = Mock(spec=MessageRepository)
         llm_service = Mock()
-        memory = SummarizationMemory(
-            message_repo=mock_repo,
-            llm_service=llm_service
-        )
+        memory = SummarizationMemory(message_repo=mock_repo, llm_service=llm_service)
 
         mock_repo.delete_by_session = AsyncMock()
 
@@ -139,8 +141,8 @@ class TestSummarizationMemory:
     def test_initialization(self):
         """Test strategy initialization"""
         # Arrange
-        from app.services.memory.summarization import SummarizationMemory
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.summarization import SummarizationMemory
 
         mock_repo = Mock(spec=MessageRepository)
         llm_service = Mock()
@@ -150,7 +152,7 @@ class TestSummarizationMemory:
             message_repo=mock_repo,
             llm_service=llm_service,
             summary_threshold=20,
-            summary_interval=10
+            summary_interval=10,
         )
 
         # Assert
@@ -161,16 +163,13 @@ class TestSummarizationMemory:
     async def test_create_summary_generates_summary(self):
         """Test that _create_summary generates summary with LLM"""
         # Arrange
-        from app.services.memory.summarization import SummarizationMemory
         from app.models.database.message import Message
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.summarization import SummarizationMemory
 
         mock_repo = Mock(spec=MessageRepository)
         llm_service = Mock()
-        memory = SummarizationMemory(
-            message_repo=mock_repo,
-            llm_service=llm_service
-        )
+        memory = SummarizationMemory(message_repo=mock_repo, llm_service=llm_service)
 
         # Mock messages to summarize
         messages = [
@@ -195,15 +194,12 @@ class TestSummarizationMemory:
     async def test_create_summary_stores_as_system_message(self):
         """Test that summary is stored as system message"""
         # Arrange
-        from app.services.memory.summarization import SummarizationMemory
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.summarization import SummarizationMemory
 
         mock_repo = Mock(spec=MessageRepository)
         llm_service = Mock()
-        memory = SummarizationMemory(
-            message_repo=mock_repo,
-            llm_service=llm_service
-        )
+        memory = SummarizationMemory(message_repo=mock_repo, llm_service=llm_service)
 
         mock_repo.get_messages_before_summary = AsyncMock(return_value=[])
         llm_service.generate = AsyncMock(return_value="Test summary")
@@ -221,15 +217,12 @@ class TestSummarizationMemory:
     async def test_create_summary_archives_old_messages(self):
         """Test that old messages are archived after summary"""
         # Arrange
-        from app.services.memory.summarization import SummarizationMemory
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.summarization import SummarizationMemory
 
         mock_repo = Mock(spec=MessageRepository)
         llm_service = Mock()
-        memory = SummarizationMemory(
-            message_repo=mock_repo,
-            llm_service=llm_service
-        )
+        memory = SummarizationMemory(message_repo=mock_repo, llm_service=llm_service)
 
         # Mock old messages
         old_messages = [
@@ -252,19 +245,14 @@ class TestSummarizationMemory:
     async def test_estimate_tokens(self):
         """Test token estimation"""
         # Arrange
-        from app.services.memory.summarization import SummarizationMemory
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.summarization import SummarizationMemory
 
         mock_repo = Mock(spec=MessageRepository)
         llm_service = Mock()
-        memory = SummarizationMemory(
-            message_repo=mock_repo,
-            llm_service=llm_service
-        )
+        memory = SummarizationMemory(message_repo=mock_repo, llm_service=llm_service)
 
-        messages = [
-            MessageContent(role="user", content="Hello world!", timestamp=datetime.now())
-        ]
+        messages = [MessageContent(role="user", content="Hello world!", timestamp=datetime.now())]
 
         # Act
         count = await memory.estimate_tokens(messages)
@@ -276,9 +264,9 @@ class TestSummarizationMemory:
     async def test_get_context_without_summary(self):
         """Test getting context when no summary exists yet"""
         # Arrange
-        from app.services.memory.summarization import SummarizationMemory
         from app.models.database.message import Message
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.summarization import SummarizationMemory
 
         mock_repo = Mock(spec=MessageRepository)
         llm_service = Mock()
@@ -286,7 +274,7 @@ class TestSummarizationMemory:
             message_repo=mock_repo,
             llm_service=llm_service,
             summary_threshold=10,
-            summary_interval=5
+            summary_interval=5,
         )
 
         # No summary exists

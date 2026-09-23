@@ -3,17 +3,17 @@ Request ID middleware.
 
 Generates unique request IDs for tracing and debugging.
 """
+
+import logging
+import uuid
+
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from typing import Optional
-import uuid
-import logging
-
 
 logger = logging.getLogger(__name__)
 
 
-def get_request_id(request: Request) -> Optional[str]:
+def get_request_id(request: Request) -> str | None:
     """
     Get request ID from request state.
 

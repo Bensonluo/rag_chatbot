@@ -1,6 +1,8 @@
 """Tests for Anthropic LLM client"""
+
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
 
 
 class TestAnthropicClient:
@@ -10,11 +12,9 @@ class TestAnthropicClient:
         """Test client initialization"""
         # Arrange & Act
         from app.services.llm.anthropic_client import AnthropicClient
+
         client = AnthropicClient(
-            api_key="test-key",
-            model="claude-3-opus-20240229",
-            max_tokens=1000,
-            temperature=0.7
+            api_key="test-key", model="claude-3-opus-20240229", max_tokens=1000, temperature=0.7
         )
 
         # Assert
@@ -27,10 +27,8 @@ class TestAnthropicClient:
         """Test client initialization with defaults"""
         # Arrange & Act
         from app.services.llm.anthropic_client import AnthropicClient
-        client = AnthropicClient(
-            api_key="test-key",
-            model="claude-3-opus-20240229"
-        )
+
+        client = AnthropicClient(api_key="test-key", model="claude-3-opus-20240229")
 
         # Assert
         assert client.max_tokens is None
@@ -138,9 +136,9 @@ class TestAnthropicClient:
     async def test_generate_api_error(self):
         """Test handling API errors"""
         # Arrange
+        from app.core.exceptions import ExternalServiceError
         from app.services.llm.anthropic_client import AnthropicClient
         from app.services.llm.base import LLMMessage
-        from app.core.exceptions import ExternalServiceError
 
         mock_client = Mock()
         mock_client.messages.create = AsyncMock(side_effect=Exception("API Error"))

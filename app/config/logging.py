@@ -3,10 +3,11 @@ Structured logging configuration using structlog.
 
 Provides JSON logging for production and console logging for development.
 """
+
 import logging
 import sys
 from functools import lru_cache
-from typing import Any, List
+from typing import Any
 
 import structlog
 from structlog.types import EventDict, Processor
@@ -14,7 +15,7 @@ from structlog.types import EventDict, Processor
 from app.config.settings import settings
 
 
-def add_app_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
+def add_app_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:  # noqa: ARG001  # structlog processor protocol signature
     """
     Add application-level context to log entries.
 
@@ -50,7 +51,7 @@ def configure_logging() -> structlog.stdlib.BoundLogger:
     )
 
     # Shared processors
-    shared_processors: List[Processor] = [
+    shared_processors: list[Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
@@ -63,7 +64,7 @@ def configure_logging() -> structlog.stdlib.BoundLogger:
     # Development configuration
     if settings.DEBUG:
         # Console-friendly output with colors
-        processors: List[Processor] = shared_processors + [
+        processors: list[Processor] = shared_processors + [
             structlog.dev.ConsoleRenderer(colors=True),
         ]
     else:

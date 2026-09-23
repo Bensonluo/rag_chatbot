@@ -3,14 +3,12 @@ Embedding services package.
 
 Exports all embedding-related components including providers and factory.
 """
-from app.services.embeddings.base import (
-    EmbeddingServiceBase,
-    EmbeddingResult
-)
-from app.services.embeddings.local_embeddings import LocalEmbeddingService
-from app.services.embeddings.glm_embeddings import GLMEmbeddingService
+
+from app.services.embeddings.base import EmbeddingResult, EmbeddingServiceBase
 from app.services.embeddings.cached_embeddings import CachedEmbeddingService
 from app.services.embeddings.factory import EmbeddingFactory
+from app.services.embeddings.glm_embeddings import GLMEmbeddingService
+from app.services.embeddings.local_embeddings import LocalEmbeddingService
 
 __all__ = [
     # Base classes

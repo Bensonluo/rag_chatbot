@@ -4,11 +4,11 @@ Global search service.
 Answers broad/global queries using community summaries rather than
 individual entity lookups. Suitable for questions like "总结整个糖尿病药物市场格局".
 """
-import logging
-from typing import List
 
-from app.services.graph.base import GraphClient, GraphSearchResult
+import logging
+
 from app.services.embeddings.base import EmbeddingServiceBase
+from app.services.graph.base import GraphClient, GraphSearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +24,7 @@ class GlobalSearchService:
         self._graph = graph_client
         self._embeddings = embedding_service
 
-    async def search(
-        self, query: str, top_k: int = 5
-    ) -> List[GraphSearchResult]:
+    async def search(self, query: str, top_k: int = 5) -> list[GraphSearchResult]:
         """Search community summaries by embedding similarity."""
         query_embedding = await self._embeddings.embed_single(query)
 
@@ -45,7 +43,7 @@ class GlobalSearchService:
             # Fallback: scan all CommunitySummary nodes
             results = await self._fallback_search(query_embedding, top_k)
 
-        search_results: List[GraphSearchResult] = []
+        search_results: list[GraphSearchResult] = []
         for r in results:
             content = r.get("summary", "")
             if not content:
@@ -72,8 +70,10 @@ class GlobalSearchService:
         return search_results[:top_k]
 
     async def _fallback_search(
-        self, query_embedding: List[float], top_k: int
-    ) -> List[dict]:
+        self,
+        query_embedding: list[float],  # noqa: ARG002  # search API conformance (fallback ignores embedding)
+        top_k: int,
+    ) -> list[dict]:
         """Fallback when vector index is not available."""
         try:
             return await self._graph.execute_cypher(

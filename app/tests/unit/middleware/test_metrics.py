@@ -1,8 +1,8 @@
 """Tests for Prometheus metrics middleware"""
+
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from unittest.mock import AsyncMock, Mock
 
 
 class TestPrometheusMetrics:
@@ -60,9 +60,12 @@ class TestPrometheusMetrics:
         await middleware.dispatch(request, self._mock_call_next)
 
         # Assert - Should track count
-        assert middleware.request_count.get(
-            {"method": "GET", "endpoint": "/test", "status": "200"}
-        )._value._value == 2
+        assert (
+            middleware.request_count.get(
+                {"method": "GET", "endpoint": "/test", "status": "200"}
+            )._value._value
+            == 2
+        )
 
     @pytest.mark.asyncio
     async def test_tracks_request_latency(self):
@@ -113,6 +116,7 @@ class TestPrometheusMetrics:
 
         # Act
         import asyncio
+
         task = asyncio.create_task(middleware.dispatch(request, self._mock_call_next))
         await asyncio.sleep(0.01)  # Let it start
         await task
@@ -147,20 +151,24 @@ class TestPrometheusMetrics:
         await middleware.dispatch(request, failing_call_next)
 
         # Assert - Should track 404 errors
-        assert middleware.request_count.get(
-            {"method": "GET", "endpoint": "/notfound", "status": "404"}
-        )._value._value == 1
+        assert (
+            middleware.request_count.get(
+                {"method": "GET", "endpoint": "/notfound", "status": "404"}
+            )._value._value
+            == 1
+        )
 
     def test_metrics_endpoint(self):
         """Test /metrics endpoint"""
         # Arrange
-        from app.middleware.metrics import PrometheusMiddleware, metrics_endpoint
+        from app.middleware.metrics import PrometheusMiddleware
 
         app = FastAPI()
-        middleware = PrometheusMiddleware(app)
+        PrometheusMiddleware(app)
 
         # Act - Get metrics
         from starlette.testclient import TestClient
+
         client = TestClient(app)
         response = client.get("/metrics")
 
@@ -185,6 +193,7 @@ class TestMetricsFormats:
 
         # Assert
         from prometheus_client import exposition
+
         output = exposition.generate_latest(counter).decode()
         assert "test_requests_total" in output
 
@@ -193,11 +202,7 @@ class TestMetricsFormats:
         # Arrange
         from prometheus_client import Histogram
 
-        histogram = Histogram(
-            "request_latency_seconds",
-            "Request latency",
-            ["endpoint"]
-        )
+        histogram = Histogram("request_latency_seconds", "Request latency", ["endpoint"])
 
         # Act - Observe some latencies
         histogram.labels(endpoint="/test").observe(0.1)
@@ -232,11 +237,7 @@ class TestMetricsLabels:
         # Arrange & Act
         from prometheus_client import Counter
 
-        counter = Counter(
-            "custom_metric",
-            "Custom metric",
-            ["label1", "label2"]
-        )
+        counter = Counter("custom_metric", "Custom metric", ["label1", "label2"])
 
         # Assert
         counter.labels(label1="value1", label2="value2").inc()

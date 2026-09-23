@@ -3,12 +3,12 @@ Cached embedding service wrapper using Redis.
 
 Caches embeddings to reduce redundant API calls and computation.
 """
-from typing import List, Dict
-import json
-import hashlib
 
-from app.services.embeddings.base import EmbeddingServiceBase, EmbeddingResult
+import hashlib
+import json
+
 from app.core.exceptions import ExternalServiceError
+from app.services.embeddings.base import EmbeddingResult, EmbeddingServiceBase
 
 
 class CachedEmbeddingService(EmbeddingServiceBase):
@@ -53,20 +53,17 @@ class CachedEmbeddingService(EmbeddingServiceBase):
         if self._redis is None:
             try:
                 import redis.asyncio as aioredis
+
                 self._redis = await aioredis.from_url(
-                    self.redis_url,
-                    encoding="utf-8",
-                    decode_responses=True
+                    self.redis_url, encoding="utf-8", decode_responses=True
                 )
-            except ImportError:
+            except ImportError as e:
                 raise ExternalServiceError(
-                    service="Redis",
-                    message="redis not installed. Run: pip install redis"
-                )
+                    service="Redis", message="redis not installed. Run: pip install redis"
+                ) from e
             except Exception as e:
                 raise ExternalServiceError(
-                    service="Redis",
-                    message=f"Failed to connect to Redis: {str(e)}"
+                    service="Redis", message=f"Failed to connect to Redis: {str(e)}"
                 ) from e
 
         return self._redis
@@ -87,10 +84,7 @@ class CachedEmbeddingService(EmbeddingServiceBase):
 
         return f"{self.prefix}:{self.model}:{hash_value}"
 
-    async def _get_cached_embeddings(
-        self,
-        texts: List[str]
-    ) -> Dict[str, List[float] | None]:
+    async def _get_cached_embeddings(self, texts: list[str]) -> dict[str, list[float] | None]:
         """
         Get cached embeddings for multiple texts.
 
@@ -121,11 +115,7 @@ class CachedEmbeddingService(EmbeddingServiceBase):
 
         return result
 
-    async def _set_cached_embeddings(
-        self,
-        texts: List[str],
-        embeddings: List[List[float]]
-    ) -> None:
+    async def _set_cached_embeddings(self, texts: list[str], embeddings: list[list[float]]) -> None:
         """
         Cache embeddings for multiple texts.
 
@@ -137,7 +127,7 @@ class CachedEmbeddingService(EmbeddingServiceBase):
 
         # Prepare cache data
         cache_data = {}
-        for text, embedding in zip(texts, embeddings):
+        for text, embedding in zip(texts, embeddings, strict=True):
             key = self._generate_cache_key(text)
             value = json.dumps(embedding)
             cache_data[key] = value
@@ -149,7 +139,7 @@ class CachedEmbeddingService(EmbeddingServiceBase):
                 pipeline.setex(key, self.cache_ttl, value)
             await pipeline.execute()
 
-    async def embed(self, texts: List[str]) -> EmbeddingResult:
+    async def embed(self, texts: list[str]) -> EmbeddingResult:
         """
         Generate embeddings for a list of texts with caching.
 
@@ -161,10 +151,7 @@ class CachedEmbeddingService(EmbeddingServiceBase):
         """
         if not texts:
             return EmbeddingResult(
-                embeddings=[],
-                model=self.model,
-                dimensions=self.dimensions,
-                tokens_used=0
+                embeddings=[], model=self.model, dimensions=self.dimensions, tokens_used=0
             )
 
         # Try to get from cache first
@@ -188,7 +175,7 @@ class CachedEmbeddingService(EmbeddingServiceBase):
             new_result = await self.embedding_service.embed(uncached_texts)
 
             # Fill in new embeddings
-            for idx, embedding in zip(uncached_indices, new_result.embeddings):
+            for idx, embedding in zip(uncached_indices, new_result.embeddings, strict=True):
                 result_embeddings[idx] = embedding
 
             # Cache the new embeddings
@@ -201,10 +188,10 @@ class CachedEmbeddingService(EmbeddingServiceBase):
             embeddings=result_embeddings,
             model=self.model,
             dimensions=self.dimensions,
-            tokens_used=tokens_used
+            tokens_used=tokens_used,
         )
 
-    async def embed_single(self, text: str) -> List[float]:
+    async def embed_single(self, text: str) -> list[float]:
         """
         Generate embedding for a single text with caching.
 

@@ -1,4 +1,5 @@
 """Unit tests for prompt hardening."""
+
 from app.services.guardrails.prompt_hardening import build_safe_system_prompt
 
 

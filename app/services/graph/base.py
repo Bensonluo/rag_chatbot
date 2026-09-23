@@ -4,9 +4,10 @@ Graph service base interface and data models.
 Provides abstract interface for graph database operations, mirroring the
 VectorClient ABC pattern from app/services/retrieval/vector_base.py.
 """
-from dataclasses import dataclass, field
+
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -17,8 +18,8 @@ class GraphEntity:
     name: str
     type: str
     properties: dict[str, Any] = field(default_factory=dict)
-    description: Optional[str] = None
-    embedding: Optional[list[float]] = None
+    description: str | None = None
+    embedding: list[float] | None = None
 
 
 @dataclass
@@ -30,7 +31,7 @@ class GraphRelation:
     target_entity_id: str
     relation_type: str
     properties: dict[str, Any] = field(default_factory=dict)
-    description: Optional[str] = None
+    description: str | None = None
 
 
 @dataclass
@@ -42,7 +43,7 @@ class GraphSearchResult:
     relations: list[GraphRelation]
     score: float
     source_type: str  # "text_to_cypher" | "graph_embedding" | "community_summary"
-    metadata: Optional[dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -55,7 +56,7 @@ class CommunitySummary:
     summary: str
     entity_count: int
     entities: list[str]
-    embedding: Optional[list[float]] = None
+    embedding: list[float] | None = None
 
 
 class GraphClient(ABC):
@@ -83,7 +84,7 @@ class GraphClient(ABC):
 
     @abstractmethod
     async def execute_cypher(
-        self, query: str, params: Optional[dict[str, Any]] = None
+        self, query: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         pass
 
@@ -92,7 +93,7 @@ class GraphClient(ABC):
         self,
         query_embedding: list[float],
         top_k: int = 10,
-        entity_types: Optional[list[str]] = None,
+        entity_types: list[str] | None = None,
     ) -> list[GraphSearchResult]:
         pass
 
@@ -114,9 +115,7 @@ class GraphClient(ABC):
 class GraphClientError(Exception):
     """Base exception for graph client errors."""
 
-    def __init__(
-        self, message: str, details: Optional[dict[str, Any]] = None
-    ) -> None:
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         self.message = message
         self.details = details or {}
         super().__init__(self.message)

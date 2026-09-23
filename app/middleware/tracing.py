@@ -5,24 +5,26 @@ Initializes the OTel tracer provider and instruments FastAPI when
 ENABLE_TRACING=True. If tracing is disabled or OTel is not installed,
 all operations are no-ops.
 """
+
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 _tracer_provider = None
 
 
-def setup_tracing(app=None, endpoint: str = "http://jaeger:4317", service_name: str = "rag-chatbot") -> bool:
+def setup_tracing(
+    app=None, endpoint: str = "http://jaeger:4317", service_name: str = "rag-chatbot"
+) -> bool:
     """Initialize OpenTelemetry tracing. Returns True if setup succeeded."""
     global _tracer_provider
 
     try:
         from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+        from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.sdk.resources import Resource
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
         resource = Resource.create({"service.name": service_name})
         provider = TracerProvider(resource=resource)
@@ -34,9 +36,12 @@ def setup_tracing(app=None, endpoint: str = "http://jaeger:4317", service_name: 
         if app is not None:
             try:
                 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
                 FastAPIInstrumentor.instrument_app(app)
             except ImportError:
-                logger.warning("opentelemetry-instrumentation-fastapi not installed, skipping FastAPI instrumentation")
+                logger.warning(
+                    "opentelemetry-instrumentation-fastapi not installed, skipping FastAPI instrumentation"
+                )
 
         logger.info("OpenTelemetry tracing initialized (endpoint=%s)", endpoint)
         return True
@@ -53,6 +58,7 @@ def get_tracer(name: str = "rag-chatbot"):
     """Get an OTel tracer, or a no-op tracer if OTel is not configured."""
     try:
         from opentelemetry import trace
+
         return trace.get_tracer(name)
     except ImportError:
         return _NoOpTracer()
@@ -61,10 +67,10 @@ def get_tracer(name: str = "rag-chatbot"):
 class _NoOpTracer:
     """Fallback tracer when OTel is not installed."""
 
-    def start_as_current_span(self, name, **kwargs):
+    def start_as_current_span(self, name, **kwargs):  # noqa: ARG002  # OTel Tracer API conformance
         return _NoOpSpan()
 
-    def start_span(self, name, **kwargs):
+    def start_span(self, name, **kwargs):  # noqa: ARG002  # OTel Tracer API conformance
         return _NoOpSpan()
 
 

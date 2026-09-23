@@ -3,13 +3,11 @@ Summarization memory strategy.
 
 Periodically summarizes old messages to retain important context.
 """
-from typing import Optional, List
 
-from app.services.memory.base import MemoryStrategy, MemoryContent, MessageContent
-from app.services.llm.base import LLMServiceBase, LLMMessage
-from app.services.llm.prompt_templates import PromptTemplates
-from app.services.memory.base import MessageContent
 from app.repositories.message_repository import MessageRepository
+from app.services.llm.base import LLMMessage, LLMServiceBase
+from app.services.llm.prompt_templates import PromptTemplates
+from app.services.memory.base import MemoryStrategy, MessageContent
 
 
 class SummarizationMemory(MemoryStrategy):
@@ -51,8 +49,8 @@ class SummarizationMemory(MemoryStrategy):
     async def get_context(
         self,
         session_id: int,
-        max_tokens: Optional[int] = None,
-    ) -> List[MessageContent]:
+        max_tokens: int | None = None,
+    ) -> list[MessageContent]:
         """
         Retrieve context with latest summary and recent messages.
 
@@ -131,8 +129,8 @@ class SummarizationMemory(MemoryStrategy):
 
         # Create summary at threshold, then every interval
         if count == self.summary_threshold or (
-            count > self.summary_threshold and
-            (count - self.summary_threshold) % self.summary_interval == 0
+            count > self.summary_threshold
+            and (count - self.summary_threshold) % self.summary_interval == 0
         ):
             await self._create_summary(session_id)
 
@@ -162,15 +160,9 @@ class SummarizationMemory(MemoryStrategy):
             return
 
         # Build summary prompt
-        conversation_text = "\n".join(
-            f"{msg.role}: {msg.content}"
-            for msg in messages
-        )
+        conversation_text = "\n".join(f"{msg.role}: {msg.content}" for msg in messages)
 
-        prompt = PromptTemplates.get_summarization_prompt(
-            text=conversation_text,
-            max_length=500
-        )
+        prompt = PromptTemplates.get_summarization_prompt(text=conversation_text, max_length=500)
 
         # Generate summary using LLM
         response = await self.llm_service.generate(
@@ -193,7 +185,4 @@ class SummarizationMemory(MemoryStrategy):
         await self.message_repo.create_summary(summary_message)
 
         # Archive old messages
-        await self.message_repo.archive_messages(
-            session_id=session_id,
-            count=len(messages)
-        )
+        await self.message_repo.archive_messages(session_id=session_id, count=len(messages))

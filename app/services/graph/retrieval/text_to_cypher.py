@@ -4,20 +4,21 @@ Text-to-Cypher service.
 Generates Cypher queries from natural language using the LLM, executes
 them against the graph database, and returns structured results.
 """
+
 import json
 import logging
 import time
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 from app.services.graph.base import (
     GraphClient,
+    GraphClientError,
     GraphEntity,
     GraphRelation,
     GraphSearchResult,
-    GraphClientError,
 )
 from app.services.graph.schema import get_schema_prompt_text
-from app.services.llm.base import LLMServiceBase, LLMMessage
+from app.services.llm.base import LLMMessage, LLMServiceBase
 
 logger = logging.getLogger(__name__)
 
@@ -56,24 +57,24 @@ class TextToCypherService:
         self._graph = graph_client
         self._timeout = query_timeout
         self._max_results = max_results
-        self._schema_cache: Optional[str] = None
+        self._schema_cache: str | None = None
         self._schema_cache_time: float = 0
         self._cache_ttl: float = 300.0  # 5 minutes
 
     async def query(
-        self, natural_language_query: str, max_results: int = 20, entity_hints: Optional[list] = None
-    ) -> List[GraphSearchResult]:
+        self, natural_language_query: str, max_results: int = 20, entity_hints: list | None = None
+    ) -> list[GraphSearchResult]:
         """Generate Cypher from NL, execute, and return results."""
         schema = await self._get_schema()
-        cypher = await self._generate_cypher(natural_language_query, schema, max_results, entity_hints)
+        cypher = await self._generate_cypher(
+            natural_language_query, schema, max_results, entity_hints
+        )
 
         if not cypher.get("query"):
             return []
 
         try:
-            results = await self._graph.execute_cypher(
-                cypher["query"], cypher.get("params", {})
-            )
+            results = await self._graph.execute_cypher(cypher["query"], cypher.get("params", {}))
         except GraphClientError as e:
             logger.warning("Cypher execution failed: %s", e)
             return []
@@ -92,8 +93,8 @@ class TextToCypherService:
         return self._schema_cache
 
     async def _generate_cypher(
-        self, question: str, schema: str, max_results: int, entity_hints: Optional[list] = None
-    ) -> Dict[str, Any]:
+        self, question: str, schema: str, max_results: int, entity_hints: list | None = None
+    ) -> dict[str, Any]:
         prompt = _CYPHER_PROMPT.format(
             schema=schema,
             question=question,
@@ -114,7 +115,7 @@ class TextToCypherService:
             logger.warning("Cypher generation failed: %s", e)
             return {}
 
-    def _parse_cypher_response(self, content: str) -> Dict[str, Any]:
+    def _parse_cypher_response(self, content: str) -> dict[str, Any]:
         text = content.strip()
         if text.startswith("```"):
             lines = text.split("\n")
@@ -135,13 +136,13 @@ class TextToCypherService:
             return {}
 
     def _to_search_results(
-        self, records: List[Dict[str, Any]], query: str
-    ) -> List[GraphSearchResult]:
-        results: List[GraphSearchResult] = []
+        self, records: list[dict[str, Any]], query: str
+    ) -> list[GraphSearchResult]:
+        results: list[GraphSearchResult] = []
         for record in records:
-            parts: List[str] = []
-            entities: List[GraphEntity] = []
-            relations: List[GraphRelation] = []
+            parts: list[str] = []
+            entities: list[GraphEntity] = []
+            relations: list[GraphRelation] = []
 
             for key, value in record.items():
                 if isinstance(value, dict):

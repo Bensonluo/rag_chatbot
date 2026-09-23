@@ -3,6 +3,7 @@ OpenAPI/Swagger documentation configuration.
 
 Enhances FastAPI auto-generated documentation with detailed descriptions.
 """
+
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 

@@ -1,6 +1,8 @@
 """Unit tests for LLM entity extractor."""
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.services.graph.extraction.llm_extractor import LLMEntityExtractor
 
@@ -32,9 +34,7 @@ class TestLLMEntityExtractor:
 
     @pytest.mark.asyncio
     async def test_extract_invalid_json(self):
-        self.mock_llm.generate = AsyncMock(
-            return_value=MagicMock(content="not json at all")
-        )
+        self.mock_llm.generate = AsyncMock(return_value=MagicMock(content="not json at all"))
 
         result = await self.extractor.extract("some text")
         assert result.entities == []

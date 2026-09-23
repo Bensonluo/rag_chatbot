@@ -1,7 +1,9 @@
 """Tests for document metadata service"""
-import pytest
-from unittest.mock import Mock, AsyncMock
+
 from datetime import datetime
+from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 
 class TestDocumentMetadata:
@@ -35,10 +37,7 @@ class TestDocumentMetadata:
         from app.services.retrieval.document_metadata import DocumentMetadata
 
         # Act
-        metadata = DocumentMetadata(
-            document_id="doc2",
-            title="Another Document"
-        )
+        metadata = DocumentMetadata(document_id="doc2", title="Another Document")
 
         # Assert
         assert metadata.document_id == "doc2"
@@ -68,21 +67,20 @@ class TestDocumentMetadataService:
     async def test_add_metadata(self):
         """Test adding metadata"""
         # Arrange
-        from app.services.retrieval.document_metadata import DocumentMetadataService, DocumentMetadata
+        from app.services.retrieval.document_metadata import (
+            DocumentMetadata,
+            DocumentMetadataService,
+        )
 
         mock_repo = Mock()
         mock_repo.create = AsyncMock(return_value=Mock(id=1))
 
         service = DocumentMetadataService(repository=mock_repo)
 
-        metadata = DocumentMetadata(
-            document_id="doc1",
-            title="Test",
-            category="tech"
-        )
+        metadata = DocumentMetadata(document_id="doc1", title="Test", category="tech")
 
         # Act
-        result = await service.add_metadata(metadata)
+        await service.add_metadata(metadata)
 
         # Assert
         mock_repo.create.assert_called_once()
@@ -91,14 +89,14 @@ class TestDocumentMetadataService:
     async def test_get_metadata(self):
         """Test retrieving metadata"""
         # Arrange
-        from app.services.retrieval.document_metadata import DocumentMetadataService, DocumentMetadata
+        from app.services.retrieval.document_metadata import (
+            DocumentMetadata,
+            DocumentMetadataService,
+        )
 
         mock_repo = Mock()
         mock_metadata = DocumentMetadata(
-            id=1,
-            document_id="doc1",
-            title="Test Document",
-            category="tech"
+            id=1, document_id="doc1", title="Test Document", category="tech"
         )
         mock_repo.get_by_document_id = AsyncMock(return_value=mock_metadata)
 
@@ -134,14 +132,14 @@ class TestDocumentMetadataService:
     async def test_update_metadata(self):
         """Test updating metadata"""
         # Arrange
-        from app.services.retrieval.document_metadata import DocumentMetadataService, DocumentMetadata
+        from app.services.retrieval.document_metadata import (
+            DocumentMetadata,
+            DocumentMetadataService,
+        )
 
         mock_repo = Mock()
         mock_existing = DocumentMetadata(
-            id=1,
-            document_id="doc1",
-            title="Old Title",
-            category="old"
+            id=1, document_id="doc1", title="Old Title", category="old"
         )
         mock_repo.get_by_document_id = AsyncMock(return_value=mock_existing)
         mock_repo.update = AsyncMock(return_value=mock_existing)
@@ -149,14 +147,11 @@ class TestDocumentMetadataService:
         service = DocumentMetadataService(repository=mock_repo)
 
         updated_metadata = DocumentMetadata(
-            id=1,
-            document_id="doc1",
-            title="New Title",
-            category="new"
+            id=1, document_id="doc1", title="New Title", category="new"
         )
 
         # Act
-        result = await service.update_metadata(updated_metadata)
+        await service.update_metadata(updated_metadata)
 
         # Assert
         mock_repo.update.assert_called_once()
@@ -182,7 +177,10 @@ class TestDocumentMetadataService:
     async def test_search_by_category(self):
         """Test searching metadata by category"""
         # Arrange
-        from app.services.retrieval.document_metadata import DocumentMetadataService, DocumentMetadata
+        from app.services.retrieval.document_metadata import (
+            DocumentMetadata,
+            DocumentMetadataService,
+        )
 
         mock_repo = Mock()
         mock_results = [
@@ -205,7 +203,10 @@ class TestDocumentMetadataService:
     async def test_search_by_tags(self):
         """Test searching metadata by tags"""
         # Arrange
-        from app.services.retrieval.document_metadata import DocumentMetadataService, DocumentMetadata
+        from app.services.retrieval.document_metadata import (
+            DocumentMetadata,
+            DocumentMetadataService,
+        )
 
         mock_repo = Mock()
         mock_results = [
@@ -228,7 +229,10 @@ class TestDocumentMetadataService:
     async def test_get_metadata_batch(self):
         """Test getting metadata for multiple documents"""
         # Arrange
-        from app.services.retrieval.document_metadata import DocumentMetadataService, DocumentMetadata
+        from app.services.retrieval.document_metadata import (
+            DocumentMetadata,
+            DocumentMetadataService,
+        )
 
         mock_repo = Mock()
         mock_results = {
@@ -251,7 +255,10 @@ class TestDocumentMetadataService:
     async def test_enrich_search_results(self):
         """Test enriching search results with metadata"""
         # Arrange
-        from app.services.retrieval.document_metadata import DocumentMetadataService, DocumentMetadata
+        from app.services.retrieval.document_metadata import (
+            DocumentMetadata,
+            DocumentMetadataService,
+        )
         from app.services.retrieval.vector_base import SearchResult
 
         mock_repo = Mock()
@@ -301,18 +308,14 @@ class TestDocumentMetadataRepository:
         """Test creating metadata in repository"""
         # Arrange
         from app.services.retrieval.document_metadata import (
-            DocumentMetadataRepository,
             DocumentMetadataModel,
+            DocumentMetadataRepository,
         )
 
         mock_session = Mock()
         repo = DocumentMetadataRepository(session=mock_session)
 
-        metadata_model = DocumentMetadataModel(
-            document_id="doc1",
-            title="Test",
-            category="tech"
-        )
+        metadata_model = DocumentMetadataModel(document_id="doc1", title="Test", category="tech")
 
         # Act
         result = await repo.create(metadata_model)
@@ -328,16 +331,12 @@ class TestDocumentMetadataRepository:
         """Test getting metadata by document ID"""
         # Arrange
         from app.services.retrieval.document_metadata import (
-            DocumentMetadataRepository,
             DocumentMetadataModel,
+            DocumentMetadataRepository,
         )
 
         mock_session = Mock()
-        mock_model = DocumentMetadataModel(
-            id=1,
-            document_id="doc1",
-            title="Test"
-        )
+        mock_model = DocumentMetadataModel(id=1, document_id="doc1", title="Test")
         repo = DocumentMetadataRepository(session=mock_session)
         await repo.create(mock_model)
 

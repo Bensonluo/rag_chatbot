@@ -3,14 +3,13 @@ Factory for creating embedding service instances.
 
 Provides a simple interface for creating embedding clients based on configuration.
 """
-from typing import Optional
 
-from app.services.embeddings.base import EmbeddingServiceBase
-from app.services.embeddings.local_embeddings import get_local_embedding_service
-from app.services.embeddings.glm_embeddings import GLMEmbeddingService
-from app.services.embeddings.cached_embeddings import CachedEmbeddingService
 from app.config.settings import get_settings
 from app.core.exceptions import ValidationError
+from app.services.embeddings.base import EmbeddingServiceBase
+from app.services.embeddings.cached_embeddings import CachedEmbeddingService
+from app.services.embeddings.glm_embeddings import GLMEmbeddingService
+from app.services.embeddings.local_embeddings import get_local_embedding_service
 
 
 class EmbeddingFactory:
@@ -25,8 +24,8 @@ class EmbeddingFactory:
     @staticmethod
     def create(
         provider: str = "local",
-        model: Optional[str] = None,
-        api_key: Optional[str] = None,
+        model: str | None = None,
+        api_key: str | None = None,
         use_cache: bool = True,
         cache_ttl: int = 604800,  # 7 days
         device: str = "cpu",
@@ -88,10 +87,7 @@ class EmbeddingFactory:
                 raise ValidationError("GLM API key not configured")
 
             model = model or "embedding-2"
-            service = GLMEmbeddingService(
-                api_key=api_key,
-                model=model
-            )
+            service = GLMEmbeddingService(api_key=api_key, model=model)
 
         elif provider == "openai":
             api_key = api_key or settings.OPENAI_API_KEY
@@ -100,11 +96,9 @@ class EmbeddingFactory:
 
             # OpenAI embeddings (if needed later)
             from app.services.embeddings.openai_embeddings import OpenAIEmbeddingService
+
             model = model or settings.OPENAI_EMBEDDING_MODEL
-            service = OpenAIEmbeddingService(
-                api_key=api_key,
-                model=model
-            )
+            service = OpenAIEmbeddingService(api_key=api_key, model=model)
 
         else:
             raise ValidationError(f"Provider {provider} not implemented")
@@ -113,17 +107,14 @@ class EmbeddingFactory:
         if use_cache:
             redis_url = settings.REDIS_URL
             service = CachedEmbeddingService(
-                embedding_service=service,
-                redis_url=redis_url,
-                cache_ttl=cache_ttl
+                embedding_service=service, redis_url=redis_url, cache_ttl=cache_ttl
             )
 
         return service
 
     @staticmethod
     def create_from_settings(
-        use_cache: bool = True,
-        cache_ttl: int = 604800
+        use_cache: bool = True, cache_ttl: int = 604800
     ) -> EmbeddingServiceBase:
         """
         Create embedding service from settings with automatic provider selection.
@@ -147,12 +138,9 @@ class EmbeddingFactory:
         settings = get_settings()
 
         # Get provider from settings (default to local)
-        provider = getattr(settings, 'EMBEDDING_PROVIDER', 'local')
-        model = getattr(settings, 'EMBEDDING_MODEL', None)
+        provider = getattr(settings, "EMBEDDING_PROVIDER", "local")
+        model = getattr(settings, "EMBEDDING_MODEL", None)
 
         return EmbeddingFactory.create(
-            provider=provider,
-            model=model,
-            use_cache=use_cache,
-            cache_ttl=cache_ttl
+            provider=provider, model=model, use_cache=use_cache, cache_ttl=cache_ttl
         )

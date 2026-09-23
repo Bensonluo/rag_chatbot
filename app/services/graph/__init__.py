@@ -1,11 +1,12 @@
 """Knowledge graph services for GraphRAG."""
+
 from app.services.graph.base import (
+    CommunitySummary,
     GraphClient,
+    GraphClientError,
     GraphEntity,
     GraphRelation,
     GraphSearchResult,
-    CommunitySummary,
-    GraphClientError,
 )
 from app.services.graph.factory import GraphFactory
 

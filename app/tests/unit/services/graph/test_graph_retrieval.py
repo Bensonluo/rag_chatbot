@@ -1,8 +1,10 @@
 """Unit tests for graph retrieval services."""
-import pytest
+
 from unittest.mock import AsyncMock
 
-from app.services.graph.base import GraphEntity, GraphRelation, GraphSearchResult
+import pytest
+
+from app.services.graph.base import GraphEntity, GraphSearchResult
 from app.services.graph.retrieval.graph_retrieval_service import GraphRetrievalService
 from app.services.graph.retrieval.multi_path_fusion import MultiPathRetrievalFusion
 from app.services.retrieval.vector_base import SearchResult
@@ -43,8 +45,11 @@ class TestGraphRetrievalServiceRRF:
     @pytest.mark.asyncio
     async def test_returns_cypher_only_when_embedding_fails(self):
         cypher_result = GraphSearchResult(
-            content="test", entities=[], relations=[],
-            score=1.0, source_type="text_to_cypher",
+            content="test",
+            entities=[],
+            relations=[],
+            score=1.0,
+            source_type="text_to_cypher",
         )
         mock_cypher = AsyncMock()
         mock_cypher.query = AsyncMock(return_value=[cypher_result])
@@ -98,8 +103,15 @@ class TestMultiPathFusion:
 
     def test_respects_top_k(self):
         fusion = MultiPathRetrievalFusion()
-        vector_results = [SearchResult(document_id=f"v{i}", content=f"doc {i}", score=0.9) for i in range(10)]
-        graph_results = [GraphSearchResult(content=f"g{i}", entities=[], relations=[], score=0.8, source_type="embedding") for i in range(10)]
+        vector_results = [
+            SearchResult(document_id=f"v{i}", content=f"doc {i}", score=0.9) for i in range(10)
+        ]
+        graph_results = [
+            GraphSearchResult(
+                content=f"g{i}", entities=[], relations=[], score=0.8, source_type="embedding"
+            )
+            for i in range(10)
+        ]
 
         fused = fusion.fuse(vector_results, graph_results, top_k=3)
         assert len(fused) == 3
@@ -116,7 +128,9 @@ class TestMultiPathFusion:
 
     def test_graph_only(self):
         fusion = MultiPathRetrievalFusion()
-        graph_results = [GraphSearchResult(content="g", entities=[], relations=[], score=0.8, source_type="emb")]
+        graph_results = [
+            GraphSearchResult(content="g", entities=[], relations=[], score=0.8, source_type="emb")
+        ]
         fused = fusion.fuse([], graph_results, top_k=5)
         assert len(fused) == 1
         assert fused[0].metadata.get("source_type") == "emb"

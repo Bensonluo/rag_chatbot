@@ -1,9 +1,11 @@
 """Message database model"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Text, Integer, JSON, Enum as SQLEnum
+from sqlalchemy import JSON, ForeignKey, Integer, String, Text
+from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.database.base import Base, TimestampMixin
@@ -28,6 +30,7 @@ class Message(Base, TimestampMixin):
         metadata: Additional metadata (sources, etc.)
         session: Relationship to ChatSession
     """
+
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(primary_key=True)

@@ -1,5 +1,5 @@
 """Tests for health check endpoints"""
-import pytest
+
 from fastapi.testclient import TestClient
 
 
@@ -102,7 +102,7 @@ class TestHealthEndpoints:
         response = client.get("/health")
 
         # Assert - Should allow caching (optional)
-        cache_control = response.headers.get("Cache-Control")
+        response.headers.get("Cache-Control")
         # May or may not have cache control
         assert response.status_code == 200
 
@@ -164,8 +164,9 @@ class TestMonitoringIntegration:
     def test_monitoring_response_times(self):
         """Test monitoring endpoints respond quickly"""
         # Arrange
-        from app.main import create_app
         import time
+
+        from app.main import create_app
 
         app = create_app()
         client = TestClient(app)

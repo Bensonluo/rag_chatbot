@@ -3,13 +3,15 @@ Anthropic LLM client implementation.
 
 Provides integration with Anthropic's Claude models.
 """
-from typing import Any, AsyncGenerator, Optional, List
+
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from anthropic import AsyncAnthropic
 
-from app.services.llm.base import LLMServiceBase, LLMMessage, LLMResponse
-from app.services.llm.token_counter import TokenCounter
 from app.core.exceptions import ExternalServiceError
+from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
+from app.services.llm.token_counter import TokenCounter
 
 
 class AnthropicClient(LLMServiceBase):
@@ -31,9 +33,9 @@ class AnthropicClient(LLMServiceBase):
         self,
         api_key: str,
         model: str = "claude-3-opus-20240229",
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-        client: Optional[Any] = None,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        client: Any | None = None,
     ) -> None:
         """
         Initialize Anthropic client.
@@ -51,9 +53,9 @@ class AnthropicClient(LLMServiceBase):
 
     async def generate(
         self,
-        messages: List[LLMMessage],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
         **kwargs,
     ) -> LLMResponse:
         """
@@ -88,14 +90,8 @@ class AnthropicClient(LLMServiceBase):
             params = {
                 "model": self.model,
                 "messages": conversation_messages,
-                "max_tokens": (
-                    max_tokens
-                    if max_tokens is not None
-                    else self.max_tokens or 4096
-                ),
-                "temperature": (
-                    temperature if temperature is not None else self.temperature
-                ),
+                "max_tokens": (max_tokens if max_tokens is not None else self.max_tokens or 4096),
+                "temperature": (temperature if temperature is not None else self.temperature),
             }
 
             # Add system message if present
@@ -114,9 +110,7 @@ class AnthropicClient(LLMServiceBase):
             # Extract response data
             # Anthropic returns content blocks
             content_blocks = response.content
-            content = "".join(
-                block.text for block in content_blocks if block.type == "text"
-            )
+            content = "".join(block.text for block in content_blocks if block.type == "text")
 
             finish_reason = response.stop_reason
             usage = {
@@ -140,9 +134,9 @@ class AnthropicClient(LLMServiceBase):
 
     async def generate_stream(
         self,
-        messages: List[LLMMessage],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
         **kwargs,
     ) -> AsyncGenerator[str, None]:
         """
@@ -175,14 +169,8 @@ class AnthropicClient(LLMServiceBase):
             params = {
                 "model": self.model,
                 "messages": conversation_messages,
-                "max_tokens": (
-                    max_tokens
-                    if max_tokens is not None
-                    else self.max_tokens or 4096
-                ),
-                "temperature": (
-                    temperature if temperature is not None else self.temperature
-                ),
+                "max_tokens": (max_tokens if max_tokens is not None else self.max_tokens or 4096),
+                "temperature": (temperature if temperature is not None else self.temperature),
             }
 
             # Add system message if present
@@ -199,9 +187,8 @@ class AnthropicClient(LLMServiceBase):
             async with self.client.messages.stream(**params) as stream:
                 # Yield text chunks as they arrive
                 async for event in stream:
-                    if event.type == "content_block_delta":
-                        if hasattr(event.delta, "text"):
-                            yield event.delta.text
+                    if event.type == "content_block_delta" and hasattr(event.delta, "text"):
+                        yield event.delta.text
 
         except Exception as e:
             raise ExternalServiceError(
@@ -221,7 +208,7 @@ class AnthropicClient(LLMServiceBase):
         """
         return TokenCounter.estimate(text)
 
-    async def count_tokens(self, messages: List[LLMMessage]) -> int:
+    async def count_tokens(self, messages: list[LLMMessage]) -> int:
         """
         Count actual tokens in messages.
 

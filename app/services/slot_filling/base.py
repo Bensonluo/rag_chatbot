@@ -5,9 +5,10 @@ Slot filling extracts structured entities from user queries after intent
 detection, producing filters for vector search and entity hints for
 graph retrieval (Text-to-Cypher).
 """
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 from app.models.enums.intent import Intent
 
@@ -23,10 +24,10 @@ class ExtractedSlot:
     confidence: float = 0.0
     source: str = "rule"
 
-    def to_filter(self) -> Dict[str, str]:
+    def to_filter(self) -> dict[str, str]:
         return {self.slot_type: self.normalized_value}
 
-    def to_entity_hint(self) -> Dict[str, str]:
+    def to_entity_hint(self) -> dict[str, str]:
         return {"type": self.entity_type, "name": self.normalized_value}
 
 
@@ -34,30 +35,30 @@ class ExtractedSlot:
 class SlotFillingResult:
     """Result of slot extraction from a user query."""
 
-    slots: List[ExtractedSlot] = field(default_factory=list)
+    slots: list[ExtractedSlot] = field(default_factory=list)
     raw_query: str = ""
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
     def has_slots(self) -> bool:
         return len(self.slots) > 0
 
-    def get_slot(self, slot_type: str) -> Optional[ExtractedSlot]:
+    def get_slot(self, slot_type: str) -> ExtractedSlot | None:
         for s in self.slots:
             if s.slot_type == slot_type:
                 return s
         return None
 
-    def get_slot_value(self, slot_type: str) -> Optional[str]:
+    def get_slot_value(self, slot_type: str) -> str | None:
         slot = self.get_slot(slot_type)
         return slot.normalized_value if slot else None
 
-    def to_filters(self) -> Dict[str, str]:
-        filters: Dict[str, str] = {}
+    def to_filters(self) -> dict[str, str]:
+        filters: dict[str, str] = {}
         for s in self.slots:
             filters[s.slot_type] = s.normalized_value
         return filters
 
-    def to_entity_hints(self) -> List[Dict[str, str]]:
+    def to_entity_hints(self) -> list[dict[str, str]]:
         return [s.to_entity_hint() for s in self.slots]
 
     def slot_types(self) -> set:
@@ -71,8 +72,8 @@ class SlotFiller(ABC):
     async def fill_slots(
         self,
         query: str,
-        intent: Optional[Intent] = None,
-        context: Optional[Dict[str, Any]] = None,
+        intent: Intent | None = None,
+        context: dict[str, Any] | None = None,
     ) -> SlotFillingResult:
         """Extract structured slots from a user query."""
         ...

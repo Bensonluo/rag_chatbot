@@ -3,9 +3,10 @@ Base classes for the guardrails system.
 
 Provides data models and ABCs for input/output content safety checks.
 """
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 
 @dataclass
@@ -13,11 +14,11 @@ class GuardrailResult:
     """Result of a guardrail check."""
 
     passed: bool = True
-    action: str = "allow"          # "allow", "block", "redact"
+    action: str = "allow"  # "allow", "block", "redact"
     original_content: str = ""
     sanitized_content: str = ""
-    violations: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    violations: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def was_blocked(self) -> bool:
@@ -55,18 +56,22 @@ class GuardrailService:
 
     def __init__(
         self,
-        input_guard: Optional[InputGuardrail] = None,
-        output_guard: Optional[OutputGuardrail] = None,
+        input_guard: InputGuardrail | None = None,
+        output_guard: OutputGuardrail | None = None,
     ) -> None:
         self._input_guard = input_guard
         self._output_guard = output_guard
 
     def check_input(self, content: str) -> GuardrailResult:
         if self._input_guard is None:
-            return GuardrailResult(passed=True, action="allow", original_content=content, sanitized_content=content)
+            return GuardrailResult(
+                passed=True, action="allow", original_content=content, sanitized_content=content
+            )
         return self._input_guard.check(content)
 
     def check_output(self, content: str) -> GuardrailResult:
         if self._output_guard is None:
-            return GuardrailResult(passed=True, action="allow", original_content=content, sanitized_content=content)
+            return GuardrailResult(
+                passed=True, action="allow", original_content=content, sanitized_content=content
+            )
         return self._output_guard.check(content)

@@ -3,14 +3,14 @@ Rate limiting middleware using token bucket algorithm.
 
 Provides IP-based rate limiting for API endpoints.
 """
+
+import logging
+import time
+
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
-from typing import Dict, Optional, List
-import time
-import logging
 
 from app.middleware.error_handler import ErrorResponse
-
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +77,8 @@ class RateLimiterMiddleware:
         self,
         app,
         requests_per_minute: int = 60,
-        bucket_size: Optional[int] = None,
-        whitelist_paths: Optional[List[str]] = None,
+        bucket_size: int | None = None,
+        whitelist_paths: list[str] | None = None,
     ):
         """
         Initialize rate limiter middleware.
@@ -95,7 +95,7 @@ class RateLimiterMiddleware:
         self.whitelist_paths = set(whitelist_paths or [])
 
         # Token bucket per IP
-        self.buckets: Dict[str, TokenBucket] = {}
+        self.buckets: dict[str, TokenBucket] = {}
 
         # Calculate refill rate (tokens per second)
         self.refill_rate = requests_per_minute / 60.0
@@ -249,7 +249,7 @@ class RateLimiterMiddleware:
 
         logger.warning(
             f"Rate limit exceeded for IP: {client_ip}",
-            extra={"ip": client_ip, "tokens_remaining": bucket.tokens}
+            extra={"ip": client_ip, "tokens_remaining": bucket.tokens},
         )
 
         response = JSONResponse(

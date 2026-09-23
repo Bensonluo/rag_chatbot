@@ -1,6 +1,10 @@
 """Integration tests for chat pipeline"""
+
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
+
+from app.models.enums.intent import Intent
 
 
 class TestChatPipelineIntegration:
@@ -11,10 +15,9 @@ class TestChatPipelineIntegration:
         """Test complete pipeline: intent -> retrieval -> memory -> generation"""
         # Arrange
         from app.services.chat.chat_service import ChatService
-        from app.services.llm.base import LLMResponse, LLMMessage
-        from app.services.memory.base import MessageContent
         from app.services.intent.base import Intent, IntentResult
-        from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
+        from app.services.llm.base import LLMResponse
+        from app.services.retrieval.vector_base import SearchResult
 
         # Mock LLM
         mock_llm = Mock()
@@ -22,7 +25,7 @@ class TestChatPipelineIntegration:
             return_value=LLMResponse(
                 content="Python is a high-level programming language.",
                 model="gpt-4",
-                usage={"total_tokens": 30}
+                usage={"total_tokens": 30},
             )
         )
 
@@ -34,11 +37,7 @@ class TestChatPipelineIntegration:
         # Mock intent detector
         mock_intent = Mock()
         mock_intent.detect_with_confidence = AsyncMock(
-            return_value=IntentResult(
-                intent=Intent.QUESTION,
-                confidence=0.95,
-                metadata={}
-            )
+            return_value=IntentResult(intent=Intent.QUESTION, confidence=0.95, metadata={})
         )
 
         # Mock retrieval pipeline
@@ -49,7 +48,7 @@ class TestChatPipelineIntegration:
                         SearchResult(
                             document_id="doc1",
                             content="Python is a programming language created by Guido van Rossum.",
-                            score=0.95
+                            score=0.95,
                         )
                     ]
                 )
@@ -60,7 +59,7 @@ class TestChatPipelineIntegration:
                         SearchResult(
                             document_id="doc1",
                             content="Python is a programming language created by Guido van Rossum.",
-                            score=0.95
+                            score=0.95,
                         )
                     ]
                 )
@@ -72,7 +71,7 @@ class TestChatPipelineIntegration:
                             document_id="doc1",
                             content="Python is a programming language created by Guido van Rossum.",
                             score=0.95,
-                            metadata={"title": "Python Documentation"}
+                            metadata={"title": "Python Documentation"},
                         )
                     ]
                 )
@@ -116,16 +115,13 @@ class TestChatPipelineIntegration:
         """Test pipeline with conversation context from memory"""
         # Arrange
         from app.services.chat.chat_service import ChatService
+        from app.services.intent.base import Intent, IntentResult
         from app.services.llm.base import LLMResponse
         from app.services.memory.base import MessageContent
-        from app.services.intent.base import Intent, IntentResult
 
         mock_llm = Mock()
         mock_llm.generate = AsyncMock(
-            return_value=LLMResponse(
-                content="You said your name is Alice.",
-                model="gpt-4"
-            )
+            return_value=LLMResponse(content="You said your name is Alice.", model="gpt-4")
         )
 
         mock_memory = Mock()
@@ -213,7 +209,6 @@ class TestChatPipelineIntegration:
         """Test pipeline handles errors gracefully"""
         # Arrange
         from app.services.chat.chat_service import ChatService
-        from app.core.exceptions import BaseServiceError
 
         mock_llm = Mock()
         mock_memory = Mock()
@@ -222,9 +217,7 @@ class TestChatPipelineIntegration:
             "hybrid_search": Mock(search=AsyncMock(side_effect=Exception("Search failed")))
         }
 
-        mock_llm.generate = AsyncMock(
-            return_value=Mock(content="Fallback response", model="gpt-4")
-        )
+        mock_llm.generate = AsyncMock(return_value=Mock(content="Fallback response", model="gpt-4"))
         mock_memory.get_context = AsyncMock(return_value=[])
         mock_memory.add_message = AsyncMock()
         mock_intent.detect_with_confidence = AsyncMock(
@@ -254,8 +247,6 @@ class TestChatPipelineIntegration:
         """Test creating complete pipeline with factory"""
         # Arrange
         from app.services.chat.factory import ChatServiceFactory
-        from app.services.memory import MemoryFactory
-        from app.services.intent import IntentFactory
 
         mock_llm = Mock()
         mock_message_repo = Mock()
@@ -298,8 +289,8 @@ class TestChatEndToEndScenarios:
         """Test QA scenario with retrieval"""
         # Arrange
         from app.services.chat.chat_service import ChatService
-        from app.services.llm.base import LLMResponse
         from app.services.intent.base import Intent, IntentResult
+        from app.services.llm.base import LLMResponse
         from app.services.retrieval.vector_base import SearchResult
 
         mock_llm = Mock()
@@ -312,7 +303,7 @@ class TestChatEndToEndScenarios:
                         SearchResult(
                             document_id="doc1",
                             content="FastAPI is a modern web framework for building APIs with Python.",
-                            score=0.95
+                            score=0.95,
                         )
                     ]
                 )
@@ -324,7 +315,7 @@ class TestChatEndToEndScenarios:
         mock_llm.generate = AsyncMock(
             return_value=LLMResponse(
                 content="FastAPI is a modern web framework for building APIs with Python.",
-                model="gpt-4"
+                model="gpt-4",
             )
         )
         mock_memory.get_context = AsyncMock(return_value=[])
@@ -357,18 +348,15 @@ class TestChatEndToEndScenarios:
         """Test greeting scenario without retrieval"""
         # Arrange
         from app.services.chat.chat_service import ChatService
-        from app.services.llm.base import LLMResponse
         from app.services.intent.base import Intent, IntentResult
+        from app.services.llm.base import LLMResponse
 
         mock_llm = Mock()
         mock_memory = Mock()
         mock_intent = Mock()
 
         mock_llm.generate = AsyncMock(
-            return_value=LLMResponse(
-                content="Hello! How can I help you today?",
-                model="gpt-4"
-            )
+            return_value=LLMResponse(content="Hello! How can I help you today?", model="gpt-4")
         )
         mock_memory.get_context = AsyncMock(return_value=[])
         mock_memory.add_message = AsyncMock()

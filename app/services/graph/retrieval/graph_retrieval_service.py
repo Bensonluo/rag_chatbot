@@ -4,12 +4,12 @@ Unified graph retrieval service.
 Combines Text-to-Cypher and graph embedding search via Reciprocal Rank Fusion,
 mirroring the HybridSearchService pattern from the vector retrieval layer.
 """
+
 import logging
-from typing import Optional, List
 
 from app.services.graph.base import GraphSearchResult
-from app.services.graph.retrieval.text_to_cypher import TextToCypherService
 from app.services.graph.retrieval.graph_embedding_search import GraphEmbeddingSearch
+from app.services.graph.retrieval.text_to_cypher import TextToCypherService
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,8 @@ class GraphRetrievalService:
 
     def __init__(
         self,
-        text_to_cypher: Optional[TextToCypherService] = None,
-        graph_embedding_search: Optional[GraphEmbeddingSearch] = None,
+        text_to_cypher: TextToCypherService | None = None,
+        graph_embedding_search: GraphEmbeddingSearch | None = None,
         cypher_weight: float = 0.6,
         embedding_weight: float = 0.4,
     ) -> None:
@@ -30,15 +30,17 @@ class GraphRetrievalService:
         self._embedding_weight = embedding_weight
 
     async def search(
-        self, query: str, top_k: int = 10, entity_hints: Optional[list] = None
-    ) -> List[GraphSearchResult]:
+        self, query: str, top_k: int = 10, entity_hints: list | None = None
+    ) -> list[GraphSearchResult]:
         """Run both search modes and fuse via RRF."""
-        cypher_results: List[GraphSearchResult] = []
-        embedding_results: List[GraphSearchResult] = []
+        cypher_results: list[GraphSearchResult] = []
+        embedding_results: list[GraphSearchResult] = []
 
         if self._cypher:
             try:
-                cypher_results = await self._cypher.query(query, max_results=top_k, entity_hints=entity_hints)
+                cypher_results = await self._cypher.query(
+                    query, max_results=top_k, entity_hints=entity_hints
+                )
             except Exception as e:
                 logger.warning("Text-to-Cypher search failed: %s", e)
 
@@ -57,17 +59,15 @@ class GraphRetrievalService:
         if not embedding_results:
             return cypher_results[:top_k]
 
-        return self._reciprocal_rank_fusion(
-            cypher_results, embedding_results, top_k
-        )
+        return self._reciprocal_rank_fusion(cypher_results, embedding_results, top_k)
 
     def _reciprocal_rank_fusion(
         self,
-        cypher_results: List[GraphSearchResult],
-        embedding_results: List[GraphSearchResult],
+        cypher_results: list[GraphSearchResult],
+        embedding_results: list[GraphSearchResult],
         top_k: int,
         k: int = 60,
-    ) -> List[GraphSearchResult]:
+    ) -> list[GraphSearchResult]:
         """RRF fusion across two result sets, same algorithm as HybridSearchService."""
         scores: dict[str, float] = {}
         content_map: dict[str, GraphSearchResult] = {}
@@ -85,7 +85,7 @@ class GraphRetrievalService:
 
         sorted_keys = sorted(scores, key=scores.get, reverse=True)  # type: ignore[arg-type]
 
-        results: List[GraphSearchResult] = []
+        results: list[GraphSearchResult] = []
         for key in sorted_keys[:top_k]:
             result = content_map[key]
             results.append(

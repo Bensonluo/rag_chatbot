@@ -4,13 +4,9 @@ Optimized context builder with relevance-based filtering.
 Implements smart token budgeting and relevance filtering to reduce
 token usage and improve response quality.
 """
-from typing import Optional, List
-from datetime import datetime, timedelta
 
-from app.services.memory.base import MemoryStrategy, MessageContent
 from app.services.embeddings import EmbeddingFactory
-from app.core.exceptions import ExternalServiceError
-import math
+from app.services.memory.base import MemoryStrategy, MessageContent
 
 
 class OptimizedContextBuilder(MemoryStrategy):
@@ -45,9 +41,7 @@ class OptimizedContextBuilder(MemoryStrategy):
             token_budget: Maximum tokens for chat history
         """
         self.message_repo = message_repo
-        self.embedding_service = embedding_service or EmbeddingFactory.create(
-            provider="local"
-        )
+        self.embedding_service = embedding_service or EmbeddingFactory.create(provider="local")
         self.max_recent_messages = max_recent_messages
         self.max_relevant_messages = max_relevant_messages
         self.relevance_threshold = relevance_threshold
@@ -56,9 +50,9 @@ class OptimizedContextBuilder(MemoryStrategy):
     async def get_context(
         self,
         session_id: int,
-        current_query: Optional[str] = None,
-        max_tokens: Optional[int] = None,
-    ) -> List[MessageContent]:
+        current_query: str | None = None,
+        max_tokens: int | None = None,
+    ) -> list[MessageContent]:
         """
         Get optimized context with relevance filtering.
 
@@ -73,7 +67,7 @@ class OptimizedContextBuilder(MemoryStrategy):
         # 1. Get all messages
         all_messages = await self.message_repo.get_recent_messages(
             session_id=session_id,
-            limit=100  # Get more, will filter
+            limit=100,  # Get more, will filter
         )
 
         if not all_messages:
@@ -89,9 +83,7 @@ class OptimizedContextBuilder(MemoryStrategy):
 
         if current_query and older_messages:
             relevant_messages = await self._filter_by_relevance(
-                messages=older_messages,
-                query=current_query,
-                max_count=self.max_relevant_messages
+                messages=older_messages, query=current_query, max_count=self.max_relevant_messages
             )
 
         # 4. Combine recent + relevant
@@ -105,11 +97,8 @@ class OptimizedContextBuilder(MemoryStrategy):
         return combined
 
     async def _filter_by_relevance(
-        self,
-        messages: List[MessageContent],
-        query: str,
-        max_count: int = 5
-    ) -> List[MessageContent]:
+        self, messages: list[MessageContent], query: str, max_count: int = 5
+    ) -> list[MessageContent]:
         """
         Filter messages by semantic similarity to query.
 
@@ -146,12 +135,12 @@ class OptimizedContextBuilder(MemoryStrategy):
 
             return [msg for msg, _ in scored_messages[:max_count]]
 
-        except Exception as e:
+        except Exception:
             # Fallback: return most recent messages if embedding fails
             return messages[:max_count]
 
     @staticmethod
-    def _cosine_similarity(embedding1: List[float], embedding2: List[float]) -> float:
+    def _cosine_similarity(embedding1: list[float], embedding2: list[float]) -> float:
         """
         Calculate cosine similarity between two embeddings.
 
@@ -181,10 +170,8 @@ class OptimizedContextBuilder(MemoryStrategy):
             return 0.0
 
     async def truncate_by_tokens(
-        self,
-        messages: List[MessageContent],
-        max_tokens: int
-    ) -> List[MessageContent]:
+        self, messages: list[MessageContent], max_tokens: int
+    ) -> list[MessageContent]:
         """
         Truncate messages to fit within token limit.
 
@@ -217,11 +204,7 @@ class OptimizedContextBuilder(MemoryStrategy):
 
         return result
 
-    async def estimate_token_savings(
-        self,
-        session_id: int,
-        current_query: str
-    ) -> dict:
+    async def estimate_token_savings(self, session_id: int, current_query: str) -> dict:
         """
         Estimate token savings from using relevance filtering.
 
@@ -233,10 +216,7 @@ class OptimizedContextBuilder(MemoryStrategy):
             dict: Savings statistics
         """
         # Get all messages
-        all_messages = await self.message_repo.get_recent_messages(
-            session_id=session_id,
-            limit=100
-        )
+        all_messages = await self.message_repo.get_recent_messages(session_id=session_id, limit=100)
 
         if not all_messages:
             return {"savings_percent": 0, "tokens_saved": 0}
@@ -245,10 +225,7 @@ class OptimizedContextBuilder(MemoryStrategy):
         all_tokens = sum(len(msg.content) // 4 for msg in all_messages)
 
         # Get optimized context
-        optimized = await self.get_context(
-            session_id=session_id,
-            current_query=current_query
-        )
+        optimized = await self.get_context(session_id=session_id, current_query=current_query)
 
         # Count tokens in optimized messages
         optimized_tokens = sum(len(msg.content) // 4 for msg in optimized)
@@ -263,14 +240,10 @@ class OptimizedContextBuilder(MemoryStrategy):
             "original_tokens": all_tokens,
             "optimized_tokens": optimized_tokens,
             "tokens_saved": tokens_saved,
-            "savings_percent": round(savings_percent, 1)
+            "savings_percent": round(savings_percent, 1),
         }
 
-    async def add_message(
-        self,
-        session_id: int,
-        message: MessageContent
-    ) -> None:
+    async def add_message(self, session_id: int, message: MessageContent) -> None:
         """Add a message to the repository."""
         # Create message in database
         from app.models.database.message import Message

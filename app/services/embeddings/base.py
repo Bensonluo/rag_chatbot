@@ -3,8 +3,8 @@ Base embedding service interface and data structures.
 
 Provides abstract interfaces for embedding providers to implement.
 """
+
 from abc import ABC, abstractmethod
-from typing import List
 from dataclasses import dataclass
 
 
@@ -19,7 +19,8 @@ class EmbeddingResult:
         dimensions: Number of dimensions per vector
         tokens_used: Total tokens used for embedding generation
     """
-    embeddings: List[List[float]]
+
+    embeddings: list[list[float]]
     model: str
     dimensions: int
     tokens_used: int
@@ -49,7 +50,7 @@ class EmbeddingServiceBase(ABC):
         self.dimensions = dimensions
 
     @abstractmethod
-    async def embed(self, texts: List[str]) -> EmbeddingResult:
+    async def embed(self, texts: list[str]) -> EmbeddingResult:
         """
         Generate embeddings for a list of texts.
 
@@ -65,7 +66,7 @@ class EmbeddingServiceBase(ABC):
         raise NotImplementedError("embed() must be implemented by subclass")
 
     @abstractmethod
-    async def embed_single(self, text: str) -> List[float]:
+    async def embed_single(self, text: str) -> list[float]:
         """
         Generate embedding for a single text.
 

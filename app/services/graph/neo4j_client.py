@@ -3,23 +3,32 @@ Neo4j graph database client implementation.
 
 Uses the official neo4j Python driver with async support.
 """
+
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 from app.services.graph.base import (
     GraphClient,
+    GraphClientError,
     GraphEntity,
     GraphRelation,
     GraphSearchResult,
-    GraphClientError,
 )
 
 logger = logging.getLogger(__name__)
 
-_UNSAFE_KEYWORDS = frozenset({
-    "CREATE", "DELETE", "DETACH", "SET ", "REMOVE", "MERGE",
-    "DROP", "FOREACH",
-})
+_UNSAFE_KEYWORDS = frozenset(
+    {
+        "CREATE",
+        "DELETE",
+        "DETACH",
+        "SET ",
+        "REMOVE",
+        "MERGE",
+        "DROP",
+        "FOREACH",
+    }
+)
 
 
 class Neo4jClient(GraphClient):
@@ -75,11 +84,11 @@ class Neo4jClient(GraphClient):
         except Exception:
             return False
 
-    async def add_entities(self, entities: List[GraphEntity]) -> List[str]:
+    async def add_entities(self, entities: list[GraphEntity]) -> list[str]:
         if not entities:
             return []
 
-        ids: List[str] = []
+        ids: list[str] = []
         for ent in entities:
             safe_type = _sanitize_label(ent.type)
             query = f"""
@@ -88,7 +97,7 @@ class Neo4jClient(GraphClient):
             SET node += $props
             RETURN node.id AS id
             """
-            props: Dict[str, Any] = {
+            props: dict[str, Any] = {
                 **ent.properties,
                 "type": ent.type,
             }
@@ -105,11 +114,11 @@ class Neo4jClient(GraphClient):
                 ids.append(results[0]["id"])
         return ids
 
-    async def add_relations(self, relations: List[GraphRelation]) -> List[str]:
+    async def add_relations(self, relations: list[GraphRelation]) -> list[str]:
         if not relations:
             return []
 
-        ids: List[str] = []
+        ids: list[str] = []
         for rel in relations:
             safe_type = _sanitize_label(rel.relation_type)
             query = f"""
@@ -119,7 +128,7 @@ class Neo4jClient(GraphClient):
             SET r += $props
             RETURN type(r) AS rel_type
             """
-            props: Dict[str, Any] = {"id": rel.id, **rel.properties}
+            props: dict[str, Any] = {"id": rel.id, **rel.properties}
             if rel.description:
                 props["description"] = rel.description
 
@@ -134,18 +143,16 @@ class Neo4jClient(GraphClient):
             ids.append(rel.id)
         return ids
 
-    async def execute_cypher(
-        self, query: str, params: Optional[dict] = None
-    ) -> List[Dict[str, Any]]:
+    async def execute_cypher(self, query: str, params: dict | None = None) -> list[dict[str, Any]]:
         _validate_read_only(query)
         return await self._run_query(query, params or {})
 
     async def search_entities_by_embedding(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         top_k: int = 10,
-        entity_types: Optional[List[str]] = None,
-    ) -> List[GraphSearchResult]:
+        entity_types: list[str] | None = None,
+    ) -> list[GraphSearchResult]:
         index_query = """
         CALL db.index.vector.queryNodes('entity_embedding', $k, $embedding)
         YIELD node, score
@@ -153,7 +160,7 @@ class Neo4jClient(GraphClient):
                node.description AS description, score
         ORDER BY score DESC
         """
-        params: Dict[str, Any] = {"k": top_k, "embedding": query_embedding}
+        params: dict[str, Any] = {"k": top_k, "embedding": query_embedding}
 
         try:
             results = await self._run_query(index_query, params)
@@ -161,11 +168,9 @@ class Neo4jClient(GraphClient):
             results = []
 
         if not results:
-            results = await self._fallback_embedding_search(
-                query_embedding, top_k, entity_types
-            )
+            results = await self._fallback_embedding_search(query_embedding, top_k, entity_types)
 
-        search_results: List[GraphSearchResult] = []
+        search_results: list[GraphSearchResult] = []
         for r in results:
             entity = GraphEntity(
                 id=r.get("id", ""),
@@ -187,10 +192,10 @@ class Neo4jClient(GraphClient):
 
     async def _fallback_embedding_search(
         self,
-        query_embedding: List[float],
+        query_embedding: list[float],
         top_k: int,
-        entity_types: Optional[List[str]] = None,
-    ) -> List[Dict[str, Any]]:
+        entity_types: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
         type_filter = ""
         if entity_types:
             labels = " OR ".join(f"e:{t}" for t in entity_types)
@@ -208,15 +213,13 @@ class Neo4jClient(GraphClient):
                e.description AS description, score
         """
         try:
-            return await self._run_query(
-                query, {"embedding": query_embedding, "k": top_k}
-            )
+            return await self._run_query(query, {"embedding": query_embedding, "k": top_k})
         except Exception:
             return []
 
     async def get_entity_neighborhood(
         self, entity_name: str, max_hops: int = 2, limit: int = 50
-    ) -> List[GraphSearchResult]:
+    ) -> list[GraphSearchResult]:
         query = f"""
         MATCH path = (e:Entity {{name: $name}})-[*1..{max_hops}]-(neighbor:Entity)
         WITH e, neighbor, relationships(path) AS rels
@@ -228,11 +231,9 @@ class Neo4jClient(GraphClient):
             neighbor.description AS description
         LIMIT $limit
         """
-        results = await self._run_query(
-            query, {"name": entity_name, "limit": limit}
-        )
+        results = await self._run_query(query, {"name": entity_name, "limit": limit})
 
-        search_results: List[GraphSearchResult] = []
+        search_results: list[GraphSearchResult] = []
         for r in results:
             source = GraphEntity(id="", name=r["source_name"], type=r["source_type"])
             target = GraphEntity(id="", name=r["target_name"], type=r["target_type"])
@@ -274,8 +275,8 @@ class Neo4jClient(GraphClient):
             return f"Unable to read schema: {e}"
 
         parts = ["Node Labels:"]
-        for l in labels:
-            parts.append(f"  - {l['label']}")
+        for label in labels:
+            parts.append(f"  - {label['label']}")
 
         parts.append("\nRelationship Types:")
         for r in rels:
@@ -283,19 +284,15 @@ class Neo4jClient(GraphClient):
 
         return "\n".join(parts)
 
-    async def get_stats(self) -> Dict[str, int]:
-        entity_count = await self._run_query(
-            "MATCH (e:Entity) RETURN count(e) AS count", {}
-        )
-        rel_count = await self._run_query(
-            "MATCH ()-[r]->() RETURN count(r) AS count", {}
-        )
+    async def get_stats(self) -> dict[str, int]:
+        entity_count = await self._run_query("MATCH (e:Entity) RETURN count(e) AS count", {})
+        rel_count = await self._run_query("MATCH ()-[r]->() RETURN count(r) AS count", {})
         return {
             "entities": entity_count[0]["count"] if entity_count else 0,
             "relations": rel_count[0]["count"] if rel_count else 0,
         }
 
-    async def _run_query(self, query: str, params: dict) -> List[Dict[str, Any]]:
+    async def _run_query(self, query: str, params: dict) -> list[dict[str, Any]]:
         if not self._driver:
             raise GraphClientError("Not connected to Neo4j")
 
@@ -306,10 +303,8 @@ class Neo4jClient(GraphClient):
 
     async def _ensure_constraints(self) -> None:
         constraints = [
-            "CREATE CONSTRAINT entity_name IF NOT EXISTS "
-            "FOR (e:Entity) REQUIRE e.name IS UNIQUE",
-            "CREATE CONSTRAINT entity_id IF NOT EXISTS "
-            "FOR (e:Entity) REQUIRE e.id IS UNIQUE",
+            "CREATE CONSTRAINT entity_name IF NOT EXISTS FOR (e:Entity) REQUIRE e.name IS UNIQUE",
+            "CREATE CONSTRAINT entity_id IF NOT EXISTS FOR (e:Entity) REQUIRE e.id IS UNIQUE",
         ]
         for c in constraints:
             try:

@@ -1,5 +1,5 @@
 """Tests for rule-based intent detector"""
-import pytest
+
 from app.models.enums.intent import Intent
 
 
@@ -15,7 +15,7 @@ class TestRuleBasedIntentDetector:
 
         # Assert
         assert detector is not None
-        assert hasattr(detector, 'rules')
+        assert hasattr(detector, "rules")
 
     def test_detect_refund_keyword(self):
         """Test detecting refund intent from keyword"""

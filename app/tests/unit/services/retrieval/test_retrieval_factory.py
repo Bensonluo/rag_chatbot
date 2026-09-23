@@ -1,6 +1,8 @@
 """Tests for retrieval service factory"""
-import pytest
+
 from unittest.mock import Mock, patch
+
+import pytest
 
 
 class TestRetrievalFactory:
@@ -42,15 +44,15 @@ class TestRetrievalFactory:
     def test_create_invalid_client_type(self):
         """Test creating invalid client type raises error"""
         # Arrange
-        from app.services.retrieval.factory import RetrievalFactory
         from app.core.exceptions import ValidationError
+        from app.services.retrieval.factory import RetrievalFactory
 
         # Act & Assert
         with pytest.raises(ValidationError) as exc_info:
             RetrievalFactory.create_vector_client(
                 client_type="invalid_type",
                 url="http://localhost:6333",
-                collection_name="test_collection"
+                collection_name="test_collection",
             )
         assert "client" in str(exc_info.value).lower()
 
@@ -64,9 +66,7 @@ class TestRetrievalFactory:
 
         # Act
         service = RetrievalFactory.create_hybrid_search(
-            vector_client=mock_vector_client,
-            keyword_search=mock_keyword_search,
-            vector_weight=0.7
+            vector_client=mock_vector_client, keyword_search=mock_keyword_search, vector_weight=0.7
         )
 
         # Assert
@@ -83,8 +83,7 @@ class TestRetrievalFactory:
 
         # Act
         service = RetrievalFactory.create_hybrid_search(
-            vector_client=mock_vector_client,
-            keyword_search=mock_keyword_search
+            vector_client=mock_vector_client, keyword_search=mock_keyword_search
         )
 
         # Assert
@@ -99,10 +98,7 @@ class TestRetrievalFactory:
         mock_llm = Mock()
 
         # Act
-        reranker = RetrievalFactory.create_reranker(
-            llm_service=mock_llm,
-            top_n=10
-        )
+        reranker = RetrievalFactory.create_reranker(llm_service=mock_llm, top_n=10)
 
         # Assert
         assert reranker.top_n == 10
@@ -115,9 +111,7 @@ class TestRetrievalFactory:
         mock_llm = Mock()
 
         # Act
-        reranker = RetrievalFactory.create_reranker(
-            llm_service=mock_llm
-        )
+        reranker = RetrievalFactory.create_reranker(llm_service=mock_llm)
 
         # Assert
         assert reranker.top_n == 5
@@ -128,12 +122,11 @@ class TestRetrievalFactory:
         from app.services.retrieval.factory import RetrievalFactory
 
         # Act
-        reranker = RetrievalFactory.create_reranker(
-            reranker_type="noop"
-        )
+        reranker = RetrievalFactory.create_reranker(reranker_type="noop")
 
         # Assert
         from app.services.retrieval.reranking import NoOpReranker
+
         assert isinstance(reranker, NoOpReranker)
 
     def test_create_document_metadata_service(self):
@@ -144,9 +137,7 @@ class TestRetrievalFactory:
         mock_repo = Mock()
 
         # Act
-        service = RetrievalFactory.create_metadata_service(
-            repository=mock_repo
-        )
+        service = RetrievalFactory.create_metadata_service(repository=mock_repo)
 
         # Assert
         assert service.repository == mock_repo
@@ -166,7 +157,7 @@ class TestRetrievalFactory:
             llm_service=mock_llm,
             metadata_repository=mock_metadata_repo,
             use_reranking=True,
-            use_metadata_enrichment=True
+            use_metadata_enrichment=True,
         )
 
         # Assert
@@ -184,13 +175,12 @@ class TestRetrievalFactory:
 
         # Act
         pipeline = RetrievalFactory.create_pipeline(
-            vector_client=mock_vector_client,
-            llm_service=mock_llm,
-            use_reranking=False
+            vector_client=mock_vector_client, llm_service=mock_llm, use_reranking=False
         )
 
         # Assert
         from app.services.retrieval.reranking import NoOpReranker
+
         assert isinstance(pipeline["reranker"], NoOpReranker)
 
     def test_create_retrieval_pipeline_without_metadata(self):
@@ -203,9 +193,7 @@ class TestRetrievalFactory:
 
         # Act
         pipeline = RetrievalFactory.create_pipeline(
-            vector_client=mock_vector_client,
-            llm_service=mock_llm,
-            use_metadata_enrichment=False
+            vector_client=mock_vector_client, llm_service=mock_llm, use_metadata_enrichment=False
         )
 
         # Assert
@@ -214,15 +202,15 @@ class TestRetrievalFactory:
     def test_factory_config_validation(self):
         """Test factory configuration validation"""
         # Arrange
-        from app.services.retrieval.factory import RetrievalFactory
         from app.core.exceptions import ValidationError
+        from app.services.retrieval.factory import RetrievalFactory
 
         # Act & Assert - Invalid vector weight
         with pytest.raises(ValidationError):
             RetrievalFactory.create_hybrid_search(
                 vector_client=Mock(),
                 keyword_search=Mock(),
-                vector_weight=1.5  # Invalid
+                vector_weight=1.5,  # Invalid
             )
 
     def test_create_with_custom_reranker_config(self):
@@ -234,9 +222,7 @@ class TestRetrievalFactory:
 
         # Act
         reranker = RetrievalFactory.create_reranker(
-            llm_service=mock_llm,
-            reranker_type="llm",
-            top_n=15
+            llm_service=mock_llm, reranker_type="llm", top_n=15
         )
 
         # Assert
@@ -244,8 +230,8 @@ class TestRetrievalFactory:
 
     def test_create_cross_encoder_reranker(self):
         """Test creating cross-encoder reranker"""
-        from app.services.retrieval.factory import RetrievalFactory
         from app.services.retrieval.cross_encoder_reranker import CrossEncoderReranker
+        from app.services.retrieval.factory import RetrievalFactory
 
         reranker = RetrievalFactory.create_reranker(
             reranker_type="cross_encoder",
@@ -260,8 +246,8 @@ class TestRetrievalFactory:
 
     def test_create_cross_encoder_reranker_default_model(self):
         """Test creating cross-encoder reranker with default model"""
-        from app.services.retrieval.factory import RetrievalFactory
         from app.services.retrieval.cross_encoder_reranker import CrossEncoderReranker
+        from app.services.retrieval.factory import RetrievalFactory
 
         reranker = RetrievalFactory.create_reranker(reranker_type="cross_encoder")
 
@@ -270,8 +256,8 @@ class TestRetrievalFactory:
 
     def test_create_invalid_reranker_type(self):
         """Test creating invalid reranker type raises error"""
-        from app.services.retrieval.factory import RetrievalFactory
         from app.core.exceptions import ValidationError
+        from app.services.retrieval.factory import RetrievalFactory
 
         with pytest.raises(ValidationError) as exc_info:
             RetrievalFactory.create_reranker(reranker_type="invalid")
@@ -293,8 +279,8 @@ class TestRetrievalFactory:
 
     def test_create_reranker_from_settings_cross_encoder(self):
         """Test create_reranker_from_settings with cross_encoder type"""
-        from app.services.retrieval.factory import RetrievalFactory
         from app.services.retrieval.cross_encoder_reranker import CrossEncoderReranker
+        from app.services.retrieval.factory import RetrievalFactory
 
         mock_settings = Mock()
         mock_settings.RERANKER_ENABLED = True
@@ -311,8 +297,8 @@ class TestRetrievalFactory:
 
     def test_create_reranker_from_settings_chained_with_llm(self):
         """Test create_reranker_from_settings with chained type (cross_encoder + LLM)"""
-        from app.services.retrieval.factory import RetrievalFactory
         from app.services.retrieval.chained_reranker import ChainedReranker
+        from app.services.retrieval.factory import RetrievalFactory
 
         mock_settings = Mock()
         mock_settings.RERANKER_ENABLED = True

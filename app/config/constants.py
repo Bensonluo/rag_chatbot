@@ -3,6 +3,7 @@ Application constants.
 
 Central place for all constant values used throughout the application.
 """
+
 from datetime import timedelta
 
 # API Constants
@@ -21,9 +22,11 @@ MEMORY_HYBRID = "hybrid"
 
 MEMORY_TYPES = [MEMORY_SLIDING_WINDOW, MEMORY_SUMMARIZATION, MEMORY_HYBRID]
 
+
 # Intent Constants
 class Intent:
     """Intent categories"""
+
     QUESTION = "question"
     COMPARISON = "comparison"
     HOW_TO = "how_to"
@@ -49,9 +52,11 @@ INTENT_CATEGORIES = [
     Intent.UNKNOWN,
 ]
 
+
 # Message Constants
 class MessageRole:
     """Message roles"""
+
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
@@ -59,6 +64,7 @@ class MessageRole:
 
 class MessageStatus:
     """Message processing status"""
+
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
@@ -107,9 +113,11 @@ STATUS_MESSAGES = {
     503: "Service Unavailable",
 }
 
+
 # Error Codes
 class ErrorCode:
     """Standard error codes"""
+
     VALIDATION_ERROR = "VALIDATION_ERROR"
     AUTHENTICATION_FAILED = "AUTHENTICATION_FAILED"
     AUTHORIZATION_FAILED = "AUTHORIZATION_FAILED"

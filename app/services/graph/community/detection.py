@@ -4,12 +4,13 @@ Community detection service.
 Detects communities (clusters) in the knowledge graph using either Neo4j GDS
 Leiden algorithm or a pure Python fallback.
 """
+
+import contextlib
 import logging
-from typing import Dict, List, Any
 
 from app.services.graph.base import (
-    GraphClient,
     CommunitySummary,
+    GraphClient,
     GraphClientError,
 )
 
@@ -25,8 +26,8 @@ class CommunityDetectionService:
     async def detect_communities(
         self,
         min_community_size: int = 3,
-        max_levels: int = 5,
-    ) -> Dict[int, List[CommunitySummary]]:
+        max_levels: int = 5,  # noqa: ARG002  # base detection API conformance
+    ) -> dict[int, list[CommunitySummary]]:
         """Detect communities and return hierarchical summaries.
 
         Strategy:
@@ -39,9 +40,7 @@ class CommunityDetectionService:
             logger.info("GDS detection failed (%s), trying Python fallback", e)
             return await self._detect_with_python(min_community_size)
 
-    async def _detect_with_gds(
-        self, min_community_size: int
-    ) -> Dict[int, List[CommunitySummary]]:
+    async def _detect_with_gds(self, min_community_size: int) -> dict[int, list[CommunitySummary]]:
         """Use Neo4j GDS Leiden algorithm."""
         # Project graph
         await self._graph.execute_cypher(
@@ -69,14 +68,10 @@ class CommunityDetectionService:
             )
         finally:
             # Clean up projection
-            try:
-                await self._graph.execute_cypher(
-                    "CALL gds.graph.drop('entity_graph')"
-                )
-            except Exception:
-                pass
+            with contextlib.suppress(Exception):
+                await self._graph.execute_cypher("CALL gds.graph.drop('entity_graph')")
 
-        communities: Dict[int, List[CommunitySummary]] = {0: []}
+        communities: dict[int, list[CommunitySummary]] = {0: []}
         for r in results:
             communities[0].append(
                 CommunitySummary(
@@ -92,7 +87,7 @@ class CommunityDetectionService:
 
     async def _detect_with_python(
         self, min_community_size: int
-    ) -> Dict[int, List[CommunitySummary]]:
+    ) -> dict[int, list[CommunitySummary]]:
         """Pure Python fallback using networkx + python-louvain."""
         try:
             import networkx as nx
@@ -104,8 +99,7 @@ class CommunityDetectionService:
 
         # Export graph from Neo4j
         edges = await self._graph.execute_cypher(
-            "MATCH (a:Entity)-[r]->(b:Entity) "
-            "RETURN a.name AS source, b.name AS target"
+            "MATCH (a:Entity)-[r]->(b:Entity) RETURN a.name AS source, b.name AS target"
         )
 
         nodes = await self._graph.execute_cypher(
@@ -138,11 +132,11 @@ class CommunityDetectionService:
                     partition[node] = i
 
         # Group by community
-        community_groups: Dict[int, List[str]] = {}
+        community_groups: dict[int, list[str]] = {}
         for node, comm_id in partition.items():
             community_groups.setdefault(comm_id, []).append(node)
 
-        communities: Dict[int, List[CommunitySummary]] = {0: []}
+        communities: dict[int, list[CommunitySummary]] = {0: []}
         for comm_id, members in community_groups.items():
             if len(members) < min_community_size:
                 continue
@@ -161,12 +155,11 @@ class CommunityDetectionService:
         for comm_id, members in community_groups.items():
             node_data = [{"name": m, "cid": str(comm_id)} for m in members]
             for nd in node_data:
-                try:
+                # Read-only validation in execute_cypher; use direct driver
+                with contextlib.suppress(GraphClientError):
                     await self._graph.execute_cypher(
                         "MATCH (e:Entity {name: $name}) SET e.communityId = $cid",
                         nd,
                     )
-                except GraphClientError:
-                    pass  # Read-only validation in execute_cypher; use direct driver
 
         return communities

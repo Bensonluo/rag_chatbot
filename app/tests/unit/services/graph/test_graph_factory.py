@@ -1,10 +1,12 @@
 """Unit tests for graph factory."""
-import pytest
-from unittest.mock import patch, MagicMock
 
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from app.core.exceptions import ValidationError
 from app.services.graph.factory import GraphFactory
 from app.services.graph.neo4j_client import Neo4jClient
-from app.core.exceptions import ValidationError
 
 
 class TestGraphFactory:

@@ -1,9 +1,8 @@
 """Factory for creating slot filler instances."""
-from typing import Optional
 
+from app.services.llm.base import LLMServiceBase
 from app.services.slot_filling.base import SlotFiller
 from app.services.slot_filling.rule_based import RuleBasedSlotFiller
-from app.services.llm.base import LLMServiceBase
 
 
 class SlotFillerFactory:
@@ -12,16 +11,18 @@ class SlotFillerFactory:
     @staticmethod
     def create(
         filler_type: str = "rule_based",
-        llm_service: Optional[LLMServiceBase] = None,
+        llm_service: LLMServiceBase | None = None,
     ) -> SlotFiller:
         if filler_type == "rule_based":
             return RuleBasedSlotFiller()
         elif filler_type == "hybrid":
             if llm_service is None:
                 from app.services.slot_filling.rule_based import RuleBasedSlotFiller as RB
+
                 return RB()
-            from app.services.slot_filling.llm_based import LLMSlotFiller
             from app.services.slot_filling.hybrid import HybridSlotFiller
+            from app.services.slot_filling.llm_based import LLMSlotFiller
+
             return HybridSlotFiller(
                 rule_based=RuleBasedSlotFiller(),
                 llm_based=LLMSlotFiller(llm_service=llm_service),
@@ -31,8 +32,8 @@ class SlotFillerFactory:
 
     @staticmethod
     def create_from_settings(
-        llm_service: Optional[LLMServiceBase] = None,
-    ) -> Optional[SlotFiller]:
+        llm_service: LLMServiceBase | None = None,
+    ) -> SlotFiller | None:
         from app.config.settings import get_settings
 
         settings = get_settings()

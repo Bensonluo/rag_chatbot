@@ -1,6 +1,8 @@
 """Tests for Qdrant vector client"""
+
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 
 class TestQdrantClient:
@@ -41,9 +43,7 @@ class TestQdrantClient:
             await client._ensure_collection()
 
         mock_client.create_collection.assert_awaited_once()
-        vector_config = mock_client.create_collection.await_args.kwargs[
-            "vectors_config"
-        ]
+        vector_config = mock_client.create_collection.await_args.kwargs["vectors_config"]
         assert vector_config.size == 1024
         assert vector_config.distance == "Cosine"
 
@@ -58,7 +58,7 @@ class TestQdrantClient:
             url="http://localhost:6333",
             collection_name="test_collection",
             api_key=None,
-            client=mock_qdrant
+            client=mock_qdrant,
         )
 
         # Assert
@@ -75,7 +75,7 @@ class TestQdrantClient:
             url="http://localhost:6333",
             collection_name="test_collection",
             api_key="test_api_key",
-            client=mock_qdrant
+            client=mock_qdrant,
         )
 
         # Assert
@@ -92,9 +92,7 @@ class TestQdrantClient:
         mock_client.upsert = AsyncMock(return_value=Mock(status="completed"))
 
         client = QdrantClient(
-            url="http://localhost:6333",
-            collection_name="test_collection",
-            client=mock_client
+            url="http://localhost:6333", collection_name="test_collection", client=mock_client
         )
 
         documents = [
@@ -102,13 +100,9 @@ class TestQdrantClient:
                 id="doc1",
                 content="Test content 1",
                 embedding=[0.1, 0.2, 0.3],
-                metadata={"category": "test"}
+                metadata={"category": "test"},
             ),
-            Document(
-                id="doc2",
-                content="Test content 2",
-                embedding=[0.4, 0.5, 0.6]
-            )
+            Document(id="doc2", content="Test content 2", embedding=[0.4, 0.5, 0.6]),
         ]
 
         # Act
@@ -133,24 +127,19 @@ class TestQdrantClient:
                 "document_id": "doc1",
                 "chunk_id": "chunk1",
                 "content": "Test content",
-                "metadata": {"category": "test", "chunk_id": "chunk1"}
+                "metadata": {"category": "test", "chunk_id": "chunk1"},
             },
-            score=0.95
+            score=0.95,
         )
         mock_client.search = AsyncMock(return_value=[mock_search_result])
 
         client = QdrantClient(
-            url="http://localhost:6333",
-            collection_name="test_collection",
-            client=mock_client
+            url="http://localhost:6333", collection_name="test_collection", client=mock_client
         )
 
         # Mock embedding generation
         with patch.object(client, "_generate_embedding", return_value=[0.1, 0.2, 0.3]):
-            request = VectorSearchRequest(
-                query="test query",
-                top_k=5
-            )
+            request = VectorSearchRequest(query="test query", top_k=5)
 
             # Act
             results = await client.search(request)
@@ -176,16 +165,12 @@ class TestQdrantClient:
         mock_client.search = AsyncMock(return_value=[])
 
         client = QdrantClient(
-            url="http://localhost:6333",
-            collection_name="test_collection",
-            client=mock_client
+            url="http://localhost:6333", collection_name="test_collection", client=mock_client
         )
 
         with patch.object(client, "_generate_embedding", return_value=[0.1, 0.2, 0.3]):
             request = VectorSearchRequest(
-                query="test query",
-                top_k=10,
-                filters={"category": "tech"}
+                query="test query", top_k=10, filters={"category": "tech"}
             )
 
             # Act
@@ -233,9 +218,7 @@ class TestQdrantClient:
         mock_client.delete = AsyncMock(return_value=Mock(status="completed"))
 
         client = QdrantClient(
-            url="http://localhost:6333",
-            collection_name="test_collection",
-            client=mock_client
+            url="http://localhost:6333", collection_name="test_collection", client=mock_client
         )
 
         # Act
@@ -255,16 +238,14 @@ class TestQdrantClient:
         mock_client.upsert = AsyncMock(return_value=Mock(status="completed"))
 
         client = QdrantClient(
-            url="http://localhost:6333",
-            collection_name="test_collection",
-            client=mock_client
+            url="http://localhost:6333", collection_name="test_collection", client=mock_client
         )
 
         document = Document(
             id="doc1",
             content="Updated content",
             embedding=[0.1, 0.2, 0.3],
-            metadata={"updated": True}
+            metadata={"updated": True},
         )
 
         # Act
@@ -282,18 +263,13 @@ class TestQdrantClient:
         mock_client = Mock()
         mock_retrieve = Mock(
             id="doc1",
-            payload={
-                "content": "Test content",
-                "metadata": {"category": "test"}
-            },
-            vector=[0.1, 0.2, 0.3]
+            payload={"content": "Test content", "metadata": {"category": "test"}},
+            vector=[0.1, 0.2, 0.3],
         )
         mock_client.retrieve = AsyncMock(return_value=[mock_retrieve])
 
         client = QdrantClient(
-            url="http://localhost:6333",
-            collection_name="test_collection",
-            client=mock_client
+            url="http://localhost:6333", collection_name="test_collection", client=mock_client
         )
 
         # Act
@@ -316,9 +292,7 @@ class TestQdrantClient:
         mock_client.retrieve = AsyncMock(return_value=[])
 
         client = QdrantClient(
-            url="http://localhost:6333",
-            collection_name="test_collection",
-            client=mock_client
+            url="http://localhost:6333", collection_name="test_collection", client=mock_client
         )
 
         # Act
@@ -338,9 +312,7 @@ class TestQdrantClient:
         mock_client.upsert = AsyncMock(return_value=Mock(status="completed"))
 
         client = QdrantClient(
-            url="http://localhost:6333",
-            collection_name="test_collection",
-            client=mock_client
+            url="http://localhost:6333", collection_name="test_collection", client=mock_client
         )
 
         # Mock embedding generation

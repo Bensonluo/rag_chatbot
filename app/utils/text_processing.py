@@ -3,8 +3,8 @@ Text processing utilities.
 
 Common text processing functions for cleaning and normalizing text.
 """
+
 import re
-from typing import List, Dict
 
 
 def clean_text(text: str) -> str:
@@ -93,7 +93,7 @@ def sanitize_html(text: str) -> str:
     return clean.strip()
 
 
-def extract_code_blocks(text: str) -> List[Dict[str, str]]:
+def extract_code_blocks(text: str) -> list[dict[str, str]]:
     """
     Extract code blocks from markdown text.
 

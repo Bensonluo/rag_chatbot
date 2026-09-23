@@ -1,8 +1,8 @@
 """Tests for database models"""
+
 import pytest
-from datetime import datetime, timezone
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
+
+from app.models.enums.intent import Intent
 
 
 class TestBaseModel:
@@ -11,11 +11,11 @@ class TestBaseModel:
     def test_base_model_has_timestamps(self, db_session):
         """Test that base model includes created_at and updated_at"""
         # Arrange & Act
-        from app.models.database.base import Base, TimestampMixin
+        from app.models.database.base import TimestampMixin
 
         # Assert - TimestampMixin should have these attributes
-        assert hasattr(TimestampMixin, 'created_at')
-        assert hasattr(TimestampMixin, 'updated_at')
+        assert hasattr(TimestampMixin, "created_at")
+        assert hasattr(TimestampMixin, "updated_at")
 
     def test_timestamp_defaults(self, db_session):
         """Test that timestamps are set automatically"""
@@ -56,8 +56,9 @@ class TestUserModel:
     def test_user_email_unique(self, db_session):
         """Test that user emails must be unique"""
         # Arrange
-        from app.models.database.user import User
         from sqlalchemy.exc import IntegrityError
+
+        from app.models.database.user import User
 
         user1 = User(
             email="test@example.com",
@@ -79,8 +80,9 @@ class TestUserModel:
     def test_user_email_required(self, db_session):
         """Test that user email is required"""
         # Arrange
-        from app.models.database.user import User
         from sqlalchemy.exc import IntegrityError
+
+        from app.models.database.user import User
 
         user = User(
             hashed_password="hashed_password_here",
@@ -117,8 +119,8 @@ class TestChatSessionModel:
     def test_session_creation(self, db_session):
         """Test creating a chat session"""
         # Arrange
-        from app.models.database.user import User
         from app.models.database.session import ChatSession
+        from app.models.database.user import User
 
         user = User(
             email="test@example.com",
@@ -151,8 +153,8 @@ class TestChatSessionModel:
     def test_session_relationship_with_user(self, db_session):
         """Test session-user relationship"""
         # Arrange
-        from app.models.database.user import User
         from app.models.database.session import ChatSession
+        from app.models.database.user import User
 
         user = User(
             email="test@example.com",
@@ -180,8 +182,8 @@ class TestChatSessionModel:
     def test_session_defaults(self, db_session):
         """Test that session fields have correct defaults"""
         # Arrange
-        from app.models.database.user import User
         from app.models.database.session import ChatSession
+        from app.models.database.user import User
 
         user = User(
             email="test@example.com",
@@ -211,9 +213,9 @@ class TestMessageModel:
     def test_message_creation(self, db_session):
         """Test creating a message"""
         # Arrange
-        from app.models.database.user import User
-        from app.models.database.session import ChatSession
         from app.models.database.message import Message
+        from app.models.database.session import ChatSession
+        from app.models.database.user import User
         from app.models.enums.message import MessageRole, MessageStatus
 
         user = User(
@@ -254,9 +256,9 @@ class TestMessageModel:
     def test_message_defaults(self, db_session):
         """Test that message fields have correct defaults"""
         # Arrange
-        from app.models.database.user import User
-        from app.models.database.session import ChatSession
         from app.models.database.message import Message
+        from app.models.database.session import ChatSession
+        from app.models.database.user import User
         from app.models.enums.message import MessageRole, MessageStatus
 
         user = User(
@@ -327,8 +329,9 @@ class TestDocumentModel:
     def test_document_external_id_unique(self, db_session):
         """Test that external_doc_id must be unique"""
         # Arrange
-        from app.models.database.document import Document
         from sqlalchemy.exc import IntegrityError
+
+        from app.models.database.document import Document
 
         doc1 = Document(
             external_doc_id="doc_123",

@@ -4,17 +4,19 @@ Factory for creating retrieval service components.
 Provides simple interface for creating vector clients, hybrid search,
 reranking services, and complete retrieval pipelines.
 """
-from typing import Optional
 
-from app.services.retrieval.vector_base import VectorClient
-from app.services.retrieval.qdrant_client import QdrantClient
-from app.services.retrieval.hybrid_search import HybridSearchService, KeywordSearch
-from app.services.retrieval.reranking import RerankingService, NoOpReranker
-from app.services.retrieval.cross_encoder_reranker import CrossEncoderReranker
-from app.services.retrieval.chained_reranker import ChainedReranker
-from app.services.retrieval.document_metadata import DocumentMetadataService, DocumentMetadataRepository
-from app.services.llm.base import LLMServiceBase
 from app.core.exceptions import ValidationError
+from app.services.llm.base import LLMServiceBase
+from app.services.retrieval.chained_reranker import ChainedReranker
+from app.services.retrieval.cross_encoder_reranker import CrossEncoderReranker
+from app.services.retrieval.document_metadata import (
+    DocumentMetadataRepository,
+    DocumentMetadataService,
+)
+from app.services.retrieval.hybrid_search import HybridSearchService, KeywordSearch
+from app.services.retrieval.qdrant_client import QdrantClient
+from app.services.retrieval.reranking import NoOpReranker, RerankingService
+from app.services.retrieval.vector_base import VectorClient
 
 
 class RetrievalFactory:
@@ -30,7 +32,7 @@ class RetrievalFactory:
         client_type: str,
         url: str,
         collection_name: str,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         embedding_service=None,
         **kwargs,
     ) -> VectorClient:
@@ -62,15 +64,14 @@ class RetrievalFactory:
         else:
             valid_types = ["qdrant"]
             raise ValidationError(
-                f"Invalid client_type: {client_type}. "
-                f"Must be one of {valid_types}"
+                f"Invalid client_type: {client_type}. Must be one of {valid_types}"
             )
 
     @staticmethod
     def create_hybrid_search(
         vector_client: VectorClient,
         vector_weight: float = 0.5,
-        keyword_search: Optional[KeywordSearch] = None,
+        keyword_search: KeywordSearch | None = None,
     ) -> HybridSearchService:
         """
         Create a hybrid search service.
@@ -92,9 +93,7 @@ class RetrievalFactory:
 
         # Validate weights
         if not (0.0 <= vector_weight <= 1.0):
-            raise ValidationError(
-                f"vector_weight must be between 0.0 and 1.0, got {vector_weight}"
-            )
+            raise ValidationError(f"vector_weight must be between 0.0 and 1.0, got {vector_weight}")
 
         return HybridSearchService(
             vector_client=vector_client,
@@ -105,9 +104,9 @@ class RetrievalFactory:
     @staticmethod
     def create_reranker(
         reranker_type: str = "llm",
-        llm_service: Optional[LLMServiceBase] = None,
+        llm_service: LLMServiceBase | None = None,
         top_n: int = 5,
-        model: Optional[str] = None,
+        model: str | None = None,
         device: str = "cpu",
     ) -> object:
         """
@@ -138,9 +137,7 @@ class RetrievalFactory:
 
         elif reranker_type == "llm":
             if llm_service is None:
-                raise ValidationError(
-                    "llm_service is required for LLM-based reranking"
-                )
+                raise ValidationError("llm_service is required for LLM-based reranking")
 
             return RerankingService(
                 llm_service=llm_service,
@@ -150,13 +147,12 @@ class RetrievalFactory:
         else:
             valid_types = ["cross_encoder", "llm", "noop"]
             raise ValidationError(
-                f"Invalid reranker_type: {reranker_type}. "
-                f"Must be one of {valid_types}"
+                f"Invalid reranker_type: {reranker_type}. Must be one of {valid_types}"
             )
 
     @staticmethod
     def create_reranker_from_settings(
-        llm_service: Optional[LLMServiceBase] = None,
+        llm_service: LLMServiceBase | None = None,
     ) -> object:
         """
         Create a reranker from application settings.
@@ -195,9 +191,7 @@ class RetrievalFactory:
 
         elif reranker_type == "llm":
             if llm_service is None:
-                raise ValidationError(
-                    "llm_service is required for LLM-based reranking"
-                )
+                raise ValidationError("llm_service is required for LLM-based reranking")
             return RerankingService(
                 llm_service=llm_service,
                 top_n=settings.RERANKER_TOP_N,
@@ -208,8 +202,7 @@ class RetrievalFactory:
 
         else:
             raise ValidationError(
-                f"Invalid RERANKER_TYPE: {reranker_type}. "
-                f"Must be one of: cross_encoder, llm, noop"
+                f"Invalid RERANKER_TYPE: {reranker_type}. Must be one of: cross_encoder, llm, noop"
             )
 
     @staticmethod
@@ -230,8 +223,8 @@ class RetrievalFactory:
     @staticmethod
     def create_pipeline(
         vector_client: VectorClient,
-        llm_service: Optional[LLMServiceBase] = None,
-        metadata_repository: Optional[DocumentMetadataRepository] = None,
+        llm_service: LLMServiceBase | None = None,
+        metadata_repository: DocumentMetadataRepository | None = None,
         use_reranking: bool = True,
         use_metadata_enrichment: bool = True,
         vector_weight: float = 0.5,

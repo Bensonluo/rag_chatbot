@@ -6,7 +6,6 @@ queue listings for the agent workspace, claim/resolve transitions,
 and open-queue depth for position estimates.
 """
 
-
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -1,6 +1,8 @@
 """Tests for hybrid search service"""
+
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
 
 
 class TestHybridSearchService:
@@ -16,9 +18,7 @@ class TestHybridSearchService:
 
         # Act
         service = HybridSearchService(
-            vector_client=mock_vector_client,
-            keyword_search=mock_keyword_search,
-            vector_weight=0.7
+            vector_client=mock_vector_client, keyword_search=mock_keyword_search, vector_weight=0.7
         )
 
         # Assert
@@ -35,8 +35,7 @@ class TestHybridSearchService:
 
         # Act
         service = HybridSearchService(
-            vector_client=mock_vector_client,
-            keyword_search=mock_keyword_search
+            vector_client=mock_vector_client, keyword_search=mock_keyword_search
         )
 
         # Assert
@@ -46,8 +45,8 @@ class TestHybridSearchService:
     def test_weight_validation(self):
         """Test that vector weight stays within its supported range."""
         # Arrange
-        from app.services.retrieval.hybrid_search import HybridSearchService
         from app.core.exceptions import ValidationError
+        from app.services.retrieval.hybrid_search import HybridSearchService
 
         mock_vector_client = Mock()
         mock_keyword_search = Mock()
@@ -57,7 +56,7 @@ class TestHybridSearchService:
             HybridSearchService(
                 vector_client=mock_vector_client,
                 keyword_search=mock_keyword_search,
-                vector_weight=1.1
+                vector_weight=1.1,
             )
 
     @pytest.mark.asyncio
@@ -65,29 +64,35 @@ class TestHybridSearchService:
         """Test hybrid search combining vector and keyword results"""
         # Arrange
         from app.services.retrieval.hybrid_search import HybridSearchService
-        from app.services.retrieval.vector_base import VectorSearchRequest, SearchResult
+        from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
 
         mock_vector_client = Mock()
         mock_keyword_search = Mock()
 
         # Mock vector search results
         vector_results = [
-            SearchResult(document_id="doc1", content="Content 1", score=0.9, metadata={"source": "vector"}),
-            SearchResult(document_id="doc2", content="Content 2", score=0.8, metadata={"source": "vector"}),
+            SearchResult(
+                document_id="doc1", content="Content 1", score=0.9, metadata={"source": "vector"}
+            ),
+            SearchResult(
+                document_id="doc2", content="Content 2", score=0.8, metadata={"source": "vector"}
+            ),
         ]
         mock_vector_client.search = AsyncMock(return_value=vector_results)
 
         # Mock keyword search results
         keyword_results = [
-            SearchResult(document_id="doc1", content="Content 1", score=0.7, metadata={"source": "keyword"}),
-            SearchResult(document_id="doc3", content="Content 3", score=0.6, metadata={"source": "keyword"}),
+            SearchResult(
+                document_id="doc1", content="Content 1", score=0.7, metadata={"source": "keyword"}
+            ),
+            SearchResult(
+                document_id="doc3", content="Content 3", score=0.6, metadata={"source": "keyword"}
+            ),
         ]
         mock_keyword_search.search = AsyncMock(return_value=keyword_results)
 
         service = HybridSearchService(
-            vector_client=mock_vector_client,
-            keyword_search=mock_keyword_search,
-            vector_weight=0.6
+            vector_client=mock_vector_client, keyword_search=mock_keyword_search, vector_weight=0.6
         )
 
         request = VectorSearchRequest(query="test query", top_k=5)
@@ -115,7 +120,7 @@ class TestHybridSearchService:
         """Test hybrid search when keyword search fails"""
         # Arrange
         from app.services.retrieval.hybrid_search import HybridSearchService
-        from app.services.retrieval.vector_base import VectorSearchRequest, SearchResult
+        from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
 
         mock_vector_client = Mock()
         mock_keyword_search = Mock()
@@ -127,8 +132,7 @@ class TestHybridSearchService:
         mock_keyword_search.search = AsyncMock(side_effect=Exception("Keyword search failed"))
 
         service = HybridSearchService(
-            vector_client=mock_vector_client,
-            keyword_search=mock_keyword_search
+            vector_client=mock_vector_client, keyword_search=mock_keyword_search
         )
 
         request = VectorSearchRequest(query="test query")
@@ -145,7 +149,7 @@ class TestHybridSearchService:
         """Test hybrid search when vector search fails"""
         # Arrange
         from app.services.retrieval.hybrid_search import HybridSearchService
-        from app.services.retrieval.vector_base import VectorSearchRequest, SearchResult
+        from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
 
         mock_vector_client = Mock()
         mock_keyword_search = Mock()
@@ -157,8 +161,7 @@ class TestHybridSearchService:
         mock_keyword_search.search = AsyncMock(return_value=keyword_results)
 
         service = HybridSearchService(
-            vector_client=mock_vector_client,
-            keyword_search=mock_keyword_search
+            vector_client=mock_vector_client, keyword_search=mock_keyword_search
         )
 
         request = VectorSearchRequest(query="test query")
@@ -175,7 +178,7 @@ class TestHybridSearchService:
         """Test that hybrid search respects top_k limit"""
         # Arrange
         from app.services.retrieval.hybrid_search import HybridSearchService
-        from app.services.retrieval.vector_base import VectorSearchRequest, SearchResult
+        from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
 
         mock_vector_client = Mock()
         mock_keyword_search = Mock()
@@ -189,8 +192,7 @@ class TestHybridSearchService:
         mock_keyword_search.search = AsyncMock(return_value=[])
 
         service = HybridSearchService(
-            vector_client=mock_vector_client,
-            keyword_search=mock_keyword_search
+            vector_client=mock_vector_client, keyword_search=mock_keyword_search
         )
 
         request = VectorSearchRequest(query="test query", top_k=5)
@@ -206,7 +208,7 @@ class TestHybridSearchService:
         """Test that scores are properly normalized"""
         # Arrange
         from app.services.retrieval.hybrid_search import HybridSearchService
-        from app.services.retrieval.vector_base import VectorSearchRequest, SearchResult
+        from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
 
         mock_vector_client = Mock()
         mock_keyword_search = Mock()
@@ -222,9 +224,7 @@ class TestHybridSearchService:
         mock_keyword_search.search = AsyncMock(return_value=keyword_results)
 
         service = HybridSearchService(
-            vector_client=mock_vector_client,
-            keyword_search=mock_keyword_search,
-            vector_weight=0.5
+            vector_client=mock_vector_client, keyword_search=mock_keyword_search, vector_weight=0.5
         )
 
         request = VectorSearchRequest(query="test query")
@@ -242,10 +242,7 @@ class TestHybridSearchService:
         from app.services.retrieval.hybrid_search import HybridSearchService
         from app.services.retrieval.vector_base import SearchResult
 
-        service = HybridSearchService(
-            vector_client=Mock(),
-            keyword_search=Mock()
-        )
+        service = HybridSearchService(vector_client=Mock(), keyword_search=Mock())
 
         # Create two ranked lists
         vector_results = [
@@ -305,11 +302,13 @@ class TestKeywordSearch:
         search = KeywordSearch()
 
         # Add some documents
-        await search.add_documents([
-            {"id": "doc1", "content": "Python programming tutorial"},
-            {"id": "doc2", "content": "Java programming guide"},
-            {"id": "doc3", "content": "Python data science"},
-        ])
+        await search.add_documents(
+            [
+                {"id": "doc1", "content": "Python programming tutorial"},
+                {"id": "doc2", "content": "Java programming guide"},
+                {"id": "doc3", "content": "Python data science"},
+            ]
+        )
 
         request = VectorSearchRequest(query="Python programming")
 
@@ -329,9 +328,7 @@ class TestKeywordSearch:
         from app.services.retrieval.vector_base import VectorSearchRequest
 
         search = KeywordSearch()
-        await search.add_documents([
-            {"id": "doc1", "content": "Test content"}
-        ])
+        await search.add_documents([{"id": "doc1", "content": "Test content"}])
 
         request = VectorSearchRequest(query="")
 

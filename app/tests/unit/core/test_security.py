@@ -1,7 +1,8 @@
 """Tests for security utilities"""
+
+from datetime import timedelta
+
 import pytest
-from datetime import datetime, timedelta
-from unittest.mock import Mock, patch
 
 
 class TestPasswordHashing:
@@ -11,6 +12,7 @@ class TestPasswordHashing:
         """Test verifying a correct password"""
         # Arrange
         from app.core.security import hash_password, verify_password
+
         plain_password = "securepassword123"
         hashed_password = hash_password(plain_password)
 
@@ -24,6 +26,7 @@ class TestPasswordHashing:
         """Test verifying an incorrect password"""
         # Arrange
         from app.core.security import hash_password, verify_password
+
         plain_password = "wrongpassword"
         hashed_password = hash_password("securepassword123")
 
@@ -37,6 +40,7 @@ class TestPasswordHashing:
         """Test hashing a password"""
         # Arrange
         from app.core.security import hash_password, verify_password
+
         plain_password = "mypassword123"
 
         # Act
@@ -52,6 +56,7 @@ class TestPasswordHashing:
         """Test that hashing the same password twice produces different hashes"""
         # Arrange
         from app.core.security import hash_password
+
         password = "samepassword"
 
         # Act
@@ -62,6 +67,7 @@ class TestPasswordHashing:
         assert hash1 != hash2  # Different due to salt
         # But both should verify correctly
         from app.core.security import verify_password
+
         assert verify_password(password, hash1) is True
         assert verify_password(password, hash2) is True
 
@@ -69,6 +75,7 @@ class TestPasswordHashing:
         """Test hashing an empty password"""
         # Arrange
         from app.core.security import hash_password
+
         password = ""
 
         # Act
@@ -86,6 +93,7 @@ class TestJWTToken:
         """Test creating an access token"""
         # Arrange
         from app.core.security import create_access_token
+
         data = {"sub": "user@example.com"}
 
         # Act
@@ -100,6 +108,7 @@ class TestJWTToken:
         """Test creating an access token with custom expiration"""
         # Arrange
         from app.core.security import create_access_token
+
         data = {"sub": "user@example.com"}
         expires_delta = timedelta(minutes=30)
 
@@ -113,6 +122,7 @@ class TestJWTToken:
         """Test decoding a valid access token"""
         # Arrange
         from app.core.security import create_access_token, decode_access_token
+
         data = {"sub": "user@example.com", "user_id": 123}
         token = create_access_token(data)
 
@@ -129,6 +139,7 @@ class TestJWTToken:
         """Test decoding an invalid access token"""
         # Arrange
         from app.core.security import decode_access_token
+
         invalid_token = "invalid.token.string"
 
         # Act & Assert
@@ -140,6 +151,7 @@ class TestJWTToken:
         """Test decoding an expired access token"""
         # Arrange
         from app.core.security import create_access_token, decode_access_token
+
         data = {"sub": "user@example.com"}
         # Create token that's already expired
         expired_delta = timedelta(seconds=-1)
@@ -154,6 +166,7 @@ class TestJWTToken:
         """Test creating a refresh token"""
         # Arrange
         from app.core.security import create_refresh_token
+
         data = {"sub": "user@example.com"}
 
         # Act
@@ -171,6 +184,7 @@ class TestPasswordValidation:
         """Test validating a strong password"""
         # Arrange
         from app.core.security import validate_password
+
         password = "StrongP@ssw0rd123"
 
         # Act
@@ -184,6 +198,7 @@ class TestPasswordValidation:
         """Test validating a password that's too short"""
         # Arrange
         from app.core.security import validate_password
+
         password = "Short1!"
 
         # Act
@@ -197,6 +212,7 @@ class TestPasswordValidation:
         """Test validating a password without uppercase letters"""
         # Arrange
         from app.core.security import validate_password
+
         password = "lowercase123!"
 
         # Act
@@ -210,6 +226,7 @@ class TestPasswordValidation:
         """Test validating a password without lowercase letters"""
         # Arrange
         from app.core.security import validate_password
+
         password = "UPPERCASE123!"
 
         # Act
@@ -223,6 +240,7 @@ class TestPasswordValidation:
         """Test validating a password without digits"""
         # Arrange
         from app.core.security import validate_password
+
         password = "NoDigits!"
 
         # Act
@@ -236,6 +254,7 @@ class TestPasswordValidation:
         """Test validating a password with multiple errors"""
         # Arrange
         from app.core.security import validate_password
+
         password = "short"  # Too short, no uppercase, no digit, no special char
 
         # Act

@@ -4,15 +4,16 @@ Middleware package.
 Exports all middleware components including error handling,
 rate limiting, request ID tracking, and metrics collection.
 """
+
 from app.middleware.error_handler import ErrorHandlerMiddleware, ErrorResponse
-from app.middleware.rate_limiter import RateLimiterMiddleware, TokenBucket
-from app.middleware.request_id import RequestIDMiddleware, get_request_id
 from app.middleware.metrics import (
     PrometheusMiddleware,
-    metrics_endpoint,
     health_check_endpoint,
+    metrics_endpoint,
     ready_check_endpoint,
 )
+from app.middleware.rate_limiter import RateLimiterMiddleware, TokenBucket
+from app.middleware.request_id import RequestIDMiddleware, get_request_id
 
 __all__ = [
     # Error handling

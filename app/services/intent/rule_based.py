@@ -5,10 +5,9 @@ Fast, lightweight intent detection for customer service scenarios.
 """
 
 import re
-from typing import Optional, Dict, List
 
-from app.services.intent.base import IntentDetector, IntentResult
 from app.models.enums.intent import Intent
+from app.services.intent.base import IntentDetector, IntentResult
 
 
 class RuleBasedIntentDetector(IntentDetector):
@@ -24,7 +23,7 @@ class RuleBasedIntentDetector(IntentDetector):
     def __init__(self) -> None:
         self.rules = self._build_rules()
 
-    def _build_rules(self) -> Dict[Intent, List[dict]]:
+    def _build_rules(self) -> dict[Intent, list[dict]]:
         return {
             # Task-oriented intents
             Intent.REFUND: [
@@ -215,7 +214,7 @@ class RuleBasedIntentDetector(IntentDetector):
     def detect(
         self,
         query: str,
-        context: Optional[dict] = None,
+        context: dict | None = None,
     ) -> Intent:
         result = self.detect_with_confidence(query, context)
         return result.intent
@@ -223,13 +222,13 @@ class RuleBasedIntentDetector(IntentDetector):
     def detect_with_confidence(
         self,
         query: str,
-        context: Optional[dict] = None,
+        context: dict | None = None,  # noqa: ARG002  # IntentDetector base signature conformance
     ) -> IntentResult:
         if not query or not query.strip():
             return IntentResult(intent=Intent.UNKNOWN, confidence=0.0)
 
         normalized_query = self._normalize_query(query)
-        scores: Dict[Intent, float] = {intent: 0.0 for intent in Intent}
+        scores: dict[Intent, float] = dict.fromkeys(Intent, 0.0)
         matched_rules: list = []
 
         for intent, rules in self.rules.items():

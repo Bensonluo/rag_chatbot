@@ -4,12 +4,12 @@ Local embedding service using sentence-transformers.
 Supports BGE-M3 and other sentence-transformer models.
 Runs entirely on-premises with no API calls.
 """
-from typing import List
+
 import asyncio
 from functools import lru_cache
 
-from app.services.embeddings.base import EmbeddingServiceBase, EmbeddingResult
 from app.core.exceptions import ExternalServiceError
+from app.services.embeddings.base import EmbeddingResult, EmbeddingServiceBase
 
 
 class LocalEmbeddingService(EmbeddingServiceBase):
@@ -60,10 +60,7 @@ class LocalEmbeddingService(EmbeddingServiceBase):
 
         # Auto-detect dimensions if not provided
         if dimensions is None:
-            if model in self.MODELS:
-                dimensions = self.MODELS[model]
-            else:
-                dimensions = 768  # Default for most ST models
+            dimensions = self.MODELS.get(model, 768)  # ST default
 
         super().__init__(model=model, dimensions=dimensions)
 
@@ -86,32 +83,28 @@ class LocalEmbeddingService(EmbeddingServiceBase):
                 return
 
             try:
-                # Import here to avoid unnecessary import if not used
+                # Import here to avoid unnecessary import if not used;
+                # a missing torch raises ImportError from this import too.
                 from sentence_transformers import SentenceTransformer
-                import torch
 
                 # Load model in thread pool
                 loop = asyncio.get_event_loop()
                 self._model = await loop.run_in_executor(
-                    None,
-                    lambda: SentenceTransformer(
-                        self.hf_model_id,
-                        device=self.device
-                    )
+                    None, lambda: SentenceTransformer(self.hf_model_id, device=self.device)
                 )
 
             except ImportError as e:
                 raise ExternalServiceError(
                     service="LocalEmbeddings",
-                    message="sentence-transformers not installed. Run: pip install sentence-transformers"
+                    message="sentence-transformers not installed. Run: pip install sentence-transformers",
                 ) from e
             except Exception as e:
                 raise ExternalServiceError(
                     service="LocalEmbeddings",
-                    message=f"Failed to load model {self.model_name}: {str(e)}"
+                    message=f"Failed to load model {self.model_name}: {str(e)}",
                 ) from e
 
-    async def embed(self, texts: List[str]) -> EmbeddingResult:
+    async def embed(self, texts: list[str]) -> EmbeddingResult:
         """
         Generate embeddings for a list of texts.
 
@@ -130,10 +123,7 @@ class LocalEmbeddingService(EmbeddingServiceBase):
 
             if not texts:
                 return EmbeddingResult(
-                    embeddings=[],
-                    model=self.model,
-                    dimensions=self.dimensions,
-                    tokens_used=0
+                    embeddings=[], model=self.model, dimensions=self.dimensions, tokens_used=0
                 )
 
             # Estimate tokens
@@ -144,10 +134,8 @@ class LocalEmbeddingService(EmbeddingServiceBase):
             embeddings = await loop.run_in_executor(
                 None,
                 lambda: self._model.encode(
-                    texts,
-                    normalize_embeddings=True,
-                    show_progress_bar=False
-                )
+                    texts, normalize_embeddings=True, show_progress_bar=False
+                ),
             )
 
             # Convert to list of lists
@@ -157,16 +145,15 @@ class LocalEmbeddingService(EmbeddingServiceBase):
                 embeddings=embedding_list,
                 model=self.model,
                 dimensions=self.dimensions,
-                tokens_used=total_tokens
+                tokens_used=total_tokens,
             )
 
         except Exception as e:
             raise ExternalServiceError(
-                service="LocalEmbeddings",
-                message=f"Failed to generate embeddings: {str(e)}"
+                service="LocalEmbeddings", message=f"Failed to generate embeddings: {str(e)}"
             ) from e
 
-    async def embed_single(self, text: str) -> List[float]:
+    async def embed_single(self, text: str) -> list[float]:
         """
         Generate embedding for a single text.
 
@@ -192,7 +179,7 @@ class LocalEmbeddingService(EmbeddingServiceBase):
         return 64  # Local models can handle larger batches
 
 
-@lru_cache()
+@lru_cache
 def get_local_embedding_service(
     model: str = "bge-m3",
     device: str = "cpu",

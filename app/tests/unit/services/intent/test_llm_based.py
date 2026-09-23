@@ -1,6 +1,9 @@
 """Tests for LLM-based intent detector"""
+
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
+
 from app.models.enums.intent import Intent
 
 
@@ -44,12 +47,10 @@ class TestLLMIntentDetector:
         """Test detecting refund intent"""
         # Arrange
         from app.services.intent.llm_based import LLMIntentDetector
-        from app.services.llm.base import LLMServiceBase, LLMResponse
+        from app.services.llm.base import LLMResponse, LLMServiceBase
 
         mock_llm = Mock(spec=LLMServiceBase)
-        mock_llm.generate = AsyncMock(
-            return_value=LLMResponse(content="refund", model="gpt-4")
-        )
+        mock_llm.generate = AsyncMock(return_value=LLMResponse(content="refund", model="gpt-4"))
 
         detector = LLMIntentDetector(llm_service=mock_llm)
 
@@ -65,7 +66,7 @@ class TestLLMIntentDetector:
         """Test detecting query_order intent"""
         # Arrange
         from app.services.intent.llm_based import LLMIntentDetector
-        from app.services.llm.base import LLMServiceBase, LLMResponse
+        from app.services.llm.base import LLMResponse, LLMServiceBase
 
         mock_llm = Mock(spec=LLMServiceBase)
         mock_llm.generate = AsyncMock(
@@ -85,14 +86,13 @@ class TestLLMIntentDetector:
         """Test detecting with confidence score"""
         # Arrange
         from app.services.intent.llm_based import LLMIntentDetector
-        from app.services.llm.base import LLMServiceBase, LLMResponse
+        from app.services.llm.base import LLMResponse, LLMServiceBase
 
         # Return JSON with confidence
         mock_llm = Mock(spec=LLMServiceBase)
         mock_llm.generate = AsyncMock(
             return_value=LLMResponse(
-                content='{"intent": "refund", "confidence": 0.95}',
-                model="gpt-4"
+                content='{"intent": "refund", "confidence": 0.95}', model="gpt-4"
             )
         )
 
@@ -110,7 +110,7 @@ class TestLLMIntentDetector:
         """Test handling invalid JSON from LLM"""
         # Arrange
         from app.services.intent.llm_based import LLMIntentDetector
-        from app.services.llm.base import LLMServiceBase, LLMResponse
+        from app.services.llm.base import LLMResponse, LLMServiceBase
 
         mock_llm = Mock(spec=LLMServiceBase)
         mock_llm.generate = AsyncMock(
@@ -130,19 +130,17 @@ class TestLLMIntentDetector:
         """Test detection with conversation context"""
         # Arrange
         from app.services.intent.llm_based import LLMIntentDetector
-        from app.services.llm.base import LLMServiceBase, LLMResponse
+        from app.services.llm.base import LLMResponse, LLMServiceBase
 
         mock_llm = Mock(spec=LLMServiceBase)
-        mock_llm.generate = AsyncMock(
-            return_value=LLMResponse(content="chitchat", model="gpt-4")
-        )
+        mock_llm.generate = AsyncMock(return_value=LLMResponse(content="chitchat", model="gpt-4"))
 
         detector = LLMIntentDetector(llm_service=mock_llm)
 
         context = {
             "previous_messages": [
                 {"role": "user", "content": "你好"},
-                {"role": "assistant", "content": "您好！有什么可以帮您？"}
+                {"role": "assistant", "content": "您好！有什么可以帮您？"},
             ]
         }
 
@@ -156,14 +154,12 @@ class TestLLMIntentDetector:
     async def test_detect_llm_error(self):
         """Test handling LLM API errors"""
         # Arrange
+        from app.core.exceptions import ExternalServiceError
         from app.services.intent.llm_based import LLMIntentDetector
         from app.services.llm.base import LLMServiceBase
-        from app.core.exceptions import ExternalServiceError
 
         mock_llm = Mock(spec=LLMServiceBase)
-        mock_llm.generate = AsyncMock(
-            side_effect=Exception("API Error")
-        )
+        mock_llm.generate = AsyncMock(side_effect=Exception("API Error"))
 
         detector = LLMIntentDetector(llm_service=mock_llm)
 
@@ -182,10 +178,7 @@ class TestLLMIntentDetector:
         custom_prompt = "Classify this: {query}\nIntents: {intents}"
 
         # Act
-        detector = LLMIntentDetector(
-            llm_service=mock_llm,
-            prompt_template=custom_prompt
-        )
+        detector = LLMIntentDetector(llm_service=mock_llm, prompt_template=custom_prompt)
 
         # Assert
         assert detector.prompt_template == custom_prompt

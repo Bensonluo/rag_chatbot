@@ -3,9 +3,9 @@ Base interface for intent detection.
 
 Provides abstract classes and data structures for intent classifiers.
 """
+
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Optional, Dict, List, Any
+from dataclasses import dataclass
 
 from app.models.enums.intent import Intent
 
@@ -20,9 +20,10 @@ class IntentResult:
         confidence: Confidence score (0.0 to 1.0)
         metadata: Additional metadata about detection
     """
+
     intent: Intent
     confidence: float = 0.0
-    metadata: Optional[dict] = None
+    metadata: dict | None = None
 
 
 class IntentDetector(ABC):
@@ -34,7 +35,7 @@ class IntentDetector(ABC):
     """
 
     @abstractmethod
-    def detect(self, query: str, context: Optional[dict] = None) -> Intent:
+    def detect(self, query: str, context: dict | None = None) -> Intent:
         """
         Detect the intent of a user query.
 
@@ -54,7 +55,7 @@ class IntentDetector(ABC):
     def detect_with_confidence(
         self,
         query: str,
-        context: Optional[dict] = None,
+        context: dict | None = None,
     ) -> IntentResult:
         """
         Detect intent and return confidence score.
@@ -89,11 +90,12 @@ class IntentDetector(ABC):
 
         # Remove extra whitespace
         import re
+
         normalized = re.sub(r"\s+", " ", normalized)
 
         return normalized
 
-    def _contains_any(self, text: str, keywords: List[str]) -> bool:
+    def _contains_any(self, text: str, keywords: list[str]) -> bool:
         """
         Check if text contains any of the keywords.
 
@@ -106,7 +108,7 @@ class IntentDetector(ABC):
         """
         return any(keyword in text for keyword in keywords)
 
-    def _count_matches(self, text: str, keywords: List[str]) -> int:
+    def _count_matches(self, text: str, keywords: list[str]) -> int:
         """
         Count how many keywords appear in text.
 

@@ -1,6 +1,7 @@
 """Tests for Intent detection base interface"""
+
 import pytest
-from unittest.mock import Mock
+
 from app.models.enums.intent import Intent
 
 
@@ -97,10 +98,7 @@ class TestIntentResult:
         from app.services.intent.base import IntentResult
 
         # Act
-        result = IntentResult(
-            intent=Intent.REFUND,
-            confidence=0.95
-        )
+        result = IntentResult(intent=Intent.REFUND, confidence=0.95)
 
         # Assert
         assert result.intent == Intent.REFUND
@@ -115,7 +113,7 @@ class TestIntentResult:
         result = IntentResult(
             intent=Intent.TRACK_SHIPPING,
             confidence=0.88,
-            metadata={"matched_keyword": "快递", "rule_used": "track_shipping_rule_1"}
+            metadata={"matched_keyword": "快递", "rule_used": "track_shipping_rule_1"},
         )
 
         # Assert
@@ -141,10 +139,7 @@ class TestIntentResult:
         from app.services.intent.base import IntentResult
 
         # Act
-        result = IntentResult(
-            intent=Intent.FAQ,
-            confidence=0.8
-        )
+        result = IntentResult(intent=Intent.FAQ, confidence=0.8)
 
         # Assert
         assert result.metadata is None  # Default is None

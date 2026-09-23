@@ -1,7 +1,7 @@
 """Tests for authentication endpoints"""
+
 import pytest
-from httpx import AsyncClient, ASGITransport
-from fastapi import FastAPI
+from httpx import AsyncClient
 
 
 class TestAuthEndpoints:

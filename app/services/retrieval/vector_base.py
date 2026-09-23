@@ -3,9 +3,9 @@ Vector service base interface and data models.
 
 Provides abstract interface for vector database operations and common data models.
 """
-from dataclasses import dataclass, field
+
 from abc import ABC, abstractmethod
-from typing import Optional, List
+from dataclasses import dataclass
 
 
 @dataclass
@@ -19,10 +19,11 @@ class Document:
         embedding: Optional vector embedding
         metadata: Optional document metadata
     """
+
     id: str
     content: str
-    embedding: Optional[List[float]] = None
-    metadata: Optional[dict] = None
+    embedding: list[float] | None = None
+    metadata: dict | None = None
 
 
 @dataclass
@@ -36,10 +37,11 @@ class SearchResult:
         score: Similarity score (0-1, higher is better)
         metadata: Optional document metadata
     """
+
     document_id: str
     content: str
     score: float
-    metadata: Optional[dict] = None
+    metadata: dict | None = None
 
 
 @dataclass
@@ -52,9 +54,10 @@ class VectorSearchRequest:
         top_k: Number of results to return (default: 5)
         filters: Optional metadata filters
     """
+
     query: str
     top_k: int = 5
-    filters: Optional[dict] = None
+    filters: dict | None = None
 
 
 class VectorClient(ABC):
@@ -67,8 +70,8 @@ class VectorClient(ABC):
     @abstractmethod
     async def add_documents(
         self,
-        documents: List[Document],
-    ) -> List[str]:
+        documents: list[Document],
+    ) -> list[str]:
         """
         Add documents to vector database.
 
@@ -87,7 +90,7 @@ class VectorClient(ABC):
     async def search(
         self,
         request: VectorSearchRequest,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Search for similar documents.
 
@@ -105,7 +108,7 @@ class VectorClient(ABC):
     @abstractmethod
     async def delete(
         self,
-        document_ids: List[str],
+        document_ids: list[str],
     ) -> None:
         """
         Delete documents from vector database.
@@ -138,7 +141,7 @@ class VectorClient(ABC):
     async def get_document(
         self,
         document_id: str,
-    ) -> Optional[Document]:
+    ) -> Document | None:
         """
         Get a document by ID.
 
@@ -157,7 +160,7 @@ class VectorClient(ABC):
 class VectorClientError(Exception):
     """Base exception for vector client errors."""
 
-    def __init__(self, message: str, details: Optional[dict] = None):
+    def __init__(self, message: str, details: dict | None = None):
         """
         Initialize vector client error.
 

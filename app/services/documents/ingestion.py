@@ -3,16 +3,18 @@ Document ingestion service.
 
 Handles document upload, processing, chunking, and storage in vector database.
 """
+
 import uuid
 from collections.abc import Callable
-from typing import Any, Optional
 from pathlib import Path
+from typing import Any
 
-from app.services.documents.base import ChunkingStrategy, Document, DocumentChunk
+from app.core.exceptions import ExternalServiceError, ValidationError
+from app.services.documents.base import ChunkingStrategy, Document
 from app.services.documents.chunking import (
     FixedSizeChunking,
+    RecursiveCharacterChunking,
     SemanticChunking,
-    RecursiveCharacterChunking
 )
 from app.services.documents.preprocessing import DocumentPreprocessor
 from app.services.embeddings import EmbeddingFactory
@@ -20,7 +22,6 @@ from app.services.embeddings.base import EmbeddingServiceBase
 from app.services.graph.base import GraphClient
 from app.services.graph.extraction.base import EntityExtractor
 from app.services.retrieval.qdrant_client import QdrantClient
-from app.core.exceptions import ValidationError, ExternalServiceError
 
 
 class DocumentIngestionService:
@@ -50,7 +51,7 @@ class DocumentIngestionService:
         chunk_overlap: int = 50,
         graph_client: GraphClient | None = None,
         entity_extractor: EntityExtractor | None = None,
-        embedding_service: Optional[EmbeddingServiceBase] = None,
+        embedding_service: EmbeddingServiceBase | None = None,
     ) -> None:
         """
         Initialize document ingestion service.
@@ -130,26 +131,19 @@ class DocumentIngestionService:
 
         # Create document object
         document = Document(
-            document_id=document_id,
-            title=title,
-            content=text,
-            file_type="txt",
-            metadata=metadata
+            document_id=document_id, title=title, content=text, file_type="txt", metadata=metadata
         )
 
         # Preprocess text
         processed_text, enhanced_metadata = await self.preprocessor.process(
-            text=text,
-            metadata=metadata
+            text=text, metadata=metadata
         )
         document.content = processed_text
         document.metadata.update(enhanced_metadata)
 
         # Chunk document
         chunks = await self.chunking.chunk(
-            document=document,
-            max_chunk_size=self.max_chunk_size,
-            chunk_overlap=self.chunk_overlap
+            document=document, max_chunk_size=self.max_chunk_size, chunk_overlap=self.chunk_overlap
         )
 
         if not chunks:
@@ -178,9 +172,7 @@ class DocumentIngestionService:
 
         # Insert into Qdrant
         await self.qdrant_client.add(
-            ids=[chunk.chunk_id for chunk in chunks],
-            vectors=vectors,
-            payloads=payloads
+            ids=[chunk.chunk_id for chunk in chunks], vectors=vectors, payloads=payloads
         )
 
         # Extract entities for knowledge graph (if configured)
@@ -188,6 +180,7 @@ class DocumentIngestionService:
         graph_relations_count = 0
         if self.graph_client and self.entity_extractor:
             import uuid as _uuid
+
             from app.services.graph.base import GraphEntity, GraphRelation
 
             for chunk in chunks:
@@ -204,9 +197,7 @@ class DocumentIngestionService:
                             )
                             for e in extraction.entities
                         ]
-                        stored_entity_ids = await self.graph_client.add_entities(
-                            graph_ents
-                        )
+                        stored_entity_ids = await self.graph_client.add_entities(graph_ents)
                         graph_entities_count += len(stored_entity_ids)
                     else:
                         graph_ents = []
@@ -218,9 +209,7 @@ class DocumentIngestionService:
                         # newly proposed UUIDs.
                         name_to_id = {
                             entity.name: stored_id
-                            for entity, stored_id in zip(
-                                graph_ents, stored_entity_ids
-                            )
+                            for entity, stored_id in zip(graph_ents, stored_entity_ids, strict=True)
                         }
                         graph_rels = [
                             GraphRelation(
@@ -238,6 +227,7 @@ class DocumentIngestionService:
                             graph_relations_count += len(graph_rels)
                 except Exception as e:
                     import logging
+
                     logging.getLogger(__name__).warning(
                         "Graph extraction failed for chunk %s: %s", chunk.chunk_id, e
                     )
@@ -283,20 +273,15 @@ class DocumentIngestionService:
             raise ValidationError(f"File not found: {file_path}")
 
         # Get file extension
-        file_type = path.suffix.lower().lstrip('.')
+        file_type = path.suffix.lower().lstrip(".")
 
         # Read file based on type
-        if file_type == "txt":
-            text = self._read_txt(path)
-        elif file_type == "md":
+        if file_type == "txt" or file_type == "md":
             text = self._read_txt(path)
         elif file_type == "pdf":
             text = await self._read_pdf(path)
         else:
-            raise ValidationError(
-                f"Unsupported file type: {file_type}. "
-                f"Supported: txt, md, pdf"
-            )
+            raise ValidationError(f"Unsupported file type: {file_type}. Supported: txt, md, pdf")
 
         # Use filename as title if not provided
         title = metadata.get("title") if metadata else None
@@ -312,45 +297,41 @@ class DocumentIngestionService:
 
         # Ingest
         return await self.ingest_text(
-            text=text,
-            title=title,
-            metadata=metadata,
-            document_id=document_id
+            text=text, title=title, metadata=metadata, document_id=document_id
         )
 
     def _read_txt(self, path: Path) -> str:
         """Read text file."""
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding="utf-8") as f:
                 return f.read()
         except UnicodeDecodeError:
             # Try with different encoding
-            with open(path, 'r', encoding='latin-1') as f:
+            with open(path, encoding="latin-1") as f:
                 return f.read()
 
     async def _read_pdf(self, path: Path) -> str:
         """Read PDF file."""
         try:
             import pypdf
+
             text = ""
 
-            with open(path, 'rb') as f:
+            with open(path, "rb") as f:
                 reader = pypdf.PdfReader(f)
                 for page in reader.pages:
                     text += page.extract_text() + "\n"
 
             return text.strip()
 
-        except ImportError:
+        except ImportError as e:
             raise ExternalServiceError(
-                service="PDF Reader",
-                message="pypdf not installed. Run: pip install pypdf"
-            )
+                service="PDF Reader", message="pypdf not installed. Run: pip install pypdf"
+            ) from e
         except Exception as e:
             raise ExternalServiceError(
-                service="PDF Reader",
-                message=f"Failed to read PDF: {str(e)}"
-            )
+                service="PDF Reader", message=f"Failed to read PDF: {str(e)}"
+            ) from e
 
     async def delete_document(self, document_id: str) -> dict[str, Any]:
         """
@@ -366,11 +347,6 @@ class DocumentIngestionService:
         # Note: This requires Qdrant to support filtering by document_id
         # For now, we'll use the client's delete method with filter
 
-        deleted_count = await self.qdrant_client.delete_by_filter(
-            {"document_id": document_id}
-        )
+        deleted_count = await self.qdrant_client.delete_by_filter({"document_id": document_id})
 
-        return {
-            "document_id": document_id,
-            "deleted_chunks": deleted_count
-        }
+        return {"document_id": document_id, "deleted_chunks": deleted_count}

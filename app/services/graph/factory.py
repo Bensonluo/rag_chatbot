@@ -3,10 +3,9 @@ Factory for creating graph database clients.
 
 Follows the same pattern as RetrievalFactory.
 """
-from typing import Optional
 
-from app.services.graph.base import GraphClient
 from app.core.exceptions import ValidationError
+from app.services.graph.base import GraphClient
 
 
 class GraphFactory:
@@ -15,10 +14,10 @@ class GraphFactory:
     @staticmethod
     def create_client(
         client_type: str = "neo4j",
-        uri: Optional[str] = None,
-        user: Optional[str] = None,
-        password: Optional[str] = None,
-        database: Optional[str] = None,
+        uri: str | None = None,
+        user: str | None = None,
+        password: str | None = None,
+        database: str | None = None,
         max_connection_pool_size: int = 50,
         connection_timeout: float = 30.0,
     ) -> GraphClient:
@@ -34,12 +33,10 @@ class GraphFactory:
                 connection_timeout=connection_timeout,
             )
         else:
-            raise ValidationError(
-                f"Invalid client_type: {client_type}. Must be one of ['neo4j']"
-            )
+            raise ValidationError(f"Invalid client_type: {client_type}. Must be one of ['neo4j']")
 
     @staticmethod
-    def create_from_settings() -> Optional[GraphClient]:
+    def create_from_settings() -> GraphClient | None:
         """Create from app settings. Returns None if GRAPH_RAG_ENABLED=False."""
         from app.config.settings import get_settings
 

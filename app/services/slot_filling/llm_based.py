@@ -4,14 +4,15 @@ LLM-based slot filler using structured extraction prompts.
 Falls back gracefully on parse failures. Used when rule-based extraction
 finds no slots for complex queries.
 """
+
 import json
 import logging
-from typing import Optional, Dict, Any, List
+from typing import Any
 
-from app.services.slot_filling.base import SlotFiller, ExtractedSlot, SlotFillingResult
-from app.services.slot_filling.slot_types import SLOT_DEFINITIONS
-from app.services.llm.base import LLMServiceBase, LLMMessage
 from app.models.enums.intent import RAG_INTENTS, Intent
+from app.services.llm.base import LLMMessage, LLMServiceBase
+from app.services.slot_filling.base import ExtractedSlot, SlotFiller, SlotFillingResult
+from app.services.slot_filling.slot_types import SLOT_DEFINITIONS
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class LLMSlotFiller(SlotFiller):
     def __init__(
         self,
         llm_service: LLMServiceBase,
-        slot_definitions: Optional[Dict[str, Dict[str, Any]]] = None,
+        slot_definitions: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         self._llm = llm_service
         self._definitions = slot_definitions or SLOT_DEFINITIONS
@@ -44,12 +45,14 @@ class LLMSlotFiller(SlotFiller):
     async def fill_slots(
         self,
         query: str,
-        intent: Optional[Intent] = None,
-        context: Optional[Dict[str, Any]] = None,
+        intent: Intent | None = None,
+        context: dict[str, Any] | None = None,  # noqa: ARG002  # SlotFiller base signature conformance
     ) -> SlotFillingResult:
         if intent and intent.value not in RAG_INTENTS:
             return SlotFillingResult(
-                slots=[], raw_query=query, metadata={"method": "skipped"},
+                slots=[],
+                raw_query=query,
+                metadata={"method": "skipped"},
             )
 
         entity_types_desc = self._format_entity_types()
@@ -66,17 +69,21 @@ class LLMSlotFiller(SlotFiller):
 
         try:
             response = await self._llm.generate(
-                messages=messages, max_tokens=256, temperature=0.0,
+                messages=messages,
+                max_tokens=256,
+                temperature=0.0,
             )
             return self._parse_response(response.content, query)
         except Exception as e:
             logger.warning("LLM slot filling failed: %s", e)
             return SlotFillingResult(
-                slots=[], raw_query=query, metadata={"method": "llm", "error": str(e)},
+                slots=[],
+                raw_query=query,
+                metadata={"method": "llm", "error": str(e)},
             )
 
     def _format_entity_types(self) -> str:
-        parts: List[str] = []
+        parts: list[str] = []
         for name, definition in self._definitions.items():
             keywords = list(definition.get("keywords", {}).keys())[:5]
             examples = f" (e.g. {', '.join(keywords)})" if keywords else ""
@@ -97,11 +104,13 @@ class LLMSlotFiller(SlotFiller):
         except json.JSONDecodeError as e:
             logger.warning("Failed to parse slot JSON: %s", e)
             return SlotFillingResult(
-                slots=[], raw_query=raw_query, metadata={"method": "llm"},
+                slots=[],
+                raw_query=raw_query,
+                metadata={"method": "llm"},
             )
 
         raw_slots = data.get("slots", [])
-        slots: List[ExtractedSlot] = []
+        slots: list[ExtractedSlot] = []
         for s in raw_slots:
             if not isinstance(s, dict) or "slot_type" not in s or "value" not in s:
                 continue
@@ -109,14 +118,16 @@ class LLMSlotFiller(SlotFiller):
             if slot_type not in self._definitions:
                 continue
             definition = self._definitions[slot_type]
-            slots.append(ExtractedSlot(
-                slot_type=slot_type,
-                entity_type=definition["entity_type"],
-                value=s["value"],
-                normalized_value=s.get("normalized_value", s["value"]),
-                confidence=0.8,
-                source="llm",
-            ))
+            slots.append(
+                ExtractedSlot(
+                    slot_type=slot_type,
+                    entity_type=definition["entity_type"],
+                    value=s["value"],
+                    normalized_value=s.get("normalized_value", s["value"]),
+                    confidence=0.8,
+                    source="llm",
+                )
+            )
 
         return SlotFillingResult(
             slots=slots,

@@ -3,7 +3,6 @@ Prompt templates for LLM interactions.
 
 Provides reusable prompt templates for different use cases.
 """
-from typing import Optional, List, Dict, Tuple
 
 
 class PromptTemplates:
@@ -70,8 +69,8 @@ Guidelines:
     @staticmethod
     def format_rag_prompt(
         query: str,
-        retrieved_docs: List[Dict[str, str]],
-        system_prompt: Optional[str] = None,
+        retrieved_docs: list[dict[str, str]],
+        system_prompt: str | None = None,
     ) -> str:
         """
         Format a RAG prompt with query and retrieved documents.
@@ -109,7 +108,7 @@ Answer:"""
         return prompt
 
     @staticmethod
-    def get_summarization_prompt(text: str, max_length: Optional[int] = None) -> str:
+    def get_summarization_prompt(text: str, max_length: int | None = None) -> str:
         """
         Get a summarization prompt.
 
@@ -135,7 +134,7 @@ Summary:"""
     @staticmethod
     def get_intent_detection_prompt(
         query: str,
-        intents: List[str],
+        intents: list[str],
     ) -> str:
         """
         Get an intent detection prompt.
@@ -220,9 +219,9 @@ Code:"""
 
     @staticmethod
     def get_few_shot_prompt(
-        examples: List[Dict[str, str]],
+        examples: list[dict[str, str]],
         test_input: str,
-        task_description: Optional[str] = None,
+        task_description: str | None = None,
     ) -> str:
         """
         Get a few-shot learning prompt.
@@ -271,7 +270,7 @@ Reasoning:"""
 
     @staticmethod
     def get_multi_turn_prompt(
-        turns: List[Tuple[str, str]],
+        turns: list[tuple[str, str]],
         current_user_message: str,
     ) -> str:
         """

@@ -4,11 +4,9 @@ Document metadata service for managing document metadata.
 Provides service and repository for storing and retrieving
 document metadata (title, author, category, tags, etc.).
 """
+
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, List, Dict
-from sqlalchemy import select, String, DateTime, Text
-from sqlalchemy.orm import mapped_column, Mapped
 
 from app.repositories.base import BaseRepository
 
@@ -30,16 +28,17 @@ class DocumentMetadata:
         source: Source URL or reference
         language: Document language
     """
-    id: Optional[int] = None
+
+    id: int | None = None
     document_id: str = ""
-    title: Optional[str] = None
-    author: Optional[str] = None
-    category: Optional[str] = None
-    tags: Optional[List[str]] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    source: Optional[str] = None
-    language: Optional[str] = None
+    title: str | None = None
+    author: str | None = None
+    category: str | None = None
+    tags: list[str] | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    source: str | None = None
+    language: str | None = None
 
 
 class DocumentMetadataModel:
@@ -53,13 +52,13 @@ class DocumentMetadataModel:
     def __init__(
         self,
         document_id: str,
-        title: Optional[str] = None,
-        author: Optional[str] = None,
-        category: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        source: Optional[str] = None,
-        language: Optional[str] = None,
-        id: Optional[int] = None,
+        title: str | None = None,
+        author: str | None = None,
+        category: str | None = None,
+        tags: list[str] | None = None,
+        source: str | None = None,
+        language: str | None = None,
+        id: int | None = None,
     ):
         self.id = id
         self.document_id = document_id
@@ -89,7 +88,7 @@ class DocumentMetadataRepository(BaseRepository):
             session: Database session
         """
         self.session = session
-        self._storage: Dict[str, DocumentMetadata] = {}
+        self._storage: dict[str, DocumentMetadata] = {}
 
     async def create(
         self,
@@ -125,7 +124,7 @@ class DocumentMetadataRepository(BaseRepository):
     async def get_by_document_id(
         self,
         document_id: str,
-    ) -> Optional[DocumentMetadata]:
+    ) -> DocumentMetadata | None:
         """
         Get metadata by document ID.
 
@@ -139,8 +138,8 @@ class DocumentMetadataRepository(BaseRepository):
 
     async def get_by_document_ids(
         self,
-        document_ids: List[str],
-    ) -> Dict[str, DocumentMetadata]:
+        document_ids: list[str],
+    ) -> dict[str, DocumentMetadata]:
         """
         Get metadata for multiple documents.
 
@@ -196,7 +195,7 @@ class DocumentMetadataRepository(BaseRepository):
     async def get_by_category(
         self,
         category: str,
-    ) -> List[DocumentMetadata]:
+    ) -> list[DocumentMetadata]:
         """
         Get metadata by category.
 
@@ -206,15 +205,12 @@ class DocumentMetadataRepository(BaseRepository):
         Returns:
             List[DocumentMetadata]: List of metadata with matching category
         """
-        return [
-            m for m in self._storage.values()
-            if m.category == category
-        ]
+        return [m for m in self._storage.values() if m.category == category]
 
     async def get_by_tags(
         self,
-        tags: List[str],
-    ) -> List[DocumentMetadata]:
+        tags: list[str],
+    ) -> list[DocumentMetadata]:
         """
         Get metadata by tags.
 
@@ -226,10 +222,9 @@ class DocumentMetadataRepository(BaseRepository):
         """
         result = []
         for metadata in self._storage.values():
-            if metadata.tags:
-                # Check if any tag matches
-                if any(tag in metadata.tags for tag in tags):
-                    result.append(metadata)
+            # Check if any tag matches
+            if metadata.tags and any(tag in metadata.tags for tag in tags):
+                result.append(metadata)
 
         return result
 
@@ -295,7 +290,7 @@ class DocumentMetadataService:
     async def get_metadata(
         self,
         document_id: str,
-    ) -> Optional[DocumentMetadata]:
+    ) -> DocumentMetadata | None:
         """
         Get metadata for a document.
 
@@ -309,8 +304,8 @@ class DocumentMetadataService:
 
     async def get_metadata_batch(
         self,
-        document_ids: List[str],
-    ) -> Dict[str, DocumentMetadata]:
+        document_ids: list[str],
+    ) -> dict[str, DocumentMetadata]:
         """
         Get metadata for multiple documents.
 
@@ -352,7 +347,7 @@ class DocumentMetadataService:
     async def search_by_category(
         self,
         category: str,
-    ) -> List[DocumentMetadata]:
+    ) -> list[DocumentMetadata]:
         """
         Search documents by category.
 
@@ -366,8 +361,8 @@ class DocumentMetadataService:
 
     async def search_by_tags(
         self,
-        tags: List[str],
-    ) -> List[DocumentMetadata]:
+        tags: list[str],
+    ) -> list[DocumentMetadata]:
         """
         Search documents by tags.
 
@@ -409,17 +404,20 @@ class DocumentMetadataService:
             if metadata:
                 # Add metadata to result
                 new_metadata = result.metadata or {}
-                new_metadata.update({
-                    "title": metadata.title,
-                    "author": metadata.author,
-                    "category": metadata.category,
-                    "tags": metadata.tags,
-                    "source": metadata.source,
-                    "language": metadata.language,
-                })
+                new_metadata.update(
+                    {
+                        "title": metadata.title,
+                        "author": metadata.author,
+                        "category": metadata.category,
+                        "tags": metadata.tags,
+                        "source": metadata.source,
+                        "language": metadata.language,
+                    }
+                )
 
                 # Create new enriched result
                 from app.services.retrieval.vector_base import SearchResult
+
                 enriched_result = SearchResult(
                     document_id=result.document_id,
                     content=result.content,

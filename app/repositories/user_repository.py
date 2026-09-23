@@ -3,7 +3,6 @@ User repository for user data access.
 
 Provides database operations specific to the User model.
 """
-from typing import List
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,7 +66,7 @@ class UserRepository(BaseRepository[User]):
         self,
         skip: int = 0,
         limit: int = 100,
-    ) -> List[User]:
+    ) -> list[User]:
         """
         List all users with pagination.
 
@@ -78,12 +77,7 @@ class UserRepository(BaseRepository[User]):
         Returns:
             List[User]: List of users
         """
-        stmt = (
-            select(User)
-            .order_by(User.created_at.desc())
-            .offset(skip)
-            .limit(limit)
-        )
+        stmt = select(User).order_by(User.created_at.desc()).offset(skip).limit(limit)
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -97,10 +91,6 @@ class UserRepository(BaseRepository[User]):
         Returns:
             User | None: User with sessions if found, None otherwise
         """
-        stmt = (
-            select(User)
-            .where(User.id == user_id)
-            .options(selectinload(User.sessions))
-        )
+        stmt = select(User).where(User.id == user_id).options(selectinload(User.sessions))
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()

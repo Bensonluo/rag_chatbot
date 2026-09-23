@@ -3,8 +3,9 @@ Validation utilities.
 
 Custom validators for common validation scenarios.
 """
+
 import re
-from typing import Any, Dict
+from typing import Any
 
 
 def validate_email(email: str) -> bool:
@@ -24,7 +25,7 @@ def validate_email(email: str) -> bool:
     return re.match(pattern, email) is not None
 
 
-def validate_password_strength(password: str) -> Dict[str, Any]:
+def validate_password_strength(password: str) -> dict[str, Any]:
     """
     Validate password strength.
 
@@ -57,7 +58,9 @@ def validate_password_strength(password: str) -> Dict[str, Any]:
     }
 
 
-def validate_message_content(content: str, min_length: int = 1, max_length: int = 5000) -> Dict[str, Any]:
+def validate_message_content(
+    content: str, min_length: int = 1, max_length: int = 5000
+) -> dict[str, Any]:
     """
     Validate message content.
 
@@ -101,7 +104,12 @@ def sanitize_user_input(text: str) -> str:
         return ""
 
     # Remove potential SQL injection patterns
-    text = re.sub(r"(-{2}|;|\b(ALTER|CREATE|DELETE|DROP|EXEC|EXECUTE|INSERT|SELECT|UNION|UPDATE)\b)", "", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"(-{2}|;|\b(ALTER|CREATE|DELETE|DROP|EXEC|EXECUTE|INSERT|SELECT|UNION|UPDATE)\b)",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
 
     # Remove potential script tags
     text = re.sub(r"<script.*?>.*?</script>", "", text, flags=re.IGNORECASE | re.DOTALL)

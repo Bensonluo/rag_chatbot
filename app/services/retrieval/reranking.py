@@ -4,14 +4,14 @@ Result reranking service for improving search results.
 Provides LLM-based and no-op reranking strategies to optimize
 search result ordering based on query relevance and diversity.
 """
-from typing import Optional, List
+
 import json
 
+from app.services.llm.base import LLMMessage, LLMServiceBase
 from app.services.retrieval.vector_base import (
-    VectorSearchRequest,
     SearchResult,
+    VectorSearchRequest,
 )
-from app.services.llm.base import LLMServiceBase, LLMMessage
 
 
 class NoOpReranker:
@@ -23,9 +23,9 @@ class NoOpReranker:
 
     async def rerank(
         self,
-        results: List[SearchResult],
-        request: VectorSearchRequest,
-    ) -> List[SearchResult]:
+        results: list[SearchResult],
+        request: VectorSearchRequest,  # noqa: ARG002  # Reranker interface conformance (no-op)
+    ) -> list[SearchResult]:
         """
         Return results unchanged (no reranking).
 
@@ -64,9 +64,9 @@ class RerankingService:
 
     async def rerank(
         self,
-        results: List[SearchResult],
+        results: list[SearchResult],
         request: VectorSearchRequest,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Rerank search results using LLM.
 
@@ -109,7 +109,7 @@ class RerankingService:
     def _build_reranking_prompt(
         self,
         query: str,
-        results: List[SearchResult],
+        results: list[SearchResult],
     ) -> str:
         """
         Build prompt for LLM reranking.
@@ -158,8 +158,8 @@ Only rerank the top {self.top_n} results."""
     def _parse_reranking_response(
         self,
         response: str,
-        original_results: List[SearchResult],
-    ) -> List[SearchResult]:
+        original_results: list[SearchResult],
+    ) -> list[SearchResult]:
         """
         Parse LLM reranking response.
 

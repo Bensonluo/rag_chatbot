@@ -62,9 +62,7 @@ async def test_delete_document_uses_root_document_id_filter() -> None:
 
     result = await service.delete_document("doc-demo")
 
-    qdrant_client.delete_by_filter.assert_awaited_once_with(
-        {"document_id": "doc-demo"}
-    )
+    qdrant_client.delete_by_filter.assert_awaited_once_with({"document_id": "doc-demo"})
     assert result == {"document_id": "doc-demo", "deleted_chunks": 2}
 
 

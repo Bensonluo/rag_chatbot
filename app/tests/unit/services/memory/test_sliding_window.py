@@ -1,7 +1,11 @@
 """Tests for sliding window memory strategy"""
-import pytest
+
 from datetime import datetime
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+
+from app.services.memory.base import MessageContent
 
 
 class TestSlidingWindowMemory:
@@ -11,10 +15,10 @@ class TestSlidingWindowMemory:
     async def test_get_context_returns_recent_messages(self):
         """Test that get_context returns last N messages"""
         # Arrange
-        from app.services.memory.sliding_window import SlidingWindowMemory
-        from app.models.schemas.chat import MessageContent
+
         from app.models.database.message import Message
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.sliding_window import SlidingWindowMemory
 
         mock_repo = Mock(spec=MessageRepository)
         memory = SlidingWindowMemory(message_repo=mock_repo, window_size=3)
@@ -30,12 +34,10 @@ class TestSlidingWindowMemory:
 
         # Convert to MessageContent format
         mock_repo.get_recent_messages = AsyncMock(
-            return_value=[Message(
-                id=m.id,
-                role="user",
-                content=m.content,
-                created_at=datetime.now()
-            ) for m in messages]
+            return_value=[
+                Message(id=m.id, role="user", content=m.content, created_at=datetime.now())
+                for m in messages
+            ]
         )
 
         # Act
@@ -50,19 +52,16 @@ class TestSlidingWindowMemory:
     async def test_add_message_stores_in_database(self):
         """Test that add_message stores in database"""
         # Arrange
-        from app.services.memory.sliding_window import SlidingWindowMemory
         from app.models.schemas.chat import MessageContent
+
         from app.models.database.message import Message
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.sliding_window import SlidingWindowMemory
 
         mock_repo = Mock(spec=MessageRepository)
         memory = SlidingWindowMemory(message_repo=mock_repo, window_size=3)
 
-        message = MessageContent(
-            role="user",
-            content="New message",
-            timestamp=datetime.now()
-        )
+        message = MessageContent(role="user", content="New message", timestamp=datetime.now())
 
         mock_repo.create = AsyncMock()
         mock_repo.get_by_id = AsyncMock(return_value=Message(id=1))
@@ -77,8 +76,8 @@ class TestSlidingWindowMemory:
     async def test_clear_session_deletes_messages(self):
         """Test that clear_session deletes all messages"""
         # Arrange
-        from app.services.memory.sliding_window import SlidingWindowMemory
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.sliding_window import SlidingWindowMemory
 
         mock_repo = Mock(spec=MessageRepository)
         memory = SlidingWindowMemory(message_repo=mock_repo, window_size=3)
@@ -95,9 +94,10 @@ class TestSlidingWindowMemory:
     async def test_truncate_by_max_tokens(self):
         """Test truncating messages to fit max tokens"""
         # Arrange
-        from app.services.memory.sliding_window import SlidingWindowMemory
-        from app.repositories.message_repository import MessageRepository
         from app.models.schemas.chat import MessageContent
+
+        from app.repositories.message_repository import MessageRepository
+        from app.services.memory.sliding_window import SlidingWindowMemory
 
         mock_repo = Mock(spec=MessageRepository)
         memory = SlidingWindowMemory(message_repo=mock_repo, window_size=10)
@@ -117,27 +117,20 @@ class TestSlidingWindowMemory:
     async def test_get_context_with_max_tokens(self):
         """Test get_context respects max_tokens parameter"""
         # Arrange
-        from app.services.memory.sliding_window import SlidingWindowMemory
         from app.models.database.message import Message
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.sliding_window import SlidingWindowMemory
 
         mock_repo = Mock(spec=MessageRepository)
         memory = SlidingWindowMemory(message_repo=mock_repo, window_size=10)
 
         # Mock 5 messages, each ~10 tokens
-        messages = [
-            Message(id=i, role="user", content=f"Message number {i}")
-            for i in range(1, 6)
-        ]
+        messages = [Message(id=i, role="user", content=f"Message number {i}") for i in range(1, 6)]
 
         mock_repo.get_recent_messages = AsyncMock(
             return_value=[
-                Message(
-                    id=m.id,
-                    role="user",
-                    content=m.content,
-                    created_at=datetime.now()
-                ) for m in messages
+                Message(id=m.id, role="user", content=m.content, created_at=datetime.now())
+                for m in messages
             ]
         )
 
@@ -151,15 +144,13 @@ class TestSlidingWindowMemory:
     async def test_estimate_tokens(self):
         """Test token estimation"""
         # Arrange
-        from app.services.memory.sliding_window import SlidingWindowMemory
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.sliding_window import SlidingWindowMemory
 
         mock_repo = Mock(spec=MessageRepository)
         memory = SlidingWindowMemory(message_repo=mock_repo, window_size=10)
 
-        messages = [
-            MessageContent(role="user", content="Hello world!", timestamp=datetime.now())
-        ]
+        messages = [MessageContent(role="user", content="Hello world!", timestamp=datetime.now())]
 
         # Act
         count = await memory.estimate_tokens(messages)
@@ -172,16 +163,13 @@ class TestSlidingWindowMemory:
     def test_initialization(self):
         """Test strategy initialization"""
         # Arrange
-        from app.services.memory.sliding_window import SlidingWindowMemory
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.sliding_window import SlidingWindowMemory
 
         mock_repo = Mock(spec=MessageRepository)
 
         # Act
-        memory = SlidingWindowMemory(
-            message_repo=mock_repo,
-            window_size=15
-        )
+        memory = SlidingWindowMemory(message_repo=mock_repo, window_size=15)
 
         # Assert
         assert memory.window_size == 15
@@ -190,8 +178,8 @@ class TestSlidingWindowMemory:
     def test_initialization_default_window_size(self):
         """Test default window size"""
         # Arrange
-        from app.services.memory.sliding_window import SlidingWindowMemory
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.sliding_window import SlidingWindowMemory
 
         mock_repo = Mock(spec=MessageRepository)
 
@@ -205,8 +193,8 @@ class TestSlidingWindowMemory:
     async def test_empty_session_context(self):
         """Test getting context for empty session"""
         # Arrange
-        from app.services.memory.sliding_window import SlidingWindowMemory
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.sliding_window import SlidingWindowMemory
 
         mock_repo = Mock(spec=MessageRepository)
         memory = SlidingWindowMemory(message_repo=mock_repo, window_size=10)

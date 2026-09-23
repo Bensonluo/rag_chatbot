@@ -1,7 +1,9 @@
 """Tests for memory management base interface"""
-import pytest
-from unittest.mock import Mock
+
 from datetime import datetime
+from unittest.mock import Mock
+
+import pytest
 
 
 class TestMemoryStrategy:
@@ -18,15 +20,12 @@ class TestMemoryStrategy:
 
     async def test_base_class_not_implemented_add_message(self):
         """Test that add_message raises NotImplementedError"""
-        from app.services.memory.base import MemoryStrategy
         from app.models.schemas.chat import MessageContent
 
+        from app.services.memory.base import MemoryStrategy
+
         strategy = MemoryStrategy(message_repo=Mock())
-        message = MessageContent(
-            role="user",
-            content="Hello",
-            timestamp=datetime.now()
-        )
+        message = MessageContent(role="user", content="Hello", timestamp=datetime.now())
 
         with pytest.raises(NotImplementedError):
             await strategy.add_message(session_id=1, message=message)
@@ -43,8 +42,8 @@ class TestMemoryStrategy:
     def test_base_class_initialization(self):
         """Test base class initialization with message repo"""
         # Arrange
-        from app.services.memory.base import MemoryStrategy
         from app.repositories.message_repository import MessageRepository
+        from app.services.memory.base import MemoryStrategy
 
         mock_repo = Mock(spec=MessageRepository)
 
@@ -57,13 +56,12 @@ class TestMemoryStrategy:
     def test_estimate_tokens_not_implemented(self):
         """Test that estimate_tokens raises NotImplementedError"""
         # Arrange
-        from app.services.memory.base import MemoryStrategy
         from app.models.schemas.chat import MessageContent
 
+        from app.services.memory.base import MemoryStrategy
+
         strategy = MemoryStrategy(message_repo=Mock())
-        messages = [
-            MessageContent(role="user", content="Hello", timestamp=datetime.now())
-        ]
+        messages = [MessageContent(role="user", content="Hello", timestamp=datetime.now())]
 
         # Act & Assert
         with pytest.raises(NotImplementedError):
@@ -80,9 +78,7 @@ class TestMemoryContent:
 
         # Act
         content = MemoryContent(
-            messages=[],
-            summary="Conversation summary",
-            metadata={"token_count": 100}
+            messages=[], summary="Conversation summary", metadata={"token_count": 100}
         )
 
         # Assert

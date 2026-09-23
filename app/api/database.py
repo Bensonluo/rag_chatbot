@@ -3,10 +3,11 @@ Database session management for FastAPI.
 
 Provides async database session management with proper lifecycle handling.
 """
-from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config.settings import settings
 

@@ -1,9 +1,10 @@
 """User database model"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Boolean
+from sqlalchemy import Boolean, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.database.base import Base, TimestampMixin
@@ -25,6 +26,7 @@ class User(Base, TimestampMixin):
         is_admin: Whether the user has admin privileges
         sessions: Relationship to user's chat sessions
     """
+
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)

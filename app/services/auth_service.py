@@ -3,23 +3,30 @@ Authentication service for user authentication and authorization.
 
 Handles user registration, login, token creation, and token verification.
 """
-from typing import Dict, Any
 
-from app.repositories.user_repository import UserRepository
-from app.models.database.user import User
-from app.core.security import (
-    verify_password,
-    hash_password,
-    validate_password,
-    create_access_token as create_jwt_access_token,
-    create_refresh_token as create_jwt_refresh_token,
-    decode_access_token as decode_jwt_token,
-)
+from typing import Any
+
 from app.core.exceptions import (
-    ValidationError,
     AuthenticationError,
     ConflictError,
+    ValidationError,
 )
+from app.core.security import (
+    create_access_token as create_jwt_access_token,
+)
+from app.core.security import (
+    create_refresh_token as create_jwt_refresh_token,
+)
+from app.core.security import (
+    decode_access_token as decode_jwt_token,
+)
+from app.core.security import (
+    hash_password,
+    validate_password,
+    verify_password,
+)
+from app.models.database.user import User
+from app.repositories.user_repository import UserRepository
 
 
 class AuthenticationService:
@@ -121,7 +128,7 @@ class AuthenticationService:
 
         return user
 
-    async def create_access_token(self, user: User) -> Dict[str, str | int]:
+    async def create_access_token(self, user: User) -> dict[str, str | int]:
         """
         Create an access token for a user.
 
@@ -164,7 +171,7 @@ class AuthenticationService:
         refresh_token = create_jwt_refresh_token(token_data)
         return refresh_token
 
-    async def verify_token(self, token: str) -> Dict[str, Any]:
+    async def verify_token(self, token: str) -> dict[str, Any]:
         """
         Verify and decode an access token.
 
@@ -189,7 +196,7 @@ class AuthenticationService:
         except Exception as e:
             raise AuthenticationError(f"Token verification failed: {str(e)}") from e
 
-    async def refresh_access_token(self, refresh_token: str) -> Dict[str, str | int]:
+    async def refresh_access_token(self, refresh_token: str) -> dict[str, str | int]:
         """
         Refresh an access token using a refresh token.
 

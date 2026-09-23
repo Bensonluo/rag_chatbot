@@ -1,6 +1,8 @@
 """Tests for vector service base interface and models"""
-import pytest
+
 from dataclasses import asdict
+
+import pytest
 
 
 class TestDocument:
@@ -15,7 +17,7 @@ class TestDocument:
         doc = Document(
             id="doc1",
             content="This is a test document",
-            metadata={"category": "test", "source": "unit_test"}
+            metadata={"category": "test", "source": "unit_test"},
         )
 
         # Assert
@@ -30,11 +32,7 @@ class TestDocument:
         from app.services.retrieval.vector_base import Document
 
         # Act
-        doc = Document(
-            id="doc2",
-            content="Another document",
-            embedding=[0.1, 0.2, 0.3, 0.4]
-        )
+        doc = Document(id="doc2", content="Another document", embedding=[0.1, 0.2, 0.3, 0.4])
 
         # Assert
         assert doc.id == "doc2"
@@ -46,11 +44,7 @@ class TestDocument:
         # Arrange
         from app.services.retrieval.vector_base import Document
 
-        doc = Document(
-            id="doc3",
-            content="Test content",
-            metadata={"key": "value"}
-        )
+        doc = Document(id="doc3", content="Test content", metadata={"key": "value"})
 
         # Act
         result = asdict(doc)
@@ -71,10 +65,7 @@ class TestSearchResult:
 
         # Act
         result = SearchResult(
-            document_id="doc1",
-            content="Test content",
-            score=0.95,
-            metadata={"category": "test"}
+            document_id="doc1", content="Test content", score=0.95, metadata={"category": "test"}
         )
 
         # Assert
@@ -89,11 +80,7 @@ class TestSearchResult:
         from app.services.retrieval.vector_base import SearchResult
 
         # Act
-        result = SearchResult(
-            document_id="doc2",
-            content="Another content",
-            score=0.87
-        )
+        result = SearchResult(document_id="doc2", content="Another content", score=0.87)
 
         # Assert
         assert result.document_id == "doc2"
@@ -104,16 +91,8 @@ class TestSearchResult:
         # Arrange
         from app.services.retrieval.vector_base import SearchResult
 
-        result1 = SearchResult(
-            document_id="doc1",
-            content="Content 1",
-            score=0.95
-        )
-        result2 = SearchResult(
-            document_id="doc2",
-            content="Content 2",
-            score=0.87
-        )
+        result1 = SearchResult(document_id="doc1", content="Content 1", score=0.95)
+        result2 = SearchResult(document_id="doc2", content="Content 2", score=0.87)
 
         # Assert
         assert result1.score > result2.score
@@ -134,11 +113,12 @@ class TestVectorClient:
     def test_vector_client_has_abstract_methods(self):
         """Test that VectorClient defines abstract methods"""
         # Arrange
-        from app.services.retrieval.vector_base import VectorClient
         import inspect
 
+        from app.services.retrieval.vector_base import VectorClient
+
         # Act
-        abstract_methods = inspect.getmembers(VectorClient, predicate=inspect.ismethod)
+        inspect.getmembers(VectorClient, predicate=inspect.ismethod)
 
         # Assert - Check that required abstract methods exist
         assert hasattr(VectorClient, "add_documents")
@@ -156,11 +136,7 @@ class TestVectorSearchRequest:
         from app.services.retrieval.vector_base import VectorSearchRequest
 
         # Act
-        request = VectorSearchRequest(
-            query="test query",
-            top_k=10,
-            filters={"category": "tech"}
-        )
+        request = VectorSearchRequest(query="test query", top_k=10, filters={"category": "tech"})
 
         # Assert
         assert request.query == "test query"

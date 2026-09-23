@@ -3,14 +3,13 @@ Prometheus metrics middleware.
 
 Collects and exposes metrics for monitoring.
 """
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, REGISTRY
-from prometheus_client.openmetrics.exposition import generate_latest as generate_latest_openmetrics
-from typing import Dict
-import time
-import logging
 
+import logging
+import time
+
+from fastapi import Request, Response
+from prometheus_client import REGISTRY, Counter, Gauge, Histogram, generate_latest
+from starlette.middleware.base import BaseHTTPMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +100,7 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
             self.active_requests.dec()
 
 
-def metrics_endpoint(request: Request):
+def metrics_endpoint(request: Request):  # noqa: ARG001  # FastAPI DI: Request required by route signature
     """
     FastAPI endpoint to expose Prometheus metrics.
 

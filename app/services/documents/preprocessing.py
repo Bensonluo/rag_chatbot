@@ -3,8 +3,8 @@ Document preprocessing utilities.
 
 Handles text cleaning, normalization, and preparation before chunking.
 """
+
 import re
-from typing import List, Tuple
 
 
 class TextPreprocessor:
@@ -27,14 +27,14 @@ class TextPreprocessor:
             str: Cleaned text
         """
         # Remove excessive whitespace
-        text = re.sub(r'\s+', ' ', text)
+        text = re.sub(r"\s+", " ", text)
 
         # Remove control characters but keep newlines
-        text = re.sub(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]', '', text)
+        text = re.sub(r"[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]", "", text)
 
         # Normalize quotes
         text = text.replace('"', '"').replace('"', '"')
-        text = text.replace(''', "'").replace(''', "'")
+        text = text.replace(""", "'").replace(""", "'")
 
         return text.strip()
 
@@ -55,26 +55,24 @@ class TextPreprocessor:
             str: Normalized text
         """
         # Replace tabs with spaces
-        text = text.replace('\t', ' ')
+        text = text.replace("\t", " ")
 
         # Normalize multiple spaces to single space (within paragraphs)
-        text = re.sub(r' +', ' ', text)
+        text = re.sub(r" +", " ", text)
 
         # Normalize multiple newlines (but keep paragraph breaks)
-        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
 
         # Remove leading/trailing whitespace from each line
-        lines = text.split('\n')
+        lines = text.split("\n")
         lines = [line.strip() for line in lines]
-        text = '\n'.join(lines)
+        text = "\n".join(lines)
 
         return text.strip()
 
     @staticmethod
     def remove_headers_footers(
-        text: str,
-        header_pattern: str = None,
-        footer_pattern: str = None
+        text: str, header_pattern: str = None, footer_pattern: str = None
     ) -> str:
         """
         Remove repeated headers and footers from text.
@@ -87,9 +85,6 @@ class TextPreprocessor:
         Returns:
             str: Text with headers/footers removed
         """
-        lines = text.split('\n')
-        filtered_lines = []
-
         # Default patterns: very short lines that appear frequently
         if not header_pattern and not footer_pattern:
             # Simple heuristic: remove lines that are < 20 chars
@@ -99,10 +94,10 @@ class TextPreprocessor:
 
         # Custom patterns
         if header_pattern:
-            text = re.sub(header_pattern, '', text)
+            text = re.sub(header_pattern, "", text)
 
         if footer_pattern:
-            text = re.sub(footer_pattern, '', text)
+            text = re.sub(footer_pattern, "", text)
 
         return text.strip()
 
@@ -123,50 +118,45 @@ class TextPreprocessor:
             dict: Extracted metadata
         """
         metadata = {}
-        lines = text.strip().split('\n')
+        lines = text.strip().split("\n")
 
         # First line might be a title
         if lines:
             first_line = lines[0].strip()
             # Title: short, no period at end, might be bold/caps in original
-            if len(first_line) < 100 and not first_line.endswith('.'):
-                metadata['potential_title'] = first_line
+            if len(first_line) < 100 and not first_line.endswith("."):
+                metadata["potential_title"] = first_line
 
         # Look for patterns like "Author: ..." or "By ..."
         author_patterns = [
-            r'Author:\s*(.+)',
-            r'By\s+(.+?)(?:\n|$)',
-            r'Written by\s+(.+?)(?:\n|$)',
+            r"Author:\s*(.+)",
+            r"By\s+(.+?)(?:\n|$)",
+            r"Written by\s+(.+?)(?:\n|$)",
         ]
 
-        text_lower = text.lower()
         for pattern in author_patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
-                metadata['potential_author'] = match.group(1).strip()
+                metadata["potential_author"] = match.group(1).strip()
                 break
 
         # Look for date patterns
         date_patterns = [
-            r'\d{4}-\d{2}-\d{2}',  # ISO format
-            r'\d{1,2}/\d{1,2}/\d{4}',  # US format
-            r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}',
+            r"\d{4}-\d{2}-\d{2}",  # ISO format
+            r"\d{1,2}/\d{1,2}/\d{4}",  # US format
+            r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}",
         ]
 
         for pattern in date_patterns:
             match = re.search(pattern, text)
             if match:
-                metadata['potential_date'] = match.group(0)
+                metadata["potential_date"] = match.group(0)
                 break
 
         return metadata
 
     @staticmethod
-    def truncate(
-        text: str,
-        max_length: int = 100000,
-        add_ellipsis: bool = True
-    ) -> str:
+    def truncate(text: str, max_length: int = 100000, add_ellipsis: bool = True) -> str:
         """
         Truncate text to maximum length.
 
@@ -185,7 +175,7 @@ class TextPreprocessor:
 
         if add_ellipsis:
             # Try to truncate at word boundary
-            last_space = truncated.rfind(' ')
+            last_space = truncated.rfind(" ")
             if last_space > max_length * 0.9:  # If within 90% of max
                 truncated = truncated[:last_space]
 
@@ -225,11 +215,7 @@ class DocumentPreprocessor:
         self.extract_metadata = extract_metadata
         self.max_length = max_length
 
-    async def process(
-        self,
-        text: str,
-        metadata: dict = None
-    ) -> Tuple[str, dict]:
+    async def process(self, text: str, metadata: dict = None) -> tuple[str, dict]:
         """
         Process text through the preprocessing pipeline.
 
@@ -256,10 +242,7 @@ class DocumentPreprocessor:
             result_text = TextPreprocessor.remove_headers_footers(result_text)
 
         # Truncate if too long
-        result_text = TextPreprocessor.truncate(
-            result_text,
-            max_length=self.max_length
-        )
+        result_text = TextPreprocessor.truncate(result_text, max_length=self.max_length)
 
         # Extract metadata
         if self.extract_metadata:

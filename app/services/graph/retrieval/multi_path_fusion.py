@@ -4,11 +4,11 @@ Multi-path retrieval fusion.
 Fuses results from the vector retrieval path (Qdrant) and the graph
 retrieval path (Neo4j) into a unified result list via RRF.
 """
-import logging
-from typing import List
 
-from app.services.retrieval.vector_base import SearchResult
+import logging
+
 from app.services.graph.base import GraphSearchResult
+from app.services.retrieval.vector_base import SearchResult
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +26,10 @@ class MultiPathRetrievalFusion:
 
     def fuse(
         self,
-        vector_results: List[SearchResult],
-        graph_results: List[GraphSearchResult],
+        vector_results: list[SearchResult],
+        graph_results: list[GraphSearchResult],
         top_k: int = 5,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """Fuse vector + graph results into unified SearchResult list."""
         scores: dict[str, float] = {}
         result_map: dict[str, SearchResult] = {}
@@ -52,19 +52,15 @@ class MultiPathRetrievalFusion:
                     metadata={
                         "source_type": graph_result.source_type,
                         "entities": [
-                            {"name": e.name, "type": e.type}
-                            for e in graph_result.entities
+                            {"name": e.name, "type": e.type} for e in graph_result.entities
                         ],
-                        "relations": [
-                            {"type": r.relation_type}
-                            for r in graph_result.relations
-                        ],
+                        "relations": [{"type": r.relation_type} for r in graph_result.relations],
                     },
                 )
 
         sorted_keys = sorted(scores, key=scores.get, reverse=True)  # type: ignore[arg-type]
 
-        fused: List[SearchResult] = []
+        fused: list[SearchResult] = []
         for key in sorted_keys[:top_k]:
             result = result_map[key]
             fused.append(

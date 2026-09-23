@@ -4,11 +4,11 @@ Cross-encoder reranking service using sentence-transformers.
 Uses a lightweight cross-encoder model (e.g., ms-marco-MiniLM-L-6-v2)
 for fast, cost-effective reranking on CPU.
 """
-import asyncio
-from typing import List
 
-from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
+import asyncio
+
 from app.core.exceptions import ExternalServiceError
+from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
 
 
 class CrossEncoderReranker:
@@ -61,9 +61,9 @@ class CrossEncoderReranker:
 
     async def rerank(
         self,
-        results: List[SearchResult],
+        results: list[SearchResult],
         request: VectorSearchRequest,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Rerank search results using cross-encoder scoring.
 
@@ -88,7 +88,7 @@ class CrossEncoderReranker:
                 lambda: self._model.predict(pairs),
             )
 
-            scored = list(zip(results, scores.tolist()))
+            scored = list(zip(results, scores.tolist(), strict=True))
             scored.sort(key=lambda x: x[1], reverse=True)
 
             reranked = []

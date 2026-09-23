@@ -1,9 +1,11 @@
 """Unit tests for LLMSlotFiller with mocked LLM."""
-import pytest
+
 from unittest.mock import AsyncMock, MagicMock
 
-from app.services.slot_filling.llm_based import LLMSlotFiller
+import pytest
+
 from app.models.enums.intent import Intent
+from app.services.slot_filling.llm_based import LLMSlotFiller
 
 
 class TestLLMSlotFiller:
@@ -25,17 +27,13 @@ class TestLLMSlotFiller:
 
     @pytest.mark.asyncio
     async def test_extract_empty_slots(self):
-        self.mock_llm.generate = AsyncMock(
-            return_value=MagicMock(content='{"slots": []}')
-        )
+        self.mock_llm.generate = AsyncMock(return_value=MagicMock(content='{"slots": []}'))
         result = await self.filler.fill_slots("今天天气怎么样")
         assert not result.has_slots()
 
     @pytest.mark.asyncio
     async def test_handles_invalid_json(self):
-        self.mock_llm.generate = AsyncMock(
-            return_value=MagicMock(content="not json")
-        )
+        self.mock_llm.generate = AsyncMock(return_value=MagicMock(content="not json"))
         result = await self.filler.fill_slots("test")
         assert not result.has_slots()
 

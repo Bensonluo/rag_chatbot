@@ -1,9 +1,10 @@
 """
 Base document processing interfaces and data structures.
 """
+
 from abc import ABC, abstractmethod
-from typing import Any
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -18,6 +19,7 @@ class DocumentChunk:
         index: Position of chunk in the document
         metadata: Additional metadata (title, page, etc.)
     """
+
     content: str
     chunk_id: str
     document_id: str
@@ -37,6 +39,7 @@ class Document:
         file_type: Type of file (pdf, txt, md, etc.)
         metadata: Additional metadata
     """
+
     document_id: str
     title: str
     content: str
@@ -56,10 +59,7 @@ class ChunkingStrategy(ABC):
 
     @abstractmethod
     async def chunk(
-        self,
-        document: Document,
-        max_chunk_size: int = 512,
-        chunk_overlap: int = 50
+        self, document: Document, max_chunk_size: int = 512, chunk_overlap: int = 50
     ) -> list[DocumentChunk]:
         """
         Split a document into chunks.

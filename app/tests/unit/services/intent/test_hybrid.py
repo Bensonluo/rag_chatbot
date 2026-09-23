@@ -1,6 +1,9 @@
 """Tests for hybrid intent detector"""
+
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
+
 from app.models.enums.intent import Intent
 from app.services.intent.base import IntentResult
 
@@ -12,8 +15,8 @@ class TestHybridIntentDetector:
         """Test detector initialization with both detectors"""
         # Arrange
         from app.services.intent.hybrid import HybridIntentDetector
-        from app.services.intent.rule_based import RuleBasedIntentDetector
         from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.intent.rule_based import RuleBasedIntentDetector
         from app.services.llm.base import LLMServiceBase
 
         mock_llm = Mock(spec=LLMServiceBase)
@@ -22,9 +25,7 @@ class TestHybridIntentDetector:
 
         # Act
         detector = HybridIntentDetector(
-            rule_based=rule_based,
-            llm_based=llm_based,
-            confidence_threshold=0.7
+            rule_based=rule_based, llm_based=llm_based, confidence_threshold=0.7
         )
 
         # Assert
@@ -37,8 +38,8 @@ class TestHybridIntentDetector:
         """Test detector initialization with default threshold"""
         # Arrange
         from app.services.intent.hybrid import HybridIntentDetector
-        from app.services.intent.rule_based import RuleBasedIntentDetector
         from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.intent.rule_based import RuleBasedIntentDetector
         from app.services.llm.base import LLMServiceBase
 
         mock_llm = Mock(spec=LLMServiceBase)
@@ -46,10 +47,7 @@ class TestHybridIntentDetector:
         llm_based = LLMIntentDetector(llm_service=mock_llm)
 
         # Act
-        detector = HybridIntentDetector(
-            rule_based=rule_based,
-            llm_based=llm_based
-        )
+        detector = HybridIntentDetector(rule_based=rule_based, llm_based=llm_based)
 
         # Assert
         assert detector.confidence_threshold == 0.7  # Default value
@@ -66,9 +64,7 @@ class TestHybridIntentDetector:
         llm_based.detect_with_confidence = AsyncMock()
 
         detector = HybridIntentDetector(
-            rule_based=rule_based,
-            llm_based=llm_based,
-            confidence_threshold=0.7
+            rule_based=rule_based, llm_based=llm_based, confidence_threshold=0.7
         )
 
         # Act - Clear "退款" query should get high confidence from rule-based
@@ -84,8 +80,8 @@ class TestHybridIntentDetector:
         """Test falling back to LLM when rule-based confidence is low"""
         # Arrange
         from app.services.intent.hybrid import HybridIntentDetector
-        from app.services.intent.rule_based import RuleBasedIntentDetector
         from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.intent.rule_based import RuleBasedIntentDetector
         from app.services.llm.base import LLMServiceBase
 
         mock_llm = Mock(spec=LLMServiceBase)
@@ -95,16 +91,12 @@ class TestHybridIntentDetector:
         # Mock LLM to return specific intent
         llm_based.detect_with_confidence = AsyncMock(
             return_value=IntentResult(
-                intent=Intent.FAQ,
-                confidence=0.85,
-                metadata={"method": "llm"}
+                intent=Intent.FAQ, confidence=0.85, metadata={"method": "llm"}
             )
         )
 
         detector = HybridIntentDetector(
-            rule_based=rule_based,
-            llm_based=llm_based,
-            confidence_threshold=0.7
+            rule_based=rule_based, llm_based=llm_based, confidence_threshold=0.7
         )
 
         # Act - Ambiguous query with low rule-based confidence
@@ -127,9 +119,7 @@ class TestHybridIntentDetector:
         llm_based.detect_with_confidence = AsyncMock()
 
         detector = HybridIntentDetector(
-            rule_based=rule_based,
-            llm_based=llm_based,
-            confidence_threshold=0.5
+            rule_based=rule_based, llm_based=llm_based, confidence_threshold=0.5
         )
 
         # Act
@@ -147,8 +137,8 @@ class TestHybridIntentDetector:
         """Test detecting with low confidence from LLM"""
         # Arrange
         from app.services.intent.hybrid import HybridIntentDetector
-        from app.services.intent.rule_based import RuleBasedIntentDetector
         from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.intent.rule_based import RuleBasedIntentDetector
         from app.services.llm.base import LLMServiceBase
 
         mock_llm = Mock(spec=LLMServiceBase)
@@ -158,16 +148,12 @@ class TestHybridIntentDetector:
         # Mock LLM to return low confidence
         llm_based.detect_with_confidence = AsyncMock(
             return_value=IntentResult(
-                intent=Intent.UNKNOWN,
-                confidence=0.3,
-                metadata={"method": "llm"}
+                intent=Intent.UNKNOWN, confidence=0.3, metadata={"method": "llm"}
             )
         )
 
         detector = HybridIntentDetector(
-            rule_based=rule_based,
-            llm_based=llm_based,
-            confidence_threshold=0.5
+            rule_based=rule_based, llm_based=llm_based, confidence_threshold=0.5
         )
 
         # Act
@@ -189,15 +175,13 @@ class TestHybridIntentDetector:
         llm_based.detect_with_confidence = AsyncMock()
 
         detector = HybridIntentDetector(
-            rule_based=rule_based,
-            llm_based=llm_based,
-            confidence_threshold=0.7
+            rule_based=rule_based, llm_based=llm_based, confidence_threshold=0.7
         )
 
         context = {
             "previous_messages": [
                 {"role": "user", "content": "你好"},
-                {"role": "assistant", "content": "您好！有什么可以帮您？"}
+                {"role": "assistant", "content": "您好！有什么可以帮您？"},
             ]
         }
 
@@ -220,9 +204,7 @@ class TestHybridIntentDetector:
         llm_based.detect_with_confidence = AsyncMock()
 
         detector = HybridIntentDetector(
-            rule_based=rule_based,
-            llm_based=llm_based,
-            confidence_threshold=0.7
+            rule_based=rule_based, llm_based=llm_based, confidence_threshold=0.7
         )
 
         # Act - Clear greeting query
@@ -237,8 +219,8 @@ class TestHybridIntentDetector:
         """Test custom confidence threshold"""
         # Arrange
         from app.services.intent.hybrid import HybridIntentDetector
-        from app.services.intent.rule_based import RuleBasedIntentDetector
         from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.intent.rule_based import RuleBasedIntentDetector
         from app.services.llm.base import LLMServiceBase
 
         mock_llm = Mock(spec=LLMServiceBase)
@@ -247,16 +229,12 @@ class TestHybridIntentDetector:
 
         # Act - Very low threshold means LLM will be used more
         detector_low = HybridIntentDetector(
-            rule_based=rule_based,
-            llm_based=llm_based,
-            confidence_threshold=0.3
+            rule_based=rule_based, llm_based=llm_based, confidence_threshold=0.3
         )
 
         # Act - Very high threshold means rule-based will be used more
         detector_high = HybridIntentDetector(
-            rule_based=rule_based,
-            llm_based=llm_based,
-            confidence_threshold=0.9
+            rule_based=rule_based, llm_based=llm_based, confidence_threshold=0.9
         )
 
         # Assert

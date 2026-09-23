@@ -1,5 +1,6 @@
 """Document database model"""
-from sqlalchemy import String, Text, Integer, Boolean, JSON
+
+from sqlalchemy import JSON, Boolean, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.database.base import Base, TimestampMixin
@@ -22,6 +23,7 @@ class Document(Base, TimestampMixin):
         metadata: Additional metadata as JSON
         is_active: Whether document is active
     """
+
     __tablename__ = "documents"
 
     id: Mapped[int] = mapped_column(primary_key=True)

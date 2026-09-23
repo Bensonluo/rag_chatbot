@@ -7,12 +7,11 @@ into business intent categories.
 
 import json
 import re
-from typing import Optional
 
-from app.services.intent.base import IntentDetector, IntentResult
-from app.models.enums.intent import Intent
-from app.services.llm.base import LLMServiceBase, LLMMessage
 from app.core.exceptions import ExternalServiceError
+from app.models.enums.intent import Intent
+from app.services.intent.base import IntentDetector, IntentResult
+from app.services.llm.base import LLMMessage, LLMServiceBase
 
 
 class LLMIntentDetector(IntentDetector):
@@ -26,7 +25,7 @@ class LLMIntentDetector(IntentDetector):
     def __init__(
         self,
         llm_service: LLMServiceBase,
-        prompt_template: Optional[str] = None,
+        prompt_template: str | None = None,
     ) -> None:
         self.llm_service = llm_service
         self.prompt_template = prompt_template
@@ -35,7 +34,7 @@ class LLMIntentDetector(IntentDetector):
     async def detect(
         self,
         query: str,
-        context: Optional[dict] = None,
+        context: dict | None = None,
     ) -> Intent:
         result = await self.detect_with_confidence(query, context)
         return result.intent
@@ -43,7 +42,7 @@ class LLMIntentDetector(IntentDetector):
     async def detect_with_confidence(
         self,
         query: str,
-        context: Optional[dict] = None,
+        context: dict | None = None,
     ) -> IntentResult:
         if not query or not query.strip():
             return IntentResult(intent=Intent.UNKNOWN, confidence=0.0)
@@ -110,7 +109,7 @@ Rules:
 - Default to "faq" for general questions about how things work
 - Default to "unknown" if truly uncertain"""
 
-    def _build_user_prompt(self, query: str, context: Optional[dict]) -> str:
+    def _build_user_prompt(self, query: str, context: dict | None) -> str:
         prompt = f"Classify this query: {query}\n\nIntent:"
 
         if context:
@@ -137,7 +136,7 @@ Intent:"""
 
         return prompt
 
-    def _parse_response(self, response: str, query: str) -> IntentResult:
+    def _parse_response(self, response: str, query: str) -> IntentResult:  # noqa: ARG002  # mirrors rule-based parser signature
         cleaned = response.strip().lower()
 
         if cleaned.startswith("{"):

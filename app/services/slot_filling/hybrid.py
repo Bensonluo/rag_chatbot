@@ -4,11 +4,10 @@ Hybrid slot filler: rule-based first, LLM fallback.
 Mirrors the HybridIntentDetector pattern — deterministic extraction
 is preferred for speed and cost, with LLM as fallback for complex queries.
 """
-from typing import Optional
 
 from app.services.slot_filling.base import SlotFiller, SlotFillingResult
-from app.services.slot_filling.rule_based import RuleBasedSlotFiller
 from app.services.slot_filling.llm_based import LLMSlotFiller
+from app.services.slot_filling.rule_based import RuleBasedSlotFiller
 
 
 class HybridSlotFiller(SlotFiller):
@@ -17,7 +16,7 @@ class HybridSlotFiller(SlotFiller):
     def __init__(
         self,
         rule_based: RuleBasedSlotFiller,
-        llm_based: Optional[LLMSlotFiller] = None,
+        llm_based: LLMSlotFiller | None = None,
         llm_fallback: bool = True,
     ) -> None:
         self._rule_based = rule_based

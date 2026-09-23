@@ -1,6 +1,8 @@
 """Tests for OpenAI LLM client"""
+
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
 
 
 class TestOpenAIClient:
@@ -10,12 +12,8 @@ class TestOpenAIClient:
         """Test client initialization"""
         # Arrange & Act
         from app.services.llm.openai_client import OpenAIClient
-        client = OpenAIClient(
-            api_key="test-key",
-            model="gpt-4",
-            max_tokens=1000,
-            temperature=0.7
-        )
+
+        client = OpenAIClient(api_key="test-key", model="gpt-4", max_tokens=1000, temperature=0.7)
 
         # Assert
         assert client.api_key == "test-key"
@@ -27,10 +25,8 @@ class TestOpenAIClient:
         """Test client initialization with defaults"""
         # Arrange & Act
         from app.services.llm.openai_client import OpenAIClient
-        client = OpenAIClient(
-            api_key="test-key",
-            model="gpt-4"
-        )
+
+        client = OpenAIClient(api_key="test-key", model="gpt-4")
 
         # Assert
         assert client.max_tokens is None
@@ -40,8 +36,8 @@ class TestOpenAIClient:
     async def test_generate_success(self):
         """Test successful completion generation"""
         # Arrange
-        from app.services.llm.openai_client import OpenAIClient
         from app.services.llm.base import LLMMessage
+        from app.services.llm.openai_client import OpenAIClient
 
         # Mock OpenAI API
         mock_response = Mock()
@@ -71,8 +67,8 @@ class TestOpenAIClient:
     async def test_generate_with_overrides(self):
         """Test generation with parameter overrides"""
         # Arrange
-        from app.services.llm.openai_client import OpenAIClient
         from app.services.llm.base import LLMMessage
+        from app.services.llm.openai_client import OpenAIClient
 
         mock_response = Mock()
         mock_response.choices = [Mock()]
@@ -95,11 +91,7 @@ class TestOpenAIClient:
         messages = [LLMMessage(role="user", content="Hello!")]
 
         # Act - Override parameters
-        response = await client.generate(
-            messages=messages,
-            max_tokens=1000,
-            temperature=0.0
-        )
+        response = await client.generate(messages=messages, max_tokens=1000, temperature=0.0)
 
         # Assert
         assert response.content == "Response"
@@ -112,8 +104,8 @@ class TestOpenAIClient:
     async def test_generate_stream(self):
         """Test streaming completion generation"""
         # Arrange
-        from app.services.llm.openai_client import OpenAIClient
         from app.services.llm.base import LLMMessage
+        from app.services.llm.openai_client import OpenAIClient
 
         # Mock streaming response
         async def mock_stream():
@@ -141,9 +133,9 @@ class TestOpenAIClient:
     async def test_generate_api_error(self):
         """Test handling API errors"""
         # Arrange
-        from app.services.llm.openai_client import OpenAIClient
-        from app.services.llm.base import LLMMessage
         from app.core.exceptions import ExternalServiceError
+        from app.services.llm.base import LLMMessage
+        from app.services.llm.openai_client import OpenAIClient
 
         mock_client = Mock()
         mock_client.chat.completions.create = AsyncMock(side_effect=Exception("API Error"))
@@ -171,8 +163,8 @@ class TestOpenAIClient:
     async def test_count_tokens(self):
         """Test token counting"""
         # Arrange
-        from app.services.llm.openai_client import OpenAIClient
         from app.services.llm.base import LLMMessage
+        from app.services.llm.openai_client import OpenAIClient
 
         client = OpenAIClient(api_key="test-key", model="gpt-4")
         messages = [

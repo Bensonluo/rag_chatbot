@@ -3,11 +3,10 @@ Factory for creating intent detector instances.
 
 Provides simple interface for creating intent detectors with proper configuration.
 """
-from typing import Optional
 
 from app.services.intent.base import IntentDetector
-from app.services.intent.rule_based import RuleBasedIntentDetector
 from app.services.intent.llm_based import LLMIntentDetector
+from app.services.intent.rule_based import RuleBasedIntentDetector
 from app.services.llm.base import LLMServiceBase
 
 
@@ -21,7 +20,7 @@ class IntentFactory:
     @staticmethod
     def create(
         detector_type: str = "rule_based",
-        llm_service: Optional[LLMServiceBase] = None,
+        llm_service: LLMServiceBase | None = None,
     ) -> IntentDetector:
         """
         Create an intent detector instance.
@@ -47,6 +46,7 @@ class IntentFactory:
         elif detector_type == "hybrid":
             # Import here to avoid circular dependency
             from app.services.intent.hybrid import HybridIntentDetector
+
             if llm_service is None:
                 raise ValueError("llm_service is required for hybrid detector")
             # Create rule-based and LLM-based detectors
@@ -55,4 +55,6 @@ class IntentFactory:
             return HybridIntentDetector(rule_based=rule_based, llm_based=llm_based)
 
         else:
-            raise ValueError(f"Unknown detector_type: {detector_type}. Valid options: rule_based, llm_based, hybrid")
+            raise ValueError(
+                f"Unknown detector_type: {detector_type}. Valid options: rule_based, llm_based, hybrid"
+            )

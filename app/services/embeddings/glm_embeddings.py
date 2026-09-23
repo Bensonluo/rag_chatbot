@@ -3,14 +3,14 @@ GLM (Zhipu AI) embedding service implementation.
 
 Provides integration with GLM embedding models via API.
 """
+
 import time
-from typing import List
 
 import httpx
 import jwt
 
-from app.services.embeddings.base import EmbeddingServiceBase, EmbeddingResult
 from app.core.exceptions import ExternalServiceError
+from app.services.embeddings.base import EmbeddingResult, EmbeddingServiceBase
 
 
 def _generate_token(api_key: str, exp_seconds: int = 3600) -> str:
@@ -65,10 +65,7 @@ class GLMEmbeddingService(EmbeddingServiceBase):
             dimensions: Override dimensions (auto-detected if not provided)
         """
         if dimensions is None:
-            if model in self.MODELS:
-                dimensions = self.MODELS[model]
-            else:
-                dimensions = 1024
+            dimensions = self.MODELS.get(model, 1024)
 
         super().__init__(model=model, dimensions=dimensions)
 
@@ -83,7 +80,7 @@ class GLMEmbeddingService(EmbeddingServiceBase):
     def _auth_headers(self) -> dict:
         return {"Authorization": _generate_token(self.api_key)}
 
-    async def embed(self, texts: List[str]) -> EmbeddingResult:
+    async def embed(self, texts: list[str]) -> EmbeddingResult:
         """
         Generate embeddings for a list of texts using GLM API.
 
@@ -99,17 +96,11 @@ class GLMEmbeddingService(EmbeddingServiceBase):
         try:
             if not texts:
                 return EmbeddingResult(
-                    embeddings=[],
-                    model=self.model,
-                    dimensions=self.dimensions,
-                    tokens_used=0
+                    embeddings=[], model=self.model, dimensions=self.dimensions, tokens_used=0
                 )
 
             # Prepare request payload
-            payload = {
-                "model": self.model,
-                "input": texts
-            }
+            payload = {"model": self.model, "input": texts}
 
             # Call GLM embedding API
             response = await self.client.post(
@@ -137,21 +128,20 @@ class GLMEmbeddingService(EmbeddingServiceBase):
                 embeddings=embeddings,
                 model=self.model,
                 dimensions=self.dimensions,
-                tokens_used=tokens_used
+                tokens_used=tokens_used,
             )
 
         except httpx.HTTPStatusError as e:
             raise ExternalServiceError(
                 service="GLM Embeddings",
-                message=f"HTTP error occurred: {e.response.status_code} - {e.response.text}"
+                message=f"HTTP error occurred: {e.response.status_code} - {e.response.text}",
             ) from e
         except Exception as e:
             raise ExternalServiceError(
-                service="GLM Embeddings",
-                message=f"Failed to generate embeddings: {str(e)}"
+                service="GLM Embeddings", message=f"Failed to generate embeddings: {str(e)}"
             ) from e
 
-    async def embed_single(self, text: str) -> List[float]:
+    async def embed_single(self, text: str) -> list[float]:
         """
         Generate embedding for a single text.
 

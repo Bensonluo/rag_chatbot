@@ -1,11 +1,14 @@
 """Base database models"""
-from datetime import datetime, timezone
+
+from datetime import datetime
+
 from sqlalchemy import DateTime, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
     """Base class for all database models"""
+
     pass
 
 
@@ -16,6 +19,7 @@ class TimestampMixin:
     This mixin can be used by any model that needs timestamp tracking.
     Timestamps are automatically managed by the database.
     """
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

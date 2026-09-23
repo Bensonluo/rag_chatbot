@@ -1,5 +1,4 @@
 """Factory for creating guardrail service instances."""
-from typing import Optional
 
 from app.services.guardrails.base import GuardrailService
 from app.services.guardrails.input_guard import DefaultInputGuardrail
@@ -14,9 +13,17 @@ class GuardrailFactory:
         enable_input: bool = True,
         enable_output: bool = True,
         enable_pii_redaction: bool = True,
-    ) -> Optional[GuardrailService]:
-        input_guard = DefaultInputGuardrail(enable_pii_redaction=enable_pii_redaction) if enable_input else None
-        output_guard = DefaultOutputGuardrail(enable_pii_redaction=enable_pii_redaction) if enable_output else None
+    ) -> GuardrailService | None:
+        input_guard = (
+            DefaultInputGuardrail(enable_pii_redaction=enable_pii_redaction)
+            if enable_input
+            else None
+        )
+        output_guard = (
+            DefaultOutputGuardrail(enable_pii_redaction=enable_pii_redaction)
+            if enable_output
+            else None
+        )
 
         if input_guard is None and output_guard is None:
             return None
@@ -24,7 +31,7 @@ class GuardrailFactory:
         return GuardrailService(input_guard=input_guard, output_guard=output_guard)
 
     @staticmethod
-    def create_from_settings() -> Optional[GuardrailService]:
+    def create_from_settings() -> GuardrailService | None:
         from app.config.settings import get_settings
 
         settings = get_settings()

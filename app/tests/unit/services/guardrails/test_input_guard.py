@@ -1,8 +1,7 @@
 """Unit tests for input guardrail."""
-import pytest
 
-from app.services.guardrails.input_guard import DefaultInputGuardrail, BLOCK_MESSAGE
 from app.services.guardrails.base import GuardrailService
+from app.services.guardrails.input_guard import BLOCK_MESSAGE, DefaultInputGuardrail
 
 
 class TestInputGuardrail:
@@ -104,6 +103,7 @@ class TestGuardrailService:
 
     def test_output_guard_integrated(self):
         from app.services.guardrails.output_guard import DefaultOutputGuardrail
+
         guard = DefaultOutputGuardrail()
         service = GuardrailService(output_guard=guard)
         result = service.check_output("电话13812345678泄露了")

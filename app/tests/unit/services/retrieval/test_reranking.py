@@ -1,6 +1,8 @@
 """Tests for result reranking service"""
+
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock, patch
 
 
 class TestRerankingService:
@@ -45,9 +47,7 @@ class TestRerankingService:
 
         # Mock LLM response
         mock_llm.generate = AsyncMock(
-            return_value=Mock(
-                content='{"reranked": ["doc2", "doc1", "doc3"]}'
-            )
+            return_value=Mock(content='{"reranked": ["doc2", "doc1", "doc3"]}')
         )
 
         results = [
@@ -110,9 +110,7 @@ class TestRerankingService:
         reranker = RerankingService(llm_service=mock_llm, top_n=2)
 
         mock_llm.generate = AsyncMock(
-            return_value=Mock(
-                content='{"reranked": ["doc1", "doc2", "doc3", "doc4", "doc5"]}'
-            )
+            return_value=Mock(content='{"reranked": ["doc1", "doc2", "doc3", "doc4", "doc5"]}')
         )
 
         results = [
@@ -160,9 +158,7 @@ class TestRerankingService:
 
         # Mock LLM to score based on query relevance
         mock_llm.generate = AsyncMock(
-            return_value=Mock(
-                content='{"reranked": ["doc3", "doc1", "doc2"]}'
-            )
+            return_value=Mock(content='{"reranked": ["doc3", "doc1", "doc2"]}')
         )
 
         results = [
@@ -190,24 +186,20 @@ class TestRerankingService:
         mock_llm = Mock()
         reranker = RerankingService(llm_service=mock_llm)
 
-        mock_llm.generate = AsyncMock(
-            return_value=Mock(
-                content='{"reranked": ["doc2", "doc1"]}'
-            )
-        )
+        mock_llm.generate = AsyncMock(return_value=Mock(content='{"reranked": ["doc2", "doc1"]}'))
 
         results = [
             SearchResult(
                 document_id="doc1",
                 content="Content 1",
                 score=0.9,
-                metadata={"category": "tech", "source": "internal"}
+                metadata={"category": "tech", "source": "internal"},
             ),
             SearchResult(
                 document_id="doc2",
                 content="Content 2",
                 score=0.8,
-                metadata={"category": "general", "source": "external"}
+                metadata={"category": "general", "source": "external"},
             ),
         ]
 
@@ -316,19 +308,19 @@ class TestRerankingStrategies:
                 document_id="doc1",
                 content="Python is a programming language",
                 score=0.95,
-                metadata={"category": "tech"}
+                metadata={"category": "tech"},
             ),
             SearchResult(
                 document_id="doc2",
                 content="Python programming language tutorial",
                 score=0.93,
-                metadata={"category": "tech"}
+                metadata={"category": "tech"},
             ),
             SearchResult(
                 document_id="doc3",
                 content="Java is a programming language",
                 score=0.70,
-                metadata={"category": "tech"}
+                metadata={"category": "tech"},
             ),
         ]
 

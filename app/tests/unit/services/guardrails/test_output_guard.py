@@ -1,5 +1,4 @@
 """Unit tests for output guardrail."""
-import pytest
 
 from app.services.guardrails.output_guard import DefaultOutputGuardrail
 

@@ -1,5 +1,4 @@
 """Tests for prompt templates"""
-import pytest
 
 
 class TestPromptTemplates:
@@ -33,15 +32,11 @@ class TestPromptTemplates:
         # Arrange
         from app.services.llm.prompt_templates import PromptTemplates
 
-        context = {
-            "user_name": "John",
-            "conversation_topic": "AI"
-        }
+        context = {"user_name": "John", "conversation_topic": "AI"}
 
         # Act
         prompt = PromptTemplates.format_chat_prompt(
-            system_prompt="You are talking to {user_name} about {conversation_topic}.",
-            **context
+            system_prompt="You are talking to {user_name} about {conversation_topic}.", **context
         )
 
         # Assert
@@ -136,10 +131,7 @@ class TestPromptTemplates:
         current_message = "How do I use list comprehensions?"
 
         # Act
-        prompt = PromptTemplates.get_memory_aware_prompt(
-            conversation_summary,
-            current_message
-        )
+        prompt = PromptTemplates.get_memory_aware_prompt(conversation_summary, current_message)
 
         # Assert
         assert conversation_summary in prompt

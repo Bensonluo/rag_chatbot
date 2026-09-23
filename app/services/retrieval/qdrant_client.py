@@ -3,15 +3,15 @@ Qdrant vector database client implementation.
 
 Provides async client for Qdrant vector database operations.
 """
+
 import asyncio
 
-from typing import Optional, List
 from app.services.retrieval.vector_base import (
-    VectorClient,
     Document,
     SearchResult,
-    VectorSearchRequest,
+    VectorClient,
     VectorClientError,
+    VectorSearchRequest,
 )
 
 
@@ -34,8 +34,8 @@ class QdrantClient(VectorClient):
         self,
         url: str,
         collection_name: str,
-        api_key: Optional[str] = None,
-        client: Optional[object] = None,
+        api_key: str | None = None,
+        client: object | None = None,
         embedding_service=None,
     ) -> None:
         """
@@ -62,20 +62,20 @@ class QdrantClient(VectorClient):
         else:
             try:
                 from qdrant_client import AsyncQdrantClient
+
                 self.client = AsyncQdrantClient(
                     url=url,
                     api_key=api_key,
                 )
-            except ImportError:
+            except ImportError as e:
                 raise ImportError(
-                    "qdrant-client is not installed. "
-                    "Install it with: pip install qdrant-client"
-                )
+                    "qdrant-client is not installed. Install it with: pip install qdrant-client"
+                ) from e
 
     async def add_documents(
         self,
-        documents: List[Document],
-    ) -> List[str]:
+        documents: list[Document],
+    ) -> list[str]:
         """
         Add documents to Qdrant collection.
 
@@ -109,7 +109,7 @@ class QdrantClient(VectorClient):
                         "document_id": doc.id,
                         "content": doc.content,
                         "metadata": doc.metadata or {},
-                    }
+                    },
                 )
                 points.append(point)
                 document_ids.append(doc.id)
@@ -124,14 +124,13 @@ class QdrantClient(VectorClient):
 
         except Exception as e:
             raise VectorClientError(
-                f"Failed to add documents: {str(e)}",
-                details={"document_count": len(documents)}
+                f"Failed to add documents: {str(e)}", details={"document_count": len(documents)}
             ) from e
 
     async def search(
         self,
         request: VectorSearchRequest,
-    ) -> List[SearchResult]:
+    ) -> list[SearchResult]:
         """
         Search for similar documents in Qdrant.
 
@@ -181,13 +180,12 @@ class QdrantClient(VectorClient):
 
         except Exception as e:
             raise VectorClientError(
-                f"Search failed: {str(e)}",
-                details={"query": request.query}
+                f"Search failed: {str(e)}", details={"query": request.query}
             ) from e
 
     async def delete(
         self,
-        document_ids: List[str],
+        document_ids: list[str],
     ) -> None:
         """
         Delete documents from Qdrant.
@@ -210,15 +208,14 @@ class QdrantClient(VectorClient):
 
         except Exception as e:
             raise VectorClientError(
-                f"Failed to delete documents: {str(e)}",
-                details={"document_ids": document_ids}
+                f"Failed to delete documents: {str(e)}", details={"document_ids": document_ids}
             ) from e
 
     async def add(
         self,
-        ids: List[str],
-        vectors: List[List[float]],
-        payloads: List[dict],
+        ids: list[str],
+        vectors: list[list[float]],
+        payloads: list[dict],
     ) -> None:
         """
         Add points with pre-computed vectors to Qdrant.
@@ -244,17 +241,15 @@ class QdrantClient(VectorClient):
                     details={
                         "len_ids": len(ids),
                         "len_vectors": len(vectors),
-                        "len_payloads": len(payloads)
-                    }
+                        "len_payloads": len(payloads),
+                    },
                 )
 
             points = []
-            for point_id, vector, payload in zip(ids, vectors, payloads):
-                point = PointStruct(
-                    id=point_id,
-                    vector=vector,
-                    payload=payload
-                )
+            # Parallel arrays: a length mismatch would silently
+            # truncate the upsert — make it loud instead.
+            for point_id, vector, payload in zip(ids, vectors, payloads, strict=True):
+                point = PointStruct(id=point_id, vector=vector, payload=payload)
                 points.append(point)
 
             # Batch upsert
@@ -265,8 +260,7 @@ class QdrantClient(VectorClient):
 
         except Exception as e:
             raise VectorClientError(
-                f"Failed to add points: {str(e)}",
-                details={"point_count": len(ids)}
+                f"Failed to add points: {str(e)}", details={"point_count": len(ids)}
             ) from e
 
     async def delete_by_filter(self, filter: dict) -> int:
@@ -296,16 +290,14 @@ class QdrantClient(VectorClient):
 
             # Delete with filter
             await self.client.delete(
-                collection_name=self.collection_name,
-                query_filter=qdrant_filter
+                collection_name=self.collection_name, query_filter=qdrant_filter
             )
 
             return int(count_result.count)
 
         except Exception as e:
             raise VectorClientError(
-                f"Failed to delete by filter: {str(e)}",
-                details={"filter": filter}
+                f"Failed to delete by filter: {str(e)}", details={"filter": filter}
             ) from e
 
     async def update(
@@ -337,7 +329,7 @@ class QdrantClient(VectorClient):
                     "document_id": document.id,
                     "content": document.content,
                     "metadata": document.metadata or {},
-                }
+                },
             )
 
             await self.client.upsert(
@@ -347,14 +339,13 @@ class QdrantClient(VectorClient):
 
         except Exception as e:
             raise VectorClientError(
-                f"Failed to update document: {str(e)}",
-                details={"document_id": document.id}
+                f"Failed to update document: {str(e)}", details={"document_id": document.id}
             ) from e
 
     async def get_document(
         self,
         document_id: str,
-    ) -> Optional[Document]:
+    ) -> Document | None:
         """
         Get a document by ID.
 
@@ -385,11 +376,10 @@ class QdrantClient(VectorClient):
 
         except Exception as e:
             raise VectorClientError(
-                f"Failed to get document: {str(e)}",
-                details={"document_id": document_id}
+                f"Failed to get document: {str(e)}", details={"document_id": document_id}
             ) from e
 
-    async def _generate_embedding(self, text: str) -> List[float]:
+    async def _generate_embedding(self, text: str) -> list[float]:
         """
         Generate embedding for text using the configured embedding service.
 
@@ -410,7 +400,6 @@ class QdrantClient(VectorClient):
 
         try:
             # Use the embedding service
-            from app.services.embeddings.base import EmbeddingResult
 
             # Generate embedding for single text
             result = await self.embedding_service.embed_single(text)
@@ -419,8 +408,7 @@ class QdrantClient(VectorClient):
 
         except Exception as e:
             raise VectorClientError(
-                f"Failed to generate embedding: {str(e)}",
-                details={"text_length": len(text)}
+                f"Failed to generate embedding: {str(e)}", details={"text_length": len(text)}
             ) from e
 
     def _build_filter(
@@ -459,12 +447,10 @@ class QdrantClient(VectorClient):
             from qdrant_client import models
 
             return getattr(models, name)
-        except (ImportError, AttributeError):
+        except (ImportError, AttributeError) as e:
             if self._client_injected:
                 return _InjectedClientModel
-            raise ImportError(
-                "qdrant-client is required for vector database operations"
-            )
+            raise ImportError("qdrant-client is required for vector database operations") from e
 
     async def _ensure_collection(self) -> None:
         """Create the configured collection lazily on a fresh demo stack."""
@@ -488,9 +474,7 @@ class QdrantClient(VectorClient):
             if not exists:
                 Distance = self._qdrant_model("Distance")
                 VectorParams = self._qdrant_model("VectorParams")
-                vector_size = int(
-                    getattr(self.embedding_service, "dimensions", 1024)
-                )
+                vector_size = int(getattr(self.embedding_service, "dimensions", 1024))
                 await self.client.create_collection(
                     collection_name=self.collection_name,
                     vectors_config=VectorParams(

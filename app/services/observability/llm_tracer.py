@@ -4,9 +4,9 @@ LLM call tracer for observability.
 Wraps LLM generate/generate_stream calls with OpenTelemetry spans,
 tracking latency, token counts, model info, and errors.
 """
-import time
+
 import logging
-from typing import Optional, List, Any
+import time
 from contextlib import asynccontextmanager
 
 from app.middleware.tracing import get_tracer
@@ -23,8 +23,8 @@ class LLMTracer:
     @asynccontextmanager
     async def trace_generate(
         self,
-        model: Optional[str] = None,
-        intent: Optional[str] = None,
+        model: str | None = None,
+        intent: str | None = None,
         slot_count: int = 0,
     ):
         """Context manager to trace a single LLM generate call."""

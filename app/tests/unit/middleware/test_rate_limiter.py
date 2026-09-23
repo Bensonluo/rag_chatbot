@@ -1,9 +1,10 @@
 """Tests for rate limiting middleware"""
-import pytest
+
 import time
+
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from unittest.mock import Mock, AsyncMock
 
 
 class TestRateLimiterMiddleware:
@@ -178,10 +179,10 @@ class TestRateLimiterMiddleware:
         # Act
         response = await middleware.dispatch(request, self._mock_call_next)
 
-        # Assert - Check for rate limit headers
+        # Assert - Allowed responses always carry rate limit headers
         headers = response.headers if hasattr(response, "headers") else {}
-        # Headers should be present
-        assert "X-RateLimit-Limit" in headers or "x-ratelimit-limit" in headers or True
+        assert "X-RateLimit-Limit" in headers
+        assert "X-RateLimit-Remaining" in headers
 
     @pytest.mark.asyncio
     async def test_whitelisted_paths(self):
@@ -321,6 +322,7 @@ class TestTokenBucket:
 
         # Act - Wait for refill
         import time
+
         time.sleep(0.6)  # Should refill ~6 tokens
         bucket._refill()
 
@@ -337,6 +339,7 @@ class TestTokenBucket:
 
         # Act - Wait long time
         import time
+
         time.sleep(1)
         bucket._refill()
 

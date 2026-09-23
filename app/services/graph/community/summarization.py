@@ -4,15 +4,15 @@ Community summarization service.
 Generates LLM summaries for each detected community and stores them
 in the graph for later retrieval by global search queries.
 """
-import logging
-from typing import Dict, List
 
-from app.services.graph.base import (
-    GraphClient,
-    CommunitySummary,
-)
-from app.services.llm.base import LLMServiceBase, LLMMessage
+import logging
+
 from app.services.embeddings.base import EmbeddingServiceBase
+from app.services.graph.base import (
+    CommunitySummary,
+    GraphClient,
+)
+from app.services.llm.base import LLMMessage, LLMServiceBase
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +43,10 @@ class CommunitySummarizationService:
         self._embeddings = embedding_service
 
     async def generate_summaries(
-        self, communities: Dict[int, List[CommunitySummary]]
-    ) -> List[CommunitySummary]:
+        self, communities: dict[int, list[CommunitySummary]]
+    ) -> list[CommunitySummary]:
         """Generate summaries for all communities at all levels."""
-        all_summaries: List[CommunitySummary] = []
+        all_summaries: list[CommunitySummary] = []
 
         for level, level_communities in communities.items():
             for community in level_communities:
@@ -87,9 +87,7 @@ class CommunitySummarizationService:
         title = result["title"] if result else community.title
         summary_text = result["summary"] if result else ""
 
-        embedding = await self._embeddings.embed_single(
-            f"{title}: {summary_text}"
-        )
+        embedding = await self._embeddings.embed_single(f"{title}: {summary_text}")
 
         return CommunitySummary(
             community_id=community.community_id,

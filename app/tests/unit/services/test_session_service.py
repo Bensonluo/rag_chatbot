@@ -1,6 +1,6 @@
 """Tests for Session service"""
+
 import pytest
-from unittest.mock import Mock, AsyncMock
 
 
 class TestSessionService:
@@ -10,10 +10,9 @@ class TestSessionService:
     async def test_create_session(self, db_session):
         """Test creating a new session"""
         # Arrange
-        from app.services.session_service import SessionService
-        from app.repositories.session_repository import SessionRepository
-        from app.repositories.user_repository import UserRepository
         from app.models.database.user import User
+        from app.repositories.session_repository import SessionRepository
+        from app.services.session_service import SessionService
 
         user = User(
             email="test@example.com",
@@ -46,10 +45,9 @@ class TestSessionService:
     async def test_create_session_default_values(self, db_session):
         """Test creating session with default values"""
         # Arrange
-        from app.services.session_service import SessionService
-        from app.repositories.session_repository import SessionRepository
-        from app.repositories.user_repository import UserRepository
         from app.models.database.user import User
+        from app.repositories.session_repository import SessionRepository
+        from app.services.session_service import SessionService
 
         user = User(
             email="test@example.com",
@@ -74,11 +72,10 @@ class TestSessionService:
     async def test_get_user_sessions(self, db_session):
         """Test getting all sessions for a user"""
         # Arrange
-        from app.services.session_service import SessionService
-        from app.repositories.session_repository import SessionRepository
-        from app.repositories.user_repository import UserRepository
-        from app.models.database.user import User
         from app.models.database.session import ChatSession
+        from app.models.database.user import User
+        from app.repositories.session_repository import SessionRepository
+        from app.services.session_service import SessionService
 
         user = User(
             email="test@example.com",
@@ -111,12 +108,10 @@ class TestSessionService:
     async def test_get_session_by_id(self, db_session):
         """Test getting a session by ID"""
         # Arrange
-        from app.services.session_service import SessionService
-        from app.repositories.session_repository import SessionRepository
-        from app.repositories.user_repository import UserRepository
-        from app.models.database.user import User
         from app.models.database.session import ChatSession
-        from app.core.exceptions import NotFoundError
+        from app.models.database.user import User
+        from app.repositories.session_repository import SessionRepository
+        from app.services.session_service import SessionService
 
         user = User(
             email="test@example.com",
@@ -149,9 +144,9 @@ class TestSessionService:
     async def test_get_session_not_found(self, db_session):
         """Test getting a non-existent session"""
         # Arrange
-        from app.services.session_service import SessionService
-        from app.repositories.session_repository import SessionRepository
         from app.core.exceptions import NotFoundError
+        from app.repositories.session_repository import SessionRepository
+        from app.services.session_service import SessionService
 
         session_repo = SessionRepository(db_session)
         session_service = SessionService(session_repo)
@@ -164,12 +159,11 @@ class TestSessionService:
     async def test_get_session_unauthorized_user(self, db_session):
         """Test getting a session that belongs to another user"""
         # Arrange
-        from app.services.session_service import SessionService
-        from app.repositories.session_repository import SessionRepository
-        from app.repositories.user_repository import UserRepository
-        from app.models.database.user import User
-        from app.models.database.session import ChatSession
         from app.core.exceptions import NotFoundError
+        from app.models.database.session import ChatSession
+        from app.models.database.user import User
+        from app.repositories.session_repository import SessionRepository
+        from app.services.session_service import SessionService
 
         # Create two users
         user1 = User(email="user1@example.com", hashed_password="hash")
@@ -200,11 +194,10 @@ class TestSessionService:
     async def test_update_session(self, db_session):
         """Test updating a session"""
         # Arrange
-        from app.services.session_service import SessionService
-        from app.repositories.session_repository import SessionRepository
-        from app.repositories.user_repository import UserRepository
-        from app.models.database.user import User
         from app.models.database.session import ChatSession
+        from app.models.database.user import User
+        from app.repositories.session_repository import SessionRepository
+        from app.services.session_service import SessionService
 
         user = User(
             email="test@example.com",
@@ -244,11 +237,10 @@ class TestSessionService:
     async def test_delete_session(self, db_session):
         """Test deleting a session"""
         # Arrange
-        from app.services.session_service import SessionService
-        from app.repositories.session_repository import SessionRepository
-        from app.repositories.user_repository import UserRepository
-        from app.models.database.user import User
         from app.models.database.session import ChatSession
+        from app.models.database.user import User
+        from app.repositories.session_repository import SessionRepository
+        from app.services.session_service import SessionService
 
         user = User(
             email="test@example.com",

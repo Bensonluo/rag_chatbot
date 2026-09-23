@@ -1,9 +1,10 @@
 """Tests for request ID middleware"""
-import pytest
+
 import uuid
+
+import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from unittest.mock import AsyncMock
 
 
 class TestRequestIDMiddleware:
@@ -246,8 +247,9 @@ class TestRequestIDUtilities:
     def test_get_request_id_from_request(self):
         """Test getting request ID from request"""
         # Arrange
-        from app.middleware.request_id import get_request_id
         from fastapi import Request
+
+        from app.middleware.request_id import get_request_id
 
         request = Request(
             scope={
@@ -270,8 +272,9 @@ class TestRequestIDUtilities:
     def test_get_request_id_not_found(self):
         """Test getting request ID when not set"""
         # Arrange
-        from app.middleware.request_id import get_request_id
         from fastapi import Request
+
+        from app.middleware.request_id import get_request_id
 
         request = Request(
             scope={
