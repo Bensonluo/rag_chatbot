@@ -227,7 +227,8 @@ class ChatService:
         if not self.memory_strategy:
             return []
         context = await self.memory_strategy.get_context(session_id=session_id)
-        return [ChatMessage(role=msg.role, content=msg.content) for msg in context[:limit]]
+        # Memory strategies return MessageContent dicts, not ORM objects.
+        return [ChatMessage(role=msg["role"], content=msg["content"]) for msg in context[:limit]]
 
     async def clear_chat_history(self, session_id: int) -> None:
         """

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from app.services.memory.base import MessageContent
 from app.services.memory.summarization import SummarizationMemory
 
 
@@ -132,14 +133,12 @@ class TestHybridMemory:
         # Assert - Should use summarization for long conversations
         assert len(context) >= 1
         # Should include summary
-        assert any("summary" in msg.content.lower() for msg in context if msg.content)
+        assert any("summary" in msg["content"].lower() for msg in context)
 
     @pytest.mark.asyncio
     async def test_add_message_delegates_correct_strategy(self):
         """Test that add_message uses correct strategy based on count"""
         # Arrange
-        from app.models.schemas.chat import MessageContent
-
         from app.repositories.message_repository import MessageRepository
         from app.services.memory.hybrid import HybridMemory
         from app.services.memory.sliding_window import SlidingWindowMemory
@@ -192,8 +191,6 @@ class TestHybridMemory:
     async def test_estimate_tokens(self):
         """Test token estimation"""
         # Arrange
-        from app.models.schemas.chat import MessageContent
-
         from app.repositories.message_repository import MessageRepository
         from app.services.memory.hybrid import HybridMemory
         from app.services.memory.sliding_window import SlidingWindowMemory

@@ -74,8 +74,9 @@ class TestChatService:
     async def test_process_message_with_memory(self):
         mock_graph = _make_graph({"response": "好的", "intent": "chitchat"})
         mock_memory = Mock()
-        msg1 = Mock(role="user", content="My name is Alice")
-        msg2 = Mock(role="assistant", content="Hello Alice!")
+        # Memory strategies return MessageContent dicts, not attribute objects
+        msg1 = {"role": "user", "content": "My name is Alice"}
+        msg2 = {"role": "assistant", "content": "Hello Alice!"}
         mock_memory.get_context = AsyncMock(return_value=[msg1, msg2])
         service = ChatService(graph=mock_graph, memory_strategy=mock_memory)
         history = await service.get_chat_history(session_id=1)
@@ -108,9 +109,9 @@ class TestChatService:
         mock_memory = Mock()
         mock_memory.get_context = AsyncMock(
             return_value=[
-                Mock(role="user", content="Hello"),
-                Mock(role="assistant", content="Hi there!"),
-                Mock(role="user", content="How are you?"),
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi there!"},
+                {"role": "user", "content": "How are you?"},
             ]
         )
         service = ChatService(graph=mock_graph, memory_strategy=mock_memory)

@@ -117,8 +117,8 @@ class SummarizationMemory(MemoryStrategy):
 
         db_message = Message(
             session_id=session_id,
-            role=MessageRole(message.role),
-            content=message.content,
+            role=MessageRole(message["role"]),
+            content=message["content"],
             status=MessageStatus.COMPLETED,
         )
 

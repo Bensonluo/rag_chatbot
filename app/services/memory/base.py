@@ -108,8 +108,9 @@ class MemoryStrategy(ABC):
         Returns:
             int: Estimated token count
         """
-        # Rough estimate: ~4 characters per token
-        return sum(len(m.content) // 4 for m in messages)
+        # Rough estimate: ~4 characters per token. MessageContent is a
+        # plain dict alias; access by key, not attribute.
+        return sum(len(m["content"]) // 4 for m in messages)
 
     async def truncate_by_tokens(
         self,
