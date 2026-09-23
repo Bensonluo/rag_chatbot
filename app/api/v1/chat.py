@@ -31,7 +31,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 _chat_service: ChatService | None = None
 
 
-async def initialize_chat_service(db: AsyncSession):
+async def initialize_chat_service(db: AsyncSession, checkpointer=None):
     """Initialize the RAG chat service with all dependencies."""
     global _chat_service
 
@@ -172,6 +172,7 @@ async def initialize_chat_service(db: AsyncSession):
         slot_filler=slot_filler,
         guardrail_service=guardrail_service,
         persister=create_chat_persister(),
+        checkpointer=checkpointer,
     )
 
 

@@ -3,6 +3,7 @@
 Regression tests for the audit finding that sanitized_content was
 discarded on input and check_output was never invoked on output.
 """
+
 from unittest.mock import AsyncMock
 
 from app.services.dialogue.nodes import NodeFactory
@@ -112,7 +113,9 @@ class TestGuardrailOutputWiring:
         factory = self._factory_with_direct(guardrail, RAW_OUTPUT)
 
         # Act
-        updates = await factory.generate_response_node({"message": "查询订单", "intent": "chitchat"})
+        updates = await factory.generate_response_node(
+            {"message": "查询订单", "intent": "chitchat"}
+        )
 
         # Assert
         assert updates["response"] == REDACTED_OUTPUT
@@ -132,7 +135,9 @@ class TestGuardrailOutputWiring:
         factory = self._factory_with_direct(guardrail, RAW_OUTPUT)
 
         # Act
-        updates = await factory.generate_response_node({"message": "查询订单", "intent": "chitchat"})
+        updates = await factory.generate_response_node(
+            {"message": "查询订单", "intent": "chitchat"}
+        )
 
         # Assert
         assert updates["response"] == "抱歉，该回复未能通过安全检查，请重新提问。"
@@ -143,7 +148,9 @@ class TestGuardrailOutputWiring:
         factory = self._factory_with_direct(_FakeGuardrail(), "您的订单已发货")
 
         # Act
-        updates = await factory.generate_response_node({"message": "查询订单", "intent": "chitchat"})
+        updates = await factory.generate_response_node(
+            {"message": "查询订单", "intent": "chitchat"}
+        )
 
         # Assert
         assert updates["response"] == "您的订单已发货"
@@ -154,7 +161,9 @@ class TestGuardrailOutputWiring:
         factory = self._factory_with_direct(None, RAW_OUTPUT)
 
         # Act
-        updates = await factory.generate_response_node({"message": "查询订单", "intent": "chitchat"})
+        updates = await factory.generate_response_node(
+            {"message": "查询订单", "intent": "chitchat"}
+        )
 
         # Assert
         assert updates["response"] == RAW_OUTPUT

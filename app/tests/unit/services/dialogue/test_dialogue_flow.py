@@ -5,8 +5,10 @@ Covers three bug patterns:
 2. Skip-intent too aggressive (cancel/chitchat not detected)
 3. Nonsense text assigned to slots via fallback
 """
+
+from unittest.mock import AsyncMock, Mock
+
 import pytest
-from unittest.mock import Mock, AsyncMock
 
 from app.services.dialogue.nodes import NodeFactory
 from app.services.dialogue.state import DialogueState
@@ -39,7 +41,6 @@ class TestStateResetAfterToolExecution:
 
     def test_generate_response_resets_state_after_tool(self):
         """generate_response should clear task state after tool execution."""
-        factory = _make_factory()
         state: DialogueState = {
             "message": "退款完成了",
             "intent": "refund",
@@ -62,12 +63,15 @@ class TestStateResetAfterToolExecution:
 class TestSkipIntentAggressive:
     """should_skip_intent must not block cancel/chitchat detection."""
 
-    @pytest.mark.parametrize("message", [
-        "我不了",
-        "算了",
-        "不要了",
-        "不想退了",
-    ])
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "我不了",
+            "算了",
+            "不要了",
+            "不想退了",
+        ],
+    )
     def test_cancel_phrases_not_skipped(self, message):
         """Cancel-like phrases must go through full intent detection."""
         factory = _make_factory()
@@ -80,12 +84,15 @@ class TestSkipIntentAggressive:
         result = factory.should_skip_intent(state)
         assert result == "full", f"'{message}' should go through full detection"
 
-    @pytest.mark.parametrize("message", [
-        "今天天气怎么样",
-        "你好",
-        "帮我查订单",
-        "我要退货",
-    ])
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "今天天气怎么样",
+            "你好",
+            "帮我查订单",
+            "我要退货",
+        ],
+    )
     def test_non_slot_messages_not_skipped(self, message):
         """Messages that aren't slot answers must go through full detection."""
         factory = _make_factory()
@@ -110,11 +117,14 @@ class TestSkipIntentAggressive:
         result = factory.should_skip_intent(state)
         assert result == "skip"
 
-    @pytest.mark.parametrize("message", [
-        "投诉ne",
-        "我要投诉",
-        "我说我要投诉",
-    ])
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "投诉ne",
+            "我要投诉",
+            "我说我要投诉",
+        ],
+    )
     def test_complaint_switch_not_skipped(self, message):
         """Switching to complaint during refund must go through full detection."""
         factory = _make_factory()
@@ -134,12 +144,15 @@ class TestSkipIntentAggressive:
 class TestNonsenseFallback:
     """The slot fallback should not assign garbage text to slots."""
 
-    @pytest.mark.parametrize("message", [
-        "让他物业和婉婷宏伟人宏伟、",
-        "个人个文玮个",
-        "啊啊啊啊啊啊",
-        "123456789012345678901234567890",
-    ])
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "让他物业和婉婷宏伟人宏伟、",
+            "个人个文玮个",
+            "啊啊啊啊啊啊",
+            "123456789012345678901234567890",
+        ],
+    )
     def test_nonsense_not_assigned_to_order_id(self, message):
         """Nonsense/typed-garbage should not become an order_id."""
         from app.services.slot_filling.slot_types import extract_slots_from_message
@@ -160,11 +173,14 @@ class TestNonsenseFallback:
         # This SHOULD extract reason via pattern, and it does
         assert good.get("reason") == "质量问题"
 
-    @pytest.mark.parametrize("message", [
-        "订单号12345",
-        "订单12345",
-        "order12345",
-    ])
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "订单号12345",
+            "订单12345",
+            "order12345",
+        ],
+    )
     def test_valid_order_id_extracted(self, message):
         """Valid order IDs with prefix should be extracted by regex."""
         from app.services.slot_filling.slot_types import extract_slots_from_message

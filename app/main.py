@@ -4,15 +4,16 @@ FastAPI application entry point.
 This is the main application file that sets up the FastAPI app,
 configures middleware, and includes all routers.
 """
+
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.config.settings import settings
 from app.config.logging import logger
+from app.config.settings import settings
 
 
 @asynccontextmanager
@@ -31,12 +32,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     app.state.chat_ready = False
 
+    # Shared dialogue checkpointer (Postgres in production; MemorySaver
+    # fallback keeps local dev and tests working).
+    from app.services.dialogue.checkpointer import (
+        create_checkpointer_manager_from_settings,
+    )
+
+    checkpointer_manager = create_checkpointer_manager_from_settings()
+    checkpointer = await checkpointer_manager.start()
+
     # Initialize chat service
     try:
         from app.api.database import async_session_maker
         from app.api.v1.chat import initialize_chat_service
+
         async with async_session_maker() as db:
-            await initialize_chat_service(db)
+            await initialize_chat_service(db, checkpointer=checkpointer)
         app.state.chat_ready = True
         logger.info("Chat service initialized successfully")
     except Exception as e:
@@ -46,8 +57,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Shutdown
     logger.info("Shutting down RAG Chatbot")
 
+    # Close the dialogue checkpointer's connection pool
+    await checkpointer_manager.stop()
+
     # Close the shared rate-limit Redis connection
     from app.middleware.rate_limiter_redis import close_rate_limit_redis
+
     await close_rate_limit_redis()
 
 
@@ -79,11 +94,13 @@ def create_app() -> FastAPI:
 
     # Request ID middleware
     from app.middleware.request_id import RequestIDMiddleware
+
     app.add_middleware(RequestIDMiddleware)
 
     # Distributed rate limiting (Redis-backed sliding window, per-IP)
     if settings.RATE_LIMIT_ENABLED:
         from app.middleware.rate_limiter_redis import DistributedRateLimiterMiddleware
+
         app.add_middleware(
             DistributedRateLimiterMiddleware,
             requests_per_minute=settings.RATE_LIMIT_REQUESTS_PER_MINUTE,
@@ -94,15 +111,18 @@ def create_app() -> FastAPI:
     # Prometheus metrics middleware
     if settings.ENABLE_METRICS:
         from app.middleware.metrics import PrometheusMiddleware
+
         app.add_middleware(PrometheusMiddleware)
 
     # OpenTelemetry tracing
     if settings.ENABLE_TRACING:
         from app.middleware.tracing import setup_tracing
+
         setup_tracing(app=app, endpoint=settings.OTEL_ENDPOINT)
 
     # Include API v1 router
     from app.api.v1.router import api_router
+
     app.include_router(api_router, prefix=settings.API_PREFIX)
 
     # Health check endpoint
@@ -136,6 +156,7 @@ def create_app() -> FastAPI:
     # Prometheus metrics endpoint
     if settings.ENABLE_METRICS:
         from app.middleware.metrics import metrics_endpoint
+
         app.add_route("/metrics", metrics_endpoint)
 
     # Root endpoint

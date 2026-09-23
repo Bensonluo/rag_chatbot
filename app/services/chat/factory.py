@@ -87,6 +87,7 @@ class ChatServiceFactory:
         slot_filler=None,
         guardrail_service=None,
         persister=None,
+        checkpointer=None,
         **memory_kwargs,
     ) -> ChatService:
         """
@@ -108,6 +109,8 @@ class ChatServiceFactory:
             guardrail_service: Optional guardrail service
             persister: Optional ChatMessagePersister for request-scoped
                 turn persistence and history reads
+            checkpointer: Optional shared LangGraph checkpointer
+                (Postgres-backed) for horizontally scaled deployments
             **memory_kwargs: Additional parameters for memory strategy
 
         Returns:
@@ -150,6 +153,7 @@ class ChatServiceFactory:
                 llm_service=llm_service,
                 guardrail_service=guardrail_service,
                 graph_retrieval_service=graph_retrieval_service,
+                checkpointer=checkpointer,
             )
         except Exception as exc:
             logger.warning("Failed to build LangGraph dialogue graph: %s", exc)

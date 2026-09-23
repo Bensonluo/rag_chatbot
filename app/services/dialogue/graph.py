@@ -23,6 +23,7 @@ def build_dialogue_graph(
     llm_service,
     guardrail_service=None,
     graph_retrieval_service=None,
+    checkpointer=None,
 ):
     """Build and compile the dialogue StateGraph.
 
@@ -34,9 +35,11 @@ def build_dialogue_graph(
         llm_service: LLMServiceBase implementation for response generation.
         guardrail_service: Optional GuardrailService for input safety checks.
         graph_retrieval_service: Optional service for graph-based retrieval.
+        checkpointer: Optional shared checkpointer (e.g. Postgres-backed)
+            for horizontal scaling; defaults to a process-local MemorySaver.
 
     Returns:
-        Compiled StateGraph with MemorySaver checkpointer.
+        Compiled StateGraph with the requested checkpointer.
     """
     from app.services.dialogue.nodes import NodeFactory
 
@@ -120,9 +123,10 @@ def build_dialogue_graph(
     graph.add_edge("direct_response", END)
     graph.add_edge("generate_response", END)
 
-    # ── Compile with in-memory checkpointing ─────────────────────────────────
-    checkpointer = MemorySaver()
-    compiled = graph.compile(checkpointer=checkpointer)
+    # ── Compile with the requested checkpointing backend ─────────────────────
+    compiled = graph.compile(
+        checkpointer=checkpointer if checkpointer is not None else MemorySaver()
+    )
 
     logger.info("Dialogue graph compiled successfully with %d nodes", len(graph.nodes))
 
