@@ -120,6 +120,22 @@ class Settings(BaseSettings):
         description="Maximum model rounds per agent run (loop bound)",
     )
 
+    # FAQ fast path (curated semantic match over pre-approved answers)
+    FAQ_ENABLED: bool = Field(
+        default=True,
+        description="Serve curated FAQ answers by semantic match before RAG",
+    )
+    FAQ_SIMILARITY_THRESHOLD: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description="Cosine similarity required to serve a curated FAQ answer",
+    )
+    FAQ_DATA_FILE: str = Field(
+        default="",
+        description="FAQ JSON file path; empty = bundled app/services/faq/faqs.json",
+    )
+
     # Embedding Models
     EMBEDDING_PROVIDER: str = Field(
         default="local", description="Embedding provider (local, glm, openai)"

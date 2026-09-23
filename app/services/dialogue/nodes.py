@@ -81,6 +81,7 @@ class NodeFactory:
         graph_retrieval_service=None,
         handoff_service=None,
         agent_service=None,
+        faq_service=None,
     ) -> None:
         self._intent_detector = intent_detector
         self._slot_filler = slot_filler
@@ -91,6 +92,7 @@ class NodeFactory:
         self._graph_retrieval_service = graph_retrieval_service
         self._handoff_service = handoff_service
         self._agent_service = agent_service
+        self._faq_service = faq_service
 
     # ── Nodes ────────────────────────────────────────────────────────────────
 
@@ -398,6 +400,46 @@ class NodeFactory:
         logger.warning("Tool execution failed for intent %s: %s", intent, result.message)
         return {"tool_result": {"error": result.message}, "pending_confirmation": None}
 
+    async def faq_lookup_node(
+        self, state: DialogueState, config: RunnableConfig | None = None
+    ) -> dict[str, Any]:
+        """Serve a curated FAQ answer by semantic match, skipping RAG.
+
+        The FAQ tier answers the hottest customer-service traffic with
+        pre-approved, deterministic text — no retrieval, no LLM call,
+        no hallucination surface on policy questions. Any failure
+        (embedding outage, table build failure) routes as a miss into
+        the full RAG pipeline: the fast path is an optimization, never
+        a dependency. The output guardrail still runs on hits, and
+        ``sources`` records ``faq:<id>`` provenance.
+        """
+        if self._faq_service is None:
+            return {"route_after_faq": "miss"}
+
+        try:
+            entry = await self._faq_service.match(state.get("message", ""))
+        except Exception:  # noqa: BLE001 - availability over fast path
+            logger.exception("FAQ fast path failed; continuing with RAG")
+            return {"route_after_faq": "miss"}
+
+        if entry is None:
+            return {"route_after_faq": "miss"}
+
+        response = entry.answer
+        if self._guardrail_service is not None:
+            check = self._guardrail_service.check_output(response)
+            if check.was_blocked:
+                response = "抱歉，该回复未能通过安全检查，请重新提问。"
+            elif check.sanitized_content and check.sanitized_content != response:
+                response = check.sanitized_content
+
+        _emit_response(response, config)
+        return {
+            "route_after_faq": "hit",
+            "response": response,
+            "sources": [f"faq:{entry.faq_id}"],
+        }
+
     async def rag_lookup_node(self, state: DialogueState) -> dict:
         """Retrieve relevant documents via hybrid search."""
         message = state.get("message", "")
@@ -584,9 +626,7 @@ class NodeFactory:
         context_note = ""
         filled = state.get("filled_slots") or {}
         if filled:
-            context_note = "对话中已知信息：" + "，".join(
-                f"{k}={v}" for k, v in filled.items()
-            )
+            context_note = "对话中已知信息：" + "，".join(f"{k}={v}" for k, v in filled.items())
 
         try:
             result = await self._agent_service.run(
@@ -626,6 +666,11 @@ class NodeFactory:
         """End the turn after a successful agent run; fall back to the
         slot pipeline otherwise."""
         return state.get("route_after_agent", "agent_fallback")
+
+    @staticmethod
+    def route_after_faq(state: DialogueState) -> str:
+        """End the turn on a curated FAQ hit; continue into RAG on miss."""
+        return state.get("route_after_faq", "miss")
 
     # ── Conditional edges ────────────────────────────────────────────────────
 

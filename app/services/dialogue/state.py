@@ -37,6 +37,9 @@ class DialogueState(TypedDict, total=False):
     # Agent-path routing decision: "agent_done" ends the turn,
     # "agent_fallback" rejoins the slot pipeline (see handle_agent_node).
     route_after_agent: str
+    # FAQ fast-path routing decision: "hit" ends the turn with the
+    # curated answer, "miss" continues into RAG (see faq_lookup_node).
+    route_after_faq: str
 
     # Tool execution
     tool_name: str

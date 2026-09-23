@@ -26,6 +26,7 @@ def build_dialogue_graph(
     checkpointer=None,
     handoff_service=None,
     agent_service=None,
+    faq_service=None,
 ):
     """Build and compile the dialogue StateGraph.
 
@@ -46,6 +47,10 @@ def build_dialogue_graph(
             loop). When provided, task intents route through the agent
             node, which falls back to the slot pipeline whenever the
             provider lacks tool support or the loop fails.
+        faq_service: Optional FAQService (curated semantic match).
+            When provided, RAG-bound intents first try the FAQ fast
+            path; a hit ends the turn with a pre-approved answer and
+            a miss continues into retrieval unchanged.
 
     Returns:
         Compiled StateGraph with the requested checkpointer.
@@ -62,6 +67,7 @@ def build_dialogue_graph(
         graph_retrieval_service=graph_retrieval_service,
         handoff_service=handoff_service,
         agent_service=agent_service,
+        faq_service=faq_service,
     )
 
     graph = StateGraph(DialogueState)
@@ -78,6 +84,7 @@ def build_dialogue_graph(
     graph.add_node("direct_response", factory.direct_response_node)
     graph.add_node("handle_handoff", factory.handle_handoff_node)
     graph.add_node("handle_agent", factory.handle_agent_node)
+    graph.add_node("faq_lookup", factory.faq_lookup_node)
 
     # ── Fixed edges ──────────────────────────────────────────────────────────
     graph.add_edge(START, "guardrail")
@@ -103,11 +110,22 @@ def build_dialogue_graph(
         factory.route_by_intent,
         {
             "task": "collect_slots",
-            "rag": "rag_lookup",
+            "rag": "faq_lookup",
             "direct": "direct_response",
             "meta": "generate_response",
             "handoff": "handle_handoff",
             "agent": "handle_agent",
+        },
+    )
+
+    # FAQ fast path: a curated hit ends the turn; a miss (or unwired
+    # service) falls through to the full RAG pipeline unchanged.
+    graph.add_conditional_edges(
+        "faq_lookup",
+        factory.route_after_faq,
+        {
+            "hit": END,
+            "miss": "rag_lookup",
         },
     )
 

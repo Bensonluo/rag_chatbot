@@ -145,6 +145,7 @@ class ChatServiceFactory:
             from app.services.agent import AgentService
             from app.services.dialogue.graph import build_dialogue_graph
             from app.services.dialogue.tools import create_default_tool_registry
+            from app.services.faq import create_faq_service
             from app.services.handoff import create_handoff_service
 
             tool_registry = create_default_tool_registry()
@@ -154,6 +155,16 @@ class ChatServiceFactory:
                     llm_service=llm_service,
                     tool_registry=tool_registry,
                     max_steps=settings.AGENT_MAX_STEPS,
+                )
+            # FAQ fast path needs an embedding service for semantic
+            # matching; without one (non-optimized memory setups) it
+            # stays unwired and RAG serves those questions as before.
+            faq_service = None
+            if settings.FAQ_ENABLED and embedding_service is not None:
+                faq_service = create_faq_service(
+                    embedding_service=embedding_service,
+                    data_file=settings.FAQ_DATA_FILE or None,
+                    threshold=settings.FAQ_SIMILARITY_THRESHOLD,
                 )
             graph = build_dialogue_graph(
                 intent_detector=intent_detector,
@@ -166,6 +177,7 @@ class ChatServiceFactory:
                 checkpointer=checkpointer,
                 handoff_service=create_handoff_service(),
                 agent_service=agent_service,
+                faq_service=faq_service,
             )
         except Exception as exc:
             logger.warning("Failed to build LangGraph dialogue graph: %s", exc)
