@@ -3,12 +3,23 @@ Graph API endpoints for GraphRAG operations.
 
 Provides REST API for graph queries, schema inspection, community management,
 structured data import, and health checks.
-"""
-import logging
-from typing import Optional, List
 
-from fastapi import APIRouter, HTTPException, Query, status
+Authorization: writes and expensive graph-wide computations (structured
+import, community detection) require an admin; read/introspection
+endpoints require an authenticated user. Only ``/health`` stays
+anonymous for liveness probes.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+
+from app.api.deps import get_current_active_user, require_admin
+from app.models.database.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -17,18 +28,18 @@ router = APIRouter(prefix="/graph", tags=["graph"])
 _graph_client = None
 
 
-def set_graph_client(client):
+def set_graph_client(client: Any) -> None:
     """Set the graph client instance (called during startup)."""
     global _graph_client
     _graph_client = client
 
 
-def get_graph_client():
+def get_graph_client() -> Any | None:
     """Return the connected graph client, or ``None`` when GraphRAG is disabled."""
     return _graph_client
 
 
-def _get_client():
+def _get_client() -> Any:
     client = get_graph_client()
     if client is None:
         raise HTTPException(
@@ -47,14 +58,14 @@ class GraphQueryRequest(BaseModel):
 
 
 class GraphQueryResponse(BaseModel):
-    results: List[dict]
+    results: list[dict[str, Any]]
     count: int
 
 
 class StructuredImportRequest(BaseModel):
     csv_content: str = Field(..., min_length=1)
-    entity_mappings: List[dict]
-    relation_mappings: Optional[List[dict]] = None
+    entity_mappings: list[dict[str, Any]]
+    relation_mappings: list[dict[str, Any]] | None = None
     delimiter: str = Field(",", max_length=1)
 
 
@@ -62,8 +73,8 @@ class StructuredImportRequest(BaseModel):
 
 
 @router.get("/health")
-async def graph_health():
-    """Check graph database connectivity."""
+async def graph_health() -> dict[str, str]:
+    """Check graph database connectivity (anonymous: liveness probe)."""
     try:
         client = _get_client()
         healthy = await client.health_check()
@@ -71,40 +82,48 @@ async def graph_health():
     except HTTPException:
         return {"status": "disabled"}
     except Exception as e:
-        return {"status": "error", "detail": str(e)}
+        logger.error("Graph health check failed: %s", e)
+        return {"status": "error"}
 
 
 @router.get("/stats")
-async def graph_stats():
+async def graph_stats(
+    current_user: User = Depends(get_current_active_user),  # noqa: ARG001
+) -> dict[str, Any]:
     """Return entity and relation counts."""
     client = _get_client()
     try:
-        stats = await client.get_stats()
+        stats: dict[str, Any] = await client.get_stats()
         return stats
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Graph stats failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to load graph stats") from e
 
 
 @router.get("/schema")
-async def graph_schema():
+async def graph_schema(
+    current_user: User = Depends(get_current_active_user),  # noqa: ARG001
+) -> dict[str, Any]:
     """Return the current graph schema."""
     client = _get_client()
     try:
         schema = await client.get_schema()
         return {"schema": schema}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Graph schema failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to load graph schema") from e
 
 
 @router.post("/query", response_model=GraphQueryResponse)
-async def graph_query(request: GraphQueryRequest):
+async def graph_query(
+    request: GraphQueryRequest,
+    current_user: User = Depends(get_current_active_user),  # noqa: ARG001
+) -> GraphQueryResponse:
     """Execute a natural language query via Text-to-Cypher."""
     from app.services.graph.retrieval import TextToCypherService
     from app.services.llm import LLMFactory
-    from app.config.settings import get_settings
 
     client = _get_client()
-    settings = get_settings()
 
     try:
         llm_service = LLMFactory.create_from_settings()
@@ -128,16 +147,19 @@ async def graph_query(request: GraphQueryRequest):
         )
     except Exception as e:
         logger.error("Graph query failed: %s", e)
-        raise HTTPException(status_code=500, detail="Graph query failed")
+        raise HTTPException(status_code=500, detail="Graph query failed") from e
 
 
 @router.post("/import/structured")
-async def import_structured(request: StructuredImportRequest):
-    """Import structured CSV data into the knowledge graph."""
+async def import_structured(
+    request: StructuredImportRequest,
+    admin: User = Depends(require_admin),  # noqa: ARG001
+) -> dict[str, int]:
+    """Import structured CSV data into the knowledge graph (admin only)."""
     from app.services.graph.extraction.structured_importer import (
-        StructuredDataImporter,
         ColumnMapping,
         RelationMapping,
+        StructuredDataImporter,
     )
 
     client = _get_client()
@@ -184,15 +206,16 @@ async def import_structured(request: StructuredImportRequest):
         }
     except Exception as e:
         logger.error("Structured import failed: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Structured import failed") from e
 
 
 @router.post("/communities/detect")
 async def detect_communities(
     min_size: int = Query(3, gt=0),
     max_levels: int = Query(5, gt=0),
-):
-    """Run community detection on the knowledge graph."""
+    admin: User = Depends(require_admin),  # noqa: ARG001
+) -> dict[str, Any]:
+    """Run community detection on the knowledge graph (admin only)."""
     from app.services.graph.community import CommunityDetectionService
 
     client = _get_client()
@@ -208,10 +231,8 @@ async def detect_communities(
         return {
             "levels": len(communities),
             "total_communities": total,
-            "details": {
-                str(level): len(comms) for level, comms in communities.items()
-            },
+            "details": {str(level): len(comms) for level, comms in communities.items()},
         }
     except Exception as e:
         logger.error("Community detection failed: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Community detection failed") from e
