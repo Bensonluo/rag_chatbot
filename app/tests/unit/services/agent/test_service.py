@@ -29,7 +29,7 @@ class ScriptedLLM:
         return self.responses.pop(0)
 
 
-def _tool_call_response(name: str, args: dict, call_id: str = "c1") -> LLMResponse:
+def _tool_call_response(name: str, args: dict[str, Any], call_id: str = "c1") -> LLMResponse:
     return LLMResponse(
         content="",
         model="fake",

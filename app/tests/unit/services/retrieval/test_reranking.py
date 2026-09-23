@@ -174,7 +174,8 @@ class TestRerankingService:
 
         # Assert - doc3 should be highest (most relevant to query)
         assert reranked[0].document_id == "doc3"
-        assert "relevance_score" in reranked[0].metadata or True
+        # relevance_score enrichment is optional; doc ordering above is the
+        # pinned contract, so no metadata assertion here.
 
     @pytest.mark.asyncio
     async def test_rerank_with_metadata_preservation(self):
@@ -210,8 +211,10 @@ class TestRerankingService:
 
         # Assert - Metadata should be preserved
         assert reranked[0].document_id == "doc2"
-        assert reranked[0].metadata["category"] == "general"
-        assert reranked[0].metadata["source"] == "external"
+        metadata = reranked[0].metadata
+        assert metadata is not None
+        assert metadata["category"] == "general"
+        assert metadata["source"] == "external"
 
 
 class TestNoOpReranker:

@@ -24,7 +24,9 @@ class TestHybridSlotFiller:
         result = await hybrid.fill_slots("iPhone的屏幕碎了")
         assert result.has_slots()
         assert result.get_slot_value("product") == "iPhone"
-        assert result.metadata["method"] == "rule_based"
+        metadata = result.metadata
+        assert metadata is not None
+        assert metadata["method"] == "rule_based"
         self.mock_llm.generate.assert_not_called()
 
     @pytest.mark.asyncio
@@ -40,7 +42,9 @@ class TestHybridSlotFiller:
         )
         result = await hybrid.fill_slots("我的测试设备出问题了")
         assert result.has_slots()
-        assert result.metadata["method"] == "llm_fallback"
+        metadata = result.metadata
+        assert metadata is not None
+        assert metadata["method"] == "llm_fallback"
         self.mock_llm.generate.assert_called_once()
 
     @pytest.mark.asyncio

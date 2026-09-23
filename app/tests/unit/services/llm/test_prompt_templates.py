@@ -68,7 +68,7 @@ class TestPromptTemplates:
         from app.services.llm.prompt_templates import PromptTemplates
 
         query = "Tell me a joke"
-        retrieved_docs = []
+        retrieved_docs: list[dict[str, str]] = []
 
         # Act
         prompt = PromptTemplates.format_rag_prompt(query, retrieved_docs)

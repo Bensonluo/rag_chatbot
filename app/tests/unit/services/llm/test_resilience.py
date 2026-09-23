@@ -8,6 +8,9 @@ the next provider, trips open after consecutive failures, and streams
 only fail over before the first token.
 """
 
+from collections.abc import AsyncGenerator
+from typing import Any
+
 from app.core.exceptions import ExternalServiceError
 from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
 from app.services.llm.resilience import CircuitBreaker, ResilientLLMService
@@ -33,12 +36,24 @@ class _FakeProvider(LLMServiceBase):
                 status_code=self._status_code,
             )
 
-    async def generate(self, messages, max_tokens=None, temperature=None, **kwargs):
+    async def generate(
+        self,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
         self.generate_calls += 1
         self._maybe_fail()
         return LLMResponse(content=f"from-{self.name}", model=self.model)
 
-    async def generate_stream(self, messages, max_tokens=None, temperature=None, **kwargs):
+    async def generate_stream(
+        self,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[str, None]:
         self.stream_calls += 1
         self._maybe_fail()
         yield f"chunk-{self.name}-1"
@@ -47,12 +62,12 @@ class _FakeProvider(LLMServiceBase):
     def estimate_tokens(self, text: str) -> int:
         return len(text)
 
-    async def count_tokens(self, messages) -> int:
+    async def count_tokens(self, messages: list[LLMMessage]) -> int:
         return sum(len(m.content) for m in messages)
 
 
-def _chain(*providers: _FakeProvider, **kwargs) -> ResilientLLMService:
-    defaults = {"max_retries": 2, "backoff_base": 0.0}
+def _chain(*providers: _FakeProvider, **kwargs: Any) -> ResilientLLMService:
+    defaults: dict[str, Any] = {"max_retries": 2, "backoff_base": 0.0}
     defaults.update(kwargs)
     return ResilientLLMService([(p.name, p) for p in providers], **defaults)
 

@@ -8,6 +8,7 @@ from redis import exceptions as redis_exceptions
 
 from app.api.v1 import chat as chat_module
 from app.api.v1.chat import get_chat_service
+from app.config.settings import settings
 from app.middleware.rate_limiter_redis import (
     EndpointRateLimiter,
     _RedisClientHolder,
@@ -34,7 +35,7 @@ class _FakeRedis:
 class _KeyedFakeRedis:
     """Fake recording the exact Redis keys each check consumes."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.keys: list[str] = []
 
     async def eval(self, script, numkeys, key, *args):  # noqa: ARG002
@@ -129,7 +130,7 @@ class TestChatEndpointRateLimit:
     def test_disabled_rate_limit_skips_check(self, client, monkeypatch, mock_chat_service):
         """RATE_LIMIT_ENABLED=False turns the chat budget off entirely."""
         monkeypatch.setattr(chat_module, "_chat_rate_limiter", _AlwaysDeny())
-        monkeypatch.setattr(chat_module.settings, "RATE_LIMIT_ENABLED", False)
+        monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
         client.app.dependency_overrides[get_chat_service] = lambda: mock_chat_service
 
         resp = client.post("/api/v1/chat", json={"message": "hi", "session_id": 1})

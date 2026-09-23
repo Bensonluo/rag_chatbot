@@ -1,5 +1,6 @@
 """Tests for OpenAI LLM client"""
 
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -61,7 +62,9 @@ class TestOpenAIClient:
         assert response.content == "Hi there!"
         assert response.model == "gpt-4"
         assert response.finish_reason == "stop"
-        assert response.usage["total_tokens"] == 15
+        usage = response.usage
+        assert usage is not None
+        assert usage["total_tokens"] == 15
 
     @pytest.mark.asyncio
     async def test_generate_with_overrides(self):
@@ -108,7 +111,7 @@ class TestOpenAIClient:
         from app.services.llm.openai_client import OpenAIClient
 
         # Mock streaming response
-        async def mock_stream():
+        async def mock_stream() -> AsyncIterator[Mock]:
             chunks = ["Hi", " there", "!"]
             for chunk in chunks:
                 mock_chunk = Mock()

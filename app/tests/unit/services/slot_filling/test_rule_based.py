@@ -86,5 +86,7 @@ class TestRuleBasedSlotFiller:
     @pytest.mark.asyncio
     async def test_metadata(self):
         result = await self.filler.fill_slots("iPhone")
-        assert result.metadata["method"] == "rule_based"
-        assert result.metadata["slot_count"] >= 1
+        metadata = result.metadata
+        assert metadata is not None
+        assert metadata["method"] == "rule_based"
+        assert metadata["slot_count"] >= 1

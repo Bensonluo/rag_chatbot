@@ -8,11 +8,13 @@ runs on hits like on every user-facing response.
 """
 
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 from app.services.dialogue.nodes import NodeFactory
 from app.services.dialogue.tools import create_default_tool_registry
 from app.services.faq import FAQEntry, FAQService
+from app.services.guardrails.base import GuardrailService
 
 
 class FakeEmbeddings:
@@ -44,7 +46,10 @@ def _faq_service(threshold: float = 0.8) -> FAQService:
     return FAQService(FakeEmbeddings(EMBED_MAP), [FAQ_HIT, FAQ_OTHER], threshold)
 
 
-def _make_factory(faq_service=None, guardrail_service=None) -> NodeFactory:
+def _make_factory(
+    faq_service: FAQService | None = None,
+    guardrail_service: GuardrailService | None = None,
+) -> NodeFactory:
     intent_detector = Mock()
     intent_detector.detect_with_confidence = AsyncMock()
     return NodeFactory(
@@ -126,7 +131,7 @@ class TestFaqLookupNode:
 # ── Full graph: FAQ hit skips retrieval + LLM; miss runs RAG ───────────────
 
 
-def _build_graph(faq_service, hybrid_search):
+def _build_graph(faq_service: FAQService | None, hybrid_search: Any) -> Any:
     from app.services.dialogue.graph import build_dialogue_graph
 
     detector = Mock()

@@ -1,5 +1,6 @@
 """Tests for the Redis-backed distributed rate limiting middleware."""
 
+import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from redis import exceptions as redis_exceptions
@@ -27,7 +28,7 @@ class _FakeRedis:
         return [0, 0]
 
 
-def _make_app(limit: int, window: int = 60, whitelist: list | None = None) -> FastAPI:
+def _make_app(limit: int, window: int = 60, whitelist: list[str] | None = None) -> FastAPI:
     app = FastAPI()
     app.add_middleware(
         DistributedRateLimiterMiddleware,
@@ -47,7 +48,7 @@ def _make_app(limit: int, window: int = 60, whitelist: list | None = None) -> Fa
     return app
 
 
-def _patch_redis(monkeypatch, fake: _FakeRedis) -> None:
+def _patch_redis(monkeypatch: pytest.MonkeyPatch, fake: _FakeRedis) -> None:
     monkeypatch.setattr(_RedisClientHolder, "get", lambda: fake)
 
 
@@ -132,5 +133,8 @@ class TestDistributedRateLimiterRedis:
         app = create_app()
 
         # Assert
-        mounted = any(m.cls is DistributedRateLimiterMiddleware for m in app.user_middleware)
+        mounted = any(
+            m.cls is DistributedRateLimiterMiddleware  # type: ignore[comparison-overlap]
+            for m in app.user_middleware
+        )
         assert mounted, "DistributedRateLimiterMiddleware should be mounted by default"

@@ -8,9 +8,11 @@ opens/setups/closes correctly, failures degrade to MemorySaver, and the
 compiled graph actually uses the injected checkpointer.
 """
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import langgraph.checkpoint.postgres.aio  # noqa: F401 (resolves patch target)
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.services.dialogue.checkpointer import (
@@ -117,7 +119,7 @@ class TestManagerLifecycle:
 
 
 class TestGraphCheckpointerInjection:
-    def _build(self, checkpointer):
+    def _build(self, checkpointer: BaseCheckpointSaver[Any] | None) -> Any:
         detector = MagicMock()
         detector.detect_with_confidence = AsyncMock()
         return build_dialogue_graph(

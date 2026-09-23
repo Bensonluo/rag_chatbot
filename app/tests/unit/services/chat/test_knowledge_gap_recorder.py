@@ -5,6 +5,8 @@ The recorder is telemetry: it must record only true knowledge gaps
 never let a database failure touch the chat path.
 """
 
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -32,7 +34,9 @@ def _rng(value: float) -> Mock:
     return rng
 
 
-def _recorder(session_maker, sample_rate=1.0, rng_value=0.0) -> KnowledgeGapRecorder:
+def _recorder(
+    session_maker: Callable[[], Any], sample_rate: float = 1.0, rng_value: float = 0.0
+) -> KnowledgeGapRecorder:
     return KnowledgeGapRecorder(
         session_maker=session_maker,
         sample_rate=sample_rate,

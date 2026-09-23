@@ -1,5 +1,6 @@
 """Tests for chat turn persistence (request-scoped sessions)."""
 
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -21,7 +22,7 @@ class _FakeGraph:
     mimicking terminal nodes under token streaming.
     """
 
-    def __init__(self, result: dict | None = None, chunks: list[str] | None = None):
+    def __init__(self, result: dict[str, Any] | None = None, chunks: list[str] | None = None):
         self._result = result or {}
         self._chunks = chunks or []
 
@@ -143,7 +144,12 @@ class TestChatServicePersistence:
         # Arrange
         persister = AsyncMock()
         persister.get_history.return_value = []
-        service = ChatService(graph=_FakeGraph(), persister=persister, memory_strategy=object())
+        # object() placeholder proves the history path never touches memory.
+        service = ChatService(
+            graph=_FakeGraph(),
+            persister=persister,
+            memory_strategy=object(),  # type: ignore[arg-type]
+        )
 
         # Act
         await service.get_chat_history(session_id=1)

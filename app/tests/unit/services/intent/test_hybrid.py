@@ -89,7 +89,7 @@ class TestHybridIntentDetector:
         llm_based = LLMIntentDetector(llm_service=mock_llm)
 
         # Mock LLM to return specific intent
-        llm_based.detect_with_confidence = AsyncMock(
+        llm_based.detect_with_confidence = AsyncMock(  # type: ignore[method-assign]
             return_value=IntentResult(
                 intent=Intent.FAQ, confidence=0.85, metadata={"method": "llm"}
             )
@@ -146,7 +146,7 @@ class TestHybridIntentDetector:
         llm_based = LLMIntentDetector(llm_service=mock_llm)
 
         # Mock LLM to return low confidence
-        llm_based.detect_with_confidence = AsyncMock(
+        llm_based.detect_with_confidence = AsyncMock(  # type: ignore[method-assign]
             return_value=IntentResult(
                 intent=Intent.UNKNOWN, confidence=0.3, metadata={"method": "llm"}
             )

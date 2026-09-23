@@ -1,14 +1,16 @@
 """Tests for sliding window memory strategy"""
 
 from datetime import datetime
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from app.models.database.message import Message
 from app.services.memory.base import MessageContent
 
 
-def _repo_with_messages(messages):
+def _repo_with_messages(messages: list[Message]) -> Any:
     """MessageRepository mock whose get_recent_messages returns the newest N."""
     repo = Mock()
     repo.get_recent_messages = AsyncMock(side_effect=lambda session_id, limit: messages[-limit:])

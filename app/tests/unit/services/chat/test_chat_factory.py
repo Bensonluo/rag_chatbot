@@ -115,7 +115,7 @@ class TestChatServiceFactory:
     def test_factory_validation(self):
         with pytest.raises(ValidationError):
             ChatServiceFactory.create(
-                llm_service=None,
+                llm_service=None,  # type: ignore[arg-type]  # deliberate invalid input
                 memory_strategy=Mock(),
                 intent_detector=Mock(),
             )

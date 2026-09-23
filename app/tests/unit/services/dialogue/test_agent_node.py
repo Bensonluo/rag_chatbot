@@ -9,15 +9,20 @@ unchanged on the agent path.
 """
 
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
-from app.services.agent import AgentResult
+from app.services.agent import AgentResult, AgentService
 from app.services.dialogue.nodes import NodeFactory
 from app.services.dialogue.state import DialogueState
 from app.services.dialogue.tools import create_default_tool_registry
+from app.services.guardrails.base import GuardrailService
 
 
-def _make_factory(agent_service=None, guardrail_service=None) -> NodeFactory:
+def _make_factory(
+    agent_service: AgentService | None = None,
+    guardrail_service: GuardrailService | None = None,
+) -> NodeFactory:
     """NodeFactory with stub services and an optional agent service."""
     intent_detector = Mock()
     intent_detector.detect_with_confidence = AsyncMock()
@@ -185,7 +190,7 @@ class TestRouteAfterAgent:
 # ── Full graph: task intent through the agent, and its fallback ────────────
 
 
-def _build_graph(agent_service):
+def _build_graph(agent_service: AgentService | None) -> Any:
     from app.services.dialogue.graph import build_dialogue_graph
 
     detector = Mock()

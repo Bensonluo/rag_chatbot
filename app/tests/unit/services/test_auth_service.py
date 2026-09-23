@@ -265,6 +265,7 @@ class TestAuthenticationService:
 
         token_data = await auth_service.create_access_token(user)
         token = token_data["access_token"]
+        assert isinstance(token, str)
 
         # Act
         payload = await auth_service.verify_token(token)

@@ -1,5 +1,6 @@
 """Tests for Anthropic LLM client"""
 
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -105,7 +106,7 @@ class TestAnthropicClient:
         from app.services.llm.base import LLMMessage
 
         # Mock streaming response
-        async def mock_stream():
+        async def mock_stream() -> AsyncIterator[Mock]:
             text_chunks = ["Hi", " there", "!"]
             for chunk in text_chunks:
                 mock_event = Mock()

@@ -108,9 +108,10 @@ class TestTokenCounter:
     def test_count_messages_empty(self):
         """Test counting tokens in empty message list"""
         # Arrange
+        from app.services.llm.base import LLMMessage
         from app.services.llm.token_counter import TokenCounter
 
-        messages = []
+        messages: list[LLMMessage] = []
 
         # Act
         count = TokenCounter.count_messages(messages)

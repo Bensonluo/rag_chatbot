@@ -1,10 +1,17 @@
 """Tests for rate limiting middleware"""
 
 import time
+from collections.abc import MutableMapping
+from typing import Any
 
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+
+async def _receive() -> MutableMapping[str, Any]:
+    """No-op ASGI receive channel — these tests never read a request body."""
+    return {}
 
 
 class TestRateLimiterMiddleware:
@@ -232,7 +239,7 @@ class TestRateLimiterMiddleware:
         # Assert
         assert response.status_code == 429
 
-    def _create_request(self, client_ip: str, path: str = "/test"):
+    def _create_request(self, client_ip: str, path: str = "/test") -> Request:
         """Create mock request"""
         return Request(
             scope={
@@ -243,7 +250,7 @@ class TestRateLimiterMiddleware:
                 "query_string": b"",
                 "client": (client_ip, 12345),
             },
-            receive=None,
+            receive=_receive,
         )
 
     async def _mock_call_next(self, request):

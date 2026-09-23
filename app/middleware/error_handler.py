@@ -24,9 +24,7 @@ class ErrorResponse(BaseModel):
 
     status_code: int = Field(..., description="HTTP status code")
     message: str = Field(..., description="Error message")
-    detail: str | dict[str, Any] | None = Field(
-        None, description="Detailed error information"
-    )
+    detail: str | dict[str, Any] | None = Field(None, description="Detailed error information")
     errors: list[dict[str, Any]] | None = Field(None, description="Validation errors")
     path: str | None = Field(None, description="Request path")
 

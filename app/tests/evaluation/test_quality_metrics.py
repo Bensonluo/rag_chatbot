@@ -1,12 +1,15 @@
 """Quality metrics: containment/CSAT math and the DB snapshot service."""
 
+from typing import NoReturn, cast
+
 import pytest
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models.database.base import Base
-from app.models.database.message import Message, MessageRole  # noqa: F401 (table registration)
+from app.models.database.message import Message  # noqa: F401 (table registration)
 from app.models.database.session import ChatSession  # noqa: F401 (table registration)
 from app.models.database.ticket import HandoffTicket
+from app.models.enums.message import MessageRole
 from app.services.evaluation import QualityMetricsService, containment_rate, csat_score
 
 
@@ -89,10 +92,11 @@ class TestQualityMetricsSnapshot:
         assert snapshot["open_tickets"] == 0
 
     async def test_database_failure_degrades_to_error_snapshot(self):
-        def broken_maker():
+        def broken_maker() -> NoReturn:
             raise RuntimeError("db down")
 
-        snapshot = await QualityMetricsService(broken_maker).snapshot()
+        maker = cast("async_sessionmaker[AsyncSession]", broken_maker)
+        snapshot = await QualityMetricsService(maker).snapshot()
 
         assert snapshot["containment_rate"] is None
         assert snapshot["csat"] is None

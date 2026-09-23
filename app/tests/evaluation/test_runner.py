@@ -1,6 +1,7 @@
 """Evaluation runner: loading, route buckets, scoring math."""
 
 import json
+from typing import Any
 
 from app.models.enums.intent import Intent
 from app.services.evaluation import (
@@ -11,7 +12,7 @@ from app.services.evaluation import (
     run_intent_eval,
 )
 from app.services.evaluation.runner import GOLDEN_SET_FILE
-from app.services.intent.base import IntentResult
+from app.services.intent.base import IntentDetector, IntentResult
 
 
 def _result(intent: Intent) -> IntentResult:
@@ -28,13 +29,19 @@ class SyncFakeDetector:
         return _result(self.mapping.get(query, Intent.UNKNOWN))
 
 
-class AsyncFakeDetector:
+class AsyncFakeDetector(IntentDetector):
     """Async detector (hybrid/LLM shape) — the runner must accept both."""
 
     def __init__(self, mapping: dict[str, Intent]) -> None:
+        super().__init__()
         self.mapping = mapping
 
-    async def detect_with_confidence(self, query: str) -> IntentResult:
+    async def detect(self, query: str, context: dict[str, Any] | None = None) -> Intent:
+        return self.mapping.get(query, Intent.UNKNOWN)
+
+    async def detect_with_confidence(
+        self, query: str, context: dict[str, Any] | None = None
+    ) -> IntentResult:
         return _result(self.mapping.get(query, Intent.UNKNOWN))
 
 
@@ -97,9 +104,8 @@ class TestRunIntentEval:
             GoldenCase(id="c", query="随便说点什么", expect_intent="unknown"),
         ]
 
-        report = await run_intent_eval(
-            SyncFakeDetector(mapping), cases  # type: ignore[arg-type]
-        )
+        detector = SyncFakeDetector(mapping)
+        report = await run_intent_eval(detector, cases)  # type: ignore[arg-type]  # sync seam
 
         assert report.total == 3
         assert report.passed == 2
@@ -113,16 +119,14 @@ class TestRunIntentEval:
         mapping = {"我要退款": Intent.REFUND}
         cases = [GoldenCase(id="a", query="我要退款", expect_intent="refund")]
 
-        report = await run_intent_eval(
-            AsyncFakeDetector(mapping), cases  # type: ignore[arg-type]
-        )
+        detector = AsyncFakeDetector(mapping)
+        report = await run_intent_eval(detector, cases)
 
         assert report.accuracy == 1.0
 
     async def test_empty_cases_yield_zeroed_report(self):
-        report = await run_intent_eval(
-            SyncFakeDetector({}), []  # type: ignore[arg-type]
-        )
+        detector = SyncFakeDetector({})
+        report = await run_intent_eval(detector, [])  # type: ignore[arg-type]  # sync seam
         assert report.total == 0
         assert report.accuracy == 0.0  # no divide-by-zero on empty sets
 
