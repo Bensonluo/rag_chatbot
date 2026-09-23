@@ -72,6 +72,11 @@ class NodeFactory:
                 "response": "抱歉，您的消息未通过安全检查，请重新描述您的问题。",
             }
 
+        # Propagate sanitized content (PII redaction) into the dialogue state
+        # so redacted text — not the raw input — flows to slots/LLM/retrieval.
+        if result.sanitized_content and result.sanitized_content != message:
+            return {"message": result.sanitized_content}
+
         return {}
 
     async def detect_intent_node(self, state: DialogueState) -> dict:
@@ -301,6 +306,29 @@ class NodeFactory:
         return {"retrieved_docs": retrieved_docs, "sources": sources}
 
     async def generate_response_node(self, state: DialogueState) -> dict:
+        """Generate the final response, then run the output guardrail.
+
+        The inner logic builds the response; this wrapper applies the
+        output-side safety check / PII redaction before the response
+        leaves the graph.
+        """
+        updates = await self._generate_response_logic(state)
+
+        if self._guardrail_service is None or state.get("blocked"):
+            return updates
+
+        response = updates.get("response", "")
+        if not response:
+            return updates
+
+        result = self._guardrail_service.check_output(response)
+        if result.was_blocked:
+            updates["response"] = "抱歉，该回复未能通过安全检查，请重新提问。"
+        elif result.sanitized_content and result.sanitized_content != response:
+            updates["response"] = result.sanitized_content
+        return updates
+
+    async def _generate_response_logic(self, state: DialogueState) -> dict:
         """Generate the final response based on the current state.
 
         Handles five cases:
