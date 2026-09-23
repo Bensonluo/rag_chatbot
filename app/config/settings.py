@@ -4,10 +4,11 @@ Application settings using Pydantic settings for environment-based configuration
 All settings are loaded from environment variables with sensible defaults.
 """
 
+import os
 import secrets
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -233,7 +234,8 @@ class Settings(BaseSettings):
             import json
 
             try:
-                return json.loads(v)
+                origins: list[str] = json.loads(v)
+                return origins
             except json.JSONDecodeError:
                 return [origin.strip() for origin in v.split(",")]
         return v
@@ -248,10 +250,18 @@ class Settings(BaseSettings):
 
     @field_validator("SECRET_KEY")
     @classmethod
-    def validate_secret_key(cls, v: str) -> str:
+    def validate_secret_key(cls, v: str, info: ValidationInfo) -> str:
         """Validate secret key is not default in production"""
         if len(v) < 32:
             raise ValueError("SECRET_KEY must be at least 32 characters")
+        # A per-process random default breaks JWT validation across replicas
+        # (token minted by replica A is rejected by replica B). Production
+        # deployments must inject one shared key via the environment.
+        if info.data.get("ENVIRONMENT") == "production" and "SECRET_KEY" not in os.environ:
+            raise ValueError(
+                "SECRET_KEY must be set via environment in production: "
+                "the per-process random default breaks JWT auth across replicas"
+            )
         return v
 
 
