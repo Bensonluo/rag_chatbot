@@ -1,0 +1,60 @@
+[
+  {"id": "refund-01", "query": "我要退款", "expect_intent": "refund"},
+  {"id": "refund-02", "query": "帮我申请退款", "expect_intent": "refund"},
+  {"id": "refund-03", "query": "快点退钱", "expect_intent": "refund"},
+  {"id": "refund-04", "query": "refund please", "expect_intent": "refund"},
+
+  {"id": "return-01", "query": "我要退货", "expect_intent": "return"},
+  {"id": "return-02", "query": "这个能换货吗", "expect_intent": "return"},
+  {"id": "return-03", "query": "手机屏幕碎了想退换", "expect_intent": "return"},
+
+  {"id": "order-01", "query": "查一下我的订单", "expect_intent": "query_order"},
+  {"id": "order-02", "query": "订单到哪一步了", "expect_intent": "query_order"},
+  {"id": "order-03", "query": "我的订单状态是什么", "expect_intent": "query_order"},
+
+  {"id": "shipping-01", "query": "物流到哪了", "expect_intent": "track_shipping"},
+  {"id": "shipping-02", "query": "快递单号给我一下", "expect_intent": "track_shipping"},
+  {"id": "shipping-03", "query": "什么时候发货", "expect_intent": "track_shipping"},
+  {"id": "shipping-04", "query": "包裹到哪了", "expect_intent": "track_shipping"},
+
+  {"id": "complaint-01", "query": "我要投诉你们", "expect_intent": "complaint"},
+  {"id": "complaint-02", "query": "太不满意了,给个差评", "expect_intent": "complaint"},
+  {"id": "complaint-03", "query": "服务态度很差,我要举报", "expect_intent": "complaint"},
+
+  {"id": "faq-01", "query": "怎么退货", "expect_intent": "faq"},
+  {"id": "faq-02", "query": "运费怎么算", "expect_intent": "faq"},
+  {"id": "faq-03", "query": "如何开发票", "expect_intent": "faq"},
+  {"id": "faq-04", "query": "为什么我的优惠券用不了", "expect_intent": "faq"},
+  {"id": "faq-05", "query": "怎么修改收货地址", "expect_intent": "faq"},
+
+  {"id": "policy-01", "query": "退货政策是什么", "expect_intent": "policy"},
+  {"id": "policy-02", "query": "保修期多久", "expect_intent": "policy"},
+  {"id": "policy-03", "query": "你们的规定有哪些", "expect_intent": "policy"},
+
+  {"id": "greeting-01", "query": "你好", "expect_intent": "greeting"},
+  {"id": "greeting-02", "query": "在吗", "expect_intent": "greeting"},
+  {"id": "greeting-03", "query": "下午好", "expect_intent": "greeting"},
+
+  {"id": "chitchat-01", "query": "今天天气真好", "expect_intent": "chitchat"},
+  {"id": "chitchat-02", "query": "给我讲个笑话", "expect_intent": "chitchat"},
+  {"id": "chitchat-03", "query": "周末去哪玩", "expect_intent": "chitchat"},
+
+  {"id": "confirm-01", "query": "好的", "expect_intent": "confirm"},
+  {"id": "confirm-02", "query": "确认", "expect_intent": "confirm"},
+  {"id": "confirm-03", "query": "是的", "expect_intent": "confirm"},
+
+  {"id": "deny-01", "query": "不是", "expect_intent": "deny"},
+  {"id": "deny-02", "query": "不行", "expect_intent": "deny"},
+
+  {"id": "cancel-01", "query": "取消订单", "expect_intent": "cancel"},
+  {"id": "cancel-02", "query": "算了不用了", "expect_intent": "cancel"},
+  {"id": "cancel-03", "query": "我不办了", "expect_intent": "cancel"},
+  {"id": "cancel-04", "query": "我要取消刚下的订单", "expect_intent": "cancel"},
+
+  {"id": "handoff-01", "query": "转人工", "expect_intent": "handoff"},
+  {"id": "handoff-02", "query": "退款没到账,给我转人工", "expect_intent": "handoff"},
+  {"id": "handoff-03", "query": "我要找人工客服", "expect_intent": "handoff"},
+
+  {"id": "unknown-01", "query": "asdfghjkl", "expect_intent": "unknown"},
+  {"id": "unknown-02", "query": "这首歌很好听", "expect_intent": "unknown"}
+]

@@ -172,6 +172,7 @@ disallow_untyped_defs = false
 minversion = "7.0"
 testpaths = [
     "app/tests/unit/core/test_security.py",
+    "app/tests/evaluation",
     "app/tests/unit/services/dialogue",
     "app/tests/unit/services/agent",
     "app/tests/unit/services/faq",
