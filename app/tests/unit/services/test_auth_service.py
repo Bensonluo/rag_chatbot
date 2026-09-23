@@ -317,3 +317,53 @@ class TestAuthenticationService:
         # Assert
         assert "access_token" in new_token_data
         assert new_token_data["token_type"] == "bearer"
+
+
+class TestAuthErrorSanitization:
+    """Client-facing auth errors must not carry library/DB internals."""
+
+    @pytest.mark.asyncio
+    async def test_verify_token_garbage_returns_generic_message(self, db_session):
+        from app.core.exceptions import AuthenticationError
+        from app.repositories.user_repository import UserRepository
+        from app.services.auth_service import AuthenticationService
+
+        auth_service = AuthenticationService(UserRepository(db_session))
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            await auth_service.verify_token("garbage.token.value")
+
+        assert str(exc_info.value) == "Invalid or expired token"
+
+    @pytest.mark.asyncio
+    async def test_verify_token_wrong_type_not_double_wrapped(self, db_session):
+        """A refresh token presented as access keeps its precise message."""
+        from app.core.exceptions import AuthenticationError
+        from app.models.database.user import User
+        from app.repositories.user_repository import UserRepository
+        from app.services.auth_service import AuthenticationService
+
+        user = User(id=5, email="t@example.com", hashed_password="h")
+        db_session.add(user)
+        await db_session.commit()
+
+        auth_service = AuthenticationService(UserRepository(db_session))
+        refresh_token = await auth_service.create_refresh_token(user)
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            await auth_service.verify_token(refresh_token)
+
+        assert str(exc_info.value) == "Invalid token type"
+
+    @pytest.mark.asyncio
+    async def test_refresh_garbage_token_returns_generic_message(self, db_session):
+        from app.core.exceptions import AuthenticationError
+        from app.repositories.user_repository import UserRepository
+        from app.services.auth_service import AuthenticationService
+
+        auth_service = AuthenticationService(UserRepository(db_session))
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            await auth_service.refresh_access_token("garbage.token.value")
+
+        assert str(exc_info.value) == "Invalid or expired refresh token"

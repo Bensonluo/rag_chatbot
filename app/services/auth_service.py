@@ -4,6 +4,7 @@ Authentication service for user authentication and authorization.
 Handles user registration, login, token creation, and token verification.
 """
 
+import logging
 from typing import Any
 
 from app.core.exceptions import (
@@ -27,6 +28,8 @@ from app.core.security import (
 )
 from app.models.database.user import User
 from app.repositories.user_repository import UserRepository
+
+logger = logging.getLogger(__name__)
 
 
 class AuthenticationService:
@@ -193,8 +196,13 @@ class AuthenticationService:
 
             return payload
 
+        except AuthenticationError:
+            raise
         except Exception as e:
-            raise AuthenticationError(f"Token verification failed: {str(e)}") from e
+            # The library/decoder message can quote token internals —
+            # log it server-side, return a generic wording to clients.
+            logger.warning("Token verification failed: %s", e)
+            raise AuthenticationError("Invalid or expired token") from e
 
     async def refresh_access_token(self, refresh_token: str) -> dict[str, str | int]:
         """
@@ -231,5 +239,10 @@ class AuthenticationService:
             # Create new access token
             return await self.create_access_token(user)
 
+        except AuthenticationError:
+            raise
         except Exception as e:
-            raise AuthenticationError(f"Token refresh failed: {str(e)}") from e
+            # This try block includes a DB fetch — an exception here can
+            # carry connection details that must never reach the client.
+            logger.warning("Token refresh failed: %s", e)
+            raise AuthenticationError("Invalid or expired refresh token") from e
