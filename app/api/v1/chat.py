@@ -4,10 +4,10 @@ Chat API endpoints.
 Provides REST API for chat interactions including message processing,
 streaming responses, and history management.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -19,8 +19,8 @@ from app.api.rate_limit import check_rate_limit
 from app.models.database.user import User
 from app.services.chat.chat_service import ChatService
 from app.services.chat.factory import ChatServiceFactory
-from app.services.llm import LLMFactory
 from app.services.embeddings import EmbeddingFactory
+from app.services.llm import LLMFactory
 from app.services.retrieval import RetrievalFactory
 
 logger = logging.getLogger(__name__)
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 # Global chat service instance (initialized on startup)
-_chat_service: Optional[ChatService] = None
+_chat_service: ChatService | None = None
 
 
 async def initialize_chat_service(db: AsyncSession):
@@ -157,6 +157,8 @@ async def initialize_chat_service(db: AsyncSession):
         logger.warning("Failed to initialize guardrails: %s", e)
 
     # ── Build ChatService via factory (graph constructed internally) ──────
+    from app.services.chat.persistence import create_chat_persister
+
     _chat_service = ChatServiceFactory.create_with_defaults(
         llm_service=llm_service,
         message_repo=message_repo,
@@ -169,6 +171,7 @@ async def initialize_chat_service(db: AsyncSession):
         multi_path_fusion=multi_path_fusion,
         slot_filler=slot_filler,
         guardrail_service=guardrail_service,
+        persister=create_chat_persister(),
     )
 
 
@@ -191,8 +194,8 @@ class ChatRequest(BaseModel):
 
     message: str = Field(..., min_length=1, description="User message")
     session_id: int = Field(..., gt=0, description="Session ID")
-    user_id: Optional[int] = Field(None, gt=0, description="User ID (optional)")
-    max_tokens: Optional[int] = Field(None, gt=0, le=4096, description="Max tokens for response")
+    user_id: int | None = Field(None, gt=0, description="User ID (optional)")
+    max_tokens: int | None = Field(None, gt=0, le=4096, description="Max tokens for response")
 
 
 class ChatResponse(BaseModel):
@@ -201,9 +204,9 @@ class ChatResponse(BaseModel):
     content: str
     session_id: int
     intent: str
-    sources: Optional[List[str]] = None
-    metadata: Optional[dict] = None
-    dialogue_state: Optional[dict] = None
+    sources: list[str] | None = None
+    metadata: dict | None = None
+    dialogue_state: dict | None = None
 
 
 class ChatMessageResponse(BaseModel):
@@ -211,13 +214,13 @@ class ChatMessageResponse(BaseModel):
 
     role: str
     content: str
-    timestamp: Optional[str] = None
+    timestamp: str | None = None
 
 
 class ChatHistoryResponse(BaseModel):
     """Chat history response."""
 
-    messages: List[ChatMessageResponse]
+    messages: list[ChatMessageResponse]
     session_id: int
 
 
@@ -228,7 +231,7 @@ class ChatHistoryResponse(BaseModel):
 async def chat(
     request: ChatRequest,
     http_req: Request,
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
 ):
     """Process a chat message and generate response."""
@@ -267,14 +270,14 @@ async def chat(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to process message",
-        )
+        ) from e
 
 
 @router.post("/stream")
 async def chat_stream(
     request: ChatRequest,
     http_req: Request,
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: User | None = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
 ):
     """Process a chat message with streaming response."""
@@ -302,14 +305,16 @@ async def chat_stream(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to process message",
-        )
+        ) from e
 
 
 @router.get("/history", response_model=ChatHistoryResponse)
 async def get_chat_history(
     session_id: int = Query(..., gt=0, description="Session ID"),
     limit: int = Query(50, gt=0, le=100, description="Max messages to return"),
-    current_user: Optional[User] = Depends(get_current_user),
+    # Ownership check lands with real auth wiring; DI kept so the
+    # signature does not change twice.
+    current_user: User | None = Depends(get_current_user),  # noqa: ARG001
     chat_service: ChatService = Depends(get_chat_service),
 ):
     """Get chat history for a session."""
@@ -336,13 +341,15 @@ async def get_chat_history(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get history",
-        )
+        ) from e
 
 
 @router.delete("/history", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_chat_history(
     session_id: int = Query(..., gt=0, description="Session ID"),
-    current_user: Optional[User] = Depends(get_current_user),
+    # Ownership check lands with real auth wiring; DI kept so the
+    # signature does not change twice.
+    current_user: User | None = Depends(get_current_user),  # noqa: ARG001
     chat_service: ChatService = Depends(get_chat_service),
 ):
     """Clear chat history for a session."""
@@ -353,4 +360,4 @@ async def clear_chat_history(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to clear history",
-        )
+        ) from e

@@ -1,8 +1,10 @@
 """Tests for chat service"""
-import pytest
-from unittest.mock import Mock, AsyncMock
 
-from app.services.chat.chat_service import ChatService, ChatResponse, ChatMessage
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+
+from app.services.chat.chat_service import ChatResponse, ChatService
 
 
 def _make_graph(return_value: dict):
@@ -30,14 +32,18 @@ class TestChatService:
 
     @pytest.mark.asyncio
     async def test_process_message_simple(self):
-        mock_graph = _make_graph({
-            "response": "您好！有什么可以帮您的？",
-            "intent": "greeting",
-            "confidence": 0.95,
-        })
+        mock_graph = _make_graph(
+            {
+                "response": "您好！有什么可以帮您的？",
+                "intent": "greeting",
+                "confidence": 0.95,
+            }
+        )
         service = ChatService(graph=mock_graph)
         response = await service.process_message(
-            session_id=1, message="你好", user_id=1,
+            session_id=1,
+            message="你好",
+            user_id=1,
         )
         assert response.content == "您好！有什么可以帮您的？"
         assert response.session_id == 1
@@ -46,15 +52,19 @@ class TestChatService:
 
     @pytest.mark.asyncio
     async def test_process_message_with_retrieval(self):
-        mock_graph = _make_graph({
-            "response": "退货政策是7天无理由退货。",
-            "intent": "policy",
-            "sources": ["doc1"],
-            "confidence": 0.9,
-        })
+        mock_graph = _make_graph(
+            {
+                "response": "退货政策是7天无理由退货。",
+                "intent": "policy",
+                "sources": ["doc1"],
+                "confidence": 0.9,
+            }
+        )
         service = ChatService(graph=mock_graph)
         response = await service.process_message(
-            session_id=1, message="退货政策是什么", user_id=1,
+            session_id=1,
+            message="退货政策是什么",
+            user_id=1,
         )
         assert "退货" in response.content
         assert response.sources is not None
@@ -83,7 +93,9 @@ class TestChatService:
         service = ChatService(graph=mock_graph)
         chunks = []
         async for chunk in service.process_message_stream(
-            session_id=1, message="你好", user_id=1,
+            session_id=1,
+            message="你好",
+            user_id=1,
         ):
             chunks.append(chunk)
         assert len(chunks) == 2
@@ -121,16 +133,20 @@ class TestChatService:
 
     @pytest.mark.asyncio
     async def test_process_message_returns_metadata(self):
-        mock_graph = _make_graph({
-            "response": "请提供您的订单号",
-            "intent": "refund",
-            "confidence": 0.9,
-            "pending_slots": ["order_id", "reason"],
-            "filled_slots": {},
-        })
+        mock_graph = _make_graph(
+            {
+                "response": "请提供您的订单号",
+                "intent": "refund",
+                "confidence": 0.9,
+                "pending_slots": ["order_id", "reason"],
+                "filled_slots": {},
+            }
+        )
         service = ChatService(graph=mock_graph)
         response = await service.process_message(
-            session_id=1, message="我要退款", user_id=1,
+            session_id=1,
+            message="我要退款",
+            user_id=1,
         )
         assert response.metadata["pending_slots"] == ["order_id", "reason"]
 

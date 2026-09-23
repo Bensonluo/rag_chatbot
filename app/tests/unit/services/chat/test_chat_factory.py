@@ -1,10 +1,14 @@
 """Tests for chat service factory"""
-import pytest
+
 from unittest.mock import Mock, patch
 
+import pytest
+
+import app.services.dialogue.graph  # noqa: F401 (patch target must be importable)
+import app.services.dialogue.tools  # noqa: F401
+from app.core.exceptions import ValidationError
 from app.services.chat.chat_service import ChatService
 from app.services.chat.factory import ChatServiceFactory
-from app.core.exceptions import ValidationError
 
 
 class TestChatServiceFactory:
@@ -47,8 +51,10 @@ class TestChatServiceFactory:
         mock_intent_fac.create.return_value = mock_intent
         mock_emb.create_from_settings.return_value = Mock()
 
-        with patch("app.services.dialogue.tools.create_default_tool_registry"), \
-             patch("app.services.dialogue.graph.build_dialogue_graph", return_value=Mock()):
+        with (
+            patch("app.services.dialogue.tools.create_default_tool_registry"),
+            patch("app.services.dialogue.graph.build_dialogue_graph", return_value=Mock()),
+        ):
             service = ChatServiceFactory.create_with_defaults(
                 llm_service=mock_llm,
                 message_repo=mock_repo,
@@ -70,8 +76,10 @@ class TestChatServiceFactory:
         mock_mem_fac.create.return_value = mock_memory
         mock_intent_fac.create.return_value = mock_intent
 
-        with patch("app.services.dialogue.tools.create_default_tool_registry"), \
-             patch("app.services.dialogue.graph.build_dialogue_graph", return_value=Mock()):
+        with (
+            patch("app.services.dialogue.tools.create_default_tool_registry"),
+            patch("app.services.dialogue.graph.build_dialogue_graph", return_value=Mock()),
+        ):
             service = ChatServiceFactory.create_with_defaults(
                 llm_service=mock_llm,
                 message_repo=mock_repo,
@@ -92,8 +100,10 @@ class TestChatServiceFactory:
         mock_mem_fac.create.return_value = mock_memory
         mock_intent_fac.create.return_value = mock_intent
 
-        with patch("app.services.dialogue.tools.create_default_tool_registry"), \
-             patch("app.services.dialogue.graph.build_dialogue_graph", return_value=Mock()):
+        with (
+            patch("app.services.dialogue.tools.create_default_tool_registry"),
+            patch("app.services.dialogue.graph.build_dialogue_graph", return_value=Mock()),
+        ):
             service = ChatServiceFactory.create_with_defaults(
                 llm_service=mock_llm,
                 message_repo=mock_repo,
@@ -120,7 +130,10 @@ class TestChatServiceFactory:
         mock_mem_fac.create.return_value = mock_memory
         mock_intent_fac.create.return_value = Mock()
 
-        with patch("app.services.dialogue.tools.create_default_tool_registry", side_effect=ImportError("no langgraph")):
+        with patch(
+            "app.services.dialogue.tools.create_default_tool_registry",
+            side_effect=ImportError("no langgraph"),
+        ):
             service = ChatServiceFactory.create_with_defaults(
                 llm_service=mock_llm,
                 message_repo=mock_repo,

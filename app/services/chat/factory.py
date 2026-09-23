@@ -4,20 +4,20 @@ Factory for creating chat service instances.
 Builds the LangGraph dialogue graph and wires it into ChatService,
 while keeping backward-compatible service construction.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
-from app.services.chat.chat_service import ChatService
-from app.services.llm.base import LLMServiceBase
-from app.services.memory.base import MemoryStrategy
-from app.services.memory import MemoryFactory
-from app.services.intent.base import IntentDetector
-from app.services.intent import IntentFactory
+from app.core.exceptions import ValidationError
 from app.repositories.message_repository import MessageRepository
 from app.repositories.session_repository import SessionRepository
-from app.core.exceptions import ValidationError
+from app.services.chat.chat_service import ChatService
+from app.services.intent import IntentFactory
+from app.services.intent.base import IntentDetector
+from app.services.llm.base import LLMServiceBase
+from app.services.memory import MemoryFactory
+from app.services.memory.base import MemoryStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +34,11 @@ class ChatServiceFactory:
         llm_service: LLMServiceBase,
         memory_strategy: MemoryStrategy,
         intent_detector: IntentDetector,
-        retrieval_pipeline: Optional[dict] = None,
-        graph_retrieval_service=None,
-        global_search_service=None,
-        multi_path_fusion=None,
-        slot_filler=None,
+        retrieval_pipeline: dict | None = None,  # noqa: ARG004 - legacy signature
+        graph_retrieval_service=None,  # noqa: ARG004 - legacy signature
+        global_search_service=None,  # noqa: ARG004 - legacy signature
+        multi_path_fusion=None,  # noqa: ARG004 - legacy signature
+        slot_filler=None,  # noqa: ARG004 - legacy signature
     ) -> ChatService:
         """
         Legacy factory method — builds ChatService without LangGraph.
@@ -77,15 +77,16 @@ class ChatServiceFactory:
     def create_with_defaults(
         llm_service: LLMServiceBase,
         message_repo: MessageRepository,
-        session_repo: SessionRepository,
+        session_repo: SessionRepository,  # noqa: ARG004 - interface symmetry
         memory_type: str = "optimized",
         intent_type: str = "hybrid",
-        retrieval_pipeline: Optional[dict] = None,
+        retrieval_pipeline: dict | None = None,
         graph_retrieval_service=None,
-        global_search_service=None,
-        multi_path_fusion=None,
+        global_search_service=None,  # noqa: ARG004 - reserved for graph wiring
+        multi_path_fusion=None,  # noqa: ARG004 - reserved for graph wiring
         slot_filler=None,
         guardrail_service=None,
+        persister=None,
         **memory_kwargs,
     ) -> ChatService:
         """
@@ -105,6 +106,8 @@ class ChatServiceFactory:
             multi_path_fusion: Optional multi-path retrieval fusion
             slot_filler: Optional slot filler
             guardrail_service: Optional guardrail service
+            persister: Optional ChatMessagePersister for request-scoped
+                turn persistence and history reads
             **memory_kwargs: Additional parameters for memory strategy
 
         Returns:
@@ -135,8 +138,8 @@ class ChatServiceFactory:
         # Create tool registry and build LangGraph dialogue graph
         graph = None
         try:
-            from app.services.dialogue.tools import create_default_tool_registry
             from app.services.dialogue.graph import build_dialogue_graph
+            from app.services.dialogue.tools import create_default_tool_registry
 
             tool_registry = create_default_tool_registry()
             graph = build_dialogue_graph(
@@ -157,4 +160,5 @@ class ChatServiceFactory:
             llm_service=llm_service,
             memory_strategy=memory_strategy,
             guardrail_service=guardrail_service,
+            persister=persister,
         )
