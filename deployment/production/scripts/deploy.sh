@@ -17,10 +17,18 @@ NC='\033[0m' # No Color
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 ENV=${1:-dev}
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yml"
 ENV_FILE="$PROJECT_ROOT/.env"
+
+# Docker Compose v2 ships as a plugin (`docker compose`); v1 was a
+# standalone binary. Support both so the script works on modern hosts.
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker compose)
+else
+    COMPOSE_CMD=(docker-compose)
+fi
 
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}  RAG Chatbot Deployment Script${NC}"
@@ -49,8 +57,8 @@ check_prerequisites() {
     fi
     print_success "Docker is installed"
 
-    # Check Docker Compose
-    if ! command_exists docker-compose; then
+    # Check Docker Compose (plugin or standalone binary)
+    if ! docker compose version >/dev/null 2>&1 && ! command_exists docker-compose; then
         print_error "Docker Compose is not installed. Please install Docker Compose first."
         exit 1
     fi
@@ -82,9 +90,9 @@ backup_deployment() {
     mkdir -p "$BACKUP_DIR"
 
     # Backup database
-    if docker-compose -f "$COMPOSE_FILE" ps db | grep -q "Up"; then
+    if "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" ps postgres | grep -q "Up"; then
         print_info "Backing up database..."
-        docker-compose -f "$COMPOSE_FILE" exec -T db pg_dump -U postgres ragchatbot > "$BACKUP_DIR/db_backup.sql" 2>/dev/null || print_warning "Database backup failed"
+        "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T postgres pg_dump -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-rag_chatbot}" > "$BACKUP_DIR/db_backup.sql" 2>/dev/null || print_warning "Database backup failed"
         print_success "Database backed up to $BACKUP_DIR/db_backup.sql"
     fi
 
@@ -107,15 +115,15 @@ start_services() {
 
     # Pull latest images
     print_info "Pulling latest Docker images..."
-    docker-compose -f "$COMPOSE_FILE" pull
+    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" pull
 
     # Build images
     print_info "Building Docker images..."
-    docker-compose -f "$COMPOSE_FILE" build --no-cache
+    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" build --no-cache
 
     # Start services
     print_info "Starting services..."
-    docker-compose -f "$COMPOSE_FILE" up -d
+    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" up -d
 
     print_success "Services started"
     echo ""
@@ -128,7 +136,7 @@ wait_for_services() {
     # Wait for PostgreSQL
     print_info "Waiting for PostgreSQL..."
     for i in {1..30}; do
-        if docker-compose -f "$COMPOSE_FILE" exec -T db pg_isready -U postgres >/dev/null 2>&1; then
+        if "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
             print_success "PostgreSQL is ready"
             break
         fi
@@ -142,7 +150,7 @@ wait_for_services() {
     # Wait for Redis
     print_info "Waiting for Redis..."
     for i in {1..30}; do
-        if docker-compose -f "$COMPOSE_FILE" exec -T redis redis-cli ping >/dev/null 2>&1; then
+        if "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T redis redis-cli ping >/dev/null 2>&1; then
             print_success "Redis is ready"
             break
         fi
@@ -162,7 +170,7 @@ wait_for_services() {
         fi
         if [ $i -eq 60 ]; then
             print_error "API service did not become ready in time"
-            print_warning "Check logs with: docker-compose -f $COMPOSE_FILE logs app"
+            print_warning "Check logs with: "${COMPOSE_CMD[@]}" -f $COMPOSE_FILE logs app"
             exit 1
         fi
         sleep 2
@@ -184,7 +192,7 @@ run_health_checks() {
     fi
 
     # Check database connection
-    if docker-compose -f "$COMPOSE_FILE" exec -T db pg_isready -U postgres >/dev/null 2>&1; then
+    if "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
         print_success "Database health check passed"
     else
         print_error "Database health check failed"
@@ -192,7 +200,7 @@ run_health_checks() {
     fi
 
     # Check Redis connection
-    if docker-compose -f "$COMPOSE_FILE" exec -T redis redis-cli ping >/dev/null 2>&1; then
+    if "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T redis redis-cli ping >/dev/null 2>&1; then
         print_success "Redis health check passed"
     else
         print_error "Redis health check failed"
@@ -216,9 +224,9 @@ print_deployment_info() {
     echo "  - Qdrant: http://localhost:6333"
     echo ""
     echo "Useful commands:"
-    echo "  - View logs: docker-compose -f $COMPOSE_FILE logs -f"
-    echo "  - Stop services: docker-compose -f $COMPOSE_FILE down"
-    echo "  - Restart services: docker-compose -f $COMPOSE_FILE restart"
+    echo "  - View logs: "${COMPOSE_CMD[@]}" -f $COMPOSE_FILE logs -f"
+    echo "  - Stop services: "${COMPOSE_CMD[@]}" -f $COMPOSE_FILE down"
+    echo "  - Restart services: "${COMPOSE_CMD[@]}" -f $COMPOSE_FILE restart"
     echo ""
 }
 

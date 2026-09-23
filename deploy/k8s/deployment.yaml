@@ -52,11 +52,20 @@ spec:
               key: redis-url
         - name: QDRANT_URL
           value: "http://qdrant-service:6333"
+        # LLM provider chain is GLM -> OpenAI -> Anthropic (first key wins).
+        # GLM is the default provider — its key must be present; the
+        # OpenAI/Anthropic keys are optional failover targets (A8 chain).
+        - name: GLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: rag-chatbot-secrets
+              key: glm-api-key
         - name: OPENAI_API_KEY
           valueFrom:
             secretKeyRef:
               name: rag-chatbot-secrets
               key: openai-api-key
+              optional: true
         - name: SECRET_KEY
           valueFrom:
             secretKeyRef:
@@ -66,6 +75,13 @@ spec:
           value: "INFO"
         - name: CORS_ORIGINS
           value: "https://chat.example.com"
+        # Non-secret app config comes from the ConfigMap below. Its keys
+        # use the exact settings names from app/config/settings.py — the
+        # pod will not start correctly (or will silently fall back to
+        # single-instance behavior) if these drift from Settings fields.
+        envFrom:
+        - configMapRef:
+            name: rag-chatbot-config
         resources:
           requests:
             memory: "256Mi"
@@ -157,16 +173,45 @@ metadata:
   name: rag-chatbot
   namespace: rag-chatbot
 ---
-# ConfigMap for application config
+# ConfigMap for application config.
+#
+# Keys MUST match Settings field names in app/config/settings.py — they are
+# injected as env vars via the container's envFrom. The previous contents
+# (INTENT_TYPE / WINDOW_SIZE / SUMMARY_THRESHOLD / VECTOR_WEIGHT) were not real
+# settings fields and the ConfigMap was never mounted, so it configured
+# nothing.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: rag-chatbot-config
   namespace: rag-chatbot
 data:
-  MEMORY_TYPE: "hybrid"
-  INTENT_TYPE: "hybrid"
-  WINDOW_SIZE: "10"
-  SUMMARY_THRESHOLD: "20"
-  VECTOR_WEIGHT: "0.7"
+  # Multi-replica hard requirements ------------------------------------
+  # Shared dialogue state: with >1 replica the checkpointer must be
+  # Postgres, otherwise each pod keeps a private MemorySaver and dialogue
+  # context breaks whenever a session lands on a different pod.
+  DIALOGUE_CHECKPOINTER_TYPE: "postgres"
+  # Checkpointer DB defaults to DATABASE_URL when unset.
+
+  # Connection pool sizing ----------------------------------------------
+  # Defaults are 20 + 10 overflow per pod; with HPA up to 10 replicas that
+  # is up to 300 direct PG connections. Cap the per-pod pool and front PG
+  # with PgBouncer (transaction pooling) beyond ~4 replicas; with a pooler,
+  # keep the app on pool_size=10/max_overflow=5 and size PgBouncer's
+  # default_pool_size to (replicas x 15) + headroom.
+  DATABASE_POOL_SIZE: "10"
+  DATABASE_MAX_OVERFLOW: "5"
+
+  # Rate limiting (Redis-backed limiter uses REDIS_URL by default).
+  RATE_LIMIT_ENABLED: "true"
   RATE_LIMIT_REQUESTS_PER_MINUTE: "60"
+
+  # LLM / embeddings -----------------------------------------------------
+  # Embedding provider: the default "local" runs BGE-M3 inside the pod —
+  # its multi-GB footprint does not fit a 512Mi limit. Use the GLM API
+  # embedding provider instead, or raise limits + dedicate an inference
+  # service if self-hosting the model.
+  EMBEDDING_PROVIDER: "glm"
+
+  # Dialogue pipeline tuning (real Settings names).
+  MEMORY_TYPE: "optimized"

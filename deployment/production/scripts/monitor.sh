@@ -9,8 +9,16 @@ set -e
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yml"
+
+# Docker Compose v2 ships as a plugin (`docker compose`); v1 was a
+# standalone binary. Support both so the script works on modern hosts.
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker compose)
+else
+    COMPOSE_CMD=(docker-compose)
+fi
 CONTINUOUS=${1:-false}
 
 # Colors
@@ -25,7 +33,7 @@ check_service() {
     local service=$1
     local name=$2
 
-    if docker-compose -f "$COMPOSE_FILE" ps "$service" | grep -q "Up"; then
+    if "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" ps "$service" | grep -q "Up"; then
         echo -e "${GREEN}✓${NC} $name is running"
         return 0
     else
@@ -53,12 +61,12 @@ get_stats() {
 
     # Container stats
     echo "Container Status:"
-    docker-compose -f "$COMPOSE_FILE" ps
+    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" ps
     echo ""
 
     # Resource usage
     echo "Resource Usage:"
-    docker stats --no-stream $(docker-compose -f "$COMPOSE_FILE" ps -q) 2>/dev/null || echo "Stats not available"
+    docker stats --no-stream $("${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" ps -q) 2>/dev/null || echo "Stats not available"
     echo ""
 
     # Disk usage
@@ -80,8 +88,8 @@ monitor() {
             echo "Time: $(date '+%Y-%m-%d %H:%M:%S')"
             echo ""
 
-            check_service app "API Service"
-            check_service db "PostgreSQL"
+            check_service api "API Service"
+            check_service postgres "PostgreSQL"
             check_service redis "Redis"
             check_service qdrant "Qdrant"
             check_api
@@ -97,8 +105,8 @@ monitor() {
         echo "Time: $(date '+%Y-%m-%d %H:%M:%S')"
         echo ""
 
-        check_service app "API Service"
-        check_service db "PostgreSQL"
+        check_service api "API Service"
+        check_service postgres "PostgreSQL"
         check_service redis "Redis"
         check_service qdrant "Qdrant"
         check_api

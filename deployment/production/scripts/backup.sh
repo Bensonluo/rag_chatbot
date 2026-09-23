@@ -9,9 +9,19 @@ set -e
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 BACKUP_DIR="$PROJECT_ROOT/backups"
 RETENTION_DAYS=${1:-7}
+DB_USER="${POSTGRES_USER:-postgres}"
+DB_NAME="${POSTGRES_DB:-rag_chatbot}"
+
+# Docker Compose v2 ships as a plugin (`docker compose`); v1 was a
+# standalone binary. Support both so the script works on modern hosts.
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker compose)
+else
+    COMPOSE_CMD=(docker-compose)
+fi
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yml"
 
 # Colors
@@ -36,7 +46,8 @@ echo "Backup file: $BACKUP_FILE"
 echo ""
 
 # Backup database
-if docker-compose -f "$COMPOSE_FILE" exec -T db pg_dump -U postgres ragchatbot > "$BACKUP_FILE" 2>/dev/null; then
+ERR_FILE="$BACKUP_DIR/pg_dump_error.log"
+if "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T postgres pg_dump -U "$DB_USER" "$DB_NAME" > "$BACKUP_FILE" 2>"$ERR_FILE"; then
     # Compress backup
     gzip "$BACKUP_FILE"
     BACKUP_FILE="${BACKUP_FILE}.gz"
@@ -46,7 +57,10 @@ if docker-compose -f "$COMPOSE_FILE" exec -T db pg_dump -U postgres ragchatbot >
     echo "Size: $(du -h "$BACKUP_FILE" | cut -f1)"
 else
     echo -e "${RED}✗ Database backup failed${NC}"
-    exit 1
+    echo "pg_dump stderr:"
+    cat "$ERR_FILE" 2>/dev/null || echo "(no stderr captured)"
+    rm -f "$ERR_FILE"
+    rm -f "$BACKUP_FILE"
 fi
 
 echo ""

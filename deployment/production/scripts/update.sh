@@ -9,8 +9,16 @@ set -e
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.prod.yml"
+
+# Docker Compose v2 ships as a plugin (`docker compose`); v1 was a
+# standalone binary. Support both so the script works on modern hosts.
+if docker compose version >/dev/null 2>&1; then
+    COMPOSE_CMD=(docker compose)
+else
+    COMPOSE_CMD=(docker-compose)
+fi
 
 # Colors
 GREEN='\033[0;32m'
@@ -36,7 +44,7 @@ pull_latest_code() {
 build_new_image() {
     echo -e "${YELLOW}Building new Docker image...${NC}"
     cd "$PROJECT_ROOT"
-    docker-compose -f "$COMPOSE_FILE" build app
+    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" build app
     echo -e "${GREEN}✓ Image built${NC}"
     echo ""
 }
@@ -54,7 +62,7 @@ update_services() {
     echo -e "${YELLOW}Updating services...${NC}"
 
     # Update app service one by one (for zero-downtime)
-    docker-compose -f "$COMPOSE_FILE" up -d --no-deps app
+    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" up -d --no-deps app
 
     echo -e "${GREEN}✓ Services updated${NC}"
     echo ""
@@ -80,8 +88,8 @@ wait_for_health() {
 # Function to rollback on failure
 rollback() {
     echo -e "${YELLOW}Rolling back due to error...${NC}"
-    docker-compose -f "$COMPOSE_FILE" down
-    docker-compose -f "$COMPOSE_FILE" up -d
+    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" down
+    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" up -d
     echo -e "${GREEN}✓ Rollback completed${NC}"
     exit 1
 }
@@ -119,7 +127,7 @@ main() {
     echo -e "${GREEN}========================================${NC}"
     echo ""
     echo "Application is running at: http://localhost:8000"
-    echo "View logs: docker-compose -f $COMPOSE_FILE logs -f app"
+    echo "View logs: ${COMPOSE_CMD[*]} -f $COMPOSE_FILE logs -f app"
 }
 
 # Run main function
