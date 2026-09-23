@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     OPENAI_EMBEDDING_MODEL: str = Field(
         default="text-embedding-3-small", description="OpenAI embedding model"
     )
+    # OpenAI-compatible endpoints (MiniMax, DeepSeek, vLLM, ...): set the
+    # provider's OpenAI-compatible base URL and reuse the openai client.
+    OPENAI_BASE_URL: str | None = Field(
+        default=None, description="Base URL for an OpenAI-compatible API"
+    )
 
     ANTHROPIC_API_KEY: str | None = Field(default=None, description="Anthropic API key")
     ANTHROPIC_MODEL: str = Field(

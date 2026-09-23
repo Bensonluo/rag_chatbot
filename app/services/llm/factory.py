@@ -101,6 +101,7 @@ class LLMFactory:
                 model=model,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                base_url=settings.OPENAI_BASE_URL,
             )
 
         elif provider == "anthropic":

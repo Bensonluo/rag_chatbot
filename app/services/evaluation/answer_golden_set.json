@@ -1,0 +1,158 @@
+[
+  {
+    "id": "ans-return-001",
+    "category": "return_policy",
+    "faq_id": "returns_policy",
+    "query": "我上周买的裙子不想要了，还能退吗？",
+    "required_points": ["签收后7天内支持无理由退货", "商品需保持完好不影响二次销售", "无理由退货的运费由买家承担"],
+    "forbidden_patterns": ["30天无理由", "假一赔百", "根据训练数据", "作为AI", "语言模型"]
+  },
+  {
+    "id": "ans-return-002",
+    "category": "return_policy",
+    "faq_id": "returns_policy",
+    "query": "收到的电饭锅有质量问题，退货要我自己出运费吗？",
+    "required_points": ["质量问题退货运费由平台承担"],
+    "forbidden_patterns": ["运费由您承担全部", "假一赔百", "根据训练数据"]
+  },
+  {
+    "id": "ans-refund-001",
+    "category": "refund",
+    "faq_id": "refund_timeline",
+    "query": "退货已经寄回去了，退款大概多久能到账？我是支付宝付的款。",
+    "required_points": ["退款原路退回支付账户", "支付宝1-3个工作日到账"],
+    "forbidden_patterns": ["24小时内到账", "实时到账", "假一赔百", "根据训练数据"]
+  },
+  {
+    "id": "ans-refund-002",
+    "category": "refund",
+    "faq_id": "refund_timeline",
+    "query": "银行卡支付的订单退款要等多久？",
+    "required_points": ["银行卡3-7个工作日到账", "可在我的订单退款详情查看进度"],
+    "forbidden_patterns": ["24小时内到账", "实时到账", "根据训练数据"]
+  },
+  {
+    "id": "ans-tracking-001",
+    "category": "logistics",
+    "faq_id": "track_shipping",
+    "query": "我的包裹到哪了？怎么查物流？",
+    "required_points": ["在我的订单查看物流信息", "可看到运单号和实时轨迹", "普通订单付款后48小时内发货"],
+    "forbidden_patterns": ["根据训练数据", "作为AI"]
+  },
+  {
+    "id": "ans-tracking-002",
+    "category": "logistics",
+    "faq_id": "track_shipping",
+    "query": "双十一买的手机怎么还没发货？正常吗？",
+    "required_points": ["大促期间发货可能延迟至72小时", "发货后会有短信或App推送通知"],
+    "forbidden_patterns": ["根据训练数据", "作为AI", "假一赔百"]
+  },
+  {
+    "id": "ans-address-001",
+    "category": "order_mgmt",
+    "faq_id": "modify_address",
+    "query": "我填错收货地址了，还能改吗？",
+    "required_points": ["未发货订单可在订单详情修改地址", "已发货订单需联系人工客服协调转寄"],
+    "forbidden_patterns": ["随时可以修改", "修改不限次数", "根据训练数据"]
+  },
+  {
+    "id": "ans-cancel-001",
+    "category": "order_mgmt",
+    "faq_id": "cancel_order",
+    "query": "刚下的单不想要了，怎么取消？",
+    "required_points": ["在我的订单中选择取消订单", "未发货订单取消后立即退款", "已发货订单无法取消需申请退货"],
+    "forbidden_patterns": ["任何订单都能取消", "根据训练数据"]
+  },
+  {
+    "id": "ans-invoice-001",
+    "category": "invoice",
+    "faq_id": "invoice",
+    "query": "公司采购需要开发票，怎么操作？",
+    "required_points": ["支持电子普通发票", "订单完成后90天内可开具", "企业增值税专用发票需提交资质审核"],
+    "forbidden_patterns": ["纸质发票邮寄", "永久有效", "根据训练数据"]
+  },
+  {
+    "id": "ans-coupon-001",
+    "category": "coupon",
+    "faq_id": "coupon_rules",
+    "query": "为什么我的优惠券用不了？",
+    "required_points": ["常见原因包括未满足满减门槛", "优惠券有有效期", "部分商品不在适用范围或不可与活动价叠加"],
+    "forbidden_patterns": ["永久有效", "所有商品通用", "根据训练数据"]
+  },
+  {
+    "id": "ans-payment-001",
+    "category": "payment",
+    "faq_id": "payment_failed",
+    "query": "付款的时候钱扣了但显示支付失败，我的钱去哪了？",
+    "required_points": ["银行延迟反馈建议等待10-30分钟后刷新", "2小时未恢复扣款将在1-7个工作日原路退回"],
+    "forbidden_patterns": ["钱丢了", "无法退回", "根据训练数据", "作为AI"]
+  },
+  {
+    "id": "ans-shipping-fee-001",
+    "category": "shipping_fee",
+    "faq_id": "delivery_scope",
+    "query": "你们包邮吗？满多少钱免运费？",
+    "required_points": ["单笔订单满99元包邮", "未满额收取6-12元基础运费", "港澳台及海外地区暂不配送"],
+    "forbidden_patterns": ["全场包邮", "所有订单免运费", "根据训练数据"]
+  },
+  {
+    "id": "ans-authenticity-001",
+    "category": "product_trust",
+    "faq_id": "authenticity",
+    "query": "你们卖的是正品吗？假的怎么办？",
+    "required_points": ["商品来自品牌方或授权经销商", "可申请第三方权威机构鉴定", "鉴定为假执行假一赔十"],
+    "forbidden_patterns": ["假一赔百", "假一赔三", "绝对不可能有假", "根据训练数据"]
+  },
+  {
+    "id": "ans-password-001",
+    "category": "account",
+    "faq_id": "account_password",
+    "query": "登录密码忘了，怎么找回来？",
+    "required_points": ["通过绑定手机号或邮箱接收验证码重置", "账号锁定15分钟后自动解锁"],
+    "forbidden_patterns": ["无法找回", "需要重新注册", "根据训练数据"]
+  },
+  {
+    "id": "ans-complaint-001",
+    "category": "complaint",
+    "faq_id": "complaint_channel",
+    "query": "我要投诉之前那个客服，态度太差了！",
+    "required_points": ["在线投诉会生成投诉工单", "专员24小时内跟进", "处理结果将通过短信通知"],
+    "forbidden_patterns": ["无法投诉", "投诉没有用", "根据训练数据", "作为AI"]
+  },
+  {
+    "id": "ans-greeting-001",
+    "category": "greeting",
+    "query": "你好",
+    "required_points": ["礼貌友好地回应问候", "主动说明可以协助的范围或邀请提问"],
+    "forbidden_patterns": ["无法回答", "我不知道", "根据训练数据", "作为AI", "语言模型"]
+  },
+  {
+    "id": "ans-greeting-002",
+    "category": "greeting",
+    "query": "在吗？有人吗？",
+    "required_points": ["及时响应并表明客服在场", "邀请用户描述问题"],
+    "forbidden_patterns": ["无法回答", "我不知道", "根据训练数据", "语言模型"]
+  },
+  {
+    "id": "ans-outscope-001",
+    "category": "out_of_scope",
+    "query": "帮我写一篇高考作文吧",
+    "required_points": ["礼貌拒绝与购物客服无关的请求", "引导回到购物或订单相关问题"],
+    "forbidden_patterns": ["好的，以下是作文", "根据训练数据", "作为AI"]
+  },
+  {
+    "id": "ans-outscope-002",
+    "category": "out_of_scope",
+    "query": "你们老板的电话号码是多少？",
+    "required_points": ["不提供内部或个人联系信息", "保持礼貌并引导至可服务的范围"],
+    "forbidden_patterns": ["电话号码是1", "老板的电话", "根据训练数据"]
+  },
+  {
+    "id": "ans-combined-001",
+    "category": "multi_intent",
+    "faq_ids": ["cancel_order", "refund_timeline"],
+    "query": "我想取消订单然后把钱退回微信，多久能收到？",
+    "required_points": ["说明取消订单的操作路径", "未发货订单取消后立即退款", "微信退款1-3个工作日到账"],
+    "forbidden_patterns": ["24小时内到账", "实时到账", "根据训练数据"]
+  }
+]

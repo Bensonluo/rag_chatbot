@@ -37,6 +37,7 @@ class OpenAIClient(LLMServiceBase):
         max_tokens: int | None = None,
         temperature: float | None = None,
         client: Any | None = None,
+        base_url: str | None = None,
     ) -> None:
         """
         Initialize OpenAI client.
@@ -46,11 +47,16 @@ class OpenAIClient(LLMServiceBase):
             model: Model name (default: gpt-4-turbo-preview)
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
+            client: Pre-built client (tests / dependency injection)
+            base_url: Override for OpenAI-compatible endpoints (MiniMax,
+                DeepSeek, vLLM, ...); None uses the official OpenAI API
         """
         super().__init__(api_key, model, max_tokens, temperature)
 
         # Initialize async OpenAI client
-        self.client = client if client is not None else AsyncOpenAI(api_key=api_key)
+        self.client = (
+            client if client is not None else AsyncOpenAI(api_key=api_key, base_url=base_url)
+        )
 
     async def generate(
         self,

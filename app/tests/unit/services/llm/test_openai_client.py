@@ -189,3 +189,40 @@ class TestOpenAIClient:
 
         client2 = OpenAIClient(api_key="test-key", model="gpt-3.5-turbo")
         assert client2.model == "gpt-3.5-turbo"
+
+
+class TestOpenAICompatibleBaseUrl:
+    """base_url support routes the SDK at any OpenAI-compatible provider."""
+
+    def test_base_url_passed_to_sdk_client(self):
+        # Arrange
+        from unittest.mock import patch
+
+        from app.services.llm.openai_client import OpenAIClient
+
+        # Act
+        with patch("app.services.llm.openai_client.AsyncOpenAI") as mock_sdk:
+            OpenAIClient(api_key="k", base_url="https://api.minimaxi.com/v1")
+
+        # Assert
+        mock_sdk.assert_called_once_with(api_key="k", base_url="https://api.minimaxi.com/v1")
+
+    def test_default_base_url_is_none(self):
+        from unittest.mock import patch
+
+        from app.services.llm.openai_client import OpenAIClient
+
+        with patch("app.services.llm.openai_client.AsyncOpenAI") as mock_sdk:
+            OpenAIClient(api_key="k")
+
+        mock_sdk.assert_called_once_with(api_key="k", base_url=None)
+
+    def test_injected_client_skips_sdk_construction(self):
+        from unittest.mock import patch
+
+        from app.services.llm.openai_client import OpenAIClient
+
+        with patch("app.services.llm.openai_client.AsyncOpenAI") as mock_sdk:
+            OpenAIClient(api_key="k", client=object(), base_url="https://x")
+
+        mock_sdk.assert_not_called()
