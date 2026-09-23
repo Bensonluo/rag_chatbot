@@ -6,7 +6,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models.database.base import Base
 from app.models.database.session import ChatSession  # noqa: F401 (registers table)
-from app.models.database.ticket import HandoffTicket
+from app.models.database.ticket import (
+    PRIORITY_HIGH,
+    PRIORITY_NORMAL,
+    HandoffTicket,
+)
 from app.services.handoff.service import HandoffService
 
 
@@ -75,6 +79,42 @@ class TestCreateTicket:
             ticket = (await session.execute(select(HandoffTicket))).scalar_one()
         assert ticket.reason == "explicit"
 
+    async def test_emotion_reason_gets_high_priority(self, session_maker):
+        service = HandoffService(session_maker=session_maker)
+        await service.create_ticket_for_session(1, 7, "emotion", {})
+        await service.create_ticket_for_session(2, 8, "explicit", {})
+
+        async with session_maker() as session:
+            tickets = {
+                t.session_id: t
+                for t in (await session.execute(select(HandoffTicket))).scalars().all()
+            }
+        assert tickets[1].priority == PRIORITY_HIGH
+        assert tickets[2].priority == PRIORITY_NORMAL
+
+    async def test_queue_position_honors_priority(self, session_maker):
+        """A high-priority ticket created later reports position 1."""
+        service = HandoffService(session_maker=session_maker)
+        first = await service.create_ticket_for_session(1, 7, "explicit", {})
+        second = await service.create_ticket_for_session(2, 8, "emotion", {})
+
+        assert first["queue_position"] == 1  # queue was empty before it
+        assert second["queue_position"] == 1  # jumps ahead of the explicit ticket
+
+        third = await service.create_ticket_for_session(3, 9, "explicit", {})
+        assert third["queue_position"] == 3
+
+    async def test_reuse_reports_current_queue_position(self, session_maker):
+        """Re-requesting a ticket returns its live position, not None."""
+        service = HandoffService(session_maker=session_maker)
+        await service.create_ticket_for_session(1, 7, "explicit", {})
+        await service.create_ticket_for_session(2, 8, "emotion", {})
+
+        again = await service.create_ticket_for_session(1, 7, "explicit", {})
+
+        assert again["reused"] is True
+        assert again["queue_position"] == 2  # emotion ticket jumped ahead
+
     async def test_anonymous_user_maps_to_zero(self, session_maker):
         service = HandoffService(session_maker=session_maker)
         await service.create_ticket_for_session(1, None, "explicit", {})
@@ -123,15 +163,21 @@ class TestAgentWorkspace:
         with pytest.raises(LookupError):
             await service.resolve_ticket(999, agent_id=99)
 
-    async def test_list_orders_fifo(self, session_maker):
+    async def test_list_orders_by_priority_then_fifo(self, session_maker):
+        """High-priority (emotion) escalations are served before older explicit ones."""
         service = HandoffService(session_maker=session_maker)
         first = await service.create_ticket_for_session(1, 7, "explicit", {})
         second = await service.create_ticket_for_session(2, 8, "emotion", {})
+        third = await service.create_ticket_for_session(3, 9, "explicit", {})
 
         tickets = await service.list_tickets("open")
-        assert [t["id"] for t in tickets] == [first["ticket_id"], second["ticket_id"]]
-        assert tickets[0]["reason"] == "explicit"
-        assert tickets[1]["reason"] == "emotion"
+        assert [t["id"] for t in tickets] == [
+            second["ticket_id"],  # priority 1 despite being created second
+            first["ticket_id"],  # FIFO within the normal tier
+            third["ticket_id"],
+        ]
+        assert tickets[0]["priority"] == PRIORITY_HIGH
+        assert tickets[1]["priority"] == PRIORITY_NORMAL
 
     async def test_queue_stats_counts_each_status(self, session_maker):
         service = HandoffService(session_maker=session_maker)

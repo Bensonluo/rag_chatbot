@@ -7,6 +7,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.database.base import Base, TimestampMixin
 
+# Queue priority tiers (lower value = served first). Emotion and
+# high-value-refund escalations jump ahead of explicit requests: at
+# 800K-1M daily requests an angry churn-risk customer must not queue
+# behind idle chitchat escalations (industry-standard priority routing).
+PRIORITY_HIGH = 1
+PRIORITY_NORMAL = 2
+
 
 class HandoffTicket(Base, TimestampMixin):
     """A request to escalate a chat session to a human agent.
@@ -23,6 +30,7 @@ class HandoffTicket(Base, TimestampMixin):
         reason: Why the handoff fired: explicit | emotion | refund_threshold
         summary: Structured context payload for the human agent
         status: open | claimed | resolved
+        priority: Queue tier — PRIORITY_HIGH jumps the FIFO queue
         assigned_to: User id of the claiming agent (null while open)
     """
 
@@ -38,6 +46,7 @@ class HandoffTicket(Base, TimestampMixin):
     reason: Mapped[str] = mapped_column(String(50), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="open", index=True)
+    priority: Mapped[int] = mapped_column(nullable=False, default=PRIORITY_NORMAL)
     assigned_to: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
 
     def __repr__(self) -> str:

@@ -51,7 +51,11 @@ class TicketRepository(BaseRepository[HandoffTicket]):
         limit: int = 100,
     ) -> list[HandoffTicket]:
         """
-        List tickets in a given status, oldest first (FIFO queue order).
+        List tickets in a given status in queue-serving order.
+
+        Priority tier first (lower value = served first), then FIFO by
+        creation time within each tier — high-priority escalations jump
+        the queue, everything else stays strictly oldest-first.
 
         Args:
             status: Ticket status filter (open / claimed / resolved)
@@ -59,17 +63,43 @@ class TicketRepository(BaseRepository[HandoffTicket]):
             limit: Maximum tickets to return
 
         Returns:
-            List[HandoffTicket]: Tickets ordered by creation time
+            List[HandoffTicket]: Tickets in serving order
         """
         stmt = (
             select(HandoffTicket)
             .where(HandoffTicket.status == status)
-            .order_by(HandoffTicket.created_at.asc(), HandoffTicket.id.asc())
+            .order_by(
+                HandoffTicket.priority.asc(),
+                HandoffTicket.created_at.asc(),
+                HandoffTicket.id.asc(),
+            )
             .offset(skip)
             .limit(limit)
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def position_in_queue(self, ticket_id: int) -> int | None:
+        """1-based serving position of an open ticket; None otherwise.
+
+        Computed over the priority-ordered open queue, so a
+        high-priority ticket created last can still be first.
+        """
+        stmt = (
+            select(HandoffTicket.id)
+            .where(HandoffTicket.status == TICKET_STATUS_OPEN)
+            .order_by(
+                HandoffTicket.priority.asc(),
+                HandoffTicket.created_at.asc(),
+                HandoffTicket.id.asc(),
+            )
+        )
+        result = await self.session.execute(stmt)
+        ids = [row[0] for row in result.fetchall()]
+        try:
+            return ids.index(ticket_id) + 1
+        except ValueError:
+            return None
 
     async def count_open(self) -> int:
         """Count tickets waiting in the queue (status=open)."""

@@ -1,11 +1,11 @@
-"""TicketRepository FIFO ordering and claim/resolve transition guards."""
+"""TicketRepository queue ordering (priority → FIFO) and claim/resolve guards."""
 
 import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models.database.base import Base
 from app.models.database.session import ChatSession  # noqa: F401 (registers table)
-from app.models.database.ticket import HandoffTicket
+from app.models.database.ticket import PRIORITY_HIGH, PRIORITY_NORMAL, HandoffTicket
 from app.repositories.ticket_repository import TicketRepository
 
 
@@ -40,6 +40,41 @@ class TestListByStatus:
             tickets = await repo.list_by_status("open")
         assert [t.id for t in tickets] == ids
 
+    async def test_high_priority_created_later_is_served_first(self, session_maker):
+        """Emotion escalation jumps the queue ahead of earlier explicit tickets."""
+        ids = await _seed(session_maker, 2)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            high = await repo.create(
+                HandoffTicket(
+                    session_id=999,
+                    reason="emotion",
+                    priority=PRIORITY_HIGH,
+                    summary="{}",
+                )
+            )
+            tickets = await repo.list_by_status("open")
+        assert [t.id for t in tickets] == [high.id, ids[0], ids[1]]
+
+    async def test_fifo_within_same_priority_tier(self, session_maker):
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            a = await repo.create(
+                HandoffTicket(session_id=1, reason="emotion", priority=PRIORITY_HIGH, summary="{}")
+            )
+            b = await repo.create(
+                HandoffTicket(session_id=2, reason="emotion", priority=PRIORITY_HIGH, summary="{}")
+            )
+            tickets = await repo.list_by_status("open")
+        assert [t.id for t in tickets] == [a.id, b.id]
+
+    async def test_default_priority_is_normal(self, session_maker):
+        await _seed(session_maker, 1)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            ticket = (await repo.list_by_status("open"))[0]
+        assert ticket.priority == PRIORITY_NORMAL
+
     async def test_status_filter_excludes_others(self, session_maker):
         ids = await _seed(session_maker, 2)
         async with session_maker() as session:
@@ -47,6 +82,37 @@ class TestListByStatus:
             await repo.claim(ids[0], agent_id=1)
             tickets = await repo.list_by_status("open")
         assert [t.id for t in tickets] == [ids[1]]
+
+
+class TestPositionInQueue:
+    async def test_high_priority_later_ticket_positions_first(self, session_maker):
+        ids = await _seed(session_maker, 1)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            high = await repo.create(
+                HandoffTicket(
+                    session_id=999,
+                    reason="emotion",
+                    priority=PRIORITY_HIGH,
+                    summary="{}",
+                )
+            )
+            assert await repo.position_in_queue(high.id) == 1
+            assert await repo.position_in_queue(ids[0]) == 2
+
+    async def test_none_after_claim(self, session_maker):
+        """Claimed tickets leave the waiting queue; position is undefined."""
+        ids = await _seed(session_maker, 2)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            await repo.claim(ids[0], agent_id=1)
+            assert await repo.position_in_queue(ids[0]) is None
+            assert await repo.position_in_queue(ids[1]) == 1
+
+    async def test_none_for_unknown_id(self, session_maker):
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            assert await repo.position_in_queue(999) is None
 
 
 class TestClaim:
