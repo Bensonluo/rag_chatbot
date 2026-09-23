@@ -5,6 +5,7 @@ Provides REST API for document upload, search, and management.
 """
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
@@ -28,7 +29,7 @@ class DocumentUploadRequest(BaseModel):
 
     title: str = Field(..., min_length=1, max_length=500, description="Document title")
     content: str = Field(..., min_length=1, description="Document text content")
-    metadata: dict | None = Field(default=None, description="Optional metadata")
+    metadata: dict[str, Any] | None = Field(default=None, description="Optional metadata")
 
 
 class DocumentUploadResponse(BaseModel):
@@ -48,7 +49,7 @@ class SearchRequest(BaseModel):
 
     query: str = Field(..., min_length=1, description="Search query")
     top_k: int = Field(default=5, ge=1, le=20, description="Number of results")
-    filters: dict | None = Field(default=None, description="Optional filters")
+    filters: dict[str, Any] | None = Field(default=None, description="Optional filters")
 
 
 class SearchResult(BaseModel):
@@ -58,7 +59,7 @@ class SearchResult(BaseModel):
     document_id: str
     content: str
     score: float
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class SearchResponse(BaseModel):
@@ -159,7 +160,7 @@ async def upload_document_text(
     request: DocumentUploadRequest,
     current_user: User = Depends(get_current_active_user),
     ingestion_service: DocumentIngestionService = Depends(get_ingestion_service),
-):
+) -> DocumentUploadResponse:
     """
     Upload a document via text content.
 
@@ -170,10 +171,13 @@ async def upload_document_text(
     Returns document ID and processing statistics.
     """
     try:
-        # Add user info to metadata
-        metadata = request.metadata or {}
-        metadata["uploaded_by"] = current_user.id
-        metadata["uploaded_by_email"] = current_user.email
+        # Add user info to metadata — copy first: mutating request.metadata
+        # in place would leak the upload stamps into the request model.
+        metadata = {
+            **(request.metadata or {}),
+            "uploaded_by": current_user.id,
+            "uploaded_by_email": current_user.email,
+        }
 
         # Ingest document
         result = await ingestion_service.ingest_text(
@@ -200,7 +204,7 @@ async def upload_document_file(
     title: str | None = None,
     current_user: User = Depends(get_current_active_user),
     ingestion_service: DocumentIngestionService = Depends(get_ingestion_service),
-):
+) -> DocumentUploadResponse:
     """
     Upload a document file (PDF, TXT, MD).
 
@@ -273,7 +277,7 @@ async def search_documents(
     request: SearchRequest,
     current_user: User = Depends(get_current_user),  # noqa: ARG001 (auth gate)
     qdrant_client: QdrantClient = Depends(get_qdrant_client),
-):
+) -> SearchResponse:
     """
     Search for relevant document chunks using semantic search.
 
@@ -321,7 +325,7 @@ async def delete_document(
     document_id: str,
     current_user: User = Depends(get_current_active_user),  # noqa: ARG001 (auth gate)
     ingestion_service: DocumentIngestionService = Depends(get_ingestion_service),
-):
+) -> DeleteResponse:
     """
     Delete a document and all its chunks from the vector database.
 
@@ -340,7 +344,7 @@ async def delete_document(
 
 
 @router.get("/health", summary="Document service health check")
-async def health_check():
+async def health_check() -> dict[str, str | bool]:
     """Check if document service is healthy."""
     return {
         "status": "healthy",

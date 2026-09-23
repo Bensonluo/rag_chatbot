@@ -89,7 +89,10 @@ class NodeFactory:
     def __init__(
         self,
         intent_detector: IntentDetector,
-        slot_filler: SlotFiller,
+        # Nullable: the API wiring passes None when slot filling is
+        # disabled. Note: the stored filler is not consumed by node
+        # logic yet — slots are extracted via extract_slots_from_message.
+        slot_filler: SlotFiller | None,
         tool_registry: ToolRegistry,
         retrieval_pipeline: dict[str, Any] | None = None,
         llm_service: LLMServiceBase | None = None,

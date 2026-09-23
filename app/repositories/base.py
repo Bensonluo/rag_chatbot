@@ -8,7 +8,8 @@ All repositories should inherit from this base class.
 from typing import Generic, TypeVar
 
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database.base import Base
@@ -57,7 +58,10 @@ class BaseRepository(Generic[ModelType]):
         Returns:
             ModelType | None: The entity if found, None otherwise
         """
-        stmt = select(model).where(model.id == id)
+        # Base does not declare an "id" column, so reach the primary key
+        # through the mapper instead of a class attribute.
+        pk_column = sa_inspect(model).primary_key[0]
+        stmt = select(model).where(pk_column == id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -152,7 +156,7 @@ class BaseRepository(Generic[ModelType]):
 
     async def exists(
         self,
-        condition,
+        condition: ColumnElement[bool],
     ) -> bool:
         """
         Check if any entity matching the condition exists.

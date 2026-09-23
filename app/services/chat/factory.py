@@ -8,6 +8,7 @@ while keeping backward-compatible service construction.
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING, Any
 
 from app.config.settings import settings
 from app.core.exceptions import ValidationError
@@ -19,6 +20,19 @@ from app.services.intent.base import IntentDetector
 from app.services.llm.base import LLMServiceBase
 from app.services.memory import MemoryFactory
 from app.services.memory.base import MemoryStrategy
+
+if TYPE_CHECKING:
+    from langgraph.checkpoint.base import BaseCheckpointSaver
+
+    from app.services.chat.knowledge_gap_recorder import KnowledgeGapRecorder
+    from app.services.chat.persistence import ChatMessagePersister
+    from app.services.graph.community import GlobalSearchService
+    from app.services.graph.retrieval import (
+        GraphRetrievalService,
+        MultiPathRetrievalFusion,
+    )
+    from app.services.guardrails.base import GuardrailService
+    from app.services.slot_filling.base import SlotFiller
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +49,11 @@ class ChatServiceFactory:
         llm_service: LLMServiceBase,
         memory_strategy: MemoryStrategy,
         intent_detector: IntentDetector,
-        retrieval_pipeline: dict | None = None,  # noqa: ARG004 - legacy signature
-        graph_retrieval_service=None,  # noqa: ARG004 - legacy signature
-        global_search_service=None,  # noqa: ARG004 - legacy signature
-        multi_path_fusion=None,  # noqa: ARG004 - legacy signature
-        slot_filler=None,  # noqa: ARG004 - legacy signature
+        retrieval_pipeline: dict[str, Any] | None = None,  # noqa: ARG004 - legacy
+        graph_retrieval_service: GraphRetrievalService | None = None,  # noqa: ARG004
+        global_search_service: GlobalSearchService | None = None,  # noqa: ARG004
+        multi_path_fusion: MultiPathRetrievalFusion | None = None,  # noqa: ARG004
+        slot_filler: SlotFiller | None = None,  # noqa: ARG004 - legacy signature
     ) -> ChatService:
         """
         Legacy factory method — builds ChatService without LangGraph.
@@ -81,16 +95,16 @@ class ChatServiceFactory:
         session_repo: SessionRepository,  # noqa: ARG004 - interface symmetry
         memory_type: str = "optimized",
         intent_type: str = "hybrid",
-        retrieval_pipeline: dict | None = None,
-        graph_retrieval_service=None,
-        global_search_service=None,  # noqa: ARG004 - reserved for graph wiring
-        multi_path_fusion=None,  # noqa: ARG004 - reserved for graph wiring
-        slot_filler=None,
-        guardrail_service=None,
-        persister=None,
-        gap_recorder=None,
-        checkpointer=None,
-        **memory_kwargs,
+        retrieval_pipeline: dict[str, Any] | None = None,
+        graph_retrieval_service: GraphRetrievalService | None = None,
+        global_search_service: GlobalSearchService | None = None,  # noqa: ARG004
+        multi_path_fusion: MultiPathRetrievalFusion | None = None,  # noqa: ARG004
+        slot_filler: SlotFiller | None = None,
+        guardrail_service: GuardrailService | None = None,
+        persister: ChatMessagePersister | None = None,
+        gap_recorder: KnowledgeGapRecorder | None = None,
+        checkpointer: BaseCheckpointSaver[Any] | None = None,
+        **memory_kwargs: Any,
     ) -> ChatService:
         """
         Create chat service with default memory, intent, and LangGraph graph.

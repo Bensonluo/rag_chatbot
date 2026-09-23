@@ -36,7 +36,9 @@ logger = logging.getLogger(__name__)
 
 def build_dialogue_graph(
     intent_detector: IntentDetector,
-    slot_filler: SlotFiller,
+    # Nullable in practice: the API wiring passes None whenever slot
+    # filling is disabled, and the slot node treats None as "skip filling".
+    slot_filler: SlotFiller | None,
     tool_registry: ToolRegistry,
     retrieval_pipeline: dict[str, Any] | None,
     llm_service: LLMServiceBase | None,

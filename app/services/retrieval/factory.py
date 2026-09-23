@@ -7,11 +7,11 @@ reranking services, and complete retrieval pipelines.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 from app.core.exceptions import ValidationError
 from app.services.llm.base import LLMServiceBase
-from app.services.retrieval.chained_reranker import ChainedReranker
+from app.services.retrieval.chained_reranker import ChainedReranker, Reranker
 from app.services.retrieval.cross_encoder_reranker import CrossEncoderReranker
 from app.services.retrieval.document_metadata import (
     DocumentMetadataRepository,
@@ -33,6 +33,28 @@ class RetrievalFactory:
     Provides methods for creating vector clients, hybrid search services,
     rerankers, metadata services, and complete retrieval pipelines.
     """
+
+    @overload
+    @staticmethod
+    def create_vector_client(
+        client_type: Literal["qdrant"],
+        url: str,
+        collection_name: str,
+        api_key: str | None = ...,
+        embedding_service: EmbeddingServiceBase | None = ...,
+        **kwargs: Any,
+    ) -> QdrantClient: ...
+
+    @overload
+    @staticmethod
+    def create_vector_client(
+        client_type: str,
+        url: str,
+        collection_name: str,
+        api_key: str | None = ...,
+        embedding_service: EmbeddingServiceBase | None = ...,
+        **kwargs: Any,
+    ) -> VectorClient: ...
 
     @staticmethod
     def create_vector_client(
@@ -115,7 +137,7 @@ class RetrievalFactory:
         top_n: int = 5,
         model: str | None = None,
         device: str = "cpu",
-    ) -> object:
+    ) -> Reranker:
         """
         Create a reranking service.
 
@@ -160,7 +182,7 @@ class RetrievalFactory:
     @staticmethod
     def create_reranker_from_settings(
         llm_service: LLMServiceBase | None = None,
-    ) -> object:
+    ) -> Reranker:
         """
         Create a reranker from application settings.
 

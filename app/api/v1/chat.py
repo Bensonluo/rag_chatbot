@@ -8,6 +8,8 @@ streaming responses, and history management.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
@@ -23,6 +25,9 @@ from app.services.chat.factory import ChatServiceFactory
 from app.services.embeddings import EmbeddingFactory
 from app.services.llm import LLMFactory
 from app.services.retrieval import RetrievalFactory
+
+if TYPE_CHECKING:
+    from langgraph.checkpoint.base import BaseCheckpointSaver
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +59,9 @@ async def _enforce_chat_rate_limit(http_req: Request) -> None:
         )
 
 
-async def initialize_chat_service(db: AsyncSession, checkpointer=None):
+async def initialize_chat_service(
+    db: AsyncSession, checkpointer: BaseCheckpointSaver[Any] | None = None
+) -> None:
     """Initialize the RAG chat service with all dependencies."""
     global _chat_service
 
@@ -70,7 +77,7 @@ async def initialize_chat_service(db: AsyncSession, checkpointer=None):
     session_repo = SessionRepository(db)
 
     # ── Retrieval pipeline ────────────────────────────────────────────────
-    retrieval_pipeline = None
+    retrieval_pipeline: dict[str, Any] | None = None
     try:
         embedding_service = EmbeddingFactory.create_from_settings()
         qdrant_client = RetrievalFactory.create_vector_client(
@@ -231,8 +238,8 @@ class ChatResponse(BaseModel):
     session_id: int
     intent: str
     sources: list[str] | None = None
-    metadata: dict | None = None
-    dialogue_state: dict | None = None
+    metadata: dict[str, Any] | None = None
+    dialogue_state: dict[str, Any] | None = None
 
 
 class ChatMessageResponse(BaseModel):
@@ -259,7 +266,7 @@ async def chat(
     http_req: Request,
     current_user: User | None = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
-):
+) -> ChatResponse:
     """Process a chat message and generate response."""
     await _enforce_chat_rate_limit(http_req)
 
@@ -311,14 +318,14 @@ async def chat_stream(
     http_req: Request,
     current_user: User | None = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
-):
+) -> StreamingResponse:
     """Process a chat message with a true token-streaming SSE response."""
     await _enforce_chat_rate_limit(http_req)
 
     try:
         user_id = current_user.id if current_user else request.user_id
 
-        async def generate():
+        async def generate() -> AsyncIterator[str]:
             async for chunk in chat_service.process_message_stream(
                 session_id=request.session_id,
                 message=request.message,
@@ -353,7 +360,7 @@ async def get_chat_history(
     # signature does not change twice.
     current_user: User | None = Depends(get_current_user),  # noqa: ARG001
     chat_service: ChatService = Depends(get_chat_service),
-):
+) -> ChatHistoryResponse:
     """Get chat history for a session."""
     try:
         messages = await chat_service.get_chat_history(
@@ -388,7 +395,7 @@ async def clear_chat_history(
     # signature does not change twice.
     current_user: User | None = Depends(get_current_user),  # noqa: ARG001
     chat_service: ChatService = Depends(get_chat_service),
-):
+) -> None:
     """Clear chat history for a session."""
     try:
         await chat_service.clear_chat_history(session_id=session_id)
