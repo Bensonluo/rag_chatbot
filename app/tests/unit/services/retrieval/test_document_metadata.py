@@ -222,8 +222,8 @@ class TestDocumentMetadataService:
 
         # Assert
         assert len(results) == 2
-        assert "python" in results[0].tags
-        assert "python" in results[1].tags
+        assert "python" in (results[0].tags or [])
+        assert "python" in (results[1].tags or [])
 
     @pytest.mark.asyncio
     async def test_get_metadata_batch(self):
@@ -280,10 +280,14 @@ class TestDocumentMetadataService:
 
         # Assert
         assert len(enriched) == 2
-        assert enriched[0].metadata["title"] == "Doc 1"
-        assert enriched[0].metadata["category"] == "tech"
-        assert enriched[1].metadata["title"] == "Doc 2"
-        assert enriched[1].metadata["category"] == "general"
+        meta0 = enriched[0].metadata
+        meta1 = enriched[1].metadata
+        assert meta0 is not None
+        assert meta1 is not None
+        assert meta0["title"] == "Doc 1"
+        assert meta0["category"] == "tech"
+        assert meta1["title"] == "Doc 2"
+        assert meta1["category"] == "general"
 
     async def test_enrich_does_not_mutate_original_metadata(self):
         """Enrichment must copy metadata dicts — results are shared
@@ -311,15 +315,19 @@ class TestDocumentMetadataService:
 
         # Original dict untouched; enriched copy carries old + new keys.
         assert original_metadata == {"source": "kb"}
-        assert enriched[0].metadata is not original_metadata
-        assert enriched[0].metadata["source"] == "kb"
-        assert enriched[0].metadata["title"] == "Doc 1"
+        meta = enriched[0].metadata
+        assert meta is not None
+        assert meta is not original_metadata
+        assert meta["source"] == "kb"
+        assert meta["title"] == "Doc 1"
 
         # A second enrichment pass must not accumulate keys.
         twice = await service.enrich_search_results([enriched[0]])
-        assert twice[0].metadata["title"] == "Doc 1"
-        assert twice[0].metadata["source"] == "kb"
-        assert twice[0].metadata is not enriched[0].metadata
+        meta_twice = twice[0].metadata
+        assert meta_twice is not None
+        assert meta_twice["title"] == "Doc 1"
+        assert meta_twice["source"] == "kb"
+        assert meta_twice is not meta
 
 
 class TestDocumentMetadataRepository:

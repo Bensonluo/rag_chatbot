@@ -4,10 +4,10 @@ Regression tests for the audit finding that sanitized_content was
 discarded on input and check_output was never invoked on output.
 """
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from app.services.dialogue.nodes import NodeFactory
-from app.services.guardrails.base import GuardrailResult
+from app.services.guardrails.base import GuardrailResult, GuardrailService
 
 RAW_INPUT = "我的手机号是13800138000，帮我查下订单"
 REDACTED_INPUT = "我的手机号是[手机号]，帮我查下订单"
@@ -15,10 +15,15 @@ RAW_OUTPUT = "好的，已为您查询，联系电13800138000会有专员回访"
 REDACTED_OUTPUT = "好的，已为您查询，联系电[手机号]会有专员回访"
 
 
-class _FakeGuardrail:
+class _FakeGuardrail(GuardrailService):
     """Configurable stand-in for the guardrail service."""
 
-    def __init__(self, input_result=None, output_result=None):
+    def __init__(
+        self,
+        input_result: GuardrailResult | None = None,
+        output_result: GuardrailResult | None = None,
+    ) -> None:
+        super().__init__()
         self._input_result = input_result
         self._output_result = output_result
 
@@ -37,11 +42,11 @@ class _FakeGuardrail:
         )
 
 
-def _make_factory(guardrail) -> NodeFactory:
+def _make_factory(guardrail: GuardrailService | None) -> NodeFactory:
     return NodeFactory(
-        intent_detector=None,
+        intent_detector=Mock(),
         slot_filler=None,
-        tool_registry=None,
+        tool_registry=Mock(),
         guardrail_service=guardrail,
     )
 
@@ -94,9 +99,13 @@ class TestGuardrailInputWiring:
 class TestGuardrailOutputWiring:
     """Output-side checks must run on generated responses"""
 
-    def _factory_with_direct(self, guardrail, direct_response: str) -> NodeFactory:
+    def _factory_with_direct(
+        self, guardrail: GuardrailService | None, direct_response: str
+    ) -> NodeFactory:
         factory = _make_factory(guardrail)
-        factory._generate_direct = AsyncMock(return_value={"response": direct_response})
+        factory._generate_direct = AsyncMock(  # type: ignore[method-assign]
+            return_value={"response": direct_response}
+        )
         return factory
 
     async def test_redacted_output_replaces_response(self):

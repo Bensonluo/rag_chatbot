@@ -8,7 +8,7 @@ class TestAuthEndpoints:
     """Test authentication API endpoints"""
 
     @pytest.mark.asyncio
-    async def test_register_user_success(self, app_client: AsyncClient):
+    async def test_register_user_success(self, app_client: AsyncClient) -> None:
         """Test successful user registration"""
         # Arrange
         response = await app_client.post(
@@ -30,7 +30,7 @@ class TestAuthEndpoints:
         assert "hashed_password" not in data  # Password should not be in response
 
     @pytest.mark.asyncio
-    async def test_register_user_duplicate_email(self, app_client: AsyncClient):
+    async def test_register_user_duplicate_email(self, app_client: AsyncClient) -> None:
         """Test registration with duplicate email"""
         # Arrange - Register first user
         await app_client.post(
@@ -56,7 +56,7 @@ class TestAuthEndpoints:
         assert "detail" in data
 
     @pytest.mark.asyncio
-    async def test_register_user_weak_password(self, app_client: AsyncClient):
+    async def test_register_user_weak_password(self, app_client: AsyncClient) -> None:
         """Test registration with weak password"""
         # Act
         response = await app_client.post(
@@ -71,7 +71,7 @@ class TestAuthEndpoints:
         assert response.status_code == 422  # Validation error
 
     @pytest.mark.asyncio
-    async def test_register_user_invalid_email(self, app_client: AsyncClient):
+    async def test_register_user_invalid_email(self, app_client: AsyncClient) -> None:
         """Test registration with invalid email"""
         # Act
         response = await app_client.post(
@@ -86,7 +86,7 @@ class TestAuthEndpoints:
         assert response.status_code == 422  # Validation error
 
     @pytest.mark.asyncio
-    async def test_login_user_success(self, app_client: AsyncClient):
+    async def test_login_user_success(self, app_client: AsyncClient) -> None:
         """Test successful user login"""
         # Arrange - Register user first
         await app_client.post(
@@ -115,7 +115,7 @@ class TestAuthEndpoints:
         assert "refresh_token" in data
 
     @pytest.mark.asyncio
-    async def test_login_user_wrong_password(self, app_client: AsyncClient):
+    async def test_login_user_wrong_password(self, app_client: AsyncClient) -> None:
         """Test login with wrong password"""
         # Arrange
         await app_client.post(
@@ -141,7 +141,7 @@ class TestAuthEndpoints:
         assert "detail" in data
 
     @pytest.mark.asyncio
-    async def test_login_user_not_found(self, app_client: AsyncClient):
+    async def test_login_user_not_found(self, app_client: AsyncClient) -> None:
         """Test login with non-existent user"""
         # Act
         response = await app_client.post(
@@ -156,7 +156,7 @@ class TestAuthEndpoints:
         assert response.status_code == 401  # Unauthorized
 
     @pytest.mark.asyncio
-    async def test_refresh_token_success(self, app_client: AsyncClient):
+    async def test_refresh_token_success(self, app_client: AsyncClient) -> None:
         """Test refreshing access token"""
         # Arrange - Register and login to get refresh token
         await app_client.post(
@@ -189,7 +189,7 @@ class TestAuthEndpoints:
         assert data["token_type"] == "bearer"
 
     @pytest.mark.asyncio
-    async def test_refresh_token_invalid(self, app_client: AsyncClient):
+    async def test_refresh_token_invalid(self, app_client: AsyncClient) -> None:
         """Test refreshing with invalid token"""
         # Act
         response = await app_client.post(
@@ -201,7 +201,7 @@ class TestAuthEndpoints:
         assert response.status_code == 401  # Unauthorized
 
     @pytest.mark.asyncio
-    async def test_get_current_user(self, app_client: AsyncClient):
+    async def test_get_current_user(self, app_client: AsyncClient) -> None:
         """Test getting current user info"""
         # Arrange - Register and login
         await app_client.post(
@@ -236,7 +236,7 @@ class TestAuthEndpoints:
         assert "hashed_password" not in data
 
     @pytest.mark.asyncio
-    async def test_get_current_user_no_token(self, app_client: AsyncClient):
+    async def test_get_current_user_no_token(self, app_client: AsyncClient) -> None:
         """Test getting current user without token"""
         # Act
         response = await app_client.get("/api/v1/auth/me")
@@ -245,7 +245,7 @@ class TestAuthEndpoints:
         assert response.status_code == 401  # Unauthorized
 
     @pytest.mark.asyncio
-    async def test_get_current_user_invalid_token(self, app_client: AsyncClient):
+    async def test_get_current_user_invalid_token(self, app_client: AsyncClient) -> None:
         """Test getting current user with invalid token"""
         # Act
         response = await app_client.get(

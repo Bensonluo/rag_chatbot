@@ -8,7 +8,7 @@ class TestSessionEndpoints:
     """Test session API endpoints"""
 
     @pytest.mark.asyncio
-    async def test_create_session(self, app_client: AsyncClient, test_token: str):
+    async def test_create_session(self, app_client: AsyncClient, test_token: str) -> None:
         """Test creating a new session"""
         # Arrange
         headers = {"Authorization": f"Bearer {test_token}"}
@@ -33,7 +33,9 @@ class TestSessionEndpoints:
         assert data["context_window"] == 15
 
     @pytest.mark.asyncio
-    async def test_create_session_default_values(self, app_client: AsyncClient, test_token: str):
+    async def test_create_session_default_values(
+        self, app_client: AsyncClient, test_token: str
+    ) -> None:
         """Test creating session with default values"""
         # Arrange
         headers = {"Authorization": f"Bearer {test_token}"}
@@ -53,7 +55,7 @@ class TestSessionEndpoints:
         assert data["context_window"] == 10
 
     @pytest.mark.asyncio
-    async def test_create_session_unauthorized(self, app_client: AsyncClient):
+    async def test_create_session_unauthorized(self, app_client: AsyncClient) -> None:
         """Test creating session without authentication"""
         # Act
         response = await app_client.post(
@@ -65,7 +67,7 @@ class TestSessionEndpoints:
         assert response.status_code == 401  # Unauthorized
 
     @pytest.mark.asyncio
-    async def test_list_sessions(self, app_client: AsyncClient, test_token: str):
+    async def test_list_sessions(self, app_client: AsyncClient, test_token: str) -> None:
         """Test listing user's sessions"""
         # Arrange
         headers = {"Authorization": f"Bearer {test_token}"}
@@ -90,7 +92,7 @@ class TestSessionEndpoints:
         assert "page" in data
 
     @pytest.mark.asyncio
-    async def test_list_sessions_pagination(self, app_client: AsyncClient, test_token: str):
+    async def test_list_sessions_pagination(self, app_client: AsyncClient, test_token: str) -> None:
         """Test listing sessions with pagination"""
         # Arrange
         headers = {"Authorization": f"Bearer {test_token}"}
@@ -117,7 +119,7 @@ class TestSessionEndpoints:
         assert data["page_size"] == 2
 
     @pytest.mark.asyncio
-    async def test_get_session_by_id(self, app_client: AsyncClient, test_token: str):
+    async def test_get_session_by_id(self, app_client: AsyncClient, test_token: str) -> None:
         """Test getting a specific session"""
         # Arrange
         headers = {"Authorization": f"Bearer {test_token}"}
@@ -139,7 +141,7 @@ class TestSessionEndpoints:
         assert data["title"] == "Test Session"
 
     @pytest.mark.asyncio
-    async def test_get_session_not_found(self, app_client: AsyncClient, test_token: str):
+    async def test_get_session_not_found(self, app_client: AsyncClient, test_token: str) -> None:
         """Test getting a non-existent session"""
         # Arrange
         headers = {"Authorization": f"Bearer {test_token}"}
@@ -151,14 +153,16 @@ class TestSessionEndpoints:
         assert response.status_code == 404  # Not Found
 
     @pytest.mark.asyncio
-    async def test_get_session_unauthorized_user(self, app_client: AsyncClient, test_token: str):
+    async def test_get_session_unauthorized_user(
+        self, app_client: AsyncClient, test_token: str
+    ) -> None:
         """Test accessing another user's session"""
         # This would require creating two users, which we'll skip for now
         # The repository tests cover this logic
         pass
 
     @pytest.mark.asyncio
-    async def test_update_session(self, app_client: AsyncClient, test_token: str):
+    async def test_update_session(self, app_client: AsyncClient, test_token: str) -> None:
         """Test updating a session"""
         # Arrange
         headers = {"Authorization": f"Bearer {test_token}"}
@@ -189,7 +193,7 @@ class TestSessionEndpoints:
         assert data["context_window"] == 20
 
     @pytest.mark.asyncio
-    async def test_update_session_partial(self, app_client: AsyncClient, test_token: str):
+    async def test_update_session_partial(self, app_client: AsyncClient, test_token: str) -> None:
         """Test partially updating a session"""
         # Arrange
         headers = {"Authorization": f"Bearer {test_token}"}
@@ -221,7 +225,7 @@ class TestSessionEndpoints:
         assert data["context_window"] == 10
 
     @pytest.mark.asyncio
-    async def test_delete_session(self, app_client: AsyncClient, test_token: str):
+    async def test_delete_session(self, app_client: AsyncClient, test_token: str) -> None:
         """Test deleting a session"""
         # Arrange
         headers = {"Authorization": f"Bearer {test_token}"}
@@ -244,7 +248,7 @@ class TestSessionEndpoints:
         assert get_response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_delete_session_unauthorized(self, app_client: AsyncClient):
+    async def test_delete_session_unauthorized(self, app_client: AsyncClient) -> None:
         """Test deleting a session without authentication"""
         # Act
         response = await app_client.delete("/api/v1/sessions/1")
@@ -255,7 +259,7 @@ class TestSessionEndpoints:
     @pytest.mark.asyncio
     async def test_update_session_invalid_memory_type(
         self, app_client: AsyncClient, test_token: str
-    ):
+    ) -> None:
         """Test updating session with invalid memory type"""
         # Arrange
         headers = {"Authorization": f"Bearer {test_token}"}
@@ -280,7 +284,7 @@ class TestSessionEndpoints:
     @pytest.mark.asyncio
     async def test_update_session_invalid_context_window(
         self, app_client: AsyncClient, test_token: str
-    ):
+    ) -> None:
         """Test updating session with invalid context window"""
         # Arrange
         headers = {"Authorization": f"Bearer {test_token}"}
