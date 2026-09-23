@@ -102,6 +102,7 @@ class ResilientLLMService(LLMServiceBase):
         backoff_base: float = 0.5,
         circuit_failure_threshold: int = 5,
         circuit_recovery_seconds: float = 30.0,
+        tracer: Any = None,
     ) -> None:
         if not providers:
             raise ValueError("ResilientLLMService requires at least one provider")
@@ -112,6 +113,7 @@ class ResilientLLMService(LLMServiceBase):
             name: CircuitBreaker(circuit_failure_threshold, circuit_recovery_seconds)
             for name, _ in self._providers
         }
+        self._tracer = tracer
         # Mirror the primary's identity for prompt building / tracing.
         primary = self._providers[0][1]
         self.model = primary.model
@@ -128,6 +130,22 @@ class ResilientLLMService(LLMServiceBase):
         return self._breakers[name].state
 
     async def generate(
+        self,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        if self._tracer is None:
+            return await self._generate_with_failover(
+                messages, max_tokens=max_tokens, temperature=temperature, **kwargs
+            )
+        async with self._tracer.trace_generate(model=self.model):
+            return await self._generate_with_failover(
+                messages, max_tokens=max_tokens, temperature=temperature, **kwargs
+            )
+
+    async def _generate_with_failover(
         self,
         messages: list[LLMMessage],
         max_tokens: int | None = None,
@@ -181,6 +199,26 @@ class ResilientLLMService(LLMServiceBase):
         so mid-stream failures propagate instead of restarting on
         another provider (which would duplicate the already-sent text).
         """
+        if self._tracer is None:
+            async for chunk in self._generate_stream_with_failover(
+                messages, max_tokens=max_tokens, temperature=temperature, **kwargs
+            ):
+                yield chunk
+            return
+        async with self._tracer.trace_generate(model=self.model):
+            async for chunk in self._generate_stream_with_failover(
+                messages, max_tokens=max_tokens, temperature=temperature, **kwargs
+            ):
+                yield chunk
+
+    async def _generate_stream_with_failover(
+        self,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[str, None]:
+        """Failover/retry loop behind ``generate_stream`` (see its docstring)."""
         last_exc: BaseException = ExternalServiceError("llm-chain", "no provider available")
         for name, service in self._providers:
             breaker = self._breakers[name]

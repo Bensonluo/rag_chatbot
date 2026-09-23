@@ -20,12 +20,18 @@ from langchain_core.runnables import RunnableConfig
 from app.models.enums.intent import (
     DIRECT_INTENTS,
     GRAPH_INTENTS,
+    HANDOFF_INTENTS,
     INTENT_DISPLAY_NAMES,
     META_INTENTS,
     RAG_INTENTS,
     TASK_INTENTS,
 )
+from app.services.dialogue.emotion import assess_emotion
 from app.services.dialogue.state import DialogueState
+from app.services.handoff.service import (
+    REASON_EMOTION,
+    REASON_EXPLICIT,
+)
 from app.services.slot_filling.slot_types import (
     extract_slots_from_message,
     get_missing_slots,
@@ -73,6 +79,7 @@ class NodeFactory:
         llm_service=None,
         guardrail_service=None,
         graph_retrieval_service=None,
+        handoff_service=None,
     ) -> None:
         self._intent_detector = intent_detector
         self._slot_filler = slot_filler
@@ -81,6 +88,7 @@ class NodeFactory:
         self._llm_service = llm_service
         self._guardrail_service = guardrail_service
         self._graph_retrieval_service = graph_retrieval_service
+        self._handoff_service = handoff_service
 
     # ── Nodes ────────────────────────────────────────────────────────────────
 
@@ -132,12 +140,35 @@ class NodeFactory:
         detected_intent = result.intent.value
         confidence = result.confidence
 
-        # Cancel always wins — user wants out
+        # An explicit human-agent request outranks everything, including
+        # cancel — “不要了，给我转人工” means the user is abandoning the
+        # task AND asking for a person; only the handoff answers that.
+        if detected_intent == "handoff":
+            return {
+                "intent": "handoff",
+                "prev_intent": prev_intent,
+                "confidence": confidence,
+                "handoff_reason": REASON_EXPLICIT,
+            }
+
+        # Cancel wins over everything else — user wants out.
         if detected_intent == "cancel":
             return {
                 "intent": "cancel",
                 "prev_intent": prev_intent,
                 "confidence": confidence,
+            }
+
+        # Negative-emotion escalation outranks task resume: an angry user
+        # mid-task must reach a human, not another slot prompt. (It does
+        # NOT outrank cancel — “算了，太失望了” is the user leaving.)
+        emotion = assess_emotion(message)
+        if emotion.should_escalate:
+            return {
+                "intent": "handoff",
+                "prev_intent": prev_intent,
+                "confidence": confidence,
+                "handoff_reason": REASON_EMOTION,
             }
 
         # A confirm/deny answering a staged irreversible action must resolve
@@ -259,6 +290,8 @@ class NodeFactory:
             return {"route": "direct"}
         if intent in META_INTENTS:
             return {"route": "meta"}
+        if intent in HANDOFF_INTENTS:
+            return {"route": "handoff"}
         if intent in GRAPH_INTENTS:
             return {"route": "rag"}
 
@@ -468,6 +501,59 @@ class NodeFactory:
         response = await self._generate_direct(message, config)
         return response
 
+    async def handle_handoff_node(
+        self, state: DialogueState, config: RunnableConfig | None = None
+    ) -> dict[str, Any]:
+        """Escalate the session to a human agent.
+
+        Creates a handoff ticket carrying the dialogue context (intent,
+        slots, current message) so the agent lands mid-conversation
+        instead of starting from “您好，请问有什么可以帮您”. The response
+        is a fixed template — the handoff path deliberately avoids LLM
+        generation so a model outage can never block a user from
+        reaching a human.
+
+        Any staged irreversible action is discarded: the human agent
+        owns that decision now, and a stale confirmation gate must not
+        ambush a later turn.
+        """
+        reason = state.get("handoff_reason") or REASON_EXPLICIT
+        context = {
+            "trigger": reason,
+            "user_message": state.get("message", ""),
+            "intent": state.get("prev_intent") or state.get("intent", ""),
+            "filled_slots": state.get("filled_slots") or {},
+            "pending_slots": state.get("pending_slots") or [],
+        }
+
+        ticket: dict[str, Any] = {
+            "ticket_id": None,
+            "queue_position": None,
+            "reused": False,
+        }
+        if self._handoff_service is not None:
+            ticket = await self._handoff_service.create_ticket_for_session(
+                session_id=state.get("session_id", 0),
+                user_id=state.get("user_id"),
+                reason=reason,
+                context=context,
+            )
+
+        response = _build_handoff_response(reason, ticket)
+
+        updates: dict[str, Any] = {
+            "response": response,
+            "intent": "handoff",
+            "handoff_reason": reason,
+            "pending_confirmation": None,
+            "slot_prompt": "",
+        }
+        if ticket.get("ticket_id") is not None:
+            updates["handoff_ticket_id"] = ticket["ticket_id"]
+
+        _emit_response(response, config)
+        return updates
+
     # ── Conditional edges ────────────────────────────────────────────────────
 
     @staticmethod
@@ -497,6 +583,22 @@ class NodeFactory:
                 "不想",
                 "不想退",
                 "cancel",
+            )
+        ):
+            return "full"
+
+        # Human-agent requests always go through full detection —
+        # mid-slot-collection “转人工” must never be captured as a slot
+        # value.
+        if any(
+            kw in message
+            for kw in (
+                "转人工",
+                "人工客服",
+                "人工服务",
+                "找客服",
+                "human agent",
+                "human support",
             )
         ):
             return "full"
@@ -787,6 +889,30 @@ def _build_confirmation_summary(tool, filled_slots: dict) -> str:
         f"⚠️ 即将为您执行「{display}」：{detail}。\n"
         "该操作不可自动撤销。请回复「确认」执行，或回复「取消」放弃。"
     )
+
+
+def _build_handoff_response(reason: str, ticket: dict[str, Any]) -> str:
+    """Fixed-template handoff acknowledgement.
+
+    Like the confirmation gate, the handoff path never touches the LLM:
+    reaching a human must not depend on model availability.
+    """
+    prefix = ""
+    if reason == REASON_EMOTION:
+        prefix = "非常抱歉给您带来了不好的体验，"
+
+    ticket_id = ticket.get("ticket_id")
+    if ticket_id is None:
+        return f"{prefix}正在为您转接人工客服，请稍候。"
+
+    parts = [f"{prefix}已为您转接人工客服（工单号 #{ticket_id}）"]
+    queue_position = ticket.get("queue_position")
+    if queue_position:
+        parts.append(f"当前排队人数：{queue_position} 人")
+    if ticket.get("reused"):
+        parts.append("您已在排队中，请耐心等待")
+    parts.append("人工客服可查看本次会话的完整上下文，请稍候")
+    return "，".join(parts) + "。"
 
 
 def _search_result_to_dict(result) -> dict:

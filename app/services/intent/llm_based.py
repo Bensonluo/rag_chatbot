@@ -4,6 +4,7 @@ LLM-based intent detector for business intents.
 Uses language model understanding to classify customer service queries
 into business intent categories.
 """
+
 import json
 import re
 from typing import Optional
@@ -99,9 +100,13 @@ Meta:
 - cancel: User wants to cancel current operation
 - unknown: Cannot determine intent
 
+Handoff:
+- handoff: User explicitly asks for a human agent (transfer me to a human)
+
 Rules:
 - Respond with ONLY the intent name (lowercase)
 - If user mentions order_id or order number with a service request, classify by the service type
+- An explicit human-agent request is always "handoff", even if the message also contains a complaint or task keyword
 - Default to "faq" for general questions about how things work
 - Default to "unknown" if truly uncertain"""
 
@@ -114,8 +119,7 @@ Rules:
                 if messages:
                     recent = messages[-2:] if len(messages) > 2 else messages
                     conversation = "\n".join(
-                        f"{m.get('role', 'user')}: {m.get('content', '')}"
-                        for m in recent
+                        f"{m.get('role', 'user')}: {m.get('content', '')}" for m in recent
                     )
                     prompt = f"""Conversation context:
 {conversation}
@@ -124,8 +128,8 @@ New query: {query}
 
 Intent:"""
             if "current_intent" in context:
-                prompt = f"""Current active task: {context['current_intent']}
-Filled slots: {context.get('filled_slots', {})}
+                prompt = f"""Current active task: {context["current_intent"]}
+Filled slots: {context.get("filled_slots", {})}
 
 New query: {query}
 

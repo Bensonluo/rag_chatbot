@@ -24,6 +24,7 @@ def build_dialogue_graph(
     guardrail_service=None,
     graph_retrieval_service=None,
     checkpointer=None,
+    handoff_service=None,
 ):
     """Build and compile the dialogue StateGraph.
 
@@ -37,6 +38,9 @@ def build_dialogue_graph(
         graph_retrieval_service: Optional service for graph-based retrieval.
         checkpointer: Optional shared checkpointer (e.g. Postgres-backed)
             for horizontal scaling; defaults to a process-local MemorySaver.
+        handoff_service: Optional HandoffService for human-agent
+            escalation tickets; when None the handoff node still
+            responds but creates no ticket.
 
     Returns:
         Compiled StateGraph with the requested checkpointer.
@@ -51,6 +55,7 @@ def build_dialogue_graph(
         llm_service=llm_service,
         guardrail_service=guardrail_service,
         graph_retrieval_service=graph_retrieval_service,
+        handoff_service=handoff_service,
     )
 
     graph = StateGraph(DialogueState)
@@ -65,6 +70,7 @@ def build_dialogue_graph(
     graph.add_node("rag_lookup", factory.rag_lookup_node)
     graph.add_node("generate_response", factory.generate_response_node)
     graph.add_node("direct_response", factory.direct_response_node)
+    graph.add_node("handle_handoff", factory.handle_handoff_node)
 
     # ── Fixed edges ──────────────────────────────────────────────────────────
     graph.add_edge(START, "guardrail")
@@ -93,6 +99,7 @@ def build_dialogue_graph(
             "rag": "rag_lookup",
             "direct": "direct_response",
             "meta": "generate_response",
+            "handoff": "handle_handoff",
         },
     )
 
@@ -122,6 +129,7 @@ def build_dialogue_graph(
     graph.add_edge("rag_lookup", "generate_response")
     graph.add_edge("direct_response", END)
     graph.add_edge("generate_response", END)
+    graph.add_edge("handle_handoff", END)
 
     # ── Compile with the requested checkpointing backend ─────────────────────
     compiled = graph.compile(

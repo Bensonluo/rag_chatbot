@@ -4,6 +4,8 @@ Factory for creating LLM service instances.
 Provides a simple interface for creating LLM clients based on configuration.
 """
 
+import logging
+
 from app.config.settings import get_settings
 from app.core.exceptions import ValidationError
 from app.services.llm.anthropic_client import AnthropicClient
@@ -11,6 +13,23 @@ from app.services.llm.base import LLMServiceBase
 from app.services.llm.glm_client import GLMClient
 from app.services.llm.openai_client import OpenAIClient
 from app.services.llm.resilience import ResilientLLMService
+
+logger = logging.getLogger(__name__)
+
+
+def _build_llm_tracer():
+    """Construct the LLM tracer, degrading to None when OTel is broken.
+
+    Tracing must never gate LLM availability: a broken tracing setup
+    logs and disables spans rather than failing service creation.
+    """
+    try:
+        from app.services.observability.llm_tracer import LLMTracer
+
+        return LLMTracer()
+    except Exception:  # noqa: BLE001 - observability is best-effort
+        logger.warning("LLM tracer unavailable; spans disabled", exc_info=True)
+        return None
 
 
 class LLMFactory:
@@ -184,4 +203,5 @@ class LLMFactory:
             backoff_base=settings.LLM_RETRY_BACKOFF_BASE,
             circuit_failure_threshold=settings.LLM_CIRCUIT_FAILURE_THRESHOLD,
             circuit_recovery_seconds=settings.LLM_CIRCUIT_RECOVERY_SECONDS,
+            tracer=_build_llm_tracer(),
         )

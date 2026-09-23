@@ -49,6 +49,11 @@ class DialogueState(TypedDict, total=False):
     # Output
     response: str
 
+    # Human handoff: why the handoff fired (explicit / emotion /
+    # refund_threshold) and the created ticket id, if any.
+    handoff_reason: str
+    handoff_ticket_id: int
+
     # Intent switch stack (manually managed, not a reducer)
     state_stack: list[dict]
 

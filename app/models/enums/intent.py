@@ -1,4 +1,5 @@
 """Business intent enums for customer service dialogue management."""
+
 from enum import Enum
 
 
@@ -26,6 +27,9 @@ class Intent(str, Enum):
     CANCEL = "cancel"
     UNKNOWN = "unknown"
 
+    # Human handoff (→ agent escalation)
+    HANDOFF = "handoff"
+
     # Graph-related (→ GraphRAG, legacy support)
     RELATIONSHIP_QUERY = "relationship_query"
     GLOBAL_SUMMARY = "global_summary"
@@ -38,6 +42,7 @@ RAG_INTENTS = {"faq", "policy"}
 DIRECT_INTENTS = {"chitchat", "greeting"}
 META_INTENTS = {"confirm", "deny", "cancel"}
 GRAPH_INTENTS = {"relationship_query", "global_summary", "entity_lookup"}
+HANDOFF_INTENTS = {"handoff"}
 
 # Display names for Chinese UI
 INTENT_DISPLAY_NAMES = {
@@ -48,4 +53,5 @@ INTENT_DISPLAY_NAMES = {
     "complaint": "投诉",
     "faq": "常见问题",
     "policy": "政策查询",
+    "handoff": "转人工",
 }

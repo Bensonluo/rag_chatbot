@@ -1,0 +1,143 @@
+"""HandoffService: ticket lifecycle and the never-raise chat contract."""
+
+import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app.models.database.base import Base
+from app.models.database.session import ChatSession  # noqa: F401 (registers table)
+from app.models.database.ticket import HandoffTicket
+from app.services.handoff.service import HandoffService
+
+
+@pytest.fixture
+async def session_maker():
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    yield maker
+    await engine.dispose()
+
+
+class TestCreateTicket:
+    async def test_creates_ticket_with_queue_position(self, session_maker):
+        service = HandoffService(session_maker=session_maker)
+
+        result = await service.create_ticket_for_session(
+            session_id=1,
+            user_id=7,
+            reason="explicit",
+            context={"user_message": "转人工", "intent": "refund"},
+        )
+
+        assert result["ticket_id"] is not None
+        assert result["queue_position"] == 1
+        assert result["reused"] is False
+
+        async with session_maker() as session:
+            ticket = (await session.execute(select(HandoffTicket))).scalar_one()
+        assert ticket.reason == "explicit"
+        assert '"intent": "refund"' in ticket.summary
+
+    async def test_repeated_request_reuses_open_ticket(self, session_maker):
+        """Saying 转人工 twice must not create a second queue entry."""
+        service = HandoffService(session_maker=session_maker)
+
+        first = await service.create_ticket_for_session(1, 7, "explicit", {})
+        second = await service.create_ticket_for_session(1, 7, "explicit", {})
+
+        assert second["ticket_id"] == first["ticket_id"]
+        assert second["reused"] is True
+
+        async with session_maker() as session:
+            count = len((await session.execute(select(HandoffTicket))).scalars().all())
+        assert count == 1
+
+    async def test_queue_position_counts_open_only(self, session_maker):
+        service = HandoffService(session_maker=session_maker)
+        await service.create_ticket_for_session(1, 7, "explicit", {})
+        await service.create_ticket_for_session(2, 8, "emotion", {})
+        # Resolve the first ticket; the third request should see depth 2.
+        open_tickets = await service.list_tickets("open")
+        await service.resolve_ticket(open_tickets[0]["id"], agent_id=99)
+
+        third = await service.create_ticket_for_session(3, 9, "explicit", {})
+
+        assert third["queue_position"] == 2
+
+    async def test_invalid_reason_falls_back_to_explicit(self, session_maker):
+        service = HandoffService(session_maker=session_maker)
+        result = await service.create_ticket_for_session(1, 7, "weird", {})
+        assert result["ticket_id"] is not None
+
+        async with session_maker() as session:
+            ticket = (await session.execute(select(HandoffTicket))).scalar_one()
+        assert ticket.reason == "explicit"
+
+    async def test_anonymous_user_maps_to_zero(self, session_maker):
+        service = HandoffService(session_maker=session_maker)
+        await service.create_ticket_for_session(1, None, "explicit", {})
+
+        async with session_maker() as session:
+            ticket = (await session.execute(select(HandoffTicket))).scalar_one()
+        assert ticket.user_id == 0
+
+    async def test_db_failure_returns_none_ticket_not_raise(self):
+        """Availability over durability: the chat turn survives DB loss."""
+
+        def broken_maker():
+            raise RuntimeError("db down")
+
+        service = HandoffService(session_maker=broken_maker)
+        result = await service.create_ticket_for_session(1, 7, "explicit", {})
+        assert result == {
+            "ticket_id": None,
+            "queue_position": None,
+            "reused": False,
+        }
+
+
+class TestAgentWorkspace:
+    async def test_claim_and_resolve_lifecycle(self, session_maker):
+        service = HandoffService(session_maker=session_maker)
+        created = await service.create_ticket_for_session(1, 7, "explicit", {})
+
+        claimed = await service.claim_ticket(created["ticket_id"], agent_id=99)
+        assert claimed["status"] == "claimed"
+        assert claimed["assigned_to"] == 99
+
+        resolved = await service.resolve_ticket(created["ticket_id"], agent_id=99)
+        assert resolved["status"] == "resolved"
+
+    async def test_second_claim_conflicts(self, session_maker):
+        service = HandoffService(session_maker=session_maker)
+        created = await service.create_ticket_for_session(1, 7, "explicit", {})
+        await service.claim_ticket(created["ticket_id"], agent_id=99)
+
+        with pytest.raises(LookupError):
+            await service.claim_ticket(created["ticket_id"], agent_id=100)
+
+    async def test_resolve_missing_ticket_raises(self, session_maker):
+        service = HandoffService(session_maker=session_maker)
+        with pytest.raises(LookupError):
+            await service.resolve_ticket(999, agent_id=99)
+
+    async def test_list_orders_fifo(self, session_maker):
+        service = HandoffService(session_maker=session_maker)
+        first = await service.create_ticket_for_session(1, 7, "explicit", {})
+        second = await service.create_ticket_for_session(2, 8, "emotion", {})
+
+        tickets = await service.list_tickets("open")
+        assert [t["id"] for t in tickets] == [first["ticket_id"], second["ticket_id"]]
+        assert tickets[0]["reason"] == "explicit"
+        assert tickets[1]["reason"] == "emotion"
+
+    async def test_queue_stats_counts_each_status(self, session_maker):
+        service = HandoffService(session_maker=session_maker)
+        a = await service.create_ticket_for_session(1, 7, "explicit", {})
+        await service.create_ticket_for_session(2, 8, "emotion", {})
+        await service.claim_ticket(a["ticket_id"], agent_id=99)
+
+        stats = await service.queue_stats()
+        assert stats == {"open": 1, "claimed": 1, "resolved": 0}

@@ -20,6 +20,7 @@ from app.models.database.base import Base
 from app.models.database.document import Document  # noqa: F401
 from app.models.database.message import Message  # noqa: F401
 from app.models.database.session import ChatSession  # noqa: F401
+from app.models.database.ticket import HandoffTicket  # noqa: F401
 from app.models.database.user import User  # noqa: F401
 
 # Alembic config object
