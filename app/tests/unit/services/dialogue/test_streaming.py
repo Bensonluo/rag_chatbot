@@ -14,10 +14,9 @@ from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
-import pytest
 from langchain_core.runnables import RunnableConfig
 
-from app.services.chat.chat_service import HEARTBEAT, ChatService
+from app.services.chat.chat_service import HEARTBEAT, STREAM_ERROR, ChatService
 from app.services.dialogue.nodes import NodeFactory
 from app.services.dialogue.state import DialogueState
 from app.services.dialogue.tools import ToolRegistry
@@ -148,7 +147,7 @@ class TestChatServiceStreamBridge:
         persister.persist_turn.assert_awaited_once()
         assert persister.persist_turn.await_args.kwargs["response"] == "部分回答"
 
-    async def test_graph_exception_propagates_with_partial_persisted(self):
+    async def test_graph_exception_yields_error_sentinel_with_partial_persisted(self):
         class _BoomGraph:
             async def ainvoke(
                 self, state: dict[str, Any], config: dict[str, Any]
@@ -158,11 +157,8 @@ class TestChatServiceStreamBridge:
 
         persister = AsyncMock()
         service = ChatService(graph=_BoomGraph(), persister=persister)
-        chunks = []
-        with pytest.raises(RuntimeError, match="graph blew up"):
-            async for chunk in service.process_message_stream(1, "m", 1):
-                chunks.append(chunk)
-        assert chunks == ["半"]
+        chunks = [chunk async for chunk in service.process_message_stream(1, "m", 1)]
+        assert chunks == ["半", STREAM_ERROR]
         assert persister.persist_turn.await_args.kwargs["response"] == "半"
 
     async def test_empty_stream_persists_nothing(self):

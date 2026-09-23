@@ -26,6 +26,10 @@ if TYPE_CHECKING:
 # comment; transport-agnostic consumers simply skip it. Nodes never emit
 # empty strings, so it cannot collide with real content.
 HEARTBEAT = ""
+# Yielded when the stream ends abnormally (graph failure or duration
+# budget exhausted) so the SSE layer can emit an explicit error frame
+# instead of dropping the connection.
+STREAM_ERROR = "[[STREAM_ERROR]]"
 
 
 @dataclass
@@ -159,6 +163,7 @@ class ChatService:
         message: str,
         user_id: int,
         heartbeat_seconds: float = 15.0,
+        stream_max_seconds: float = 120.0,
     ) -> AsyncGenerator[str, None]:
         """
         Process a user message with true token streaming.
@@ -180,6 +185,7 @@ class ChatService:
             message: User message
             user_id: User identifier
             heartbeat_seconds: Idle window before yielding a heartbeat
+            stream_max_seconds: Total budget before the stream is cut off
 
         Yields:
             str: Response text chunks (HEARTBEAT sentinel on idle)
@@ -196,18 +202,38 @@ class ChatService:
         )
         invoke_task.add_done_callback(lambda _task: queue.put_nowait(None))
         streamed_content: list[str] = []
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + stream_max_seconds
         try:
             while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    # Budget exhausted — end the stream rather than hold the
+                    # connection open on heartbeats forever.
+                    yield STREAM_ERROR
+                    return
                 try:
-                    chunk = await asyncio.wait_for(queue.get(), timeout=heartbeat_seconds)
+                    chunk = await asyncio.wait_for(
+                        queue.get(), timeout=min(heartbeat_seconds, remaining)
+                    )
                 except TimeoutError:
+                    if loop.time() >= deadline:
+                        yield STREAM_ERROR
+                        return
                     yield HEARTBEAT
                     continue
                 if chunk is None:
                     break
                 streamed_content.append(chunk)
                 yield chunk
-            # Surface graph failures (sentinel already delivered above).
+            if invoke_task.cancelled():
+                yield STREAM_ERROR
+                return
+            if invoke_task.exception() is not None:
+                # The client gets an explicit failure frame instead of a
+                # dropped connection; partial content is still persisted.
+                yield STREAM_ERROR
+                return
             result = invoke_task.result()
             if self.gap_recorder is not None:
                 await self.gap_recorder.record_if_gap(

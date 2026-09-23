@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.chat import get_chat_service
+from app.services.chat.chat_service import STREAM_ERROR
 
 
 class TestChatEndpoints:
@@ -188,6 +189,26 @@ class TestChatEndpoints:
 
         # Auth is optional (demo mode), so should return 503 (service not init)
         assert response.status_code in [200, 401, 503]
+
+    def test_chat_stream_endpoint_maps_error_sentinel(self, client, mock_chat_service):
+        """The stream error sentinel becomes an SSE frame before [DONE]."""
+
+        async def mock_stream(**kwargs):
+            yield "你好"
+            yield STREAM_ERROR
+
+        mock_chat_service.process_message_stream = mock_stream
+        self._override_chat_service(client.app, mock_chat_service)
+        request_data = {"message": "Hello", "session_id": 1}
+
+        response = client.post("/api/v1/chat/stream", json=request_data)
+
+        assert response.status_code == 200
+        body = response.text
+        assert "data: [STREAM_ERROR]" in body
+        assert "data: [DONE]" in body
+        # The error frame must precede the terminator.
+        assert body.index("data: [STREAM_ERROR]") < body.index("data: [DONE]")
 
 
 class TestChatSchemas:

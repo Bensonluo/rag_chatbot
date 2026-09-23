@@ -20,7 +20,7 @@ from app.api.deps import get_current_user
 from app.config.settings import settings
 from app.middleware.rate_limiter_redis import EndpointRateLimiter, client_ip_from_request
 from app.models.database.user import User
-from app.services.chat.chat_service import HEARTBEAT, ChatService
+from app.services.chat.chat_service import HEARTBEAT, STREAM_ERROR, ChatService
 from app.services.chat.factory import ChatServiceFactory
 from app.services.embeddings import EmbeddingFactory
 from app.services.llm import LLMFactory
@@ -335,6 +335,10 @@ async def chat_stream(
                     # SSE comment keepalive — ignored by EventSource parsers,
                     # keeps proxies from closing an idle connection.
                     yield ": ping\n\n"
+                elif chunk == STREAM_ERROR:
+                    # Explicit failure frame so the client can surface an
+                    # error instead of waiting on a dropped connection.
+                    yield "data: [STREAM_ERROR]\n\n"
                 else:
                     yield _sse_frame(chunk)
             yield "data: [DONE]\n\n"

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from app.services.chat.chat_service import ChatResponse, ChatService
+from app.services.chat.chat_service import STREAM_ERROR, ChatResponse, ChatService
 
 
 def _make_graph(return_value: dict[str, Any]) -> Mock:
@@ -223,17 +223,6 @@ class TestKnowledgeGapWiring:
             queue.put_nowait("部分")
             raise RuntimeError("graph exploded")
 
-        mock_graph = Mock()
-        mock_graph.ainvoke = mock_ainvoke
-        recorder = AsyncMock()
-        service = ChatService(graph=mock_graph, gap_recorder=recorder)
-        with pytest.raises(RuntimeError):
-            async for _chunk in service.process_message_stream(
-                session_id=1, message="你好", user_id=1
-            ):
-                pass
-        recorder.record_if_gap.assert_not_awaited()
-
 
 class TestChatResponse:
     """Test ChatResponse dataclass"""
@@ -295,3 +284,81 @@ class TestTurnAuditMetadata:
 
         persisted_meta = persister.persist_turn.await_args.kwargs["metadata"]
         assert "executed_tools" not in persisted_meta
+
+
+class TestStreamGuardrails:
+    """Streaming hard limits: total-duration cap and failure error frame.
+
+    A heartbeat keeps idle connections alive, so a wedged graph task
+    (hung LLM upstream) would otherwise hold the connection forever.
+    The stream must end with an explicit error sentinel instead — both
+    on timeout and on graph failure — so the SSE layer can tell the
+    client why the stream stopped.
+    """
+
+    @pytest.mark.asyncio
+    async def test_stream_timeout_yields_error_and_ends(self):
+        import asyncio
+
+        async def mock_ainvoke(state, config):
+            await asyncio.sleep(999)  # wedged upstream, never yields
+
+        mock_graph = Mock()
+        mock_graph.ainvoke = mock_ainvoke
+        service = ChatService(graph=mock_graph)
+
+        chunks = [
+            chunk
+            async for chunk in service.process_message_stream(
+                session_id=1, message="你好", user_id=1, stream_max_seconds=0.05
+            )
+        ]
+
+        assert chunks == [STREAM_ERROR]
+
+    @pytest.mark.asyncio
+    async def test_stream_timeout_persists_partial_turn(self):
+        import asyncio
+
+        async def mock_ainvoke(state, config):
+            queue = config["configurable"]["stream_queue"]
+            queue.put_nowait("部分")
+            await asyncio.sleep(999)
+
+        mock_graph = Mock()
+        mock_graph.ainvoke = mock_ainvoke
+        persister = AsyncMock()
+        service = ChatService(graph=mock_graph, persister=persister)
+
+        chunks = [
+            chunk
+            async for chunk in service.process_message_stream(
+                session_id=1, message="你好", user_id=1, stream_max_seconds=0.05
+            )
+        ]
+
+        assert chunks == ["部分", STREAM_ERROR]
+        persister.persist_turn.assert_awaited_once()
+        assert persister.persist_turn.await_args.kwargs["response"] == "部分"
+
+    @pytest.mark.asyncio
+    async def test_graph_failure_yields_error_sentinel_not_raise(self):
+        async def mock_ainvoke(state, config):
+            queue = config["configurable"]["stream_queue"]
+            queue.put_nowait("部分")
+            raise RuntimeError("graph exploded")
+
+        mock_graph = Mock()
+        mock_graph.ainvoke = mock_ainvoke
+        recorder = AsyncMock()
+        service = ChatService(graph=mock_graph, gap_recorder=recorder)
+
+        chunks = [
+            chunk
+            async for chunk in service.process_message_stream(
+                session_id=1, message="你好", user_id=1
+            )
+        ]
+
+        assert chunks == ["部分", STREAM_ERROR]
+        recorder.record_if_gap.assert_not_awaited()
