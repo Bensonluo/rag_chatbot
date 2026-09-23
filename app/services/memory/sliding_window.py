@@ -41,6 +41,7 @@ class SlidingWindowMemory(MemoryStrategy):
         self,
         session_id: int,
         max_tokens: int | None = None,
+        _current_query: str | None = None,
     ) -> list[MessageContent]:
         """
         Retrieve recent messages within the window size.
@@ -48,6 +49,8 @@ class SlidingWindowMemory(MemoryStrategy):
         Args:
             session_id: Chat session ID
             max_tokens: Optional maximum tokens to include
+            _current_query: Unused here — accepted to match MemoryStrategy;
+                the sliding window keeps recency, not relevance
 
         Returns:
             List[MessageContent]: List of messages for context

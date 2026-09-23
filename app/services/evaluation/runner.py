@@ -18,6 +18,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from app.models.enums.intent import (
     DIRECT_INTENTS,
@@ -94,7 +95,7 @@ def load_golden_cases(path: str | Path = GOLDEN_SET_FILE) -> list[GoldenCase]:
     """Load golden cases, degrading to empty on any read/shape failure."""
     file_path = Path(path)
     try:
-        raw: list[dict] = json.loads(file_path.read_text(encoding="utf-8"))
+        raw: list[dict[str, Any]] = json.loads(file_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         logger.error("Golden set unreadable (%s): %s", file_path, exc)
         return []

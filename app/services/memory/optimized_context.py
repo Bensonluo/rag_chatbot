@@ -5,7 +5,11 @@ Implements smart token budgeting and relevance filtering to reduce
 token usage and improve response quality.
 """
 
+from typing import Any
+
+from app.repositories.message_repository import MessageRepository
 from app.services.embeddings import EmbeddingFactory
+from app.services.embeddings.base import EmbeddingServiceBase
 from app.services.memory.base import MemoryStrategy, MessageContent
 
 
@@ -22,13 +26,13 @@ class OptimizedContextBuilder(MemoryStrategy):
 
     def __init__(
         self,
-        message_repo,
-        embedding_service=None,
+        message_repo: MessageRepository,
+        embedding_service: EmbeddingServiceBase | None = None,
         max_recent_messages: int = 3,
         max_relevant_messages: int = 5,
         relevance_threshold: float = 0.5,
         token_budget: int = 4096,
-    ):
+    ) -> None:
         """
         Initialize optimized context builder.
 
@@ -50,8 +54,8 @@ class OptimizedContextBuilder(MemoryStrategy):
     async def get_context(
         self,
         session_id: int,
-        current_query: str | None = None,
         max_tokens: int | None = None,
+        current_query: str | None = None,
     ) -> list[MessageContent]:
         """
         Get optimized context with relevance filtering.
@@ -64,11 +68,16 @@ class OptimizedContextBuilder(MemoryStrategy):
         Returns:
             List[MessageContent]: Optimized list of messages
         """
-        # 1. Get all messages
-        all_messages = await self.message_repo.get_recent_messages(
+        # 1. Get all messages and convert ORM rows to MessageContent dicts —
+        # the base-class token helpers subscript by key (m["content"]).
+        rows = await self.message_repo.get_recent_messages(
             session_id=session_id,
             limit=100,  # Get more, will filter
         )
+        all_messages = [
+            MessageContent(role=row.role, content=row.content, timestamp=row.created_at)
+            for row in rows
+        ]
 
         if not all_messages:
             return []
@@ -79,7 +88,7 @@ class OptimizedContextBuilder(MemoryStrategy):
 
         # 3. Filter older messages by relevance (if query provided)
         older_messages = all_messages[recent_count:]
-        relevant_messages = []
+        relevant_messages: list[MessageContent] = []
 
         if current_query and older_messages:
             relevant_messages = await self._filter_by_relevance(
@@ -121,7 +130,7 @@ class OptimizedContextBuilder(MemoryStrategy):
             scored_messages = []
             for msg in messages:
                 # Embed message
-                msg_embedding = await self.embedding_service.embed_single(msg.content)
+                msg_embedding = await self.embedding_service.embed_single(msg["content"])
 
                 # Calculate cosine similarity
                 similarity = self._cosine_similarity(query_embedding, msg_embedding)
@@ -164,7 +173,7 @@ class OptimizedContextBuilder(MemoryStrategy):
             if norm1 == 0 or norm2 == 0:
                 return 0.0
 
-            return dot_product / (norm1 * norm2)
+            return float(dot_product / (norm1 * norm2))
 
         except Exception:
             return 0.0
@@ -188,12 +197,12 @@ class OptimizedContextBuilder(MemoryStrategy):
             return []
 
         # Estimate tokens for each message (from newest to oldest)
-        result = []
+        result: list[MessageContent] = []
         total_tokens = 0
 
         for msg in messages:
             # Estimate: ~4 characters per token (rough estimate)
-            msg_tokens = len(msg.content) // 4
+            msg_tokens = len(msg["content"]) // 4
 
             if total_tokens + msg_tokens > max_tokens:
                 # Would exceed budget, stop here
@@ -204,7 +213,7 @@ class OptimizedContextBuilder(MemoryStrategy):
 
         return result
 
-    async def estimate_token_savings(self, session_id: int, current_query: str) -> dict:
+    async def estimate_token_savings(self, session_id: int, current_query: str) -> dict[str, Any]:
         """
         Estimate token savings from using relevance filtering.
 
@@ -227,8 +236,8 @@ class OptimizedContextBuilder(MemoryStrategy):
         # Get optimized context
         optimized = await self.get_context(session_id=session_id, current_query=current_query)
 
-        # Count tokens in optimized messages
-        optimized_tokens = sum(len(msg.content) // 4 for msg in optimized)
+        # Count tokens in optimized messages (get_context returns dicts)
+        optimized_tokens = sum(len(msg["content"]) // 4 for msg in optimized)
 
         # Calculate savings
         tokens_saved = all_tokens - optimized_tokens

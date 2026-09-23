@@ -10,6 +10,7 @@ never raising into monitoring paths.
 """
 
 import logging
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -52,7 +53,7 @@ class QualityMetricsService:
     def __init__(self, session_maker: async_sessionmaker[AsyncSession]) -> None:
         self._session_maker = session_maker
 
-    async def snapshot(self) -> dict:
+    async def snapshot(self) -> dict[str, Any]:
         try:
             async with self._session_maker() as session:
                 total_sessions = (

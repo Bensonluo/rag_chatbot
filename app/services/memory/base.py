@@ -6,11 +6,13 @@ Provides abstract classes for conversation memory management.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import Any
 
 from app.models.database.message import Message
+from app.repositories.message_repository import MessageRepository
 
 # Type alias for MessageContent - could be a Message object or dict
-MessageContent = dict
+MessageContent = dict[str, Any]
 
 
 @dataclass
@@ -26,7 +28,7 @@ class MemoryContent:
 
     messages: list[Message] = field(default_factory=list)
     summary: str | None = None
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class MemoryStrategy(ABC):
@@ -37,7 +39,7 @@ class MemoryStrategy(ABC):
     and implement the required methods.
     """
 
-    def __init__(self, message_repo) -> None:
+    def __init__(self, message_repo: MessageRepository) -> None:
         """
         Initialize the memory strategy.
 
@@ -51,6 +53,7 @@ class MemoryStrategy(ABC):
         self,
         session_id: int,
         max_tokens: int | None = None,
+        current_query: str | None = None,
     ) -> list[MessageContent]:
         """
         Retrieve relevant context for the session.
@@ -58,6 +61,8 @@ class MemoryStrategy(ABC):
         Args:
             session_id: Chat session ID
             max_tokens: Optional maximum tokens to include
+            current_query: Optional current user query; relevance-aware
+                strategies (e.g. optimized) filter older messages by it
 
         Returns:
             List[MessageContent]: List of messages for context
@@ -133,7 +138,7 @@ class MemoryStrategy(ABC):
             return []
 
         # Start with newest messages and add until we hit the limit
-        result = []
+        result: list[MessageContent] = []
         total_tokens = 0
 
         for message in reversed(messages):

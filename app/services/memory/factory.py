@@ -4,6 +4,8 @@ Factory for creating memory strategy instances.
 Provides a simple interface for creating the appropriate memory strategy.
 """
 
+from typing import Any
+
 from app.core.exceptions import ValidationError
 from app.repositories.message_repository import MessageRepository
 from app.services.embeddings import EmbeddingFactory
@@ -28,7 +30,7 @@ class MemoryFactory:
         memory_type: str,
         message_repo: MessageRepository,
         llm_service: LLMServiceBase | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> MemoryStrategy:
         """
         Create a memory strategy instance.
