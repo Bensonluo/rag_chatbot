@@ -1,10 +1,17 @@
 """Tests for request ID middleware"""
 
 import uuid
+from collections.abc import MutableMapping
+from typing import Any
 
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+
+async def _receive() -> MutableMapping[str, Any]:
+    """No-op ASGI receive channel — these tests never read a request body."""
+    return {}
 
 
 class TestRequestIDMiddleware:
@@ -54,7 +61,7 @@ class TestRequestIDMiddleware:
                 "headers": [],
                 "query_string": b"",
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -87,7 +94,7 @@ class TestRequestIDMiddleware:
                 "headers": [(b"x-request-id", existing_id.encode())],
                 "query_string": b"",
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -114,7 +121,7 @@ class TestRequestIDMiddleware:
                 "headers": [],
                 "query_string": b"",
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -142,7 +149,7 @@ class TestRequestIDMiddleware:
                 "query_string": b"",
                 "state": {},
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -169,7 +176,7 @@ class TestRequestIDMiddleware:
                 "headers": [],
                 "query_string": b"",
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -196,7 +203,7 @@ class TestRequestIDMiddleware:
                 "headers": [],
                 "query_string": b"",
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -260,7 +267,7 @@ class TestRequestIDUtilities:
                 "query_string": b"",
                 "state": {"request_id": "test-id-123"},
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -285,7 +292,7 @@ class TestRequestIDUtilities:
                 "query_string": b"",
                 "state": {},
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act

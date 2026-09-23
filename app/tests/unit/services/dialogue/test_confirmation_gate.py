@@ -5,6 +5,7 @@ money-moving or otherwise irreversible action without an explicit user
 confirmation, and tool calls must be scoped to the caller's own data.
 """
 
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 from app.services.dialogue.nodes import NodeFactory
@@ -18,7 +19,7 @@ from app.services.dialogue.tools import (
 )
 
 
-def _make_factory(tool_registry=None) -> NodeFactory:
+def _make_factory(tool_registry: ToolRegistry | None = None) -> NodeFactory:
     """NodeFactory with stub services and a real (or injected) registry."""
     intent_detector = Mock()
     intent_detector.detect_with_confidence = AsyncMock()
@@ -56,7 +57,7 @@ class TestConfirmationGate:
     async def test_refund_stages_action_instead_of_executing(self):
         """Slots complete must NOT run the refund handler — only stage it."""
         registry = create_default_tool_registry()
-        registry.execute = AsyncMock()  # would fail the test if awaited
+        registry.execute = AsyncMock()  # type: ignore[method-assign]  # would fail if awaited
         factory = _make_factory(tool_registry=registry)
 
         state: DialogueState = {
@@ -76,7 +77,7 @@ class TestConfirmationGate:
     async def test_gate_overwrites_stale_pending_confirmation(self):
         """A leftover staged action must not bypass the gate for a new one."""
         registry = create_default_tool_registry()
-        registry.execute = AsyncMock()
+        registry.execute = AsyncMock()  # type: ignore[method-assign]
         factory = _make_factory(tool_registry=registry)
 
         state: DialogueState = {
@@ -158,7 +159,7 @@ class TestMetaIntentResolution:
 
     async def test_deny_discards_staged_action(self):
         registry = create_default_tool_registry()
-        registry.execute = AsyncMock()
+        registry.execute = AsyncMock()  # type: ignore[method-assign]
         factory = _make_factory(tool_registry=registry)
 
         state: DialogueState = {
@@ -173,7 +174,7 @@ class TestMetaIntentResolution:
 
     async def test_cancel_discards_staged_action(self):
         registry = create_default_tool_registry()
-        registry.execute = AsyncMock()
+        registry.execute = AsyncMock()  # type: ignore[method-assign]
         factory = _make_factory(tool_registry=registry)
 
         state: DialogueState = {
@@ -231,9 +232,9 @@ class TestOrderOwnership:
         assert result.data["amount"] > REFUND_AUTO_THRESHOLD
 
     async def test_user_id_is_injected_into_handler_args(self):
-        seen: list[dict] = []
+        seen: list[dict[str, Any]] = []
 
-        def spying_handler(args: dict) -> dict:
+        def spying_handler(args: dict[str, Any]) -> dict[str, Any]:
             seen.append(args)
             return {"ok": True}
 
@@ -256,7 +257,7 @@ class TestOrderOwnership:
 # ── Full graph: two-turn refund → confirm conversation ───────────────────
 
 
-def _build_graph(second_intent: str):
+def _build_graph(second_intent: str) -> Any:
     """Compile a graph whose detector returns refund, then ``second_intent``."""
     from app.services.dialogue.graph import build_dialogue_graph
 

@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.chat import get_chat_service
@@ -36,7 +37,7 @@ class TestChatEndpoints:
         service.clear_chat_history = AsyncMock()
         return service
 
-    def _override_chat_service(self, app, mock_service):
+    def _override_chat_service(self, app: FastAPI, mock_service: Mock) -> None:
         """Override chat service dependency."""
         app.dependency_overrides[get_chat_service] = lambda: mock_service
 

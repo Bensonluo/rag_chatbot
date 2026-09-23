@@ -1,5 +1,6 @@
 """Tests for base repository"""
 
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -15,7 +16,7 @@ class TestBaseRepository:
 
         mock_session = Mock()
 
-        repo = BaseRepository(mock_session)
+        repo: BaseRepository[Any] = BaseRepository(mock_session)
 
         # Assert
         assert repo.session is mock_session
@@ -36,7 +37,7 @@ class TestBaseRepository:
         )
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        repo = BaseRepository(mock_session)
+        repo: BaseRepository[Any] = BaseRepository(mock_session)
 
         # Act
         result = await repo.get_by_id(1, User)
@@ -58,7 +59,7 @@ class TestBaseRepository:
         mock_result.scalar_one_or_none.return_value = None
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        repo = BaseRepository(mock_session)
+        repo: BaseRepository[Any] = BaseRepository(mock_session)
 
         # Act
         result = await repo.get_by_id(999, User)
@@ -81,7 +82,7 @@ class TestBaseRepository:
         ]
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        repo = BaseRepository(mock_session)
+        repo: BaseRepository[Any] = BaseRepository(mock_session)
 
         # Act
         results = await repo.get_all(User)
@@ -109,7 +110,7 @@ class TestBaseRepository:
         )
         mock_session.refresh.side_effect = lambda obj: setattr(obj, "id", 1)
 
-        repo = BaseRepository(mock_session)
+        repo: BaseRepository[Any] = BaseRepository(mock_session)
 
         # Act
         result = await repo.create(new_user)
@@ -136,7 +137,7 @@ class TestBaseRepository:
             hashed_password="hash",
         )
 
-        repo = BaseRepository(mock_session)
+        repo: BaseRepository[Any] = BaseRepository(mock_session)
 
         # Act
         existing_user.email = "new@example.com"
@@ -163,7 +164,7 @@ class TestBaseRepository:
             hashed_password="hash",
         )
 
-        repo = BaseRepository(mock_session)
+        repo: BaseRepository[Any] = BaseRepository(mock_session)
 
         # Act
         await repo.delete(user_to_delete)
@@ -184,7 +185,7 @@ class TestBaseRepository:
         mock_result.scalar.return_value = 42
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        repo = BaseRepository(mock_session)
+        repo: BaseRepository[Any] = BaseRepository(mock_session)
 
         # Act
         count = await repo.count(User)
@@ -204,7 +205,7 @@ class TestBaseRepository:
         mock_result.scalar.return_value = 1
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        repo = BaseRepository(mock_session)
+        repo: BaseRepository[Any] = BaseRepository(mock_session)
 
         # Act
         exists = await repo.exists(User.id == 1)
@@ -224,7 +225,7 @@ class TestBaseRepository:
         mock_result.scalar.return_value = None
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        repo = BaseRepository(mock_session)
+        repo: BaseRepository[Any] = BaseRepository(mock_session)
 
         # Act
         exists = await repo.exists(User.id == 999)

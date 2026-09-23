@@ -1,9 +1,16 @@
 """Tests for error handler middleware"""
 
+from collections.abc import MutableMapping
+from typing import Any
 
 import pytest
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+
+
+async def _receive() -> MutableMapping[str, Any]:
+    """No-op ASGI receive channel — these tests never read a request body."""
+    return {}
 
 
 class TestErrorHandlerMiddleware:
@@ -59,7 +66,7 @@ class TestErrorHandlerMiddleware:
                 "query_string": b"",
                 "app": app,
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -96,7 +103,7 @@ class TestErrorHandlerMiddleware:
                 "query_string": b"",
                 "app": app,
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -128,7 +135,7 @@ class TestErrorHandlerMiddleware:
                 "query_string": b"",
                 "app": app,
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -159,7 +166,7 @@ class TestErrorHandlerMiddleware:
                 "query_string": b"",
                 "app": app,
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -190,7 +197,7 @@ class TestErrorHandlerMiddleware:
                 "query_string": b"",
                 "app": app,
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -222,7 +229,7 @@ class TestErrorHandlerMiddleware:
                 "query_string": b"",
                 "app": app,
             },
-            receive=None,
+            receive=_receive,
         )
 
         # Act
@@ -239,11 +246,13 @@ class TestErrorHandlerMiddleware:
                 return await route.endpoint()
         return JSONResponse(content={"error": "Not found"}, status_code=404)
 
-    async def _get_response_body(self, response):
+    async def _get_response_body(self, response: Response) -> str:
         """Extract response body for testing"""
         if hasattr(response, "body"):
-            # starlette Response.body is a property (bytes), not a coroutine
-            return response.body.decode()
+            # starlette Response.body is a property (bytes | memoryview),
+            # not a coroutine
+            body = response.body
+            return (body if isinstance(body, bytes) else bytes(body)).decode()
         return ""
 
 
@@ -287,8 +296,10 @@ class TestErrorResponse:
 
         # Assert
         assert response.status_code == 422
-        assert len(response.errors) == 2
-        assert response.errors[0]["field"] == "email"
+        errors = response.errors
+        assert errors is not None
+        assert len(errors) == 2
+        assert errors[0]["field"] == "email"
 
     def test_error_response_serialization(self):
         """Test error response JSON serialization"""

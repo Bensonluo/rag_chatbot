@@ -1,5 +1,6 @@
 """Tests for memory management base interface"""
 
+from typing import Any
 from unittest.mock import Mock
 
 import pytest
@@ -10,14 +11,23 @@ from app.services.memory.base import MemoryContent, MemoryStrategy, MessageConte
 class _StubStrategy(MemoryStrategy):
     """Minimal concrete strategy so the ABC's own method bodies can be exercised."""
 
-    async def get_context(self, session_id, max_tokens=None):
-        return await super().get_context(session_id, max_tokens=max_tokens)
+    async def get_context(
+        self,
+        session_id: int,
+        max_tokens: int | None = None,
+        current_query: str | None = None,
+    ) -> list[dict[str, Any]]:
+        # safe-super: calling the ABC's own body (raises
+        # NotImplementedError) is exactly the behavior under test.
+        return await super().get_context(  # type: ignore[safe-super]
+            session_id, max_tokens=max_tokens, current_query=current_query
+        )
 
-    async def add_message(self, session_id, message):
-        return await super().add_message(session_id, message)
+    async def add_message(self, session_id: int, message: MessageContent) -> None:
+        return await super().add_message(session_id, message)  # type: ignore[safe-super]
 
-    async def clear_session(self, session_id):
-        return await super().clear_session(session_id)
+    async def clear_session(self, session_id: int) -> None:
+        return await super().clear_session(session_id)  # type: ignore[safe-super]
 
 
 class TestMemoryStrategy:
@@ -120,7 +130,9 @@ class TestMemoryContent:
         # Assert
         assert content.messages == []
         assert content.summary == "Conversation summary"
-        assert content.metadata["token_count"] == 100
+        metadata = content.metadata
+        assert metadata is not None
+        assert metadata["token_count"] == 100
 
     def test_create_memory_content_defaults(self):
         """Test creating memory content with defaults"""

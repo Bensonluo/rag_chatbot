@@ -1,30 +1,47 @@
 """Tests for LLM base interface and service"""
 
+from collections.abc import AsyncGenerator
+from typing import Any
+
 import pytest
 
-from app.services.llm.base import LLMMessage, LLMServiceBase
+from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
 
 
 class StubService(LLMServiceBase):
     """Minimal concrete subclass so the ABC's own method bodies can be
     exercised (the class itself can no longer be instantiated)."""
 
-    async def generate(self, messages, max_tokens=None, temperature=None, **kwargs):
-        return await super().generate(
+    async def generate(
+        self,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        return await super().generate(  # type: ignore[safe-super]
             messages, max_tokens=max_tokens, temperature=temperature, **kwargs
         )
 
-    async def generate_stream(self, messages, max_tokens=None, temperature=None, **kwargs):
+    async def generate_stream(
+        self,
+        messages: list[LLMMessage],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[str, None]:
+        # Deliberately calling the ABC's own body (raises
+        # NotImplementedError) — that is the behavior under test.
         async for chunk in super().generate_stream(
             messages, max_tokens=max_tokens, temperature=temperature, **kwargs
         ):
             yield chunk
 
-    def estimate_tokens(self, text):
-        return super().estimate_tokens(text)
+    def estimate_tokens(self, text: str) -> int:
+        return super().estimate_tokens(text)  # type: ignore[safe-super]
 
-    async def count_tokens(self, messages):
-        return await super().count_tokens(messages)
+    async def count_tokens(self, messages: list[LLMMessage]) -> int:
+        return await super().count_tokens(messages)  # type: ignore[safe-super]
 
 
 class TestLLMMessage:
@@ -103,7 +120,9 @@ class TestLLMResponse:
         # Assert
         assert response.content == "Hello!"
         assert response.model == "gpt-4"
-        assert response.usage["total_tokens"] == 15
+        usage = response.usage
+        assert usage is not None
+        assert usage["total_tokens"] == 15
 
     def test_response_with_finish_reason(self):
         """Test response with finish reason"""

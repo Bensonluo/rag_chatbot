@@ -120,9 +120,11 @@ class TestCrossEncoderReranker:
         reranked = await reranker.rerank(results, request)
 
         assert len(reranked) == 1
-        assert reranked[0].metadata["category"] == "tech"
-        assert reranked[0].metadata["original_score"] == 0.5
-        assert reranked[0].metadata["reranker"] == "cross_encoder"
+        meta = reranked[0].metadata
+        assert meta is not None
+        assert meta["category"] == "tech"
+        assert meta["original_score"] == 0.5
+        assert meta["reranker"] == "cross_encoder"
 
     @pytest.mark.asyncio
     @patch("app.services.retrieval.cross_encoder_reranker.CrossEncoderReranker._load_model")
@@ -217,12 +219,16 @@ class TestRerankImmutability:
 
         # Original untouched; the reranked copy carries both old and new keys.
         assert original.metadata == {"source": "kb"}
-        assert reranked[0].metadata is not original.metadata
-        assert reranked[0].metadata["source"] == "kb"
-        assert reranked[0].metadata["original_score"] == 0.4
-        assert reranked[0].metadata["reranker"] == "cross_encoder"
+        meta = reranked[0].metadata
+        assert meta is not None
+        assert meta is not original.metadata
+        assert meta["source"] == "kb"
+        assert meta["original_score"] == 0.4
+        assert meta["reranker"] == "cross_encoder"
 
         # Rerank again with the already-reranked result: no accumulation.
         second = await reranker.rerank([reranked[0]], request)
-        assert second[0].metadata["original_score"] == 0.9
-        assert second[0].metadata["source"] == "kb"
+        meta_second = second[0].metadata
+        assert meta_second is not None
+        assert meta_second["original_score"] == 0.9
+        assert meta_second["source"] == "kb"
