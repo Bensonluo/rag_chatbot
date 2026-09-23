@@ -255,26 +255,26 @@ class TestHandleHandoffNode:
 
 
 class TestRuleBasedHandoffDetection:
-    def test_transfer_keyword_detected(self):
+    async def test_transfer_keyword_detected(self):
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
-        result = detector.detect_with_confidence("我要转人工")
+        result = await detector.detect_with_confidence("我要转人工")
         assert result.intent == Intent.HANDOFF
 
-    def test_human_agent_english_detected(self):
+    async def test_human_agent_english_detected(self):
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
-        result = detector.detect_with_confidence("let me talk to a human agent")
+        result = await detector.detect_with_confidence("let me talk to a human agent")
         assert result.intent == Intent.HANDOFF
 
-    def test_handoff_outranks_co_occurring_complaint(self):
+    async def test_handoff_outranks_co_occurring_complaint(self):
         """“投诉没用，给我转人工” must classify as handoff, not complaint."""
         from app.services.intent.rule_based import RuleBasedIntentDetector
 
         detector = RuleBasedIntentDetector()
-        result = detector.detect_with_confidence("投诉没用，给我转人工")
+        result = await detector.detect_with_confidence("投诉没用，给我转人工")
         assert result.intent == Intent.HANDOFF
 
 

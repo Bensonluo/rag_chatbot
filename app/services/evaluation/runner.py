@@ -125,8 +125,8 @@ async def run_intent_eval(
     report = EvalReport(total=len(cases))
     for case in cases:
         result = detector.detect_with_confidence(case.query)
-        # Detector implementations are split between sync (rule-based,
-        # the ABC default) and async (hybrid/LLM-backed); accept both.
+        # All detector implementations are async now; the shim keeps
+        # plain (sync) test doubles working without AsyncMock.
         if inspect.isawaitable(result):
             result = await result
         predicted = result.intent.value

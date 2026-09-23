@@ -11,9 +11,25 @@ inspects the signature and injects the invoke-time RunnableConfig, whose
 token streaming (see ChatService.process_message_stream).
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from app.services.agent.service import AgentService
+    from app.services.dialogue.tools import ToolDefinition, ToolRegistry
+    from app.services.faq.store import FAQService
+    from app.services.graph.retrieval.graph_retrieval_service import (
+        GraphRetrievalService,
+    )
+    from app.services.guardrails.base import GuardrailService
+    from app.services.handoff.service import HandoffService
+    from app.services.intent.base import IntentDetector
+    from app.services.llm.base import LLMServiceBase
+    from app.services.retrieval.vector_base import SearchResult
+    from app.services.slot_filling.base import SlotFiller
 
 from langchain_core.runnables import RunnableConfig
 
@@ -72,16 +88,16 @@ class NodeFactory:
 
     def __init__(
         self,
-        intent_detector,
-        slot_filler,
-        tool_registry,
-        retrieval_pipeline: dict | None = None,
-        llm_service=None,
-        guardrail_service=None,
-        graph_retrieval_service=None,
-        handoff_service=None,
-        agent_service=None,
-        faq_service=None,
+        intent_detector: IntentDetector,
+        slot_filler: SlotFiller,
+        tool_registry: ToolRegistry,
+        retrieval_pipeline: dict[str, Any] | None = None,
+        llm_service: LLMServiceBase | None = None,
+        guardrail_service: GuardrailService | None = None,
+        graph_retrieval_service: GraphRetrievalService | None = None,
+        handoff_service: HandoffService | None = None,
+        agent_service: AgentService | None = None,
+        faq_service: FAQService | None = None,
     ) -> None:
         self._intent_detector = intent_detector
         self._slot_filler = slot_filler
@@ -96,7 +112,7 @@ class NodeFactory:
 
     # ── Nodes ────────────────────────────────────────────────────────────────
 
-    async def guardrail_node(self, state: DialogueState) -> dict:
+    async def guardrail_node(self, state: DialogueState) -> dict[str, Any]:
         """Check input message against guardrail rules.
 
         Passes through if no guardrail service is configured, the message
@@ -128,7 +144,7 @@ class NodeFactory:
 
         return {}
 
-    async def detect_intent_node(self, state: DialogueState) -> dict:
+    async def detect_intent_node(self, state: DialogueState) -> dict[str, Any]:
         """Detect user intent from the current message.
 
         Priority logic:
@@ -231,7 +247,7 @@ class NodeFactory:
             "confidence": confidence,
         }
 
-    async def handle_switch_node(self, state: DialogueState) -> dict:
+    async def handle_switch_node(self, state: DialogueState) -> dict[str, Any]:
         """Detect and handle intent switching.
 
         When the user changes to a new task intent the current task state
@@ -253,7 +269,7 @@ class NodeFactory:
         if prev_intent in DIRECT_INTENTS or prev_intent == "unknown":
             return {}
 
-        state_stack: list[dict] = list(state.get("state_stack") or [])
+        state_stack: list[dict[str, Any]] = list(state.get("state_stack") or [])
 
         # Check if the user is returning to a previously suspended task.
         if intent in TASK_INTENTS:
@@ -282,7 +298,7 @@ class NodeFactory:
             "slot_prompt": "",
         }
 
-    async def route_intent_node(self, state: DialogueState) -> dict:
+    async def route_intent_node(self, state: DialogueState) -> dict[str, Any]:
         """Determine the processing route based on the detected intent."""
         intent = state.get("intent", "")
 
@@ -307,7 +323,7 @@ class NodeFactory:
 
         return {"route": "direct"}
 
-    async def collect_slots_node(self, state: DialogueState) -> dict:
+    async def collect_slots_node(self, state: DialogueState) -> dict[str, Any]:
         """Extract slot values from the user message and merge with existing.
 
         Falls back to treating the entire message as the value for the
@@ -315,7 +331,7 @@ class NodeFactory:
         """
         intent = state.get("intent", "")
         message = state.get("message", "")
-        filled_slots: dict = dict(state.get("filled_slots") or {})
+        filled_slots: dict[str, Any] = dict(state.get("filled_slots") or {})
 
         merged = extract_slots_from_message(intent, message, filled_slots)
 
@@ -365,7 +381,7 @@ class NodeFactory:
 
     async def execute_tool_node(
         self, state: DialogueState, config: RunnableConfig | None = None
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Execute the tool associated with the current intent.
 
         Irreversible tools (refund, return) are staged instead of run:
@@ -440,19 +456,22 @@ class NodeFactory:
             "sources": [f"faq:{entry.faq_id}"],
         }
 
-    async def rag_lookup_node(self, state: DialogueState) -> dict:
+    async def rag_lookup_node(self, state: DialogueState) -> dict[str, Any]:
         """Retrieve relevant documents via hybrid search."""
         message = state.get("message", "")
         intent = state.get("intent", "")
-        retrieved_docs: list[dict] = []
+        retrieved_docs: list[dict[str, Any]] = []
         sources: list[str] = []
 
         # Graph intents go through graph retrieval.
         if intent in GRAPH_INTENTS and self._graph_retrieval_service is not None:
             try:
-                graph_result = await self._graph_retrieval_service.query(message)
-                if graph_result:
-                    retrieved_docs = [_graph_doc_to_dict(graph_result)]
+                # GraphRetrievalService exposes search() returning a fused,
+                # ranked list — the old .query() call raised AttributeError
+                # and silently degraded every graph-intent lookup to empty.
+                graph_results = await self._graph_retrieval_service.search(message)
+                if graph_results:
+                    retrieved_docs = [_graph_doc_to_dict(r) for r in graph_results]
                     sources = _extract_sources(retrieved_docs)
             except Exception:
                 logger.exception("Graph retrieval failed for intent %s", intent)
@@ -475,7 +494,7 @@ class NodeFactory:
 
     async def generate_response_node(
         self, state: DialogueState, config: RunnableConfig | None = None
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Generate the final response, then run the output guardrail.
 
         The inner logic builds the response; this wrapper applies the
@@ -503,7 +522,7 @@ class NodeFactory:
 
     async def _generate_response_logic(
         self, state: DialogueState, config: RunnableConfig | None = None
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Generate the final response based on the current state.
 
         Handles five cases:
@@ -545,7 +564,7 @@ class NodeFactory:
 
     async def direct_response_node(
         self, state: DialogueState, config: RunnableConfig | None = None
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Simple LLM call for chitchat / greeting."""
         message = state.get("message", "")
         response = await self._generate_direct(message, config)
@@ -822,10 +841,10 @@ class NodeFactory:
         self,
         intent: str,
         message: str,
-        tool_result: dict,
+        tool_result: dict[str, Any],
         state: DialogueState,
         config: RunnableConfig | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Generate response incorporating tool execution results."""
         display_name = INTENT_DISPLAY_NAMES.get(intent, intent)
         context = (
@@ -842,10 +861,10 @@ class NodeFactory:
         self,
         intent: str,  # noqa: ARG002 - reserved for intent-conditioned prompts
         message: str,
-        retrieved_docs: list[dict],
+        retrieved_docs: list[dict[str, Any]],
         state: DialogueState,
         config: RunnableConfig | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Generate response incorporating retrieved documents."""
         docs_text = "\n\n".join(
             f"[文档{i + 1}] {doc.get('content', '')}" for i, doc in enumerate(retrieved_docs)
@@ -859,14 +878,16 @@ class NodeFactory:
         response_text = _maybe_append_resume_hint(response_text, state)
         return {"response": response_text}
 
-    async def _generate_direct(self, message: str, config: RunnableConfig | None = None) -> dict:
+    async def _generate_direct(
+        self, message: str, config: RunnableConfig | None = None
+    ) -> dict[str, Any]:
         """Generate a direct response without additional context."""
         response_text = await self._call_llm(message, config)
         return {"response": response_text}
 
     async def _handle_meta_intent(
         self, state: DialogueState, config: RunnableConfig | None = None
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Handle confirm / deny / cancel meta intents.
 
         ``confirm`` first checks for a staged irreversible action
@@ -876,7 +897,7 @@ class NodeFactory:
         intent = state.get("intent", "")
 
         if intent == "cancel":
-            state_stack: list[dict] = list(state.get("state_stack") or [])
+            state_stack: list[dict[str, Any]] = list(state.get("state_stack") or [])
             # Try to resume a suspended task after cancellation.
             if state_stack:
                 restored = state_stack.pop()
@@ -906,7 +927,7 @@ class NodeFactory:
                     user_id=state.get("user_id"),
                 )
                 tool_result = result.data if result.success else {"error": result.message}
-                updates: dict = {
+                updates: dict[str, Any] = {
                     "pending_confirmation": None,
                     "intent": pending.get("intent", ""),
                     "filled_slots": dict(pending.get("args") or {}),
@@ -1002,7 +1023,7 @@ class NodeFactory:
 # ── Module-level helpers ─────────────────────────────────────────────────────
 
 
-def _build_confirmation_summary(tool, filled_slots: dict) -> str:
+def _build_confirmation_summary(tool: ToolDefinition, filled_slots: dict[str, Any]) -> str:
     """Fixed-template confirmation question for a staged irreversible action.
 
     Deliberately not LLM-generated: the wording of a gate that protects a
@@ -1041,7 +1062,7 @@ def _build_handoff_response(reason: str, ticket: dict[str, Any]) -> str:
     return "，".join(parts) + "。"
 
 
-def _search_result_to_dict(result) -> dict:
+def _search_result_to_dict(result: SearchResult) -> dict[str, Any]:
     """Convert a SearchResult dataclass to a plain dict."""
     return {
         "document_id": getattr(result, "document_id", ""),
@@ -1051,7 +1072,7 @@ def _search_result_to_dict(result) -> dict:
     }
 
 
-def _graph_doc_to_dict(result) -> dict:
+def _graph_doc_to_dict(result: Any) -> dict[str, Any]:
     """Convert a graph retrieval result to a plain dict."""
     if isinstance(result, dict):
         return result
@@ -1061,7 +1082,7 @@ def _graph_doc_to_dict(result) -> dict:
     }
 
 
-def _extract_sources(docs: list[dict]) -> list[str]:
+def _extract_sources(docs: list[dict[str, Any]]) -> list[str]:
     """Extract unique source identifiers from retrieved documents."""
     sources: list[str] = []
     for doc in docs:
@@ -1071,7 +1092,7 @@ def _extract_sources(docs: list[dict]) -> list[str]:
     return sources
 
 
-def _safe_json(obj) -> str:
+def _safe_json(obj: Any) -> str:
     """Safely convert an object to a JSON-like string for prompts."""
     import json
 

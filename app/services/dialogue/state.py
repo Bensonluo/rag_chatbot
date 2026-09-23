@@ -28,7 +28,7 @@ class DialogueState(TypedDict, total=False):
     confidence: float
 
     # Slots
-    filled_slots: dict
+    filled_slots: dict[str, Any]
     pending_slots: list[str]
     slot_prompt: str
 
@@ -43,7 +43,7 @@ class DialogueState(TypedDict, total=False):
 
     # Tool execution
     tool_name: str
-    tool_result: dict
+    tool_result: dict[str, Any]
     # Structured agent audit trail ({"tool", "ok", "args", "summary"}
     # per executed call) — persisted with the assistant message and
     # included in handoff context. Declared explicitly per the
@@ -51,10 +51,10 @@ class DialogueState(TypedDict, total=False):
     executed_tools: list[dict[str, Any]]
     # Set while an irreversible tool is staged awaiting explicit user
     # confirmation: {"intent": ..., "args": {...}}
-    pending_confirmation: dict | None
+    pending_confirmation: dict[str, Any] | None
 
     # RAG
-    retrieved_docs: list[dict]
+    retrieved_docs: list[dict[str, Any]]
     sources: list[str]
 
     # Output
@@ -66,7 +66,7 @@ class DialogueState(TypedDict, total=False):
     handoff_ticket_id: int
 
     # Intent switch stack (manually managed, not a reducer)
-    state_stack: list[dict]
+    state_stack: list[dict[str, Any]]
 
     # Guardrail
     blocked: bool

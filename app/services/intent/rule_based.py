@@ -5,6 +5,7 @@ Fast, lightweight intent detection for customer service scenarios.
 """
 
 import re
+from typing import Any
 
 from app.models.enums.intent import Intent
 from app.services.intent.base import IntentDetector, IntentResult
@@ -23,7 +24,7 @@ class RuleBasedIntentDetector(IntentDetector):
     def __init__(self) -> None:
         self.rules = self._build_rules()
 
-    def _build_rules(self) -> dict[Intent, list[dict]]:
+    def _build_rules(self) -> dict[Intent, list[dict[str, Any]]]:
         return {
             # Task-oriented intents
             Intent.REFUND: [
@@ -211,25 +212,25 @@ class RuleBasedIntentDetector(IntentDetector):
             ],
         }
 
-    def detect(
+    async def detect(
         self,
         query: str,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
     ) -> Intent:
-        result = self.detect_with_confidence(query, context)
+        result = await self.detect_with_confidence(query, context)
         return result.intent
 
-    def detect_with_confidence(
+    async def detect_with_confidence(
         self,
         query: str,
-        context: dict | None = None,  # noqa: ARG002  # IntentDetector base signature conformance
+        context: dict[str, Any] | None = None,  # noqa: ARG002  # IntentDetector base signature conformance
     ) -> IntentResult:
         if not query or not query.strip():
             return IntentResult(intent=Intent.UNKNOWN, confidence=0.0)
 
         normalized_query = self._normalize_query(query)
         scores: dict[Intent, float] = dict.fromkeys(Intent, 0.0)
-        matched_rules: list = []
+        matched_rules: list[dict[str, Any]] = []
 
         for intent, rules in self.rules.items():
             for rule in rules:
@@ -284,5 +285,5 @@ class RuleBasedIntentDetector(IntentDetector):
         return query.lower().strip()
 
     @staticmethod
-    def _contains_any(text: str, keywords: list) -> bool:
+    def _contains_any(text: str, keywords: list[str]) -> bool:
         return any(kw.lower() in text for kw in keywords)

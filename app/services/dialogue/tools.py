@@ -28,7 +28,7 @@ class ToolDefinition:
     intent: str
     description: str
     required_slots: list[str]
-    handler: Callable[[dict], dict]
+    handler: Callable[[dict[str, Any]], dict[str, Any]]
     # Irreversible actions ask the user for explicit confirmation before
     # the handler runs (Sierra/Fin-style confirmation gate).
     requires_confirmation: bool = False
@@ -42,7 +42,7 @@ class ToolResult:
     """Result from tool execution."""
 
     success: bool
-    data: dict
+    data: dict[str, Any]
     message: str = ""
 
 
@@ -88,7 +88,7 @@ class ToolRegistry:
     async def execute(
         self,
         intent: str,
-        args: dict,
+        args: dict[str, Any],
         user_id: int | None = None,
     ) -> ToolResult:
         """Run the handler for ``intent`` with per-user authorization.
@@ -123,7 +123,7 @@ class ToolRegistry:
 # per-user authorization. Anonymous callers (no user_id) pass through in
 # demo mode; once real auth lands, every request carries a user_id.
 
-MOCK_ORDERS: dict[str, dict] = {
+MOCK_ORDERS: dict[str, dict[str, Any]] = {
     "ORD1001": {
         "user_id": 1,
         "status": "已发货",
@@ -159,7 +159,7 @@ MOCK_ORDERS: dict[str, dict] = {
 }
 
 
-def _owned_order(args: dict) -> dict:
+def _owned_order(args: dict[str, Any]) -> dict[str, Any]:
     """Fetch an order while enforcing ownership.
 
     Raises:
@@ -180,7 +180,7 @@ def _owned_order(args: dict) -> dict:
 # ── Mock handlers ──────────────────────────────────────────────────────────
 
 
-def mock_refund(args: dict) -> dict:
+def mock_refund(args: dict[str, Any]) -> dict[str, Any]:
     order = _owned_order(args)
     amount = order["total_amount"]
     if amount > REFUND_AUTO_THRESHOLD:
@@ -200,7 +200,7 @@ def mock_refund(args: dict) -> dict:
     }
 
 
-def mock_return(args: dict) -> dict:
+def mock_return(args: dict[str, Any]) -> dict[str, Any]:
     order = _owned_order(args)
     return {
         "status": "success",
@@ -213,7 +213,7 @@ def mock_return(args: dict) -> dict:
     }
 
 
-def mock_query_order(args: dict) -> dict:
+def mock_query_order(args: dict[str, Any]) -> dict[str, Any]:
     order = _owned_order(args)
     return {
         "order_id": args.get("order_id", ""),
@@ -225,7 +225,7 @@ def mock_query_order(args: dict) -> dict:
     }
 
 
-def mock_track_shipping(args: dict) -> dict:
+def mock_track_shipping(args: dict[str, Any]) -> dict[str, Any]:
     order = _owned_order(args)
     return {
         "order_id": args.get("order_id", ""),
@@ -241,7 +241,7 @@ def mock_track_shipping(args: dict) -> dict:
     }
 
 
-def mock_complaint(args: dict) -> dict:
+def mock_complaint(args: dict[str, Any]) -> dict[str, Any]:
     return {
         "status": "success",
         "complaint_id": f"CP{random.randint(100000, 999999)}",

@@ -5,7 +5,9 @@ Provides abstract classes and data structures for intent classifiers.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Coroutine
 from dataclasses import dataclass
+from typing import Any
 
 from app.models.enums.intent import Intent
 
@@ -23,7 +25,7 @@ class IntentResult:
 
     intent: Intent
     confidence: float = 0.0
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class IntentDetector(ABC):
@@ -35,7 +37,9 @@ class IntentDetector(ABC):
     """
 
     @abstractmethod
-    def detect(self, query: str, context: dict | None = None) -> Intent:
+    def detect(
+        self, query: str, context: dict[str, Any] | None = None
+    ) -> Coroutine[Any, Any, Intent]:
         """
         Detect the intent of a user query.
 
@@ -55,8 +59,8 @@ class IntentDetector(ABC):
     def detect_with_confidence(
         self,
         query: str,
-        context: dict | None = None,
-    ) -> IntentResult:
+        context: dict[str, Any] | None = None,
+    ) -> Coroutine[Any, Any, IntentResult]:
         """
         Detect intent and return confidence score.
 

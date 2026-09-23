@@ -7,6 +7,7 @@ into business intent categories.
 
 import json
 import re
+from typing import Any
 
 from app.core.exceptions import ExternalServiceError
 from app.models.enums.intent import Intent
@@ -34,7 +35,7 @@ class LLMIntentDetector(IntentDetector):
     async def detect(
         self,
         query: str,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
     ) -> Intent:
         result = await self.detect_with_confidence(query, context)
         return result.intent
@@ -42,7 +43,7 @@ class LLMIntentDetector(IntentDetector):
     async def detect_with_confidence(
         self,
         query: str,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
     ) -> IntentResult:
         if not query or not query.strip():
             return IntentResult(intent=Intent.UNKNOWN, confidence=0.0)
@@ -109,7 +110,7 @@ Rules:
 - Default to "faq" for general questions about how things work
 - Default to "unknown" if truly uncertain"""
 
-    def _build_user_prompt(self, query: str, context: dict | None) -> str:
+    def _build_user_prompt(self, query: str, context: dict[str, Any] | None) -> str:
         prompt = f"Classify this query: {query}\n\nIntent:"
 
         if context:

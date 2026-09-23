@@ -5,29 +5,48 @@ Assembles the node graph, conditional edges, and memory checkpointer
 into a compiled graph ready for invocation.
 """
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING, Any
 
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from app.services.dialogue.state import DialogueState
 
+if TYPE_CHECKING:
+    from langgraph.checkpoint.base import BaseCheckpointSaver
+    from langgraph.graph.state import CompiledStateGraph
+
+    from app.services.agent.service import AgentService
+    from app.services.dialogue.tools import ToolRegistry
+    from app.services.faq.store import FAQService
+    from app.services.graph.retrieval.graph_retrieval_service import (
+        GraphRetrievalService,
+    )
+    from app.services.guardrails.base import GuardrailService
+    from app.services.handoff.service import HandoffService
+    from app.services.intent.base import IntentDetector
+    from app.services.llm.base import LLMServiceBase
+    from app.services.slot_filling.base import SlotFiller
+
 logger = logging.getLogger(__name__)
 
 
 def build_dialogue_graph(
-    intent_detector,
-    slot_filler,
-    tool_registry,
-    retrieval_pipeline,
-    llm_service,
-    guardrail_service=None,
-    graph_retrieval_service=None,
-    checkpointer=None,
-    handoff_service=None,
-    agent_service=None,
-    faq_service=None,
-):
+    intent_detector: IntentDetector,
+    slot_filler: SlotFiller,
+    tool_registry: ToolRegistry,
+    retrieval_pipeline: dict[str, Any] | None,
+    llm_service: LLMServiceBase | None,
+    guardrail_service: GuardrailService | None = None,
+    graph_retrieval_service: GraphRetrievalService | None = None,
+    checkpointer: BaseCheckpointSaver[Any] | None = None,
+    handoff_service: HandoffService | None = None,
+    agent_service: AgentService | None = None,
+    faq_service: FAQService | None = None,
+) -> CompiledStateGraph[Any]:
     """Build and compile the dialogue StateGraph.
 
     Args:

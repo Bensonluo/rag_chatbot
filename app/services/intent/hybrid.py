@@ -4,6 +4,8 @@ Hybrid intent detector combining rule-based and LLM approaches.
 Uses fast rule-based detection when confident, falls back to LLM for complex queries.
 """
 
+from typing import Any
+
 from app.models.enums.intent import Intent
 from app.services.intent.base import IntentDetector, IntentResult
 from app.services.intent.llm_based import LLMIntentDetector
@@ -41,7 +43,7 @@ class HybridIntentDetector(IntentDetector):
     async def detect(
         self,
         query: str,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
     ) -> Intent:
         """
         Detect intent using hybrid approach.
@@ -59,7 +61,7 @@ class HybridIntentDetector(IntentDetector):
     async def detect_with_confidence(
         self,
         query: str,
-        context: dict | None = None,
+        context: dict[str, Any] | None = None,
     ) -> IntentResult:
         """
         Detect intent with confidence using hybrid approach.
@@ -72,7 +74,7 @@ class HybridIntentDetector(IntentDetector):
             IntentResult: Detected intent with confidence and metadata
         """
         # Try rule-based first
-        rule_result = self.rule_based.detect_with_confidence(query, context)
+        rule_result = await self.rule_based.detect_with_confidence(query, context)
 
         # Use rule-based result if confidence is high enough
         if rule_result.confidence >= self.confidence_threshold:

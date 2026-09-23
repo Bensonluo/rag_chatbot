@@ -60,6 +60,6 @@ class TestGoldenIntentGate:
         detector = RuleBasedIntentDetector()
         case = next(c for c in load_golden_cases() if c.id == case_id)
 
-        result = detector.detect_with_confidence(case.query)
+        result = await detector.detect_with_confidence(case.query)
 
         assert result.intent.value == case.expect_intent
