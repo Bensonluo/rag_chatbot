@@ -83,10 +83,13 @@ class RuleBasedIntentDetector(IntentDetector):
                 {"keywords": ["怎么", "如何", "为什么", "能不能", "可以", "是否"], "weight": 0.5},
                 {
                     "patterns": [
-                        r"(怎么|如何).{1,10}(退|退款|退货|换货)",
+                        # How-to phrasing ("怎么退货") outranks the raw action
+                        # keywords ("我要退货") — a how-to is a knowledge
+                        # question, not a request to execute the action.
+                        r"(怎么|如何).{0,10}(退|退款|退货|换货)",
                         r"(运费|邮费|配送费).{0,4}(多少|怎么算|免)",
                     ],
-                    "weight": 1.2,
+                    "weight": 2.4,
                 },
             ],
             Intent.POLICY: [
@@ -178,10 +181,19 @@ class RuleBasedIntentDetector(IntentDetector):
                     ],
                     "weight": 1.5,
                 },
-                {"patterns": [r"^(取消|算了|不要了|不办了)[！!。]*$"], "weight": 1.3},
+                {
+                    "patterns": [
+                        r"^(取消|算了|不要了|不办了)[！!。]*$",
+                        # "取消订单" is cancellation, not order query — the
+                        # bare 订单 keyword would otherwise tie/win.
+                        r"取消.{0,4}订单",
+                    ],
+                    "weight": 1.3,
+                },
             ],
-            # Human handoff — explicit request must outrank task intents that
-            # may co-occur in the message ("投诉没用, 给我转人工").
+            # Human handoff — an explicit request must outrank any task
+            # intent co-occurring in the message ("退款没到账, 给我转人工"):
+            # task keywords + pattern peak at 2.7, so 3.0 always wins.
             Intent.HANDOFF: [
                 {
                     "keywords": [
@@ -195,7 +207,7 @@ class RuleBasedIntentDetector(IntentDetector):
                         "human agent",
                         "human support",
                     ],
-                    "weight": 2.0,
+                    "weight": 3.0,
                 },
             ],
         }
