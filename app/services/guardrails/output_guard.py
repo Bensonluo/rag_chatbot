@@ -13,7 +13,7 @@ from app.services.guardrails.base import GuardrailResult, OutputGuardrail
 logger = logging.getLogger(__name__)
 
 # Reuse PII patterns from input guard
-_PII_PATTERNS: dict[str, Pattern] = {
+_PII_PATTERNS: dict[str, Pattern[str]] = {
     "phone_cn": re.compile(r"1[3-9]\d{9}"),
     "id_card_cn": re.compile(
         r"[1-9]\d{5}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]"
@@ -61,7 +61,7 @@ class DefaultOutputGuardrail(OutputGuardrail):
         )
 
     @staticmethod
-    def _redact_pii(text: str) -> tuple:
+    def _redact_pii(text: str) -> tuple[str, list[str]]:
         sanitized = text
         found_types: list[str] = []
         for pii_type, pattern in _PII_PATTERNS.items():

@@ -14,7 +14,7 @@ from app.services.guardrails.base import GuardrailResult, InputGuardrail
 logger = logging.getLogger(__name__)
 
 # Prompt injection patterns
-_INJECTION_PATTERNS: list[Pattern] = [
+_INJECTION_PATTERNS: list[Pattern[str]] = [
     re.compile(
         r"ignore\s+(previous|prior|above|all)\s+(instructions?|prompts?|rules?)", re.IGNORECASE
     ),
@@ -33,7 +33,7 @@ _INJECTION_PATTERNS: list[Pattern] = [
 ]
 
 # PII patterns
-_PII_PATTERNS: dict[str, Pattern] = {
+_PII_PATTERNS: dict[str, Pattern[str]] = {
     "phone_cn": re.compile(r"1[3-9]\d{9}"),
     "id_card_cn": re.compile(
         r"[1-9]\d{5}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx]"
@@ -144,7 +144,7 @@ class DefaultInputGuardrail(InputGuardrail):
         )
 
     @staticmethod
-    def _redact_pii(text: str) -> tuple:
+    def _redact_pii(text: str) -> tuple[str, list[str]]:
         sanitized = text
         found_types: list[str] = []
         for pii_type, pattern in _PII_PATTERNS.items():

@@ -26,10 +26,10 @@ class RuleBasedSlotFiller(SlotFiller):
         self._definitions = slot_definitions or SLOT_DEFINITIONS
         self._compiled_patterns = self._compile_patterns()
 
-    def _compile_patterns(self) -> dict[str, list[re.Pattern]]:
-        compiled: dict[str, list[re.Pattern]] = {}
+    def _compile_patterns(self) -> dict[str, list[re.Pattern[str]]]:
+        compiled: dict[str, list[re.Pattern[str]]] = {}
         for slot_type, definition in self._definitions.items():
-            patterns = []
+            patterns: list[re.Pattern[str]] = []
             for pattern_str in definition.get("patterns", []):
                 try:
                     patterns.append(re.compile(pattern_str))
@@ -52,7 +52,7 @@ class RuleBasedSlotFiller(SlotFiller):
             )
 
         slots: list[ExtractedSlot] = []
-        matched_types: set = set()
+        matched_types: set[str] = set()
         normalized = query.lower()
 
         for slot_type, definition in self._definitions.items():

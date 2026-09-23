@@ -123,7 +123,7 @@ class LLMSlotFiller(SlotFiller):
                     slot_type=slot_type,
                     entity_type=definition["entity_type"],
                     value=s["value"],
-                    normalized_value=s.get("normalized_value", s["value"]),
+                    normalized_value=str(s.get("normalized_value") or s["value"]),
                     confidence=0.8,
                     source="llm",
                 )

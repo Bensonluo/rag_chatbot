@@ -5,6 +5,9 @@ Mirrors the HybridIntentDetector pattern — deterministic extraction
 is preferred for speed and cost, with LLM as fallback for complex queries.
 """
 
+from typing import Any
+
+from app.models.enums.intent import Intent
 from app.services.slot_filling.base import SlotFiller, SlotFillingResult
 from app.services.slot_filling.llm_based import LLMSlotFiller
 from app.services.slot_filling.rule_based import RuleBasedSlotFiller
@@ -26,8 +29,8 @@ class HybridSlotFiller(SlotFiller):
     async def fill_slots(
         self,
         query: str,
-        intent=None,
-        context=None,
+        intent: Intent | None = None,
+        context: dict[str, Any] | None = None,
     ) -> SlotFillingResult:
         rule_result = await self._rule_based.fill_slots(query, intent, context)
 

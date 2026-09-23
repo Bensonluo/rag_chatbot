@@ -61,7 +61,7 @@ class SlotFillingResult:
     def to_entity_hints(self) -> list[dict[str, str]]:
         return [s.to_entity_hint() for s in self.slots]
 
-    def slot_types(self) -> set:
+    def slot_types(self) -> set[str]:
         return {s.slot_type for s in self.slots}
 
 

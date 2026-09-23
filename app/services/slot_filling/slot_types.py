@@ -125,7 +125,8 @@ def get_next_prompt(intent: str, filled: dict[str, Any]) -> str | None:
     if not missing:
         return None
     slots = schema.get("slots", {})
-    return slots.get(missing[0], {}).get("prompt", f"请提供{missing[0]}")
+    prompt = slots.get(missing[0], {}).get("prompt", f"请提供{missing[0]}")
+    return str(prompt)
 
 
 def extract_slots_from_message(
