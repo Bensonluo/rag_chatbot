@@ -5,9 +5,15 @@ Uses a lightweight cross-encoder model (e.g., ms-marco-MiniLM-L-6-v2)
 for fast, cost-effective reranking on CPU.
 """
 
+from __future__ import annotations
+
 import asyncio
+from typing import TYPE_CHECKING, Any, cast
 
 from app.core.exceptions import ExternalServiceError
+
+if TYPE_CHECKING:
+    from sentence_transformers import CrossEncoder
 from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
 
 
@@ -28,26 +34,31 @@ class CrossEncoderReranker:
         self.model_name = model
         self.device = device
         self.top_n = top_n
-        self._model = None
+        self._model: CrossEncoder | None = None
         self._load_lock = asyncio.Lock()
 
-    async def _load_model(self) -> None:
+    async def _load_model(self) -> CrossEncoder:
         """Load cross-encoder model (lazy, thread-safe)."""
         if self._model is not None:
-            return
+            return self._model
 
         async with self._load_lock:
             if self._model is not None:
-                return
+                return self._model
 
             try:
                 from sentence_transformers import CrossEncoder
 
+                def _download() -> CrossEncoder:
+                    # CrossEncoder inherits from untyped torch bases, so
+                    # construction resolves to Any; cast restores the
+                    # declared model type at this boundary.
+                    return cast(CrossEncoder, CrossEncoder(self.model_name, device=self.device))
+
                 loop = asyncio.get_event_loop()
-                self._model = await loop.run_in_executor(
-                    None,
-                    lambda: CrossEncoder(self.model_name, device=self.device),
-                )
+                model: CrossEncoder = await loop.run_in_executor(None, _download)
+                self._model = model
+                return model
             except ImportError as e:
                 raise ExternalServiceError(
                     service="CrossEncoderReranker",
@@ -77,25 +88,29 @@ class CrossEncoderReranker:
         if not results:
             return []
 
-        await self._load_model()
+        model = await self._load_model()
 
         try:
             pairs = [(request.query, r.content) for r in results]
 
+            def _predict() -> Any:
+                return model.predict(pairs)
+
             loop = asyncio.get_event_loop()
-            scores = await loop.run_in_executor(
-                None,
-                lambda: self._model.predict(pairs),
-            )
+            scores = await loop.run_in_executor(None, _predict)
 
             scored = list(zip(results, scores.tolist(), strict=True))
             scored.sort(key=lambda x: x[1], reverse=True)
 
-            reranked = []
+            reranked: list[SearchResult] = []
             for result, score in scored[: self.top_n]:
-                metadata = result.metadata or {}
-                metadata["original_score"] = result.score
-                metadata["reranker"] = "cross_encoder"
+                # Copy-on-write: the original result's metadata dict is
+                # shared across the pipeline and must not be mutated.
+                metadata = {
+                    **(result.metadata or {}),
+                    "original_score": result.score,
+                    "reranker": "cross_encoder",
+                }
                 reranked.append(
                     SearchResult(
                         document_id=result.document_id,

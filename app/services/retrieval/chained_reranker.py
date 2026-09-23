@@ -5,7 +5,19 @@ Orchestrates a first-stage reranker (e.g., CrossEncoder for coarse ranking)
 and an optional second-stage reranker (e.g., LLM for fine ranking).
 """
 
+from typing import Protocol
+
 from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
+
+
+class Reranker(Protocol):
+    """Structural contract shared by every reranker stage."""
+
+    async def rerank(
+        self,
+        results: list[SearchResult],
+        request: VectorSearchRequest,
+    ) -> list[SearchResult]: ...
 
 
 class ChainedReranker:
@@ -16,7 +28,7 @@ class ChainedReranker:
         async def rerank(results, request) -> List[SearchResult]
     """
 
-    def __init__(self, first_stage: object, second_stage: object | None = None) -> None:
+    def __init__(self, first_stage: Reranker, second_stage: Reranker | None = None) -> None:
         self.first_stage = first_stage
         self.second_stage = second_stage
 

@@ -6,6 +6,7 @@ Provides abstract interface for vector database operations and common data model
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -23,7 +24,7 @@ class Document:
     id: str
     content: str
     embedding: list[float] | None = None
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -41,7 +42,7 @@ class SearchResult:
     document_id: str
     content: str
     score: float
-    metadata: dict | None = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -57,7 +58,7 @@ class VectorSearchRequest:
 
     query: str
     top_k: int = 5
-    filters: dict | None = None
+    filters: dict[str, Any] | None = None
 
 
 class VectorClient(ABC):
@@ -160,7 +161,7 @@ class VectorClient(ABC):
 class VectorClientError(Exception):
     """Base exception for vector client errors."""
 
-    def __init__(self, message: str, details: dict | None = None):
+    def __init__(self, message: str, details: dict[str, Any] | None = None):
         """
         Initialize vector client error.
 

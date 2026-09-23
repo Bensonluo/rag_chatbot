@@ -5,6 +5,10 @@ Provides simple interface for creating vector clients, hybrid search,
 reranking services, and complete retrieval pipelines.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from app.core.exceptions import ValidationError
 from app.services.llm.base import LLMServiceBase
 from app.services.retrieval.chained_reranker import ChainedReranker
@@ -17,6 +21,9 @@ from app.services.retrieval.hybrid_search import HybridSearchService, KeywordSea
 from app.services.retrieval.qdrant_client import QdrantClient
 from app.services.retrieval.reranking import NoOpReranker, RerankingService
 from app.services.retrieval.vector_base import VectorClient
+
+if TYPE_CHECKING:
+    from app.services.embeddings.base import EmbeddingServiceBase
 
 
 class RetrievalFactory:
@@ -33,8 +40,8 @@ class RetrievalFactory:
         url: str,
         collection_name: str,
         api_key: str | None = None,
-        embedding_service=None,
-        **kwargs,
+        embedding_service: EmbeddingServiceBase | None = None,
+        **kwargs: Any,
     ) -> VectorClient:
         """
         Create a vector database client.
@@ -229,7 +236,7 @@ class RetrievalFactory:
         use_metadata_enrichment: bool = True,
         vector_weight: float = 0.5,
         reranker_top_n: int = 5,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Create a complete retrieval pipeline.
 

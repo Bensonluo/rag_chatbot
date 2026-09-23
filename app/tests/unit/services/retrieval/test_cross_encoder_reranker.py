@@ -55,6 +55,7 @@ class TestCrossEncoderReranker:
         mock_model = MagicMock()
         mock_model.predict.return_value = np.array([0.1, 0.9, 0.5])
         reranker._model = mock_model
+        mock_load.return_value = mock_model
 
         results = [
             SearchResult(document_id="doc1", content="low relevance", score=0.9),
@@ -81,6 +82,7 @@ class TestCrossEncoderReranker:
         mock_model = MagicMock()
         mock_model.predict.return_value = np.array([0.1, 0.9, 0.5, 0.8, 0.3])
         reranker._model = mock_model
+        mock_load.return_value = mock_model
 
         results = [
             SearchResult(document_id=f"doc{i}", content=f"content {i}", score=0.5) for i in range(5)
@@ -103,6 +105,7 @@ class TestCrossEncoderReranker:
         mock_model = MagicMock()
         mock_model.predict.return_value = np.array([0.8])
         reranker._model = mock_model
+        mock_load.return_value = mock_model
 
         results = [
             SearchResult(
@@ -132,6 +135,7 @@ class TestCrossEncoderReranker:
         mock_model = MagicMock()
         mock_model.predict.return_value = np.array([0.5])
         reranker._model = mock_model
+        mock_load.return_value = mock_model
 
         results = [SearchResult(document_id="doc1", content="content", score=0.5)]
         request = VectorSearchRequest(query="test")
@@ -151,6 +155,7 @@ class TestCrossEncoderReranker:
         mock_model = MagicMock()
         mock_model.predict.side_effect = RuntimeError("model error")
         reranker._model = mock_model
+        mock_load.return_value = mock_model
 
         results = [SearchResult(document_id="doc1", content="content", score=0.5)]
         request = VectorSearchRequest(query="test")
@@ -183,3 +188,41 @@ class TestCrossEncoderReranker:
         with patch("sentence_transformers.CrossEncoder") as mock_cls:
             await reranker._load_model()
             mock_cls.assert_not_called()
+
+
+class TestRerankImmutability:
+    @pytest.mark.asyncio
+    @patch("app.services.retrieval.cross_encoder_reranker.CrossEncoderReranker._load_model")
+    async def test_rerank_does_not_mutate_original_metadata(self, mock_load):
+        """The pipeline shares result objects across stages; rerank
+        must copy metadata instead of updating it in place."""
+        from app.services.retrieval.cross_encoder_reranker import CrossEncoderReranker
+
+        reranker = CrossEncoderReranker(top_n=1)
+
+        mock_model = MagicMock()
+        mock_model.predict.return_value = np.array([0.9])
+        reranker._model = mock_model
+        mock_load.return_value = mock_model
+
+        original = SearchResult(
+            document_id="doc1",
+            content="content",
+            score=0.4,
+            metadata={"source": "kb"},
+        )
+        request = VectorSearchRequest(query="q")
+
+        reranked = await reranker.rerank([original], request)
+
+        # Original untouched; the reranked copy carries both old and new keys.
+        assert original.metadata == {"source": "kb"}
+        assert reranked[0].metadata is not original.metadata
+        assert reranked[0].metadata["source"] == "kb"
+        assert reranked[0].metadata["original_score"] == 0.4
+        assert reranked[0].metadata["reranker"] == "cross_encoder"
+
+        # Rerank again with the already-reranked result: no accumulation.
+        second = await reranker.rerank([reranked[0]], request)
+        assert second[0].metadata["original_score"] == 0.9
+        assert second[0].metadata["source"] == "kb"

@@ -285,6 +285,42 @@ class TestDocumentMetadataService:
         assert enriched[1].metadata["title"] == "Doc 2"
         assert enriched[1].metadata["category"] == "general"
 
+    async def test_enrich_does_not_mutate_original_metadata(self):
+        """Enrichment must copy metadata dicts — results are shared
+        across the retrieval pipeline and must not cross-contaminate."""
+        from app.services.retrieval.document_metadata import (
+            DocumentMetadata,
+            DocumentMetadataService,
+        )
+        from app.services.retrieval.vector_base import SearchResult
+
+        mock_repo = Mock()
+        mock_repo.get_by_document_ids = AsyncMock(
+            return_value={
+                "doc1": DocumentMetadata(id=1, document_id="doc1", title="Doc 1", category="tech")
+            }
+        )
+        service = DocumentMetadataService(repository=mock_repo)
+
+        original_metadata = {"source": "kb"}
+        result = SearchResult(
+            document_id="doc1", content="Content", score=0.9, metadata=original_metadata
+        )
+
+        enriched = await service.enrich_search_results([result])
+
+        # Original dict untouched; enriched copy carries old + new keys.
+        assert original_metadata == {"source": "kb"}
+        assert enriched[0].metadata is not original_metadata
+        assert enriched[0].metadata["source"] == "kb"
+        assert enriched[0].metadata["title"] == "Doc 1"
+
+        # A second enrichment pass must not accumulate keys.
+        twice = await service.enrich_search_results([enriched[0]])
+        assert twice[0].metadata["title"] == "Doc 1"
+        assert twice[0].metadata["source"] == "kb"
+        assert twice[0].metadata is not enriched[0].metadata
+
 
 class TestDocumentMetadataRepository:
     """Test document metadata repository"""

@@ -7,8 +7,12 @@ document metadata (title, author, category, tags, etc.).
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.base import BaseRepository
+from app.services.retrieval.vector_base import SearchResult
 
 
 @dataclass
@@ -72,7 +76,7 @@ class DocumentMetadataModel:
         self.updated_at = datetime.now()
 
 
-class DocumentMetadataRepository(BaseRepository):
+class DocumentMetadataRepository(BaseRepository[Any]):
     """
     Repository for document metadata operations.
 
@@ -80,7 +84,7 @@ class DocumentMetadataRepository(BaseRepository):
     In production, would use actual SQLAlchemy models.
     """
 
-    def __init__(self, session) -> None:
+    def __init__(self, session: AsyncSession) -> None:
         """
         Initialize metadata repository.
 
@@ -376,8 +380,8 @@ class DocumentMetadataService:
 
     async def enrich_search_results(
         self,
-        results: list,
-    ) -> list:
+        results: list[SearchResult],
+    ) -> list[SearchResult]:
         """
         Enrich search results with metadata.
 
@@ -393,30 +397,30 @@ class DocumentMetadataService:
         # Fetch metadata
         metadata_map = await self.repository.get_by_document_ids(doc_ids)
 
-        # Enrich results
-        enriched = []
+        # Enrich results immutably: never mutate the incoming result's
+        # metadata dict — it is shared with the rest of the pipeline.
+        enriched: list[SearchResult] = []
         for result in results:
             metadata = metadata_map.get(result.document_id)
 
-            # Copy result and add metadata
             enriched_result = result
 
             if metadata:
-                # Add metadata to result
-                new_metadata = result.metadata or {}
-                new_metadata.update(
-                    {
-                        "title": metadata.title,
-                        "author": metadata.author,
-                        "category": metadata.category,
-                        "tags": metadata.tags,
-                        "source": metadata.source,
-                        "language": metadata.language,
-                    }
-                )
-
-                # Create new enriched result
-                from app.services.retrieval.vector_base import SearchResult
+                # Only overlay fields the record actually carries —
+                # unset optional columns must not clobber values the
+                # result already had.
+                overlay = {
+                    "title": metadata.title,
+                    "author": metadata.author,
+                    "category": metadata.category,
+                    "tags": metadata.tags,
+                    "source": metadata.source,
+                    "language": metadata.language,
+                }
+                new_metadata = {
+                    **(result.metadata or {}),
+                    **{k: v for k, v in overlay.items() if v is not None},
+                }
 
                 enriched_result = SearchResult(
                     document_id=result.document_id,

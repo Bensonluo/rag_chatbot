@@ -4,7 +4,10 @@ Qdrant vector database client implementation.
 Provides async client for Qdrant vector database operations.
 """
 
+from __future__ import annotations
+
 import asyncio
+from typing import TYPE_CHECKING, Any
 
 from app.services.retrieval.vector_base import (
     Document,
@@ -13,6 +16,9 @@ from app.services.retrieval.vector_base import (
     VectorClientError,
     VectorSearchRequest,
 )
+
+if TYPE_CHECKING:
+    from app.services.embeddings.base import EmbeddingServiceBase
 
 
 class _InjectedClientModel:
@@ -36,7 +42,7 @@ class QdrantClient(VectorClient):
         collection_name: str,
         api_key: str | None = None,
         client: object | None = None,
-        embedding_service=None,
+        embedding_service: EmbeddingServiceBase | None = None,
     ) -> None:
         """
         Initialize Qdrant client.
@@ -52,6 +58,9 @@ class QdrantClient(VectorClient):
         self.collection_name = collection_name
         self.api_key = api_key
         self.embedding_service = embedding_service
+        # Injected test doubles and the SDK client expose different
+        # surfaces; dynamic dispatch is the contract here.
+        self.client: Any
         self._client_injected = client is not None
         self._collection_ready = False
         self._collection_lock = asyncio.Lock()
@@ -215,7 +224,7 @@ class QdrantClient(VectorClient):
         self,
         ids: list[str],
         vectors: list[list[float]],
-        payloads: list[dict],
+        payloads: list[dict[str, Any]],
     ) -> None:
         """
         Add points with pre-computed vectors to Qdrant.
@@ -263,7 +272,7 @@ class QdrantClient(VectorClient):
                 f"Failed to add points: {str(e)}", details={"point_count": len(ids)}
             ) from e
 
-    async def delete_by_filter(self, filter: dict) -> int:
+    async def delete_by_filter(self, filter: dict[str, Any]) -> int:
         """
         Delete points matching a filter.
 
@@ -413,7 +422,7 @@ class QdrantClient(VectorClient):
 
     def _build_filter(
         self,
-        filters: dict,
+        filters: dict[str, Any],
         *,
         metadata_prefix: bool = False,
     ) -> object:
@@ -441,7 +450,7 @@ class QdrantClient(VectorClient):
         Filter = self._qdrant_model("Filter")
         return Filter(must=conditions)
 
-    def _qdrant_model(self, name: str):
+    def _qdrant_model(self, name: str) -> Any:
         """Load a Qdrant SDK model, with a lightweight injected-client fallback."""
         try:
             from qdrant_client import models

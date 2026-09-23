@@ -8,6 +8,7 @@ vector similarity search and keyword-based search.
 import contextlib
 import re
 from collections import defaultdict
+from typing import Any
 
 from app.core.exceptions import ValidationError
 from app.services.retrieval.vector_base import (
@@ -27,12 +28,12 @@ class KeywordSearch:
 
     def __init__(self) -> None:
         """Initialize keyword search."""
-        self.documents: dict[str, dict] = {}
+        self.documents: dict[str, dict[str, Any]] = {}
         self.document_terms: dict[str, set[str]] = {}
 
     async def add_documents(
         self,
-        documents: list[dict],
+        documents: list[dict[str, Any]],
     ) -> None:
         """
         Add documents to keyword search index.
@@ -232,7 +233,7 @@ class HybridSearchService:
         """
         # Accumulate RRF scores
         scores: dict[str, float] = defaultdict(float)
-        doc_data: dict[str, dict] = {}
+        doc_data: dict[str, dict[str, Any]] = {}
 
         # Process vector results
         for rank, result in enumerate(vector_results, start=1):
