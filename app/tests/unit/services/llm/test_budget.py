@@ -13,10 +13,36 @@ import asyncio
 import json
 from collections.abc import AsyncGenerator
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
-from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
+pytest.importorskip("opentelemetry.sdk.trace")  # noqa: E402
+
+from opentelemetry.sdk.trace.export import (  # noqa: E402
+    SpanExporter,
+    SpanExportResult,
+)
+
+from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase  # noqa: E402
+
+
+class _ListExporter(SpanExporter):
+    """SDK-conformant exporter collecting ReadableSpans in memory."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.exported: list[Any] = []
+
+    def export(self, spans: Any) -> SpanExportResult:
+        self.exported.extend(spans)
+        return SpanExportResult.SUCCESS
+
+    def shutdown(self) -> None:
+        return None
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:  # noqa: ARG002
+        return True
 
 
 class _CountingLLM(LLMServiceBase):
@@ -231,6 +257,96 @@ class TestAgentBudgetGraceful:
         result = await agent.run(user_message="查订单然后退款")
         assert result.truncated is True
         assert result.response  # user still gets an answer, not an error
+
+
+class TestBudgetReport:
+    async def test_scope_yields_state_with_used_and_refused(self):
+        from app.services.llm.budget import (
+            BudgetedLLMService,
+            LLMBudgetExceeded,
+            enter_llm_budget,
+        )
+
+        inner = _CountingLLM()
+        llm = BudgetedLLMService(inner)
+        async with enter_llm_budget(max_calls=1) as state:
+            assert state is not None
+            await llm.generate([LLMMessage(role="user", content="q")])
+            with pytest.raises(LLMBudgetExceeded):
+                await llm.generate([LLMMessage(role="user", content="q")])
+            assert state.used == 1
+            assert state.refused == 1
+
+    async def test_disabled_scope_yields_none(self):
+        from app.services.llm.budget import enter_llm_budget
+
+        async with enter_llm_budget(0) as state:
+            assert state is None
+
+    async def test_budget_attrs_reach_active_span(self):
+        """Scope exit stamps llm.* attrs on the current (root) span."""
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+
+        from app.services.llm.budget import BudgetedLLMService, enter_llm_budget
+
+        provider = TracerProvider()
+        exporter = _ListExporter()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer("t")
+
+        from app.services.llm.budget import record_budget_on_span
+
+        inner = _CountingLLM()
+        llm = BudgetedLLMService(inner)
+        try:
+            with tracer.start_as_current_span("cs.pipeline"):
+                async with enter_llm_budget(max_calls=2) as state:
+                    assert state is not None
+                    await llm.generate([LLMMessage(role="user", content="q")])
+                    # ChatService stamps at the moment the turn's LLM work
+                    # is done — for streams that is NOT scope exit (the
+                    # scope only wraps task creation there).
+                    record_budget_on_span(state)
+        finally:
+            provider.shutdown()
+
+        root = next(s for s in exporter.exported if s.name == "cs.pipeline")
+        assert root.attributes["llm.calls"] == 1
+        assert root.attributes["llm.refused"] == 0
+        assert root.attributes["llm.budget"] == 2
+
+
+class TestBudgetMetadata:
+    async def test_process_message_reports_budget_in_metadata(self):
+        from app.services.chat.chat_service import ChatService
+        from app.tests.unit.services.chat.test_persistence import _FakeGraph
+
+        service = ChatService(graph=_FakeGraph(result={"response": "好的", "intent": "chitchat"}))
+        resp = await service.process_message(session_id=1, message="你好", user_id=1)
+        assert resp.metadata is not None
+        assert resp.metadata["llm_calls"] == 0
+        assert resp.metadata["llm_refused"] == 0
+
+    async def test_stream_persist_carries_budget_metadata(self):
+        from app.services.chat.chat_service import ChatService
+
+        class _Graph:
+            async def ainvoke(
+                self, state: dict[str, Any], config: dict[str, Any]
+            ) -> dict[str, Any]:
+                config["configurable"]["stream_queue"].put_nowait("好")
+                return {}
+
+        persister = AsyncMock()
+        service = ChatService(graph=_Graph(), persister=persister)
+        chunks = [c async for c in service.process_message_stream(1, "你好", 1)]
+        assert chunks == ["好"]
+        persister.persist_turn.assert_awaited_once()
+        metadata = persister.persist_turn.await_args.kwargs.get("metadata")
+        assert metadata is not None
+        assert metadata["llm_calls"] == 0
+        assert metadata["llm_refused"] == 0
 
 
 class TestBudgetSettings:

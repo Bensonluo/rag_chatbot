@@ -15,7 +15,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from app.config.settings import settings
-from app.services.llm.budget import enter_llm_budget
+from app.services.llm.budget import (
+    BudgetState,
+    enter_llm_budget,
+    record_budget_on_span,
+)
 from app.services.observability.pipeline_tracer import traced_stage
 
 if TYPE_CHECKING:
@@ -119,16 +123,24 @@ class ChatService:
             ChatResponse with graph output
         """
         config = {"configurable": {"thread_id": str(session_id)}}
-        async with enter_llm_budget(settings.CHAT_LLM_CALL_BUDGET):
+        budget: BudgetState | None = None
+        async with enter_llm_budget(settings.CHAT_LLM_CALL_BUDGET) as budget_state:
+            budget = budget_state
             result = await self.graph.ainvoke(
                 {"message": message, "session_id": session_id, "user_id": user_id},
                 config,
             )
+        if budget is not None:
+            # Budget consumption on the root span and in response
+            # metadata: a cap nobody can see is a cap nobody calibrates.
+            record_budget_on_span(budget)
 
         metadata: dict[str, Any] = {
             "confidence": result.get("confidence"),
             "pending_slots": result.get("pending_slots", []),
             "filled_slots": result.get("filled_slots", {}),
+            "llm_calls": budget.used if budget else 0,
+            "llm_refused": budget.refused if budget else 0,
         }
         # Durable audit trail of agent tool executions (refunds and
         # other irreversible support actions must be traceable).
@@ -204,7 +216,9 @@ class ChatService:
         # Budget scope wraps the whole stream: the graph task inherits
         # the ContextVar (asyncio copies context at task creation), so
         # every node's LLM call in this turn counts against it.
-        async with enter_llm_budget(settings.CHAT_LLM_CALL_BUDGET):
+        budget: BudgetState | None = None
+        async with enter_llm_budget(settings.CHAT_LLM_CALL_BUDGET) as budget_state:
+            budget = budget_state
             invoke_task = asyncio.create_task(
                 self.graph.ainvoke(
                     {"message": message, "session_id": session_id, "user_id": user_id},
@@ -261,12 +275,20 @@ class ChatService:
                 await invoke_task
             # Persist the full streamed turn (partial content if the client
             # disconnected mid-stream) so history and memory stay accurate.
+            if budget is not None:
+                # After the task settles, the state carries this turn's
+                # real consumption (the scope only wrapped task creation).
+                record_budget_on_span(budget)
             if self.persister is not None and streamed_content:
                 await self.persister.persist_turn(
                     session_id=session_id,
                     user_id=user_id,
                     user_message=message,
                     response="".join(streamed_content),
+                    metadata={
+                        "llm_calls": budget.used if budget else 0,
+                        "llm_refused": budget.refused if budget else 0,
+                    },
                 )
 
     async def get_chat_history(

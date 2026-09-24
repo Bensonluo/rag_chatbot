@@ -20,6 +20,9 @@ Design:
 - Enforcement raises ``LLMBudgetExceeded`` before the provider call;
   callers that can degrade (the agent loop) catch it and fall back
   gracefully rather than failing the turn.
+- The scope yields its ``BudgetState`` so the request path can report
+  consumption (response metadata + span attrs) — a cap nobody can see
+  is a cap nobody can calibrate.
 """
 
 from __future__ import annotations
@@ -39,34 +42,54 @@ class LLMBudgetExceeded(RuntimeError):
     """A provider call was refused: the request's LLM budget is spent."""
 
 
-class _BudgetState:
+class BudgetState:
     """Mutable counter shared by every call within one request scope."""
 
-    __slots__ = ("max_calls", "used")
+    __slots__ = ("max_calls", "refused", "used")
 
     def __init__(self, max_calls: int) -> None:
         self.max_calls = max_calls
         self.used = 0
+        self.refused = 0
 
 
-_budget: ContextVar[_BudgetState | None] = ContextVar("llm_call_budget", default=None)
+_budget: ContextVar[BudgetState | None] = ContextVar("llm_call_budget", default=None)
 
 
 @asynccontextmanager
-async def enter_llm_budget(max_calls: int) -> AsyncIterator[None]:
-    """Open a per-request budget scope.
+async def enter_llm_budget(max_calls: int) -> AsyncIterator[BudgetState | None]:
+    """Open a per-request budget scope, yielding its state.
 
-    ``max_calls <= 0`` disables budgeting (scope is a no-op), so a
-    setting of 0 turns the cap off without unwiring the decorator.
+    ``max_calls <= 0`` disables budgeting (scope yields ``None``), so
+    a setting of 0 turns the cap off without unwiring the decorator.
     """
     if max_calls <= 0:
-        yield
+        yield None
         return
-    token = _budget.set(_BudgetState(max_calls))
+    token = _budget.set(BudgetState(max_calls))
     try:
-        yield
+        yield _budget.get()
     finally:
         _budget.reset(token)
+
+
+def record_budget_on_span(state: BudgetState) -> None:
+    """Stamp budget consumption on the active (root pipeline) span.
+
+    Call when the turn's LLM work is done — for the streaming path that
+    is NOT scope exit: the scope only wraps ``create_task``, the graph
+    task inherits the ContextVar and keeps consuming afterwards.
+    """
+    try:
+        from opentelemetry import trace
+    except ImportError:  # pragma: no cover - telemetry optional
+        return
+    set_attribute = getattr(trace.get_current_span(), "set_attribute", None)
+    if set_attribute is None:  # pragma: no cover - NonRecordingSpan guard
+        return
+    set_attribute("llm.calls", state.used)
+    set_attribute("llm.refused", state.refused)
+    set_attribute("llm.budget", state.max_calls)
 
 
 def _reserve() -> None:
@@ -75,6 +98,7 @@ def _reserve() -> None:
     if state is None:
         return
     if state.used >= state.max_calls:
+        state.refused += 1
         logger.warning(
             "LLM call budget exhausted (%d/%d); refusing call", state.used, state.max_calls
         )
