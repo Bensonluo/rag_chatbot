@@ -22,6 +22,7 @@ from app.services.guardrails.base import GuardrailService
 def _make_factory(
     agent_service: AgentService | None = None,
     guardrail_service: GuardrailService | None = None,
+    history_provider: Any = None,
 ) -> NodeFactory:
     """NodeFactory with stub services and an optional agent service."""
     intent_detector = Mock()
@@ -36,6 +37,7 @@ def _make_factory(
         graph_retrieval_service=None,
         handoff_service=None,
         agent_service=agent_service,
+        history_provider=history_provider,
     )
 
 
@@ -270,3 +272,44 @@ class TestHandleAgentTraceOnFallback:
 
         assert updates["route_after_agent"] == "agent_fallback"
         assert "executed_tools" not in updates
+
+
+# ── Agent loop runs with prior turns ────────────────────────────────────────
+
+
+class TestAgentHistory:
+    async def test_history_provider_feeds_agent_run(self):
+        """The agent loop receives the session's prior turns."""
+        from app.services.llm.base import LLMMessage
+
+        agent = _agent_returning(AgentResult(response="已处理"))
+
+        async def provider(session_id: int) -> list[Any]:
+            assert session_id == 42
+            return [LLMMessage(role="user", content="昨天买的手机想退货")]
+
+        factory = _make_factory(agent_service=agent, history_provider=provider)
+        state: DialogueState = {
+            "message": "那运费谁出？",
+            "session_id": 42,
+            "user_id": 7,
+        }
+
+        await factory.handle_agent_node(state)
+
+        history = agent.run.await_args.kwargs["history"]
+        assert [(m.role, m.content) for m in history] == [("user", "昨天买的手机想退货")]
+
+    async def test_agent_history_failure_degrades_to_none(self):
+        agent = _agent_returning(AgentResult(response="已处理"))
+
+        async def provider(session_id: int) -> list[Any]:
+            raise RuntimeError("history backend down")
+
+        factory = _make_factory(agent_service=agent, history_provider=provider)
+        state: DialogueState = {"message": "查订单", "session_id": 1, "user_id": 7}
+
+        result = await factory.handle_agent_node(state)
+
+        assert agent.run.await_args.kwargs["history"] is None
+        assert result["route_after_agent"] == "agent_done"

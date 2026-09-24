@@ -106,6 +106,7 @@ class AgentService:
         user_message: str,
         user_id: int | None = None,
         context_note: str = "",
+        history: list[LLMMessage] | None = None,
     ) -> AgentResult:
         """Answer one user message, orchestrating tools as needed.
 
@@ -125,6 +126,11 @@ class AgentService:
         messages: list[LLMMessage] = [LLMMessage(role="system", content=SYSTEM_PROMPT)]
         if context_note:
             messages.append(LLMMessage(role="system", content=context_note))
+        # Prior turns sit between the policy blocks and the current ask,
+        # so tool decisions can resolve "那运费谁出？" against what was
+        # already agreed earlier in the session.
+        if history:
+            messages.extend(history)
         messages.append(LLMMessage(role="user", content=user_message))
 
         executed: list[str] = []

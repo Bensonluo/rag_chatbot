@@ -355,3 +355,41 @@ class TestToolTrace:
         for entry in result.tool_trace:
             assert len(entry["summary"]) <= 200
             assert entry["args"] == {"order_id": "ORD1001"}
+
+
+class TestConversationHistory:
+    """Prior turns join the agent loop's message list."""
+
+    async def test_history_precedes_user_message(self):
+        from app.services.llm.base import LLMMessage
+
+        llm = ScriptedLLM([_final_response("好的")])
+        service = _make_service(llm)
+        history = [
+            LLMMessage(role="user", content="昨天买的手机想退货"),
+            LLMMessage(role="assistant", content="好的，已受理退货"),
+        ]
+
+        await service.run(user_message="那运费谁出？", history=history)
+
+        messages = llm.requests[0]["messages"]
+        assert messages[0].role == "system"
+        assert [(m.role, m.content) for m in messages[1:]] == [
+            ("user", "昨天买的手机想退货"),
+            ("assistant", "好的，已受理退货"),
+            ("user", "那运费谁出？"),
+        ]
+
+    async def test_history_after_context_note(self):
+        from app.services.llm.base import LLMMessage
+
+        llm = ScriptedLLM([_final_response("好的")])
+        service = _make_service(llm)
+        history = [LLMMessage(role="user", content="查订单")]
+
+        await service.run(user_message="最新的呢", context_note="已知：order_id=1", history=history)
+
+        messages = llm.requests[0]["messages"]
+        assert [m.role for m in messages] == ["system", "system", "user", "user"]
+        assert "order_id=1" in messages[1].content
+        assert messages[2].content == "查订单"

@@ -729,10 +729,17 @@ class NodeFactory:
             context_note = "对话中已知信息：" + "，".join(f"{k}={v}" for k, v in filled.items())
 
         try:
+            history = None
+            if self._history_provider is not None:
+                try:
+                    history = list(await self._history_provider(state.get("session_id", 0)))
+                except Exception:  # noqa: BLE001 - history is best-effort
+                    logger.warning("History fetch failed; agent runs without prior turns")
             result = await self._agent_service.run(
                 user_message=state.get("message", ""),
                 user_id=state.get("user_id"),
                 context_note=context_note,
+                history=history,
             )
         except NotImplementedError:
             logger.warning(
