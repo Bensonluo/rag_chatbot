@@ -102,6 +102,7 @@ dev = [
     "types-redis>=4.6.0",
     "types-networkx>=3.0",
     "types-python-jose>=3.3.4",
+    "types-PyYAML>=6.0",
 
     # Load testing (deploy/loadtest/locustfile.py)
     "locust>=2.46.0",
@@ -217,6 +218,7 @@ testpaths = [
     "app/tests/integration/api/test_auth_endpoints.py",
     "app/tests/integration/api/test_session_endpoints.py",
     "app/tests/integration/test_chat_pipeline.py",
+    "app/tests/unit/deploy",
     "app/tests/unit/repositories",
     "app/tests/unit/api/v1/test_chat_rate_limit.py",
 ]

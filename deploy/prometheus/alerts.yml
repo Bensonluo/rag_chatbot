@@ -1,0 +1,84 @@
+# Alert rules for the e-commerce CS bot (GB/T 47746—2026 时效 + TTFT SLOs).
+#
+# Thresholds are grounded in the observability iterations:
+#   - handoff queue SLA: HANDOFF_SLA_WAIT_SECONDS (default 30s, HollyCRM
+#     industry target; GB/T 47746 转人工时效 requirement)
+#   - TTFT: industry conversational target <1s, drop-off rises ~7-10%
+#     per extra waiting second
+#   - claim-gate violations: policy drift / curated-fact staleness signal
+#
+# `for:` durations follow the flapping guidance (Prometheus alerting
+# docs): 1m for page-worthy SLA breaches (a customer is waiting right
+# now), 5m for rate/p95 conditions that need a stable window.
+
+groups:
+  - name: cs-handoff-sla
+    rules:
+      - alert: HandoffQueueSLABreach
+        expr: handoff_queue_sla_breaches > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "转人工排队违约 (GB/T 47746 时效)"
+          description: >-
+            {{ $value }} open handoff tickets have been waiting longer than
+            the queue-wait SLA for over a minute — customers are holding
+            while no agent picks up. Check agent staffing / claim rate.
+
+      - alert: HandoffQueueOldestWaitCritical
+        expr: handoff_queue_oldest_wait_seconds > 60
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "最老排队工单等待超过 60s（2× SLA 目标）"
+          description: >-
+            The oldest open handoff ticket has waited {{ $value }}s — twice
+            the HollyCRM <30s industry target. Queue is draining too slowly.
+
+  - name: cs-chat-latency
+    rules:
+      - alert: ChatTTFTSlow
+        expr: histogram_quantile(0.95, sum(rate(chat_first_token_seconds_bucket[5m])) by (le)) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI 首字响应 p95 超过 1s（GB/T 47746 响应速度）"
+          description: >-
+            p95 time-to-first-token is {{ $value }}s over a stable 5m window
+            (industry conversational target <1s; drop-off rises ~7-10% per
+            extra waiting second). Check LLM provider latency / prefill load.
+
+      - alert: ChatStreamErrorRateHigh
+        expr: |
+          (
+            sum(rate(chat_stream_outcomes_total{outcome=~"graph_error|budget_exhausted"}[5m]))
+            /
+            sum(rate(chat_stream_outcomes_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "聊天流失败率超过 5%"
+          description: >-
+            {{ $value | humanizePercentage }} of chat streams ended in
+            graph_error or budget_exhausted over 5m. Users are getting
+            explicit failure frames instead of answers.
+
+  - name: cs-policy-gate
+    rules:
+      - alert: ClaimGateViolationsRising
+        expr: sum(increase(claim_violations_total[15m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "声明门控拦截率上升（策展事实可能过期）"
+          description: >-
+            The claim gate caught {{ $value }} policy-claim violations in
+            15m. A rising catch rate usually means the curated fact table
+            drifted from reality (policy change not yet ingested) — the LLM
+            keeps asserting what the KG now contradicts.
