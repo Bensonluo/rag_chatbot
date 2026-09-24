@@ -51,6 +51,7 @@ def build_dialogue_graph(
     faq_service: FAQService | None = None,
     history_provider: Callable[[int], Awaitable[list[LLMMessage]]] | None = None,
     system_prompt: str | None = None,
+    user_facts_provider: Callable[[int], Awaitable[list[str]]] | None = None,
 ) -> CompiledStateGraph[Any]:
     """Build and compile the dialogue StateGraph.
 
@@ -85,6 +86,7 @@ def build_dialogue_graph(
         intent_detector=intent_detector,
         history_provider=history_provider,
         system_prompt=system_prompt,
+        user_facts_provider=user_facts_provider,
         slot_filler=slot_filler,
         tool_registry=tool_registry,
         retrieval_pipeline=retrieval_pipeline,

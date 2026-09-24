@@ -217,10 +217,21 @@ class ChatServiceFactory:
                     return [LLMMessage(role=t.role, content=t.content) for t in turns]
 
                 history_provider = _session_history
+            # Cross-session user-facts recall (Phase B2): bounded,
+            # best-effort reads through the same persister seam.
+            user_facts_provider = None
+            if persister is not None and settings.USER_FACT_RECALL_ENABLED:
+                facts_persister = persister
+
+                async def _user_facts(user_id: int) -> list[str]:
+                    return await facts_persister.get_user_facts(user_id=user_id, limit=8)
+
+                user_facts_provider = _user_facts
             graph = build_dialogue_graph(
                 intent_detector=intent_detector,
                 history_provider=history_provider,
                 system_prompt=settings.CHAT_SYSTEM_PROMPT or None,
+                user_facts_provider=user_facts_provider,
                 slot_filler=slot_filler,
                 tool_registry=tool_registry,
                 retrieval_pipeline=retrieval_pipeline,

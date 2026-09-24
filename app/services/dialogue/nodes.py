@@ -116,10 +116,16 @@ class NodeFactory:
         # the built-in e-commerce CS persona; a custom string overrides
         # it (per-tenant voice) — see CHAT_SYSTEM_PROMPT setting.
         system_prompt: str | None = None,
+        # Bounded cross-session user-facts recall (Phase B2): given a
+        # user_id, returns that user's newest durable facts for prompt
+        # context. None leaves generators persona-only; failures inside
+        # the provider degrade to no personalization, never a failed chat.
+        user_facts_provider: Callable[[int], Awaitable[list[str]]] | None = None,
     ) -> None:
         self._intent_detector = intent_detector
         self._history_provider = history_provider
         self._system_prompt = system_prompt
+        self._user_facts_provider = user_facts_provider
         self._slot_filler = slot_filler
         self._tool_registry = tool_registry
         self._retrieval_pipeline = retrieval_pipeline or {}
@@ -795,6 +801,10 @@ class NodeFactory:
         filled = state.get("filled_slots") or {}
         if filled:
             context_note = "对话中已知信息：" + "，".join(f"{k}={v}" for k, v in filled.items())
+        facts = await self._recall_user_facts(state)
+        if facts:
+            block = "用户长期信息：" + "；".join(facts)
+            context_note = f"{context_note}。{block}" if context_note else block
 
         try:
             history = None
@@ -1135,6 +1145,23 @@ class NodeFactory:
 
         return {"response": "抱歉，我没有理解您的意思，请重新描述。"}
 
+    async def _recall_user_facts(self, state: DialogueState | None) -> list[str]:
+        """Newest durable facts for the current user, best-effort.
+
+        Recall failures degrade to []: a memory outage must never fail
+        the chat — the worst case is an unpersonalized answer.
+        """
+        if self._user_facts_provider is None or state is None:
+            return []
+        user_id = state.get("user_id")
+        if not user_id:
+            return []
+        try:
+            return [fact for fact in await self._user_facts_provider(int(user_id)) if fact]
+        except Exception:  # noqa: BLE001 - availability over personalization
+            logger.warning("User facts recall failed; continuing without them")
+            return []
+
     async def _call_llm(
         self,
         user_content: str,
@@ -1161,8 +1188,12 @@ class NodeFactory:
         from app.services.llm.prompt_templates import PromptTemplates
 
         # Persona first: tone, grounding rules, and the handoff escape
-        # hatch are policy, not per-turn context.
+        # hatch are policy, not per-turn context. Cross-session user
+        # facts (Phase B2) extend the persona as bounded context.
         persona = self._system_prompt or PromptTemplates.get_cs_system_prompt()
+        facts = await self._recall_user_facts(state)
+        if facts:
+            persona = f"{persona}\n\n已知用户信息（跨会话，仅供个性化参考）：{'；'.join(facts)}"
         messages: list[LLMMessage] = [LLMMessage(role="system", content=persona)]
         if state is not None and self._history_provider is not None:
             try:

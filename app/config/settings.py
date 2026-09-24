@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     USER_FACT_EXTRACTION_INTERVAL: int = Field(
         default=6, description="Messages between subsequent extraction passes"
     )
+    USER_FACT_RECALL_ENABLED: bool = Field(
+        default=True,
+        description="Inject the user's cross-session facts into generation prompts (Phase B read side)",
+    )
     CHAT_STREAM_MAX_SECONDS: float = Field(
         default=120.0,
         description="Total budget for one SSE chat stream before it is cut off",

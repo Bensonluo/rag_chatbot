@@ -20,6 +20,7 @@ from typing import Any
 from app.models.database.message import Message
 from app.models.enums.message import MessageRole, MessageStatus
 from app.repositories.message_repository import MessageRepository
+from app.repositories.user_fact_repository import UserFactRepository
 from app.services.chat.chat_service import ChatMessage
 from app.services.chat.compressor import SessionCompressor
 from app.services.chat.user_fact_extractor import UserFactExtractor
@@ -158,6 +159,21 @@ class ChatMessagePersister:
                 session_id,
                 exc,
             )
+            return []
+
+    async def get_user_facts(self, *, user_id: int, limit: int = 8) -> list[str]:
+        """Newest durable facts for a user (Phase B2 recall side).
+
+        Best-effort like every persister read: a memory outage degrades
+        to no personalization, never a failed chat.
+        """
+        try:
+            async with self._session_maker() as session:
+                repo = UserFactRepository(session)
+                rows = await repo.recent_for_user(user_id=user_id, limit=limit)
+                return [row.fact for row in rows]
+        except Exception as exc:  # noqa: BLE001 - degrade to no personalization
+            logger.warning("Failed to read user facts (user=%s): %s", user_id, exc)
             return []
 
     def _schedule_compression(self, session_id: int) -> None:

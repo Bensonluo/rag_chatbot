@@ -363,3 +363,27 @@ class TestExtractionScheduling:
         await persister.drain()
 
         extractor.maybe_extract.assert_awaited_once_with(9)
+
+
+class TestUserFactsRead:
+    """Recall-side read (Phase B2): newest facts for a user, best-effort."""
+
+    async def test_returns_newest_facts_first(self, session_maker):
+        from app.repositories.user_fact_repository import UserFactRepository
+
+        async with session_maker() as session:
+            repo = UserFactRepository(session)
+            await repo.add(user_id=7, fact="用户是 PLUS 会员")
+            await repo.add(user_id=7, fact="偏好上午配送")
+
+        persister = ChatMessagePersister(session_maker=session_maker)
+        facts = await persister.get_user_facts(user_id=7, limit=8)
+
+        assert facts == ["偏好上午配送", "用户是 PLUS 会员"]
+
+    async def test_failure_degrades_to_empty(self):
+        def broken_maker():
+            raise RuntimeError("db down")
+
+        persister = ChatMessagePersister(session_maker=broken_maker)
+        assert await persister.get_user_facts(user_id=7) == []
