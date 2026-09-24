@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import TYPE_CHECKING, Any
 
 from app.core.exceptions import ExternalServiceError
@@ -15,6 +16,8 @@ from app.core.exceptions import ExternalServiceError
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 from app.services.embeddings.base import EmbeddingResult, EmbeddingServiceBase
+
+logger = logging.getLogger(__name__)
 
 
 class CachedEmbeddingService(EmbeddingServiceBase):
@@ -161,8 +164,16 @@ class CachedEmbeddingService(EmbeddingServiceBase):
                 embeddings=[], model=self.model, dimensions=self.dimensions, tokens_used=0
             )
 
-        # Try to get from cache first
-        cached = await self._get_cached_embeddings(texts)
+        # Try to get from cache first. The cache is an optimization
+        # layer, never a dependency: a Redis outage (down, timeout,
+        # eviction storm) degrades to a direct underlying call instead
+        # of amplifying into a failed retrieval leg. Fail-open iron
+        # law (docs/cache-layering-plan.md §4.3).
+        cached: dict[int, list[float] | None] = dict.fromkeys(range(len(texts)), None)
+        try:
+            cached = await self._get_cached_embeddings(texts)
+        except Exception:  # noqa: BLE001 - cache must never fail the embed
+            logger.warning("Embedding cache read failed; embedding directly", exc_info=True)
 
         # Separate cached and uncached texts
         uncached_indices = [i for i, emb in cached.items() if emb is None]
@@ -185,8 +196,12 @@ class CachedEmbeddingService(EmbeddingServiceBase):
             for idx, embedding in zip(uncached_indices, new_result.embeddings, strict=True):
                 result_embeddings[idx] = embedding
 
-            # Cache the new embeddings
-            await self._set_cached_embeddings(uncached_texts, new_result.embeddings)
+            # Cache the new embeddings (fail-open: a failed write only
+            # means the next call re-embeds these texts)
+            try:
+                await self._set_cached_embeddings(uncached_texts, new_result.embeddings)
+            except Exception:  # noqa: BLE001 - cache must never fail the embed
+                logger.warning("Embedding cache write failed; continuing uncached", exc_info=True)
 
         # Every index is filled from cache or fresh generation; a None
         # here means a bookkeeping bug — fail loudly instead of returning

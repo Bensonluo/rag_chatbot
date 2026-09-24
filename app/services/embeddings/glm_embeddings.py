@@ -45,7 +45,7 @@ class GLMEmbeddingService(EmbeddingServiceBase):
     # Available GLM embedding models
     MODELS = {
         "embedding-2": 1024,  # GLM embedding v2 (recommended)
-        "embedding-3": 1024,  # GLM embedding v3 (if available)
+        "embedding-3": 2048,  # GLM embedding v3 — live-verified 2048 dims
     }
 
     # GLM API base URL

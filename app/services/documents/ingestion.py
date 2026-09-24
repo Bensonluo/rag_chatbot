@@ -21,6 +21,7 @@ from app.services.embeddings import EmbeddingFactory
 from app.services.embeddings.base import EmbeddingServiceBase
 from app.services.graph.base import GraphClient
 from app.services.graph.extraction.base import EntityExtractor
+from app.services.retrieval.kb_epoch import bump_kb_epoch
 from app.services.retrieval.qdrant_client import QdrantClient
 
 
@@ -41,6 +42,13 @@ class DocumentIngestionService:
         "semantic": SemanticChunking,
         "recursive": RecursiveCharacterChunking,
     }
+
+    # Embedding API batch ceiling. GLM's embedding endpoint caps a
+    # request at 64 texts and ~8-10K total tokens; a whole-document
+    # call HTTP-400s any real policy doc (>~20 chunks of ~400 tokens)
+    # and fails the entire ingestion. 16 chunks ≈ 6.4K tokens worst
+    # case — under every measured cap with margin.
+    EMBEDDING_BATCH_SIZE = 16
 
     def __init__(
         self,
@@ -149,12 +157,22 @@ class DocumentIngestionService:
         if not chunks:
             raise ValidationError("Document chunking produced no chunks")
 
-        # Generate embeddings for chunks
+        # Generate embeddings for chunks in provider-safe batches (see
+        # EMBEDDING_BATCH_SIZE). Results are re-concatenated in order;
+        # tokens are summed across batches for the ingestion report.
         chunk_texts = [chunk.content for chunk in chunks]
-        embedding_result = await self.embedding_service.embed(chunk_texts)
+        vectors: list[list[float]] = []
+        total_tokens = 0
+        embedding_model = ""
+        for start in range(0, len(chunk_texts), self.EMBEDDING_BATCH_SIZE):
+            embedding_result = await self.embedding_service.embed(
+                chunk_texts[start : start + self.EMBEDDING_BATCH_SIZE]
+            )
+            vectors.extend(embedding_result.embeddings)
+            total_tokens += embedding_result.tokens_used
+            embedding_model = embedding_result.model
 
         # Store in Qdrant
-        vectors = embedding_result.embeddings
         payloads = [
             {
                 "chunk_id": chunk.chunk_id,
@@ -174,6 +192,9 @@ class DocumentIngestionService:
         await self.qdrant_client.add(
             ids=[chunk.chunk_id for chunk in chunks], vectors=vectors, payloads=payloads
         )
+        # Successful mutation → rotate the KB epoch so every
+        # epoch-scoped cache (L0 answer cache) invalidates wholesale.
+        await bump_kb_epoch()
 
         # Extract entities for knowledge graph (if configured)
         graph_entities_count = 0
@@ -236,8 +257,8 @@ class DocumentIngestionService:
             "document_id": document_id,
             "title": title,
             "chunks_count": len(chunks),
-            "total_tokens": embedding_result.tokens_used,
-            "embedding_model": embedding_result.model,
+            "total_tokens": total_tokens,
+            "embedding_model": embedding_model,
             "chunking_strategy": self.chunking_strategy,
             "graph_entities_extracted": graph_entities_count,
             "graph_relations_extracted": graph_relations_count,
@@ -348,5 +369,9 @@ class DocumentIngestionService:
         # For now, we'll use the client's delete method with filter
 
         deleted_count = await self.qdrant_client.delete_by_filter({"document_id": document_id})
+        # A delete that removed chunks is a KB mutation → rotate the
+        # epoch (no-op on an empty delete; content did not change).
+        if deleted_count:
+            await bump_kb_epoch()
 
         return {"document_id": document_id, "deleted_chunks": deleted_count}

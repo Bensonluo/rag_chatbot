@@ -126,3 +126,92 @@ async def test_graph_relations_reference_the_entities_written_for_the_chunk() ->
     assert relation.target_entity_id == "entity-process"
     assert result["graph_entities_extracted"] == 2
     assert result["graph_relations_extracted"] == 1
+
+
+@pytest.mark.asyncio
+async def test_ingest_text_batches_embedding_calls_at_16() -> None:
+    """Docs with many chunks must not blow the embedding API request caps.
+
+    GLM's embedding endpoint rejects >64 texts / ~8-10K total tokens per
+    request; the whole document used to ride one unbatched call, so any
+    real policy doc (>~20 chunks) failed ingestion wholesale with an
+    HTTP 400. Batches are capped at 16 (≈6.4K tokens worst case) and
+    re-concatenated in order.
+    """
+    qdrant_client = Mock()
+    qdrant_client.add = AsyncMock()
+
+    batch_sizes: list[int] = []
+
+    async def fake_embed(texts: list[str]) -> EmbeddingResult:
+        batch_sizes.append(len(texts))
+        return EmbeddingResult(
+            embeddings=[[float(i)] for i in range(len(texts))],
+            model="demo-embedding",
+            dimensions=1,
+            tokens_used=len(texts),
+        )
+
+    embedding_service = Mock()
+    embedding_service.embed = fake_embed
+
+    with patch(
+        "app.services.documents.ingestion.EmbeddingFactory.create",
+        return_value=embedding_service,
+    ):
+        service = DocumentIngestionService(
+            qdrant_client=qdrant_client,
+            chunking_strategy="fixed",
+            max_chunk_size=20,
+            chunk_overlap=0,
+        )
+
+    result = await service.ingest_text(
+        text="退款政策条款内容持续说明。" * 40, title="大文档", document_id="doc-big"
+    )
+
+    chunks_count = result["chunks_count"]
+    assert chunks_count > 16, "test premise: enough chunks to force multiple batches"
+    assert len(batch_sizes) > 1
+    assert all(size <= DocumentIngestionService.EMBEDDING_BATCH_SIZE for size in batch_sizes)
+    assert sum(batch_sizes) == chunks_count
+    # Vectors re-concatenated in order: qdrant receives one vector per chunk.
+    vectors = qdrant_client.add.await_args.kwargs["vectors"]
+    assert len(vectors) == chunks_count
+    # Tokens are summed across batches for the ingestion report.
+    assert result["total_tokens"] == chunks_count
+
+
+@pytest.mark.asyncio
+async def test_ingest_and_delete_rotate_kb_epoch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every successful Qdrant mutation rotates the KB epoch so
+    epoch-scoped caches (L0 answer cache) invalidate wholesale."""
+    from app.services.documents import ingestion as ingestion_module
+
+    bump = AsyncMock()
+    monkeypatch.setattr(ingestion_module, "bump_kb_epoch", bump)
+
+    qdrant_client = Mock()
+    qdrant_client.add = AsyncMock()
+    embedding_service = Mock()
+    embedding_service.embed = AsyncMock(
+        return_value=EmbeddingResult(
+            embeddings=[[0.1]], model="demo-embedding", dimensions=1, tokens_used=1
+        )
+    )
+    service = DocumentIngestionService(
+        qdrant_client=qdrant_client, embedding_service=embedding_service
+    )
+
+    await service.ingest_text("退货政策。", "小文档", document_id="doc-a")
+    assert bump.await_count == 1
+
+    # An empty delete changed no content — no rotation.
+    qdrant_client.delete_by_filter = AsyncMock(return_value=0)
+    await service.delete_document("doc-a")
+    assert bump.await_count == 1
+
+    # A real delete is a mutation — rotate.
+    qdrant_client.delete_by_filter = AsyncMock(return_value=3)
+    await service.delete_document("doc-a")
+    assert bump.await_count == 2

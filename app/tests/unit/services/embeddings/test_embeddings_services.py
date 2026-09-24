@@ -169,3 +169,52 @@ class TestOpenAIEmbeddingService:
 
         assert small.dimensions == 1536
         assert large.dimensions == 3072
+
+
+class TestCachedEmbeddingFailOpen:
+    """Fail-open iron law: a Redis outage degrades to a direct underlying
+    call instead of amplifying into a failed retrieval leg.
+
+    Before this fix, ``_get_redis`` raised ExternalServiceError on
+    connection failure and took the vector leg down with it.
+    """
+
+    def _broken_redis(self) -> Mock:
+        redis = Mock()
+        redis.mget = AsyncMock(side_effect=ConnectionError("redis down"))
+        pipeline = Mock()
+        pipeline.setex = Mock()
+        pipeline.execute = AsyncMock(side_effect=ConnectionError("redis down"))
+        redis.pipeline = Mock(return_value=pipeline)
+        return redis
+
+    async def test_read_failure_degrades_to_direct_embed(self) -> None:
+        underlying = _underlying([[1.0, 0.0]])
+        service = _cached_service(underlying, self._broken_redis())
+
+        result = await service.embed(["hello"])
+
+        underlying.embed.assert_awaited_once_with(["hello"])
+        assert result.embeddings == [[1.0, 0.0]]
+
+    async def test_write_failure_still_returns_embeddings(self) -> None:
+        underlying = _underlying([[0.5, 0.5]])
+        redis = _redis_stub([None])  # read ok...
+        pipeline = Mock()
+        pipeline.setex = Mock()
+        pipeline.execute = AsyncMock(side_effect=ConnectionError("redis down"))  # ...write fails
+        redis.pipeline = Mock(return_value=pipeline)
+
+        service = _cached_service(underlying, redis)
+        result = await service.embed(["hello"])
+
+        assert result.embeddings == [[0.5, 0.5]]
+        underlying.embed.assert_awaited_once()
+
+    async def test_read_and_write_failure_returns_correct_result(self) -> None:
+        underlying = _underlying([[1.0], [2.0], [3.0]])
+        service = _cached_service(underlying, self._broken_redis())
+
+        result = await service.embed(["a", "b", "c"])
+
+        assert result.embeddings == [[1.0], [2.0], [3.0]]
