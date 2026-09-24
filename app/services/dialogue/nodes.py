@@ -1213,11 +1213,7 @@ class NodeFactory:
             # the queue is already gated, and the returned text is the
             # emitted text — stream and persistence cannot diverge.
             gate = None
-            if (
-                state is not None
-                and not state.get("blocked")
-                and not state.get("tool_result")
-            ):
+            if state is not None and not state.get("blocked") and not state.get("tool_result"):
                 from app.services.facts.stream_gate import make_stream_gate
 
                 gate = make_stream_gate(state.get("message", ""))

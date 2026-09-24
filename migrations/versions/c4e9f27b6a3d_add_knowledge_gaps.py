@@ -55,7 +55,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        op.f("ix_knowledge_gaps_normalized_query"), table_name="knowledge_gaps"
-    )
+    op.drop_index(op.f("ix_knowledge_gaps_normalized_query"), table_name="knowledge_gaps")
     op.drop_table("knowledge_gaps")
