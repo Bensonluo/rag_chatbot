@@ -86,8 +86,9 @@ class SummarizationMemory(MemoryStrategy):
                 )
             )
 
-        # Add recent messages
-        for msg in recent:
+        # Add recent messages. The repo returns newest-first rows; reverse
+        # so recent turns are chronological after the summary message.
+        for msg in reversed(recent):
             context.append(
                 MessageContent(
                     role=msg.role,

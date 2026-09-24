@@ -251,6 +251,49 @@ class TestTicketSummary:
         # the reuse path never reaches it either.
         assert llm.calls == 0
 
+    async def test_summary_prompt_receives_chronological_transcript(self, session_maker):
+        """The summarizer transcript reads oldest → newest, like a chat log."""
+        from datetime import datetime, timedelta
+
+        from app.models.database.message import Message
+        from app.models.enums.message import MessageRole
+
+        base = datetime(2026, 1, 1, 12, 0, 0)
+        async with session_maker() as session:
+            session.add(
+                Message(
+                    session_id=3,
+                    role=MessageRole.USER,
+                    content="第一条",
+                    created_at=base,
+                )
+            )
+            session.add(
+                Message(
+                    session_id=3,
+                    role=MessageRole.ASSISTANT,
+                    content="第二条",
+                    created_at=base + timedelta(seconds=1),
+                )
+            )
+            session.add(
+                Message(
+                    session_id=3,
+                    role=MessageRole.USER,
+                    content="第三条",
+                    created_at=base + timedelta(seconds=2),
+                )
+            )
+            await session.commit()
+
+        llm = _CapturingLLM()
+        service = HandoffService(session_maker=session_maker, llm_service=llm)
+
+        await service.create_ticket_for_session(3, 7, "explicit", {})
+
+        assert llm.prompt.index("第一条") < llm.prompt.index("第二条")
+        assert llm.prompt.index("第二条") < llm.prompt.index("第三条")
+
 
 class _SummaryLLM:
     """Fake LLM for service-level tests (Protocol-compatible)."""
@@ -266,3 +309,16 @@ class _SummaryLLM:
         if self.error:
             raise RuntimeError("llm down")
         return SimpleNamespace(content="用户诉求：订单 12345 未送达。")
+
+
+class _CapturingLLM:
+    """Fake LLM capturing the summary prompt for order assertions."""
+
+    def __init__(self) -> None:
+        self.prompt = ""
+
+    async def generate(self, messages: Any, **kwargs: Any) -> Any:
+        from types import SimpleNamespace
+
+        self.prompt = messages[0].content
+        return SimpleNamespace(content="摘要")

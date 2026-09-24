@@ -159,8 +159,10 @@ class HandoffService:
             )
         if not messages:
             return None
+        # Repo rows are newest-first; the transcript must read oldest →
+        # newest like a chat log.
         return await summarize_for_handoff(
-            messages, llm, timeout_seconds=self._summary_timeout_seconds
+            list(reversed(messages)), llm, timeout_seconds=self._summary_timeout_seconds
         )
 
     # ── Agent workspace (raises on conflict) ─────────────────────────────────

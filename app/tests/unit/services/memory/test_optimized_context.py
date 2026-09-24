@@ -53,8 +53,8 @@ class TestGetContextConversion:
         assert context, "expected non-empty context"
         assert all(isinstance(m, dict) for m in context)
         assert all("role" in m and "content" in m for m in context)
-        # Repo order is newest-first; recent window preserves it.
-        assert context[0]["content"] == "a"
+        # Repo order is newest-first; context is chronological (oldest first).
+        assert context[0]["content"] == "c"
 
     async def test_without_query_returns_recent_window_only(self):
         repo = _repo(_messages(["r1", "r2", "match old", "other old"]))
@@ -64,7 +64,8 @@ class TestGetContextConversion:
 
         context = await memory.get_context(session_id=1)
 
-        assert [m["content"] for m in context] == ["r1", "r2"]
+        # Chronological: the newest two, oldest of them first.
+        assert [m["content"] for m in context] == ["r2", "r1"]
 
 
 class TestRelevanceFiltering:
@@ -82,7 +83,9 @@ class TestRelevanceFiltering:
         contents = [m["content"] for m in context]
         assert "please match this" in contents
         assert "irrelevant old" not in contents
-        assert contents[:2] == ["r1", "r2"]
+        # Relevant (older) block first, then the recent window — both
+        # chronological, so combined reads like a conversation log.
+        assert contents == ["please match this", "r2", "r1"]
 
     async def test_embedding_outage_falls_back_to_recent_older_messages(self):
         """embed failures degrade to taking the newest older messages, not an error."""
@@ -97,7 +100,7 @@ class TestRelevanceFiltering:
         context = await memory.get_context(session_id=1, current_query="anything")
 
         contents = [m["content"] for m in context]
-        assert contents == ["r1", "r2", "old a"]
+        assert contents == ["old a", "r2", "r1"]
 
     async def test_token_budget_truncates_output(self):
         # Newest-first order: the short message is newest, the long one is

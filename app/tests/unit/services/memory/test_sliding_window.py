@@ -11,9 +11,9 @@ from app.services.memory.base import MessageContent
 
 
 def _repo_with_messages(messages: list[Message]) -> Any:
-    """MessageRepository mock whose get_recent_messages returns the newest N."""
+    """MessageRepository mock: rows are newest-first, returns the newest N."""
     repo = Mock()
-    repo.get_recent_messages = AsyncMock(side_effect=lambda session_id, limit: messages[-limit:])
+    repo.get_recent_messages = AsyncMock(side_effect=lambda session_id, limit: messages[:limit])
     return repo
 
 
@@ -27,9 +27,10 @@ class TestSlidingWindowMemory:
         from app.models.database.message import Message
         from app.services.memory.sliding_window import SlidingWindowMemory
 
+        # Repo contract: newest first — Msg 5 is the newest row.
         messages = [
             Message(id=i, role="user", content=f"Msg {i}", created_at=datetime.now())
-            for i in range(1, 6)
+            for i in range(5, 0, -1)
         ]
         mock_repo = _repo_with_messages(messages)
         memory = SlidingWindowMemory(message_repo=mock_repo, window_size=3)
@@ -108,9 +109,10 @@ class TestSlidingWindowMemory:
         from app.services.memory.sliding_window import SlidingWindowMemory
 
         # "Message number {i}" is 16-17 chars -> 4 estimated tokens each
+        # Repo contract: newest first — number 5 is the newest row.
         messages = [
             Message(id=i, role="user", content=f"Message number {i}", created_at=datetime.now())
-            for i in range(1, 6)
+            for i in range(5, 0, -1)
         ]
         mock_repo = _repo_with_messages(messages)
         memory = SlidingWindowMemory(message_repo=mock_repo, window_size=10)
@@ -181,3 +183,29 @@ class TestSlidingWindowMemory:
 
         # Assert
         assert context == []
+
+
+class TestChronologicalContext:
+    """get_context must emit chronological order (oldest first).
+
+    The repo returns newest-first rows ("give me the latest N"); the
+    strategy reverses them so downstream consumers — and the base
+    truncate_by_tokens "newest last" contract — see a normal
+    conversation log.
+    """
+
+    @pytest.mark.asyncio
+    async def test_get_context_reverses_repo_order(self):
+        from app.models.database.message import Message
+        from app.services.memory.sliding_window import SlidingWindowMemory
+
+        rows = [
+            Message(id=5, role="user", content="第五条", created_at=datetime.now()),
+            Message(id=4, role="assistant", content="第四条", created_at=datetime.now()),
+            Message(id=3, role="user", content="第三条", created_at=datetime.now()),
+        ]
+        memory = SlidingWindowMemory(message_repo=_repo_with_messages(rows), window_size=10)
+
+        context = await memory.get_context(session_id=1)
+
+        assert [m["content"] for m in context] == ["第三条", "第四条", "第五条"]

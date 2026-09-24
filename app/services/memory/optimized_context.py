@@ -78,16 +78,20 @@ class OptimizedContextBuilder(MemoryStrategy):
             MessageContent(role=row.role, content=row.content, timestamp=row.created_at)
             for row in rows
         ]
+        # The repo returns newest-first; flip to chronological so window
+        # slicing and the truncate_by_tokens "newest last" contract both
+        # behave as documented.
+        all_messages.reverse()
 
         if not all_messages:
             return []
 
         # 2. Always include most recent messages (for continuity)
         recent_count = min(self.max_recent_messages, len(all_messages))
-        recent_messages = all_messages[:recent_count]
+        recent_messages = all_messages[-recent_count:]
 
         # 3. Filter older messages by relevance (if query provided)
-        older_messages = all_messages[recent_count:]
+        older_messages = all_messages[:-recent_count]
         relevant_messages: list[MessageContent] = []
 
         if current_query and older_messages:
@@ -95,8 +99,9 @@ class OptimizedContextBuilder(MemoryStrategy):
                 messages=older_messages, query=current_query, max_count=self.max_relevant_messages
             )
 
-        # 4. Combine recent + relevant
-        combined = recent_messages + relevant_messages
+        # 4. Combine chronologically: relevant older block, then the
+        # recent window — reads like a conversation log, newest last.
+        combined = relevant_messages + recent_messages
 
         # 5. Truncate by tokens if needed
         budget = max_tokens or self.token_budget
@@ -126,9 +131,10 @@ class OptimizedContextBuilder(MemoryStrategy):
             # 1. Embed query once
             query_embedding = await self.embedding_service.embed_single(query)
 
-            # 2. Score each message
+            # 2. Score each message (position kept so picking by score
+            #    can still present the picks chronologically)
             scored_messages = []
-            for msg in messages:
+            for position, msg in enumerate(messages):
                 # Embed message
                 msg_embedding = await self.embedding_service.embed_single(msg["content"])
 
@@ -137,16 +143,18 @@ class OptimizedContextBuilder(MemoryStrategy):
 
                 # Only include if above threshold
                 if similarity >= self.relevance_threshold:
-                    scored_messages.append((msg, similarity))
+                    scored_messages.append((position, msg, similarity))
 
-            # 3. Sort by relevance and keep top N
-            scored_messages.sort(key=lambda x: x[1], reverse=True)
-
-            return [msg for msg, _ in scored_messages[:max_count]]
+            # 3. Pick top N by relevance, then present chronologically
+            scored_messages.sort(key=lambda x: x[2], reverse=True)
+            picked = sorted(scored_messages[:max_count], key=lambda x: x[0])
+            return [msg for _, msg, _ in picked]
 
         except Exception:
-            # Fallback: return most recent messages if embedding fails
-            return messages[:max_count]
+            # Fallback: return the newest of these older messages if
+            # embedding fails (messages are chronological → last entries
+            # are the newest).
+            return messages[-max_count:]
 
     @staticmethod
     def _cosine_similarity(embedding1: list[float], embedding2: list[float]) -> float:
@@ -177,41 +185,6 @@ class OptimizedContextBuilder(MemoryStrategy):
 
         except Exception:
             return 0.0
-
-    async def truncate_by_tokens(
-        self, messages: list[MessageContent], max_tokens: int
-    ) -> list[MessageContent]:
-        """
-        Truncate messages to fit within token limit.
-
-        Keeps most recent messages and drops oldest.
-
-        Args:
-            messages: List of messages (newest first)
-            max_tokens: Maximum tokens
-
-        Returns:
-            List[MessageContent]: Truncated list
-        """
-        if not messages:
-            return []
-
-        # Estimate tokens for each message (from newest to oldest)
-        result: list[MessageContent] = []
-        total_tokens = 0
-
-        for msg in messages:
-            # Estimate: ~4 characters per token (rough estimate)
-            msg_tokens = len(msg["content"]) // 4
-
-            if total_tokens + msg_tokens > max_tokens:
-                # Would exceed budget, stop here
-                break
-
-            result.append(msg)
-            total_tokens += msg_tokens
-
-        return result
 
     async def estimate_token_savings(self, session_id: int, current_query: str) -> dict[str, Any]:
         """

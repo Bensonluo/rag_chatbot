@@ -61,14 +61,16 @@ class SlidingWindowMemory(MemoryStrategy):
             limit=self.window_size,
         )
 
-        # Convert to MessageContent format
+        # Convert to MessageContent format. The repo returns newest-first
+        # rows; reverse so the context is chronological (newest last),
+        # matching the truncate_by_tokens contract.
         context = [
             MessageContent(
                 role=msg.role,
                 content=msg.content,
                 timestamp=msg.created_at,
             )
-            for msg in messages
+            for msg in reversed(messages)
         ]
 
         # Truncate by tokens if max_tokens specified

@@ -36,12 +36,13 @@ class TestSummarizationMemory:
             content="Conversation summary: User asked about AI",
             created_at=datetime.now(),
         )
+        # Repo contract: newest first — the assistant answer is newest.
         recent_messages = [
             Message(
-                id=2, role="user", content="What is machine learning?", created_at=datetime.now()
+                id=3, role="assistant", content="ML is a subset of AI", created_at=datetime.now()
             ),
             Message(
-                id=3, role="assistant", content="ML is a subset of AI", created_at=datetime.now()
+                id=2, role="user", content="What is machine learning?", created_at=datetime.now()
             ),
         ]
 
@@ -324,3 +325,33 @@ class TestSummarizationMemory:
 
         # Assert - 12 chars // 4 = 3 tokens
         assert count == 3
+
+
+class TestChronologicalContext:
+    """Recent turns must be chronological (oldest first), after the summary."""
+
+    @pytest.mark.asyncio
+    async def test_recent_turns_reversed_to_chronological(self):
+        from app.models.database.message import Message
+        from app.services.memory.summarization import SummarizationMemory
+
+        mock_repo = Mock()
+        memory = SummarizationMemory(
+            message_repo=mock_repo,
+            llm_service=Mock(),
+            summary_threshold=10,
+            summary_interval=5,
+        )
+
+        mock_repo.get_latest_summary = AsyncMock(return_value=None)
+        # Repo contract: newest first.
+        recent_messages = [
+            Message(id=3, role="assistant", content="答案", created_at=datetime.now()),
+            Message(id=2, role="user", content="问题", created_at=datetime.now()),
+            Message(id=1, role="assistant", content="开场白", created_at=datetime.now()),
+        ]
+        mock_repo.get_recent_messages = AsyncMock(return_value=recent_messages)
+
+        context = await memory.get_context(session_id=1)
+
+        assert [m["content"] for m in context] == ["开场白", "问题", "答案"]
