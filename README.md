@@ -2,7 +2,7 @@
 
 # GraphRAG Smart Customer Service
 
-**A personal technical demo powered by LangGraph — 9-node dialogue graph, Function Calling, hybrid RAG, and GraphRAG retrieval.**
+**A personal technical demo powered by LangGraph — 12-node dialogue graph, Function Calling, agent tool loop, hybrid RAG, claim-gated streaming, and human handoff.**
 
 [![Live Demo](https://img.shields.io/badge/LIVE-DEMO-brightgreen?style=for-the-badge&logo=vercel)](https://benluo.art/projects/rag-chatbot/)
 [![GitHub stars](https://img.shields.io/github/stars/Bensonluo/rag_chatbot?style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/stargazers)
@@ -13,7 +13,7 @@
 [![LangGraph](https://img.shields.io/badge/LangGraph-StateGraph-FF6B6B)](https://github.com/langchain-ai/langgraph)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 
-`intent routing → slot filling → tool call / hybrid retrieval → GraphRAG (optional)`
+`intent routing → slot filling / tool call / FAQ fast path / agent loop / hybrid retrieval → claim-gated streaming → handoff`
 
 </div>
 
@@ -43,6 +43,8 @@ Most "RAG chatbot" tutorials stop at a single vector search call. **Real custome
 - ❌ You need function calling to actually execute refunds, not just chat about them
 - ❌ Knowledge questions and task questions need different handling paths
 - ❌ PII leakage and prompt injection are real attack vectors
+- ❌ A streaming LLM can state numbers the policy never approved
+- ❌ Some turns need a human — the bot has to know when and how to hand off
 
 This project explores those problems with a **LangGraph StateGraph**. It is deliberately an architecture-focused personal demo: easy to read, run, modify, and discuss in an interview or technical review.
 
@@ -63,31 +65,33 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 
 | 🎯 Dialogue Engine | 🔧 Function Calling | 📚 RAG |
 |:---:|:---:|:---:|
-| **9-node** StateGraph | **5** mock tools | Hybrid + GraphRAG |
+| **12-node** StateGraph | **5** mock tools | Hybrid + GraphRAG |
 | Intent switch & resume | ToolRegistry pattern | Vector + BM25 + RRF |
-| Slot filling | Task → tool → response | Cross-Encoder reranking |
+| FAQ fast path + agent loop | Task → tool → response | Cross-Encoder reranking |
 
-| 🛡️ Safety | 📊 Observability | 🚀 Runtime |
+| 🛡️ Safety | 📊 Observability | 🤝 Human in the loop |
 |:---:|:---:|:---:|
-| Input/Output guardrails | OpenTelemetry tracing | Docker Compose |
-| Prompt injection detection | Prometheus + Grafana | Compose + optional K8s example |
-| PII redaction | Token & latency metrics | Health checks |
+| Input/Output guardrails | OpenTelemetry tracing | Handoff tickets + queue/AHT |
+| Claim-gated streaming | Prometheus + Grafana | Knowledge-gap closeout |
+| PII redaction + `<think>` filtering | TTFT/duration/outcome + alert rules | Cross-session user memory |
 
 | 📈 Stats | | |
 |:---:|:---:|:---:|
-| **395** maintained tests | **3** LLM providers | **79.92%** core coverage |
-| **9** dialogue nodes | **4** data stores | **4** memory strategies |
+| **1295** maintained tests | **3** LLM providers | **85.67%** core coverage |
+| **12** dialogue nodes | **5** data stores | **4** memory strategies |
 
 </div>
 
 ### 🧠 What makes it different
 
-1. **LangGraph StateGraph, not a chain** — 9 nodes with conditional edges, checkpointed for resume
+1. **LangGraph StateGraph, not a chain** — 12 nodes with conditional edges, checkpointed for resume
 2. **Intent switch with state stack** — push/pop pattern to save & restore in-flight tasks
-3. **Tri-route dispatch** — task → tool execution / RAG → retrieval / direct → LLM
-4. **GraphRAG (optional)** — Neo4j knowledge graph + Text-to-Cypher + community detection
-5. **Hybrid retrieval** — vector (Qdrant) + BM25 keyword → RRF fusion → Cross-Encoder rerank
-6. **Observable demo runtime** — `/metrics`, optional Prometheus/Grafana profile, and tracing hooks
+3. **Five-way dispatch** — task → tool execution / faq → curated direct answer / rag → retrieval / agent → tool loop / direct → LLM
+4. **Claim-gated streaming** — sentence-buffered policy checks gate what leaves the stream; stream and persistence stay identical
+5. **GraphRAG (optional)** — Neo4j knowledge graph + Text-to-Cypher + community detection
+6. **Hybrid retrieval** — vector (Qdrant) + BM25 keyword → RRF fusion → Cross-Encoder rerank
+7. **Human handoff loop** — emotion/complexity-triggered tickets with queue position and AHT, plus knowledge-gap recording
+8. **Observable demo runtime** — `/metrics`, TTFT/duration/outcome metrics, SLA + policy-gate alert rules, tracing hooks
 
 ---
 
@@ -97,13 +101,19 @@ A user says *"I want a refund"*. Here's what happens:
 
 ```
 1. guardrail        → scan for prompt injection, redact PII
-2. detect_intent    → classify: refund (task) | policy (rag) | chitchat (direct)
+2. detect_intent    → classify: refund (task) | policy (rag) | chitchat (direct) ...
 3. handle_switch    → if intent changed, push current state to stack
 4. route_intent     → dispatch to the right branch
-   ├── task → collect_slots → execute_tool → generate_response
+   ├── task  → collect_slots → execute_tool → generate_response
+   ├── faq   → faq_lookup (curated answer, no retrieval hop)
    ├── rag   → rag_lookup   → generate_response
+   ├── agent → handle_agent (LLM tool loop)
    └── direct → direct_response
-5. checkpoint       → save state by session_id (resume on next turn)
+5. generate_response → claim-gated streaming (policy numbers verified
+                        sentence-by-sentence before they leave the stream)
+6. handle_handoff   → emotion/complexity trigger → ticket + queue/AHT info
+7. checkpoint       → save state by session_id (Postgres checkpointer,
+                      resume on next turn)
 ```
 
 ### Intent Switch & Resume — the killer feature
@@ -230,11 +240,18 @@ route_intent (路由决策)
   │             ├── complete → execute_tool → generate_response → END
   │             └── missing  → generate_response (追问) → END
   │
+  ├── faq   → faq_lookup (策展命中直出) → generate_response → END
+  │
   ├── rag   → rag_lookup → generate_response → END
+  │
+  ├── agent → handle_agent (工具循环) → generate_response → END
   │
   ├── direct → direct_response → END
   │
   └── meta  → generate_response → END
+              │
+              ▼ (情绪/复杂度触发)
+          handle_handoff (转人工工单) → END
 ```
 
 ### Project Structure
@@ -246,20 +263,25 @@ rag_chatbot/
 │   ├── services/
 │   │   ├── dialogue/        # 🎯 LangGraph engine
 │   │   │   ├── graph.py     #   StateGraph construction + compile
-│   │   │   ├── nodes.py     #   9 dialogue nodes + conditional edges
+│   │   │   ├── nodes.py     #   12 dialogue nodes + conditional edges
 │   │   │   ├── state.py     #   DialogueState TypedDict
 │   │   │   └── tools.py     #   ToolRegistry + 5 mock handlers
+│   │   ├── agent/           # Agent tool loop (bounded iterations)
+│   │   ├── faq/             # Curated FAQ fast path
+│   │   ├── facts/           # Claim gate (stream) + curated facts + user_facts memory
+│   │   ├── handoff/         # Human handoff tickets, queue/AHT, knowledge gaps
 │   │   ├── retrieval/       # Hybrid search + rerank + Qdrant
 │   │   ├── graph/           # GraphRAG (Neo4j, extraction, community)
 │   │   ├── intent/          # Rule + LLM + hybrid intent detection
 │   │   ├── slot_filling/    # Per-intent slot schemas
 │   │   ├── guardrails/      # Input/output safety
 │   │   ├── memory/          # 4 memory strategies
-│   │   └── llm/             # Multi-provider LLM clients
+│   │   └── llm/             # Multi-provider LLM clients + <think> stream filter
 │   ├── models/              # ORM + Pydantic schemas
 │   ├── repositories/        # Async data access layer
 │   └── tests/               # Unit + integration + e2e
 ├── deploy/k8s/              # Kubernetes manifests
+├── deploy/prometheus/       # Alert rules (SLA / TTFT / claim gate / handoff queue)
 └── docker-compose*.yml
 ```
 
@@ -312,7 +334,7 @@ See [.env.example](.env.example) for the full list.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 395 tests / 79.92%)
+# Maintained core suite (70% minimum; currently 1295 tests / 85.67%)
 pytest
 
 # Targeted runs
@@ -336,8 +358,8 @@ mypy app/core/security.py app/services/documents/base.py \
 
 | Metric | Value |
 |--------|-------|
-| Maintained test cases | **395** |
-| Maintained core coverage | **79.92%** (70% minimum enforced locally) |
+| Maintained test cases | **1295** |
+| Maintained core coverage | **85.67%** (70% minimum enforced locally) |
 | Python files | ~200 |
 | Test files | ~58 |
 
@@ -345,13 +367,19 @@ mypy app/core/security.py app/services/documents/base.py \
 
 ## 🗺️ Roadmap
 
-- [x] LangGraph StateGraph with 9 nodes + conditional routing
+- [x] LangGraph StateGraph with 12 nodes + conditional routing
 - [x] Intent switch & resume via state stack
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 395 maintained core tests, 79.92% coverage
-- [ ] PostgresSaver checkpointing experiment
+- [x] 1295 maintained core tests, 85.67% coverage
+- [x] FAQ fast path (curated answers skip retrieval)
+- [x] Agent tool loop with bounded iterations
+- [x] Claim-gated streaming (policy numbers verified before release)
+- [x] Cross-session user memory (user_facts + TTL recall cache)
+- [x] Human handoff: tickets, queue position, AHT, knowledge-gap closeout
+- [x] Postgres checkpointer (AsyncPostgresSaver, MemorySaver fallback)
+- [x] Prometheus alert rules (SLA / TTFT / claim gate / handoff queue)
 - [ ] Fine-tuned intent classifier (replace LLM-based with small specialized model)
 - [ ] A/B testing framework for prompt variants
 - [ ] Multi-tenant knowledge bases
@@ -388,18 +416,23 @@ If this project helped you, please ⭐ star the repo — it helps others discove
 
 ## 🇨🇳 中文说明
 
-**GraphRAG 智能客服** — 基于 LangGraph 构建的个人技术 Demo，重点展示对话状态、混合检索与知识图谱链路。
+**GraphRAG 智能客服** — 基于 LangGraph 构建的个人技术 Demo，重点展示对话状态、混合检索、可靠性与可观测链路。
 
 ### 核心亮点
 
-- **LangGraph StateGraph 对话图**:9 节点编排(安全检查 → 意图识别 → 意图切换 → 路由 → 槽位/工具/RAG → 生成回复)
+- **LangGraph StateGraph 对话图**:12 节点编排(安全检查 → 意图识别 → 意图切换 → 路由 → 槽位/工具/FAQ/RAG/Agent → 生成 → 转人工)
 - **业务意图分类**:5 种任务型(退款/退货/订单查询/物流追踪/投诉)+ 知识型 + 对话型 + 元意图
+- **五路路由**:task → 槽位收集 → 工具执行;faq → 策展命中直出;rag → 检索生成;agent → 工具循环;direct → LLM 直答
 - **多轮槽位收集**:正则提取 + 短消息回退,缺槽追问
-- **Function Calling**:ToolRegistry + 5 个 Mock 工具
+- **Function Calling**:ToolRegistry + 5 个 Mock 工具 + Agent 工具循环
 - **意图切换与恢复**:State Stack 推栈保存/弹栈恢复
+- **声明门控流式输出**:句子缓冲 + 策展事实校验,越界声明拦截/改写后才放出
+- **跨会话用户记忆**:user_facts 长期画像 + TTL 召回缓存
+- **转人工兜底**:情绪/复杂度触发工单(队列位置、AHT),知识缺口记录与闭环
 - **GraphRAG**:Neo4j 知识图谱 + Text-to-Cypher + 社区发现
 - **混合检索**:向量 + BM25 → RRF 融合 → Cross-Encoder 重排序
-- **全链路可观测**:OpenTelemetry + Prometheus + Grafana
+- **全链路可观测**:OpenTelemetry + Prometheus 指标(TTFT/时长/结果)+ SLA/策略门控告警规则
+- **Checkpoint 持久化**:LangGraph Postgres Checkpointer(本地降级 MemorySaver)
 
 ### 快速开始
 
