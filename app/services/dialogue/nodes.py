@@ -45,6 +45,7 @@ from app.models.enums.intent import (
 )
 from app.services.dialogue.emotion import assess_emotion
 from app.services.dialogue.state import DialogueState
+from app.services.facts.metrics import CLAIM_CHECKS, CLAIM_VIOLATIONS
 from app.services.handoff.service import (
     REASON_EMOTION,
     REASON_EXPLICIT,
@@ -575,18 +576,63 @@ class NodeFactory:
             logger.warning("Slot extraction for retrieval enrichment failed", exc_info=True)
             return None
 
+    def _apply_claim_gate(self, state: DialogueState, updates: dict[str, Any]) -> dict[str, Any]:
+        """Deterministic policy-claim verification (Phase A2).
+
+        The LLM proposes; this gate verifies — generated duration claims
+        are checked against the message-anchored fact subgraph by range
+        entailment with subject restriction, and past-tense action
+        assertions without an executed tool are softened to guidance.
+        Violations are rewritten to grounded statements (downgrade
+        before reject), so the user always leaves with the correct
+        number. Skipped for tool-grounded responses (numbers come from
+        executed tool output by construction), blocked turns (template
+        text), empty subgraphs, and when the setting is off.
+
+        Known limitation: on the token-streamed path violating tokens
+        may have already reached the consumer; the rewrite applies to
+        the persisted/sync text (same contract as the output guardrail).
+        """
+        if state.get("blocked") or state.get("tool_result"):
+            return updates
+        response = updates.get("response", "")
+        if not response:
+            return updates
+
+        from app.config.settings import get_settings
+
+        if not get_settings().FACT_CLAIM_CHECK_ENABLED:
+            return updates
+
+        from app.services.facts.claim_check import apply_violations, check_policy_claims
+        from app.services.facts.fact_store import FactStore
+
+        facts = FactStore.load_default().subgraph_for(state.get("message", ""))
+        if not facts:
+            return updates
+
+        CLAIM_CHECKS.inc()
+        result = check_policy_claims(response, facts)
+        for violation in result.violations:
+            CLAIM_VIOLATIONS.labels(reason=violation.reason).inc()
+        if result.violations:
+            updates = {**updates, "response": apply_violations(response, result)}
+        return updates
+
     @traced_stage("cs.generation")
     async def generate_response_node(
         self, state: DialogueState, config: RunnableConfig | None = None
     ) -> dict[str, Any]:
         """Generate the final response, then run the output guardrail.
 
-        The inner logic builds the response; this wrapper applies the
-        output-side safety check / PII redaction before the response
+        The inner logic builds the response; this wrapper verifies
+        policy claims against the curated fact table (Phase A2), applies
+        the output-side safety check / PII redaction before the response
         leaves the graph, and emits the final text to the stream queue
         when it was not already streamed token-by-token.
         """
         updates = await self._generate_response_logic(state, config)
+        updates = self._apply_claim_gate(state, updates)
 
         if self._guardrail_service is None or state.get("blocked"):
             _emit_response(updates.get("response", ""), config)

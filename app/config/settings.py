@@ -182,6 +182,13 @@ class Settings(BaseSettings):
         description="FAQ JSON file path; empty = bundled app/services/faq/faqs.json",
     )
 
+    # Claim gate (Phase A2): verify generated policy claims (SLA days,
+    # return windows, action assertions) against the curated fact table
+    FACT_CLAIM_CHECK_ENABLED: bool = Field(
+        default=True,
+        description="Verify generated policy claims against the curated fact table before responses leave the graph",
+    )
+
     # Embedding Models
     EMBEDDING_PROVIDER: str = Field(
         default="local", description="Embedding provider (local, glm, openai)"
