@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from app.services.agent.service import AgentService
@@ -65,7 +65,7 @@ from app.services.slot_filling.slot_types import (
 logger = logging.getLogger(__name__)
 
 
-def _stream_queue(config: RunnableConfig | None) -> asyncio.Queue[Any] | None:
+def _stream_queue(config: Optional[RunnableConfig]) -> asyncio.Queue[Any] | None:
     """Extract the per-request stream queue from a LangGraph invoke config."""
     if config is None:
         return None
@@ -73,7 +73,7 @@ def _stream_queue(config: RunnableConfig | None) -> asyncio.Queue[Any] | None:
     return queue if isinstance(queue, asyncio.Queue) else None
 
 
-def _emit_response(text: str, config: RunnableConfig | None) -> None:
+def _emit_response(text: str, config: Optional[RunnableConfig]) -> None:
     """Push a complete response to the stream queue.
 
     Terminal nodes call this after producing their final response. LLM
@@ -438,7 +438,7 @@ class NodeFactory:
 
     @traced_stage("cs.tool")
     async def execute_tool_node(
-        self, state: DialogueState, config: RunnableConfig | None = None
+        self, state: DialogueState, config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         """Execute the tool associated with the current intent.
 
@@ -476,7 +476,7 @@ class NodeFactory:
 
     @traced_stage("cs.faq")
     async def faq_lookup_node(
-        self, state: DialogueState, config: RunnableConfig | None = None
+        self, state: DialogueState, config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         """Serve a curated FAQ answer by semantic match, skipping RAG.
 
@@ -664,7 +664,7 @@ class NodeFactory:
 
     @traced_stage("cs.generation")
     async def generate_response_node(
-        self, state: DialogueState, config: RunnableConfig | None = None
+        self, state: DialogueState, config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         """Generate the final response, then run the output guardrail.
 
@@ -694,7 +694,7 @@ class NodeFactory:
         return updates
 
     async def _generate_response_logic(
-        self, state: DialogueState, config: RunnableConfig | None = None
+        self, state: DialogueState, config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         """Generate the final response based on the current state.
 
@@ -737,7 +737,7 @@ class NodeFactory:
 
     @traced_stage("cs.direct")
     async def direct_response_node(
-        self, state: DialogueState, config: RunnableConfig | None = None
+        self, state: DialogueState, config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         """Simple LLM call for chitchat / greeting."""
         message = state.get("message", "")
@@ -746,7 +746,7 @@ class NodeFactory:
 
     @traced_stage("cs.handoff")
     async def handle_handoff_node(
-        self, state: DialogueState, config: RunnableConfig | None = None
+        self, state: DialogueState, config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         """Escalate the session to a human agent.
 
@@ -812,7 +812,7 @@ class NodeFactory:
 
     @traced_stage("cs.agent")
     async def handle_agent_node(
-        self, state: DialogueState, config: RunnableConfig | None = None
+        self, state: DialogueState, config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         """Run the function-calling agent loop for a task intent.
 
@@ -1054,7 +1054,7 @@ class NodeFactory:
         message: str,
         tool_result: dict[str, Any],
         state: DialogueState,
-        config: RunnableConfig | None = None,
+        config: Optional[RunnableConfig] = None,
     ) -> dict[str, Any]:
         """Generate response incorporating tool execution results."""
         display_name = INTENT_DISPLAY_NAMES.get(intent, intent)
@@ -1074,7 +1074,7 @@ class NodeFactory:
         message: str,
         retrieved_docs: list[dict[str, Any]],
         state: DialogueState,
-        config: RunnableConfig | None = None,
+        config: Optional[RunnableConfig] = None,
     ) -> dict[str, Any]:
         """Generate response incorporating retrieved documents."""
         docs_text = "\n\n".join(
@@ -1092,7 +1092,7 @@ class NodeFactory:
     async def _generate_direct(
         self,
         message: str,
-        config: RunnableConfig | None = None,
+        config: Optional[RunnableConfig] = None,
         state: DialogueState | None = None,
     ) -> dict[str, Any]:
         """Generate a direct response without additional context."""
@@ -1100,7 +1100,7 @@ class NodeFactory:
         return {"response": response_text}
 
     async def _handle_meta_intent(
-        self, state: DialogueState, config: RunnableConfig | None = None
+        self, state: DialogueState, config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
         """Handle confirm / deny / cancel meta intents.
 
@@ -1204,7 +1204,7 @@ class NodeFactory:
     async def _call_llm(
         self,
         user_content: str,
-        config: RunnableConfig | None = None,
+        config: Optional[RunnableConfig] = None,
         state: DialogueState | None = None,
     ) -> str:
         """Call the LLM service with the recent turns plus this message.

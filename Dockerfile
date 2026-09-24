@@ -12,8 +12,8 @@ ENV PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
 ENV PIP_DEFAULT_TIMEOUT=300
 
 # Use Chinese apt mirror for faster downloads
-RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
-    sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
+RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list 2>/dev/null || true
 
 # Install system dependencies with build tools
 RUN apt-get update && apt-get install -y \
@@ -30,13 +30,14 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Upgrade pip and install build tools FIRST (separate layer for caching)
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
+    --upgrade pip setuptools wheel
 
 # pyproject.toml is the dependency source of truth. Copy only package metadata
 # and source first so dependency installation remains a cacheable layer.
 COPY pyproject.toml README.md LICENSE ./
 COPY app ./app
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ .
 
 # Stage 2: Runtime
 FROM python:3.11-slim as runtime
@@ -47,8 +48,8 @@ ENV PYTHONUNBUFFERED=1
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Use Chinese apt mirror for faster downloads
-RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
-    sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
+RUN sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|deb.debian.org|mirrors.ustc.edu.cn|g' /etc/apt/sources.list 2>/dev/null || true
 
 # Install runtime dependencies (including netcat for health checks)
 RUN apt-get update && apt-get install -y \

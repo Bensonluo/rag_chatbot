@@ -149,6 +149,13 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # unused imports
 "app/tests/**/*.py" = ["ARG"]  # unused fixture arguments in tests
+# Node config params must keep typing.Optional: this file has `from __future__
+# import annotations`, so annotations stringify, and langgraph's injection check
+# only accepts the string "Optional[RunnableConfig]" — NOT "RunnableConfig | None".
+"app/services/dialogue/nodes.py" = ["UP045"]
+# The contract test mirrors langgraph's accepted-annotation whitelist verbatim,
+# which by definition contains Optional[RunnableConfig] itself.
+"app/tests/unit/services/dialogue/test_node_config_injection.py" = ["UP045"]
 
 [tool.ruff.format]
 quote-style = "double"
