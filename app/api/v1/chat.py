@@ -330,6 +330,7 @@ async def chat_stream(
                 session_id=request.session_id,
                 message=request.message,
                 user_id=user_id or 0,
+                stream_max_seconds=settings.CHAT_STREAM_MAX_SECONDS,
             ):
                 if chunk == HEARTBEAT:
                     # SSE comment keepalive — ignored by EventSource parsers,

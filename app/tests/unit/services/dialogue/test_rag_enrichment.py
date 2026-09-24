@@ -211,3 +211,70 @@ class TestMetadataFilters:
 
         assert hybrid.search.await_args.args[0].filters is None
         assert hybrid.search.await_count == 1
+
+
+def _counter_value(name: str) -> float:
+    from prometheus_client import REGISTRY
+
+    value = REGISTRY.get_sample_value(name)
+    return value if value is not None else 0.0
+
+
+class TestRetrievalFilterMetrics:
+    """The filtered-search funnel is observable: searches vs fallbacks.
+
+    A fallback rate pinned at 100% means the chunk-metadata contract is
+    never populated (filters are pure overhead); the ratio is the signal
+    that closes the loop on the metadata-filter design.
+    """
+
+    @pytest.mark.asyncio
+    async def test_filtered_hit_increments_searches_only(self):
+        result = SimpleNamespace(document_id="d1", content="政策", score=0.9)
+        hybrid = Mock()
+        hybrid.search = AsyncMock(return_value=[result])
+        factory = _make_factory(hybrid=hybrid, filler=_filler(SLOT_PRODUCT))
+
+        before = (
+            _counter_value("retrieval_filtered_searches_total"),
+            _counter_value("retrieval_filter_fallbacks_total"),
+        )
+        await factory.rag_lookup_node({"message": "iPhone 退款", "intent": "question"})
+        after = (
+            _counter_value("retrieval_filtered_searches_total"),
+            _counter_value("retrieval_filter_fallbacks_total"),
+        )
+
+        assert after[0] - before[0] == 1.0
+        assert after[1] - before[1] == 0.0
+
+    @pytest.mark.asyncio
+    async def test_filtered_miss_increments_fallback(self):
+        result = SimpleNamespace(document_id="d1", content="政策", score=0.9)
+        hybrid = Mock()
+        hybrid.search = AsyncMock(side_effect=[[], [result]])
+        factory = _make_factory(hybrid=hybrid, filler=_filler(SLOT_PRODUCT))
+
+        before = _counter_value("retrieval_filter_fallbacks_total")
+        await factory.rag_lookup_node({"message": "iPhone 退款", "intent": "question"})
+        after = _counter_value("retrieval_filter_fallbacks_total")
+
+        assert after - before == 1.0
+
+    @pytest.mark.asyncio
+    async def test_unfiltered_search_touches_no_counters(self):
+        hybrid = Mock()
+        hybrid.search = AsyncMock(return_value=[])
+        factory = _make_factory(hybrid=hybrid, filler=_filler(SLOT_ISSUE))
+
+        before = (
+            _counter_value("retrieval_filtered_searches_total"),
+            _counter_value("retrieval_filter_fallbacks_total"),
+        )
+        await factory.rag_lookup_node({"message": "手机坏了", "intent": "question"})
+        after = (
+            _counter_value("retrieval_filtered_searches_total"),
+            _counter_value("retrieval_filter_fallbacks_total"),
+        )
+
+        assert after == before

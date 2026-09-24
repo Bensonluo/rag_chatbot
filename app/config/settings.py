@@ -73,6 +73,11 @@ class Settings(BaseSettings):
         description="Tighter per-IP budget for LLM-backed chat endpoints (Redis-backed)",
     )
 
+    CHAT_STREAM_MAX_SECONDS: float = Field(
+        default=120.0,
+        description="Total budget for one SSE chat stream before it is cut off",
+    )
+
     # Vector DB Service (external)
     VECTOR_DB_URL: str = Field(
         default="http://localhost:6333", description="Vector database service URL"

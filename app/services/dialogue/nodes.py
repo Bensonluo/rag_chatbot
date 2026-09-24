@@ -48,6 +48,10 @@ from app.services.handoff.service import (
     REASON_EMOTION,
     REASON_EXPLICIT,
 )
+from app.services.retrieval.metrics import (
+    RETRIEVAL_FILTER_FALLBACKS,
+    RETRIEVAL_FILTERED_SEARCHES,
+)
 from app.services.slot_filling.slot_types import (
     extract_slots_from_message,
     get_missing_slots,
@@ -523,9 +527,12 @@ class NodeFactory:
                 filters = (
                     intersect_metadata_filters(fill_result.to_filters()) if fill_result else {}
                 )
+                if filters:
+                    RETRIEVAL_FILTERED_SEARCHES.inc()
                 search_req = VectorSearchRequest(query=query, top_k=3, filters=filters or None)
                 search_results = await hybrid_search.search(search_req)
                 if not search_results and filters:
+                    RETRIEVAL_FILTER_FALLBACKS.inc()
                     # A metadata miss must not zero out recall: retry unfiltered.
                     search_req = VectorSearchRequest(query=query, top_k=3)
                     search_results = await hybrid_search.search(search_req)

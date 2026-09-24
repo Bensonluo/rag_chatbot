@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.chat import get_chat_service
+from app.config.settings import settings
 from app.services.chat.chat_service import STREAM_ERROR
 
 
@@ -209,6 +210,24 @@ class TestChatEndpoints:
         assert "data: [DONE]" in body
         # The error frame must precede the terminator.
         assert body.index("data: [STREAM_ERROR]") < body.index("data: [DONE]")
+
+    def test_chat_stream_uses_configured_max_duration(self, client, mock_chat_service, monkeypatch):
+        """The stream budget comes from settings, not a hardcoded default."""
+
+        captured = {}
+
+        async def mock_stream(**kwargs):
+            captured.update(kwargs)
+            yield "你好"
+
+        mock_chat_service.process_message_stream = mock_stream
+        self._override_chat_service(client.app, mock_chat_service)
+        monkeypatch.setattr(settings, "CHAT_STREAM_MAX_SECONDS", 0.5)
+
+        response = client.post("/api/v1/chat/stream", json={"message": "Hi", "session_id": 1})
+
+        assert response.status_code == 200
+        assert captured["stream_max_seconds"] == 0.5
 
 
 class TestChatSchemas:
