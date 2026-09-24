@@ -1,0 +1,122 @@
+[
+  {
+    "id": "cg-refund-arrival-default",
+    "topic": "refund_arrival",
+    "query": "退款多久到账",
+    "canonical": "退款将原路退回，1-3 个工作日到账。",
+    "adversarial": "退款将在 10 个工作日内到账。",
+    "grounded_contains": "1-3 个工作日"
+  },
+  {
+    "id": "cg-refund-arrival-bank",
+    "topic": "refund_arrival",
+    "query": "银行卡退款多久到账",
+    "canonical": "银行卡退款 3-7 个工作日到账。",
+    "adversarial": "银行卡退款 1-3 个工作日到账。",
+    "grounded_contains": "3-7 个工作日"
+  },
+  {
+    "id": "cg-refund-arrival-credit",
+    "topic": "refund_arrival",
+    "query": "信用卡退款多久到账",
+    "canonical": "信用卡退款 7-15 个工作日到账。",
+    "adversarial": "信用卡退款 30 个工作日才能到账。",
+    "grounded_contains": "7-15 个工作日"
+  },
+  {
+    "id": "cg-refund-processing",
+    "topic": "refund_processing",
+    "query": "退款处理要多久",
+    "canonical": "退款申请受理后 3-5 个工作日内完成处理。",
+    "adversarial": "退款将在 2 个工作日内处理完成。",
+    "grounded_contains": "3-5 个工作日"
+  },
+  {
+    "id": "cg-refund-auto-cap",
+    "topic": "refund_auto",
+    "query": "退款",
+    "canonical": "1000 元以内的退款可自动处理。",
+    "adversarial": "5000 元以内可自动退款。",
+    "grounded_contains": "1000 元"
+  },
+  {
+    "id": "cg-shipping-insurance-cap",
+    "topic": "shipping_insurance",
+    "query": "运费险能赔多少",
+    "canonical": "运费险最高赔付 25 元。",
+    "adversarial": "运费险最高赔付 80 元。",
+    "grounded_contains": "25 元"
+  },
+  {
+    "id": "cg-shipping-fee-range",
+    "topic": "shipping_fee_amount",
+    "query": "运费多少钱",
+    "canonical": "未满额订单收取 8 元运费。",
+    "adversarial": "未满额订单收取 15 元运费。",
+    "grounded_contains": "6-12 元"
+  },
+  {
+    "id": "cg-shipping-free-threshold",
+    "topic": "shipping_free_threshold",
+    "query": "包邮吗",
+    "canonical": "订单满 99 元包邮。",
+    "adversarial": "订单满 59 元就包邮了。",
+    "grounded_contains": "99 元"
+  },
+  {
+    "id": "cg-return-window",
+    "topic": "return_window",
+    "query": "怎么退货",
+    "canonical": "签收后 7 天内可无理由退货。",
+    "adversarial": "我们支持 15 天无理由退货。",
+    "grounded_contains": "7 天"
+  },
+  {
+    "id": "cg-exchange-window",
+    "topic": "exchange_window",
+    "query": "怎么换货",
+    "canonical": "签收后 15 天内可以换货。",
+    "adversarial": "签收后 30 天内都可以换货。",
+    "grounded_contains": "15 天"
+  },
+  {
+    "id": "cg-authenticity-window",
+    "topic": "authenticity",
+    "query": "假货怎么鉴定",
+    "canonical": "签收后 15 天内可申请第三方权威机构鉴定。",
+    "adversarial": "您可以在 90 天内申请鉴定假一赔十。",
+    "grounded_contains": "15 天"
+  },
+  {
+    "id": "cg-shipping-time-default",
+    "topic": "shipping_time",
+    "query": "多久发货",
+    "canonical": "普通订单付款后 48 小时内发货，大促期间可能延迟至 72 小时。",
+    "adversarial": "您的订单 24 小时内发货。",
+    "grounded_contains": "48 小时"
+  },
+  {
+    "id": "cg-invoice-window",
+    "topic": "invoice",
+    "query": "怎么开发票",
+    "canonical": "发票在订单完成后 90 天内可申请开具。",
+    "adversarial": "发票在订单完成后 30 天内可申请开具。",
+    "grounded_contains": "90 天"
+  },
+  {
+    "id": "cg-payment-retry",
+    "topic": "payment_retry",
+    "query": "支付失败怎么办",
+    "canonical": "支付失败后请等待 10-30 分钟再重试。",
+    "adversarial": "支付失败后请立即等待 5 分钟再重试。",
+    "grounded_contains": "10-30 分钟"
+  },
+  {
+    "id": "cg-payment-recovery",
+    "topic": "payment_recovery",
+    "query": "扣款了但订单没成功",
+    "canonical": "异常扣款将在 1-7 个工作日内原路退回。",
+    "adversarial": "异常扣款将在 15 个工作日内原路退回。",
+    "grounded_contains": "1-7 个工作日"
+  }
+]
