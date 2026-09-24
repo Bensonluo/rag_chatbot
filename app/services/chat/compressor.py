@@ -74,20 +74,37 @@ class SessionCompressor:
         # the threshold, then one every `interval` messages.
         async with self._session_maker() as session:
             repo = MessageRepository(session)
-            count = await repo.count_messages(session_id)
+            # Summaries are not turns: count only user/assistant rows
+            # so writing a summary never shifts the next trigger.
+            count = await repo.count_turns(session_id)
             triggered = count == self._threshold or (
                 count > self._threshold and (count - self._threshold) % self._interval == 0
             )
             if not triggered:
                 return False
+            summary = await repo.get_latest_summary(session_id)
             # Newest-first rows; reverse so the transcript reads like a log.
-            messages = list(
-                reversed(await repo.get_messages_before_summary(session_id, limit=self._threshold))
+            recent = list(
+                reversed(await repo.get_recent_messages(session_id, limit=self._threshold))
             )
-        if not messages:
+        # Cumulative rolling summary: only turns AFTER the previous
+        # summary enter the window; the previous summary's text is folded
+        # in so early-session facts never drop out of context.
+        window = [msg for msg in recent if msg.role != MessageRole.SYSTEM]
+        if summary is not None:
+            window = [msg for msg in window if msg.created_at > summary.created_at]
+        if not window:
             return False
 
-        conversation_text = "\n".join(f"{msg.role}: {msg.content}" for msg in messages)
+        # .value keeps the transcript human-readable for the LLM;
+        # the str-Enum repr ("MessageRole.USER") is noise it must not parse.
+        transcript = "\n".join(f"{msg.role.value}: {msg.content}" for msg in window)
+        if summary is not None and summary.content:
+            conversation_text = (
+                f"已有的对话摘要：\n{summary.content}\n\n自上次摘要以来的新对话：\n{transcript}"
+            )
+        else:
+            conversation_text = transcript
         prompt = PromptTemplates.get_summarization_prompt(text=conversation_text, max_length=500)
         # LLM call outside any DB session — it never holds a connection.
         response = await asyncio.wait_for(

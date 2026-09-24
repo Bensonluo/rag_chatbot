@@ -4,7 +4,7 @@ Message repository for message data access.
 Provides database operations specific to the Message model.
 """
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database.message import Message
@@ -194,6 +194,24 @@ class MessageRepository(BaseRepository[Message]):
 
         for message in result.scalars().all():
             await self.delete(message)
+
+    async def count_turns(
+        self,
+        session_id: int,
+    ) -> int:
+        """
+        Count conversation turns (user/assistant) for a session.
+
+        Summary rows are compression artifacts, not turns: counting
+        them would shift every subsequent trigger boundary by one.
+        """
+        stmt = (
+            select(func.count())
+            .select_from(Message)
+            .where(Message.session_id == session_id, Message.role != "system")
+        )
+        result = await self.session.execute(stmt)
+        return int(result.scalar_one())
 
     async def count_messages(
         self,

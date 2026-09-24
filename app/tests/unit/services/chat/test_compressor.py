@@ -8,7 +8,7 @@ LangGraph pipeline never ran SummarizationMemory, so sessions past the
 that write side on the production path.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
@@ -22,7 +22,10 @@ from app.models.enums.message import MessageRole
 from app.repositories.message_repository import MessageRepository
 from app.services.chat.compressor import SessionCompressor
 
-BASE = datetime(2026, 9, 24, 10, 0, 0)
+# Seeded turns must sort BEFORE server-generated rows: SQLite's
+# CURRENT_TIMESTAMP is UTC, so the fixture baseline is UTC-naive and
+# sits 5 minutes in the past relative to the server clock.
+BASE = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=5)
 
 
 @pytest.fixture
@@ -64,6 +67,31 @@ async def _seed_messages(
                     created_at=BASE + timedelta(seconds=offset + i),
                 )
             )
+        await session.commit()
+
+
+async def _manual_summary(
+    maker: Any,
+    session_id: int,
+    content: str,
+    at: datetime,
+) -> None:
+    """Seed a summary row with an explicit timestamp.
+
+    Server-generated CURRENT_TIMESTAMP is UTC while seeded turns use
+    wall-clock-local naive datetimes; mixing the two skews the
+    created_at comparison. Explicit timestamps keep the test fully
+    deterministic.
+    """
+    async with maker() as session:
+        session.add(
+            Message(
+                session_id=session_id,
+                role=MessageRole.SYSTEM,
+                content=content,
+                created_at=at,
+            )
+        )
         await session.commit()
 
 
@@ -142,26 +170,20 @@ class TestCompressionContent:
         # oldest → newest like a chat log.
         assert prompt.index("msg00") < prompt.index("msg19")
 
-    async def test_no_uncovered_messages_skips_llm(self, session_maker):
-        """Trigger hit but everything predates is already summarized."""
+    async def test_nothing_new_since_last_summary_skips_llm(self, session_maker):
+        """Trigger hit but no uncovered turns exist since the summary."""
         async with session_maker() as session:
-            session.add(
-                Message(
-                    session_id=1,
-                    role=MessageRole.SYSTEM,
-                    content="旧摘要",
-                    created_at=BASE + timedelta(seconds=10),
+            for i in (5, 6):
+                session.add(
+                    Message(
+                        session_id=1,
+                        role=MessageRole.USER,
+                        content=f"老消息{i}",
+                        created_at=BASE + timedelta(seconds=i),
+                    )
                 )
-            )
-            session.add(
-                Message(
-                    session_id=1,
-                    role=MessageRole.USER,
-                    content="新消息",
-                    created_at=BASE + timedelta(seconds=11),
-                )
-            )
             await session.commit()
+        await _manual_summary(session_maker, 1, "旧摘要", BASE + timedelta(seconds=10))
         llm = _llm_returning("摘要")
 
         compressor = SessionCompressor(
@@ -171,6 +193,57 @@ class TestCompressionContent:
 
         assert wrote is False
         llm.generate.assert_not_awaited()
+
+
+class TestCumulativeRollingSummary:
+    """Each cycle folds the previous summary + the new window, not the
+    same pre-summary window over and over."""
+
+    async def test_second_cycle_folds_summary_and_new_window(self, session_maker):
+        # First cycle already ran: window msg00-19 summarized at t=20.
+        await _seed_messages(session_maker, session_id=1, count=20)
+        await _manual_summary(
+            session_maker, 1, "用户咨询退货，已受理", BASE + timedelta(seconds=20)
+        )
+        # New turns arrive after the summary (t=30+)
+        await _seed_messages(session_maker, session_id=1, count=10, offset=30)
+        second_llm = _llm_returning("退款已到账")
+        compressor2 = SessionCompressor(
+            session_maker=session_maker, llm_service=second_llm, threshold=20, interval=10
+        )
+        assert await compressor2.maybe_compress(session_id=1) is True
+
+        prompt = second_llm.generate.await_args.kwargs["messages"][0].content
+        # Previous summary carried forward…
+        assert "用户咨询退货，已受理" in prompt
+        # …new turns enter the window…
+        assert "msg30" in prompt
+        assert "msg39" in prompt
+        # …and already-summarized raw turns do not get re-copied.
+        assert "msg05" not in prompt
+        assert "msg19" not in prompt
+
+    async def test_latest_summary_wins_on_read(self, session_maker):
+        """The read side sees only the newest cumulative summary."""
+        from app.services.chat.persistence import ChatMessagePersister
+
+        await _seed_messages(session_maker, session_id=1, count=20)
+        await _manual_summary(session_maker, 1, "第一次摘要", BASE + timedelta(seconds=20))
+        await _seed_messages(session_maker, session_id=1, count=10, offset=30)
+        compressor = SessionCompressor(
+            session_maker=session_maker,
+            llm_service=_llm_returning("第一次摘要；随后退款到账"),
+            threshold=20,
+            interval=10,
+        )
+        assert await compressor.maybe_compress(session_id=1) is True
+
+        persister = ChatMessagePersister(session_maker=session_maker)
+        history = await persister.get_history(session_id=1, limit=50, include_summary=True)
+
+        assert history[0].role == "system"
+        assert "退款到账" in history[0].content
+        assert history[0].content.count("Previous conversation:") == 1
 
 
 class TestCompressionResilience:
