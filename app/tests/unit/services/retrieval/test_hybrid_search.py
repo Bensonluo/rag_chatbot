@@ -457,3 +457,52 @@ class TestKeywordMetadataFilters:
 
         assert vector_client.search.await_args.args[0].filters == {"product": "iPhone 13"}
         assert keyword_search.search.await_args.args[0].filters == {"product": "iPhone 13"}
+
+
+class TestKeywordRebuild:
+    """rebuild() replaces index state — deletes leave, not just adds."""
+
+    @pytest.mark.asyncio
+    async def test_rebuild_replaces_state_and_drops_deleted(self):
+        from app.services.retrieval.hybrid_search import KeywordSearch
+
+        ks = KeywordSearch()
+        await ks.add_documents(
+            [
+                {"id": "a", "content": "iPhone 退款 政策"},
+                {"id": "b", "content": "MacBook 退货 政策"},
+            ]
+        )
+
+        await ks.rebuild(
+            [
+                {"id": "b", "content": "MacBook 退货 政策"},
+                {"id": "c", "content": "保修 条款"},
+            ]
+        )
+
+        assert set(ks.documents) == {"b", "c"}
+        # The deleted doc must not surface in search results either.
+        results = await ks.search(
+            __import__(
+                "app.services.retrieval.vector_base", fromlist=["VectorSearchRequest"]
+            ).VectorSearchRequest(query="iPhone 退款", top_k=10)
+        )
+        assert [r.document_id for r in results] == []
+
+    @pytest.mark.asyncio
+    async def test_rebuild_with_empty_list_clears_index(self):
+        from app.services.retrieval.hybrid_search import KeywordSearch
+
+        ks = KeywordSearch()
+        await ks.add_documents([{"id": "a", "content": "政策"}])
+
+        await ks.rebuild([])
+
+        assert ks.documents == {}
+        results = await ks.search(
+            __import__(
+                "app.services.retrieval.vector_base", fromlist=["VectorSearchRequest"]
+            ).VectorSearchRequest(query="政策", top_k=10)
+        )
+        assert results == []

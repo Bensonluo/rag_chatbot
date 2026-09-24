@@ -60,6 +60,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Close the dialogue checkpointer's connection pool
     await checkpointer_manager.stop()
 
+    # Stop the periodic BM25 keyword-index refresher
+    from app.services.retrieval.keyword_refresh import stop_keyword_index_refresher
+
+    stop_keyword_index_refresher()
+
     # Close the shared rate-limit Redis connection
     from app.middleware.rate_limiter_redis import close_rate_limit_redis
 

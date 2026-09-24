@@ -81,6 +81,10 @@ class Settings(BaseSettings):
         default=True,
         description="Warm the BM25 leg from the vector corpus at service init",
     )
+    KEYWORD_INDEX_REFRESH_SECONDS: float = Field(
+        default=300.0,
+        description="Interval for the periodic BM25 rebuild from the vector store (0 disables)",
+    )
 
     # Vector DB Service (external)
     VECTOR_DB_URL: str = Field(

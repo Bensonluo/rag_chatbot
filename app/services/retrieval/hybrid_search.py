@@ -66,6 +66,28 @@ class KeywordSearch:
             self.documents[doc_id] = doc
             self.document_terms[doc_id] = self._extract_terms(content)
 
+    async def rebuild(
+        self,
+        documents: list[dict[str, Any]],
+    ) -> None:
+        """
+        Replace the whole index state from a document snapshot.
+
+        Unlike add_documents (upsert only), rebuild drops ids absent
+        from the snapshot — the periodic refresh relies on this to
+        expire deleted chunks. State is built fully before being
+        assigned, so a concurrent search never sees a partial index.
+
+        Args:
+            documents: Full corpus snapshot with 'id' and 'content'
+        """
+        new_documents = {doc["id"]: doc for doc in documents}
+        new_terms = {
+            doc_id: self._extract_terms(doc["content"]) for doc_id, doc in new_documents.items()
+        }
+        self.documents = new_documents
+        self.document_terms = new_terms
+
     async def search(
         self,
         request: VectorSearchRequest,

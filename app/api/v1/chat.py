@@ -25,6 +25,10 @@ from app.services.chat.factory import ChatServiceFactory
 from app.services.embeddings import EmbeddingFactory
 from app.services.llm import LLMFactory
 from app.services.retrieval import RetrievalFactory
+from app.services.retrieval.keyword_refresh import (
+    KEYWORD_INDEX_CHUNKS,
+    start_keyword_index_refresher,
+)
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -101,9 +105,19 @@ async def initialize_chat_service(
                     hybrid_search=retrieval_pipeline["hybrid_search"],
                     vector_client=qdrant_client,
                 )
+                KEYWORD_INDEX_CHUNKS.set(warmed)
                 logger.info("Keyword index warmed with %d chunks", warmed)
             except Exception as e:
                 logger.warning("Keyword index warmup skipped (vector-only): %s", e)
+        # Periodic rebuild keeps the BM25 leg in sync for documents
+        # ingested or deleted after boot (stale entries would surface
+        # deleted content — a correctness bug, not just a recall gap).
+        if settings.KEYWORD_INDEX_REFRESH_SECONDS > 0:
+            start_keyword_index_refresher(
+                hybrid_search=retrieval_pipeline["hybrid_search"],
+                vector_client=qdrant_client,
+                interval_seconds=settings.KEYWORD_INDEX_REFRESH_SECONDS,
+            )
     except Exception as e:
         logger.warning("Failed to initialize retrieval pipeline: %s", e)
 
