@@ -61,6 +61,8 @@ from app.services.slot_filling.slot_types import (
 
 logger = logging.getLogger(__name__)
 
+from app.services.observability.pipeline_tracer import traced_stage
+
 
 def _stream_queue(config: RunnableConfig | None) -> asyncio.Queue[Any] | None:
     """Extract the per-request stream queue from a LangGraph invoke config."""
@@ -130,6 +132,7 @@ class NodeFactory:
 
     # ── Nodes ────────────────────────────────────────────────────────────────
 
+    @traced_stage("cs.guardrail_input")
     async def guardrail_node(self, state: DialogueState) -> dict[str, Any]:
         """Check input message against guardrail rules.
 
@@ -162,6 +165,7 @@ class NodeFactory:
 
         return {}
 
+    @traced_stage("cs.intent")
     async def detect_intent_node(self, state: DialogueState) -> dict[str, Any]:
         """Detect user intent from the current message.
 
@@ -341,6 +345,7 @@ class NodeFactory:
 
         return {"route": "direct"}
 
+    @traced_stage("cs.slots")
     async def collect_slots_node(self, state: DialogueState) -> dict[str, Any]:
         """Extract slot values from the user message and merge with existing.
 
@@ -415,6 +420,7 @@ class NodeFactory:
             "slot_prompt": next_prompt or "",
         }
 
+    @traced_stage("cs.tool")
     async def execute_tool_node(
         self, state: DialogueState, config: RunnableConfig | None = None
     ) -> dict[str, Any]:
@@ -452,6 +458,7 @@ class NodeFactory:
         logger.warning("Tool execution failed for intent %s: %s", intent, result.message)
         return {"tool_result": {"error": result.message}, "pending_confirmation": None}
 
+    @traced_stage("cs.faq")
     async def faq_lookup_node(
         self, state: DialogueState, config: RunnableConfig | None = None
     ) -> dict[str, Any]:
@@ -492,6 +499,7 @@ class NodeFactory:
             "sources": [f"faq:{entry.faq_id}"],
         }
 
+    @traced_stage("cs.retrieval")
     async def rag_lookup_node(self, state: DialogueState) -> dict[str, Any]:
         """Retrieve relevant documents via hybrid search.
 
@@ -568,6 +576,7 @@ class NodeFactory:
             logger.warning("Slot extraction for retrieval enrichment failed", exc_info=True)
             return None
 
+    @traced_stage("cs.generation")
     async def generate_response_node(
         self, state: DialogueState, config: RunnableConfig | None = None
     ) -> dict[str, Any]:
@@ -638,6 +647,7 @@ class NodeFactory:
         # Case 5: direct LLM call.
         return await self._generate_direct(message, config, state)
 
+    @traced_stage("cs.direct")
     async def direct_response_node(
         self, state: DialogueState, config: RunnableConfig | None = None
     ) -> dict[str, Any]:
@@ -646,6 +656,7 @@ class NodeFactory:
         response = await self._generate_direct(message, config, state)
         return response
 
+    @traced_stage("cs.handoff")
     async def handle_handoff_node(
         self, state: DialogueState, config: RunnableConfig | None = None
     ) -> dict[str, Any]:
@@ -704,6 +715,7 @@ class NodeFactory:
         _emit_response(response, config)
         return updates
 
+    @traced_stage("cs.agent")
     async def handle_agent_node(
         self, state: DialogueState, config: RunnableConfig | None = None
     ) -> dict[str, Any]:

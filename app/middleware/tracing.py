@@ -100,5 +100,8 @@ class _NoOpSpan:
     ) -> None:
         pass
 
+    def end(self) -> None:
+        pass
+
     def is_recording(self) -> bool:
         return False

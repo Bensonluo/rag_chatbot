@@ -14,6 +14,8 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from app.services.observability.pipeline_tracer import traced_stage
+
 if TYPE_CHECKING:
     from app.services.chat.knowledge_gap_recorder import KnowledgeGapRecorder
     from app.services.chat.persistence import ChatMessagePersister
@@ -94,6 +96,7 @@ class ChatService:
         self.persister = persister
         self.gap_recorder = gap_recorder
 
+    @traced_stage("cs.pipeline")
     async def process_message(
         self,
         session_id: int,
@@ -157,6 +160,7 @@ class ChatService:
             metadata=metadata,
         )
 
+    @traced_stage("cs.pipeline.stream")
     async def process_message_stream(
         self,
         session_id: int,
