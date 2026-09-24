@@ -118,5 +118,29 @@
     "canonical": "异常扣款将在 1-7 个工作日内原路退回。",
     "adversarial": "异常扣款将在 15 个工作日内原路退回。",
     "grounded_contains": "1-7 个工作日"
+  },
+  {
+    "id": "cg-coupon-threshold",
+    "topic": "coupon_usage",
+    "query": "满减券怎么用",
+    "canonical": "满 300 元即可使用该满减券。",
+    "adversarial": "满 200 元就可以使用这张满减券。",
+    "grounded_contains": "满 300 元"
+  },
+  {
+    "id": "cg-coupon-discount-cap",
+    "topic": "coupon_usage",
+    "query": "满减券怎么用",
+    "canonical": "这张满减券最高减 50 元。",
+    "adversarial": "这张满减券下单立减 80 元。",
+    "grounded_contains": "50 元"
+  },
+  {
+    "id": "cg-coupon-validity",
+    "topic": "coupon_usage",
+    "query": "优惠券有效期多久",
+    "canonical": "优惠券领取后 30 天内有效。",
+    "adversarial": "优惠券有效期长达 90 天。",
+    "grounded_contains": "30 天"
   }
 ]

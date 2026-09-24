@@ -234,3 +234,63 @@ class TestApplyViolations:
         text = "退款将原路退回，1-3 个工作日到账。"
         result = check_policy_claims(text, _facts_for("退款多久到账"))
         assert apply_violations(text, result) == text
+
+
+class TestCouponClaims:
+    """Coupon/满减 claims (A2 wrap-up): 中消协 2026 上半年投诉热点正是
+    AI 客服对优惠活动作出明确承诺后经营者拒绝履约——优惠券数字是
+    Air-Canada 同款法律责任方向，拿到确定性门内。京东式满减券语义：
+    门槛（满 X 可用）+ 面额（最高减 Y）+ 有效期。"""
+
+    def test_understated_threshold_violates_and_grounds(self):
+        text = "满 200 元就可以使用这张满减券。"
+        result = check_policy_claims(text, _facts_for("满减券怎么用"))
+        assert not result.passed
+        rewritten = apply_violations(text, result)
+        assert "满 300 元" in rewritten
+
+    def test_exact_threshold_passes(self):
+        result = check_policy_claims("满 300 元即可使用该满减券。", _facts_for("满减券怎么用"))
+        assert result.passed
+
+    def test_inflated_threshold_also_corrected(self):
+        """Saying 满 350 when the threshold is 300 misleads the customer
+        into overspending — money_point semantics demand the exact number."""
+        text = "需要满 350 元才能用这张满减券。"
+        result = check_policy_claims(text, _facts_for("满减券怎么用"))
+        assert not result.passed
+        rewritten = apply_violations(text, result)
+        assert "满 300 元" in rewritten
+
+    def test_discount_over_cap_violates_and_grounds(self):
+        text = "这张满减券下单立减 80 元。"
+        result = check_policy_claims(text, _facts_for("满减券怎么用"))
+        assert not result.passed
+        rewritten = apply_violations(text, result)
+        assert "50 元" in rewritten
+
+    def test_discount_within_cap_passes(self):
+        result = check_policy_claims("这张满减券最高减 50 元。", _facts_for("满减券怎么用"))
+        assert result.passed
+
+    def test_discount_under_cap_is_conservative_pass(self):
+        result = check_policy_claims("这张满减券可以给您减免 30 元。", _facts_for("满减券怎么用"))
+        assert result.passed
+
+    def test_inflated_validity_violates_and_grounds(self):
+        text = "优惠券有效期长达 90 天。"
+        result = check_policy_claims(text, _facts_for("满减券怎么用"))
+        assert not result.passed
+        rewritten = apply_violations(text, result)
+        assert "30 天" in rewritten
+
+    def test_exact_validity_passes(self):
+        result = check_policy_claims("优惠券领取后 30 天内有效。", _facts_for("满减券怎么用"))
+        assert result.passed
+
+    def test_non_coupon_amounts_untouched(self):
+        """Order totals never bind to coupon topics."""
+        result = check_policy_claims(
+            "您的订单共 200 元，退款已原路退回。", _facts_for("订单多少钱")
+        )
+        assert result.passed

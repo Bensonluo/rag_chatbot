@@ -38,16 +38,22 @@ class TestCuratedFacts:
             assert fact.topic, f"{fact.id} has no topic"
 
     def test_each_topic_has_a_default_subject(self):
-        """Claim checking falls back to the default subject when the
-        response does not name one — every topic must define exactly one."""
+        """Claim checking falls back to default-subject facts when the
+        response does not name one. Every topic must define at least one,
+        and defaults within a topic must share a single subject: several
+        dimensions of the SAME subject may all be defaults (coupon
+        threshold/cap/validity are all 满减券), but two different subjects
+        can never both be the unnamed-subject fallback — that would make
+        「退款 X 个工作日」 ambiguous about the channel."""
         store = FactStore(FACTS_FILE)
-        topics: dict[str, int] = {}
+        defaults: dict[str, set[str]] = {}
         for fact in store.facts:
             if fact.default_subject:
-                topics[fact.topic] = topics.get(fact.topic, 0) + 1
+                defaults.setdefault(fact.topic, set()).add(fact.subject)
         all_topics = {f.topic for f in store.facts}
-        assert set(topics) == all_topics
-        assert all(count == 1 for count in topics.values())
+        assert set(defaults) == all_topics
+        for topic, subjects in defaults.items():
+            assert len(subjects) == 1, f"{topic} has ambiguous default subjects: {subjects}"
 
     def test_missing_file_degrades_to_empty(self, tmp_path: Path) -> None:
         store = FactStore(tmp_path / "nope.json")
@@ -80,6 +86,17 @@ class TestSubgraphRetrieval:
         subgraph = store.subgraph_for("运费险能赔多少")
         caps = [f for f in subgraph if f.topic == "shipping_insurance"]
         assert caps and caps[0].unit == "元"
+
+    def test_coupon_message_pulls_usage_facts(self):
+        """One coupon topic, three numeric dimensions (threshold 元 /
+        discount cap 元 / validity 天) — grounding then covers all of
+        them at once."""
+        store = FactStore(FACTS_FILE)
+        subgraph = store.subgraph_for("满减券怎么用")
+        coupon = [f for f in subgraph if f.topic == "coupon_usage"]
+        units = {f.unit for f in coupon}
+        assert {"元", "天"} <= units
+        assert len(coupon) >= 3
 
     def test_money_facts_carry_topic_keywords(self):
         """A fact with a value but no topic keywords can never bind to a

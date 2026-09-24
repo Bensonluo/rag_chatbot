@@ -236,5 +236,47 @@
     "unit": "",
     "statement": "订单满 99 元包邮，未满额收取 6-12 元基础运费。",
     "faq_id": "delivery_scope"
+  },
+  {
+    "id": "coupon_threshold",
+    "topic": "coupon_usage",
+    "subject": "满减券",
+    "anchors": ["满减", "优惠券", "券"],
+    "topic_keywords": ["满减"],
+    "subject_keywords": [],
+    "default_subject": true,
+    "kind": "money_point",
+    "value": "300",
+    "unit": "元",
+    "statement": "满减券需订单满 300 元可用，未满门槛无法使用。",
+    "faq_id": "coupon_usage"
+  },
+  {
+    "id": "coupon_discount_cap",
+    "topic": "coupon_usage",
+    "subject": "满减券",
+    "anchors": ["满减", "优惠券", "券"],
+    "topic_keywords": ["减", "抵扣"],
+    "subject_keywords": [],
+    "default_subject": true,
+    "kind": "cap",
+    "value": "50",
+    "unit": "元",
+    "statement": "满减券最高可抵扣 50 元。",
+    "faq_id": "coupon_usage"
+  },
+  {
+    "id": "coupon_validity",
+    "topic": "coupon_usage",
+    "subject": "满减券",
+    "anchors": ["满减", "优惠券", "有效期"],
+    "topic_keywords": ["有效期"],
+    "subject_keywords": [],
+    "default_subject": true,
+    "kind": "duration",
+    "value": "30",
+    "unit": "天",
+    "statement": "优惠券领取后 30 天内有效，过期作废。",
+    "faq_id": "coupon_usage"
   }
 ]
