@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph
 
     from app.services.agent.service import AgentService  # noqa: F401 (type refs below)
+    from app.services.chat.answer_cache import AnswerCacheService
     from app.services.dialogue.tools import ToolRegistry
     from app.services.faq.store import FAQService
     from app.services.graph.retrieval.graph_retrieval_service import (
@@ -52,6 +53,7 @@ def build_dialogue_graph(
     history_provider: Callable[[int], Awaitable[list[LLMMessage]]] | None = None,
     system_prompt: str | None = None,
     user_facts_provider: Callable[[int], Awaitable[list[str]]] | None = None,
+    answer_cache: AnswerCacheService | None = None,
 ) -> CompiledStateGraph[Any]:
     """Build and compile the dialogue StateGraph.
 
@@ -76,6 +78,10 @@ def build_dialogue_graph(
             When provided, RAG-bound intents first try the FAQ fast
             path; a hit ends the turn with a pre-approved answer and
             a miss continues into retrieval unchanged.
+        answer_cache: Optional AnswerCacheService (L0 exact-match
+            cache). When provided, the post-guardrail lookup node
+            replays a previously grounded answer in ~5ms on an exact
+            key hit; a miss (or None) leaves the pipeline unchanged.
 
     Returns:
         Compiled StateGraph with the requested checkpointer.
@@ -96,12 +102,14 @@ def build_dialogue_graph(
         handoff_service=handoff_service,
         agent_service=agent_service,
         faq_service=faq_service,
+        answer_cache=answer_cache,
     )
 
     graph = StateGraph(DialogueState)
 
     # ── Nodes ────────────────────────────────────────────────────────────────
     graph.add_node("guardrail", factory.guardrail_node)
+    graph.add_node("answer_cache", factory.answer_cache_lookup_node)
     graph.add_node("detect_intent", factory.detect_intent_node)
     graph.add_node("handle_switch", factory.handle_switch_node)
     graph.add_node("route_intent", factory.route_intent_node)
@@ -117,11 +125,17 @@ def build_dialogue_graph(
     # ── Fixed edges ──────────────────────────────────────────────────────────
     graph.add_edge(START, "guardrail")
 
-    # After guardrail: skip intent detection when user is answering a slot prompt.
+    # After guardrail: the L0 answer-cache lookup. A hit ends the turn
+    # with the replayed (and re-gated) answer; a miss runs the intent
+    # pipeline, including the slot-prompt skip branch. When no cache is
+    # wired the lookup node is a pure pass-through, so topology and
+    # behavior are identical to running should_skip_intent directly.
+    graph.add_edge("guardrail", "answer_cache")
     graph.add_conditional_edges(
-        "guardrail",
-        factory.should_skip_intent,
+        "answer_cache",
+        factory.route_after_cache,
         {
+            "hit": END,
             "skip": "collect_slots",
             "full": "detect_intent",
         },

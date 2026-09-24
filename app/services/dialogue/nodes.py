@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from app.services.agent.service import AgentService
+    from app.services.chat.answer_cache import AnswerCacheService
     from app.services.dialogue.tools import ToolDefinition, ToolRegistry
     from app.services.faq.store import FAQService
     from app.services.graph.retrieval.graph_retrieval_service import (
@@ -122,6 +123,11 @@ class NodeFactory:
         # context. None leaves generators persona-only; failures inside
         # the provider degrade to no personalization, never a failed chat.
         user_facts_provider: Callable[[int], Awaitable[list[str]]] | None = None,
+        # L0 exact-answer cache (docs/cache-layering-plan.md): when
+        # provided, a stateless grounded turn replays in ~5ms. None
+        # leaves the lookup node as a pure pass-through — the cache is
+        # an optimization, never a dependency.
+        answer_cache: AnswerCacheService | None = None,
     ) -> None:
         self._intent_detector = intent_detector
         self._history_provider = history_provider
@@ -136,6 +142,7 @@ class NodeFactory:
         self._handoff_service = handoff_service
         self._agent_service = agent_service
         self._faq_service = faq_service
+        self._answer_cache = answer_cache
 
     # ── Nodes ────────────────────────────────────────────────────────────────
 
@@ -173,6 +180,57 @@ class NodeFactory:
             return {"message": result.sanitized_content}
 
         return {}
+
+    @traced_stage("cs.cache")
+    async def answer_cache_lookup_node(
+        self, state: DialogueState, config: Optional[RunnableConfig] = None
+    ) -> dict[str, Any]:
+        """L0 exact-answer cache lookup (docs/cache-layering-plan.md).
+
+        Runs after the input guardrail so the lookup key uses sanitized
+        text and blocked turns never hit. A miss routes into the normal
+        pipeline unchanged; a hit skips intent → retrieval → generation
+        entirely (~5s → ~5ms). The cached answer is not trusted
+        blindly: the deterministic claim gate and output guardrail
+        re-run on every serve — near-zero-cost freshness insurance this
+        verify-everything skeleton gets for free.
+
+        Turns with in-flight user state (pending slots, staged
+        irreversible actions) skip the lookup: a cached answer cannot
+        know about them.
+        """
+        if self._answer_cache is None or state.get("blocked"):
+            return {"route_after_cache": "miss"}
+
+        if state.get("pending_slots") or state.get("pending_confirmation"):
+            return {"route_after_cache": "miss"}
+
+        cached = await self._answer_cache.get(state.get("message", ""))
+        if cached is None:
+            return {"route_after_cache": "miss"}
+
+        updates: dict[str, Any] = {
+            "route_after_cache": "hit",
+            "response": cached.response,
+            "sources": cached.sources,
+            "intent": cached.intent,
+        }
+        # Freshness insurance: re-verify with the deterministic gates
+        # before the answer leaves the graph (same contract as the FAQ
+        # fast path).
+        updates = self._gate_claims(updates, message=state.get("message", ""), check_actions=True)
+        response = updates["response"]
+        if self._guardrail_service is not None:
+            check = self._guardrail_service.check_output(response)
+            if check.was_blocked:
+                response = "抱歉，该回复未能通过安全检查，请重新提问。"
+            elif check.sanitized_content and check.sanitized_content != response:
+                response = check.sanitized_content
+        updates["response"] = response
+
+        emit_trace("cs.cache", hit=True, sources=cached.sources[:3])
+        _emit_response(response, config)
+        return updates
 
     @traced_stage("cs.intent")
     async def detect_intent_node(self, state: DialogueState) -> dict[str, Any]:
@@ -557,9 +615,22 @@ class NodeFactory:
         if hybrid_search is not None:
             try:
                 from app.services.retrieval.vector_base import (
+                    VectorClientError,
                     VectorSearchRequest,
                     intersect_metadata_filters,
                 )
+
+                async def _search_once(request: VectorSearchRequest) -> list[Any]:
+                    # HybridSearchService raises VectorClientError when both
+                    # legs come back empty — a metadata-filter miss looks
+                    # exactly like that. Normalize to [] so the unfiltered
+                    # retry below stays reachable (the raw raise used to
+                    # bypass it and zero recall on every filter miss).
+                    try:
+                        hits = await hybrid_search.search(request)
+                        return list(hits)
+                    except VectorClientError:
+                        return []
 
                 filters = (
                     intersect_metadata_filters(fill_result.to_filters()) if fill_result else {}
@@ -567,12 +638,11 @@ class NodeFactory:
                 if filters:
                     RETRIEVAL_FILTERED_SEARCHES.inc()
                 search_req = VectorSearchRequest(query=query, top_k=3, filters=filters or None)
-                search_results = await hybrid_search.search(search_req)
+                search_results = await _search_once(search_req)
                 if not search_results and filters:
                     RETRIEVAL_FILTER_FALLBACKS.inc()
                     # A metadata miss must not zero out recall: retry unfiltered.
-                    search_req = VectorSearchRequest(query=query, top_k=3)
-                    search_results = await hybrid_search.search(search_req)
+                    search_results = await _search_once(VectorSearchRequest(query=query, top_k=3))
                 retrieved_docs = [_search_result_to_dict(r) for r in search_results]
                 sources = _extract_sources(retrieved_docs)
             except Exception:
@@ -910,6 +980,14 @@ class NodeFactory:
         """End the turn on a curated FAQ hit; continue into RAG on miss."""
         return state.get("route_after_faq", "miss")
 
+    @staticmethod
+    def route_after_cache(state: DialogueState) -> str:
+        """End the turn on an answer-cache hit; otherwise run the normal
+        post-guardrail branching (the intent-skip logic)."""
+        if state.get("route_after_cache") == "hit":
+            return "hit"
+        return NodeFactory.should_skip_intent(state)
+
     # ── Conditional edges ────────────────────────────────────────────────────
 
     @staticmethod
@@ -1245,6 +1323,12 @@ class NodeFactory:
         if queue is not None:
             chunks: list[str] = []
             emitted: list[str] = []
+            # Reasoning filter first: GLM inlines <think>…</think> in the
+            # content stream; it must never reach the consumer or the gate
+            # (deliberation text quoting policy numbers would false-trip it).
+            from app.services.llm.reasoning_filter import ReasoningFilter
+
+            rf = ReasoningFilter()
             # Sentence-buffered claim gating (A2 streaming close-out):
             # armed exactly when the turn is checkable, so violating
             # policy numbers can never reach the consumer ungated while
@@ -1260,8 +1344,17 @@ class NodeFactory:
                 async for chunk in self._llm_service.generate_stream(messages):
                     if not chunk:
                         continue
-                    chunks.append(chunk)
-                    ready = gate.feed(chunk) if gate is not None else chunk
+                    clean = rf.feed(chunk)
+                    if not clean:
+                        continue
+                    chunks.append(clean)
+                    ready = gate.feed(clean) if gate is not None else clean
+                    if ready:
+                        emitted.append(ready)
+                        queue.put_nowait(ready)
+                rf_tail = rf.flush()
+                if rf_tail:
+                    ready = gate.feed(rf_tail) if gate is not None else rf_tail
                     if ready:
                         emitted.append(ready)
                         queue.put_nowait(ready)
@@ -1297,7 +1390,9 @@ class NodeFactory:
 
         try:
             response = await self._llm_service.generate(messages)
-            return response.content
+            from app.services.llm.reasoning_filter import strip_reasoning
+
+            return strip_reasoning(response.content)
         except Exception:
             logger.exception("LLM generation failed")
             return "抱歉，生成回复时出现错误，请稍后重试。"

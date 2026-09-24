@@ -135,6 +135,27 @@ class Settings(BaseSettings):
             "them; set False for a pure-content stream"
         ),
     )
+    CHAT_ANSWER_CACHE_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "L0 exact-match answer cache: a stateless grounded turn is "
+            "replayed in ~5ms instead of re-running intent→retrieval→"
+            "generation. Keyed on normalized message + KB epoch + model "
+            "+ persona, so any document mutation invalidates every "
+            "entry wholesale. Cached answers still re-run the claim "
+            "gate and output guardrail on every serve"
+        ),
+    )
+    CHAT_ANSWER_CACHE_TTL_SECONDS: int = Field(
+        default=86400,
+        ge=1,
+        description="Per-entry TTL for L0 answer-cache entries (seconds)",
+    )
+    CHAT_ANSWER_CACHE_MAX_RESPONSE_CHARS: int = Field(
+        default=4000,
+        ge=1,
+        description="Responses longer than this are not cached (bounds Redis memory per entry)",
+    )
     HANDOFF_SLA_WAIT_SECONDS: float = Field(
         default=30.0,
         gt=0,

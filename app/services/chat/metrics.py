@@ -38,3 +38,21 @@ CHAT_STREAM_OUTCOMES = Counter(
     labelnames=["outcome"],
     registry=REGISTRY,
 )
+
+# L0 exact-answer cache (docs/cache-layering-plan.md layer 0). Hits
+# skip the whole pipeline (~5s → ~5ms); misses are the normal path and
+# include Redis-outage degradation. The hit ratio is the demo cache
+# panel's number and the capacity story's top-of-funnel lever: storm
+# traffic is highly repetitive, so the cache works hardest exactly
+# when the pipeline is under the most pressure.
+ANSWER_CACHE_HITS = Counter(
+    "answer_cache_hits_total",
+    "Chat turns served from the L0 exact-answer cache",
+    registry=REGISTRY,
+)
+
+ANSWER_CACHE_MISSES = Counter(
+    "answer_cache_misses_total",
+    "L0 answer-cache lookups that missed (no entry, disabled epoch, or Redis outage)",
+    registry=REGISTRY,
+)

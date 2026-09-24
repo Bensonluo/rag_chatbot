@@ -7,6 +7,7 @@ while keeping backward-compatible service construction.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -150,6 +151,11 @@ class ChatServiceFactory:
         # budget.
         from app.services.llm.budget import BudgetedLLMService
 
+        # Cache key tag captured from the raw provider BEFORE budget
+        # wrapping (the wrapper does not re-expose .model): swapping
+        # GLM_MODEL must invalidate every cached answer.
+        model_tag = str(getattr(llm_service, "model", "llm"))
+
         light_llm_service = light_llm_service or llm_service
         llm_service = BudgetedLLMService(llm_service)
         light_llm_service = BudgetedLLMService(light_llm_service)
@@ -178,6 +184,7 @@ class ChatServiceFactory:
 
         # Create tool registry and build LangGraph dialogue graph
         graph = None
+        answer_cache = None
         try:
             from app.services.agent import AgentService
             from app.services.dialogue.graph import build_dialogue_graph
@@ -243,6 +250,21 @@ class ChatServiceFactory:
                     _user_facts,
                     ttl_seconds=settings.USER_FACT_RECALL_CACHE_TTL_SECONDS,
                 )
+            # L0 exact-answer cache: fail-open Redis layer keyed on the
+            # KB epoch; the persona tag folds the effective persona
+            # into the key so a voice change also invalidates entries.
+            if settings.CHAT_ANSWER_CACHE_ENABLED:
+                from app.services.chat.answer_cache import AnswerCacheService
+
+                answer_cache = AnswerCacheService(
+                    redis_url=settings.REDIS_URL,
+                    ttl_seconds=settings.CHAT_ANSWER_CACHE_TTL_SECONDS,
+                    max_response_chars=settings.CHAT_ANSWER_CACHE_MAX_RESPONSE_CHARS,
+                    model_tag=model_tag,
+                    persona_tag=hashlib.sha256(
+                        (settings.CHAT_SYSTEM_PROMPT or "default").encode()
+                    ).hexdigest()[:8],
+                )
             graph = build_dialogue_graph(
                 intent_detector=intent_detector,
                 history_provider=history_provider,
@@ -258,6 +280,7 @@ class ChatServiceFactory:
                 handoff_service=create_handoff_service(llm_service=light_llm_service),
                 agent_service=agent_service,
                 faq_service=faq_service,
+                answer_cache=answer_cache,
             )
         except Exception as exc:
             logger.warning("Failed to build LangGraph dialogue graph: %s", exc)
@@ -270,4 +293,5 @@ class ChatServiceFactory:
             guardrail_service=guardrail_service,
             persister=persister,
             gap_recorder=gap_recorder,
+            answer_cache=answer_cache,
         )

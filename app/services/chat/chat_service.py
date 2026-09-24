@@ -29,6 +29,7 @@ from app.services.observability.pipeline_tracer import traced_stage
 from app.services.observability.trace_events import TraceEvent, TraceSink, trace_sink_active
 
 if TYPE_CHECKING:
+    from app.services.chat.answer_cache import AnswerCacheService
     from app.services.chat.knowledge_gap_recorder import KnowledgeGapRecorder
     from app.services.chat.persistence import ChatMessagePersister
     from app.services.guardrails.base import GuardrailService
@@ -100,6 +101,7 @@ class ChatService:
         guardrail_service: GuardrailService | None = None,  # backward compat
         persister: ChatMessagePersister | None = None,
         gap_recorder: KnowledgeGapRecorder | None = None,
+        answer_cache: AnswerCacheService | None = None,
     ) -> None:
         self.graph = graph
         self.llm_service = llm_service
@@ -107,6 +109,7 @@ class ChatService:
         self.guardrail_service = guardrail_service
         self.persister = persister
         self.gap_recorder = gap_recorder
+        self.answer_cache = answer_cache
 
     @traced_stage("cs.pipeline")
     async def process_message(
@@ -172,6 +175,7 @@ class ChatService:
                 session_id=session_id,
                 user_id=user_id,
             )
+        await self._maybe_cache_answer(message, result, user_id)
 
         return ChatResponse(
             content=result.get("response", ""),
@@ -312,6 +316,10 @@ class ChatService:
                     session_id=session_id,
                     user_id=user_id,
                 )
+            # Only completed streams cache: budget-exhausted / errored /
+            # disconnected turns return before this point, so partial
+            # or truncated content is never stored for replay.
+            await self._maybe_cache_answer(message, result, user_id)
         except GeneratorExit:
             # Client disconnected mid-stream: record it, let the close
             # proceed (partial-content persistence still runs in finally).
@@ -341,6 +349,39 @@ class ChatService:
                         "llm_refused": budget.refused if budget else 0,
                     },
                 )
+
+    async def _maybe_cache_answer(self, message: str, result: dict[str, Any], user_id: int) -> None:
+        """Store a completed grounded turn in the L0 answer cache.
+
+        Eligibility is deliberately strict — a turn is replayable only
+        when it is stateless (anonymous, no slots in flight, no staged
+        irreversible action, no executed tools, not blocked) and
+        grounded (sources present). Personalized turns must never be
+        written: a hit replays the stored text verbatim at any later
+        anonymous visitor, so one user's context must not be baked in.
+        The write key uses the post-guardrail sanitized message (the
+        read site looks up with sanitized text); put() itself is
+        fail-open, so an outage only means "not cached".
+        """
+        if self.answer_cache is None or user_id:
+            return
+        response = result.get("response")
+        sources = result.get("sources")
+        if not response or not sources:
+            return
+        if (
+            result.get("pending_slots")
+            or result.get("pending_confirmation")
+            or result.get("executed_tools")
+            or result.get("blocked")
+        ):
+            return
+        await self.answer_cache.put(
+            str(result.get("message") or message),
+            response=response,
+            sources=list(sources),
+            intent=result.get("intent", "unknown"),
+        )
 
     async def get_chat_history(
         self,

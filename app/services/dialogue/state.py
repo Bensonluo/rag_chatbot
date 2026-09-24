@@ -40,6 +40,10 @@ class DialogueState(TypedDict, total=False):
     # FAQ fast-path routing decision: "hit" ends the turn with the
     # curated answer, "miss" continues into RAG (see faq_lookup_node).
     route_after_faq: str
+    # L0 answer-cache routing decision: "hit" ends the turn with the
+    # cached answer; anything else falls through to the normal intent
+    # pipeline (see answer_cache_lookup_node).
+    route_after_cache: str
 
     # Tool execution
     tool_name: str

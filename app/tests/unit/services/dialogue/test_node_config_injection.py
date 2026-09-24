@@ -27,9 +27,10 @@ ACCEPTED_CONFIG_ANNOTATIONS = (
     inspect.Parameter.empty,
 )
 
-# The 12 nodes registered in app/services/dialogue/graph.py::create_dialogue_graph.
+# The 13 nodes registered in app/services/dialogue/graph.py::create_dialogue_graph.
 GRAPH_NODE_METHODS = (
     "guardrail_node",
+    "answer_cache_lookup_node",
     "detect_intent_node",
     "handle_switch_node",
     "route_intent_node",
@@ -47,6 +48,7 @@ GRAPH_NODE_METHODS = (
 # they cannot do their job without an injected config.
 NODES_REQUIRING_CONFIG = (
     "execute_tool_node",
+    "answer_cache_lookup_node",
     "faq_lookup_node",
     "generate_response_node",
     "direct_response_node",
