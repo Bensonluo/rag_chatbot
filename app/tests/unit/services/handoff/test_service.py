@@ -1,5 +1,7 @@
 """HandoffService: ticket lifecycle and the never-raise chat contract."""
 
+from typing import Any
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -187,3 +189,80 @@ class TestAgentWorkspace:
 
         stats = await service.queue_stats()
         assert stats == {"open": 1, "claimed": 1, "resolved": 0}
+
+
+class TestTicketSummary:
+    """Ticket creation enriches context with an LLM conversation summary."""
+
+    async def _seed_messages(self, session_maker: async_sessionmaker[Any]) -> None:
+        from app.models.database.message import Message
+        from app.models.enums.message import MessageRole
+
+        async with session_maker() as session:
+            session.add(Message(session_id=1, role=MessageRole.USER, content="订单 12345 未到"))
+            session.add(
+                Message(session_id=1, role=MessageRole.ASSISTANT, content="已查物流，运输中")
+            )
+            await session.commit()
+
+    async def test_ticket_carries_conversation_summary(self, session_maker):
+        from app.services.handoff.service import HandoffService
+
+        await self._seed_messages(session_maker)
+        llm = _SummaryLLM()
+        service = HandoffService(session_maker=session_maker, llm_service=llm)
+
+        await service.create_ticket_for_session(
+            session_id=1, user_id=7, reason="explicit", context={"user_message": "转人工"}
+        )
+
+        async with session_maker() as session:
+            ticket = (await session.execute(select(HandoffTicket))).scalar_one()
+        assert '"conversation_summary": "用户诉求：订单 12345 未送达。"' in ticket.summary
+        assert llm.calls == 1
+
+    async def test_llm_failure_still_creates_ticket(self, session_maker):
+        from app.services.handoff.service import HandoffService
+
+        await self._seed_messages(session_maker)
+        service = HandoffService(session_maker=session_maker, llm_service=_SummaryLLM(error=True))
+
+        result = await service.create_ticket_for_session(
+            session_id=1, user_id=7, reason="explicit", context={}
+        )
+
+        assert result["ticket_id"] is not None
+        async with session_maker() as session:
+            ticket = (await session.execute(select(HandoffTicket))).scalar_one()
+        assert "conversation_summary" not in ticket.summary
+
+    async def test_reuse_path_skips_llm(self, session_maker):
+        from app.services.handoff.service import HandoffService
+
+        llm = _SummaryLLM()
+        service = HandoffService(session_maker=session_maker, llm_service=llm)
+        first = await service.create_ticket_for_session(1, 7, "explicit", {})
+
+        second = await service.create_ticket_for_session(1, 7, "explicit", {})
+
+        assert second["ticket_id"] == first["ticket_id"]
+        assert second["reused"] is True
+        # No messages seeded → the first call skipped the summarizer;
+        # the reuse path never reaches it either.
+        assert llm.calls == 0
+
+
+class _SummaryLLM:
+    """Fake LLM for service-level tests (Protocol-compatible)."""
+
+    def __init__(self, error: bool = False) -> None:
+        self.error = error
+        self.calls = 0
+
+    async def generate(self, messages: Any, **kwargs: Any) -> Any:
+        from types import SimpleNamespace
+
+        self.calls += 1
+        if self.error:
+            raise RuntimeError("llm down")
+        return SimpleNamespace(content="用户诉求：订单 12345 未送达。")

@@ -192,7 +192,7 @@ class ChatServiceFactory:
                 guardrail_service=guardrail_service,
                 graph_retrieval_service=graph_retrieval_service,
                 checkpointer=checkpointer,
-                handoff_service=create_handoff_service(),
+                handoff_service=create_handoff_service(llm_service=llm_service),
                 agent_service=agent_service,
                 faq_service=faq_service,
             )

@@ -14,6 +14,7 @@ layer can map them to 404/409 semantics.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from collections.abc import Callable
@@ -26,6 +27,7 @@ from app.repositories.ticket_repository import (
     TICKET_STATUS_RESOLVED,
     TicketRepository,
 )
+from app.services.handoff.summarizer import SummaryLLM
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +55,27 @@ def _priority_for_reason(reason: str) -> int:
 class HandoffService:
     """Manages the human-agent handoff ticket queue."""
 
-    def __init__(self, session_maker: Callable[[], Any]) -> None:
+    def __init__(
+        self,
+        session_maker: Callable[[], Any],
+        llm_service: SummaryLLM | None = None,
+        summary_history_messages: int = 20,
+        summary_timeout_seconds: float = 3.0,
+    ) -> None:
         """
         Args:
             session_maker: Factory producing context-managed async sessions
                 (e.g. ``app.api.database.async_session_maker``).
+            llm_service: Optional LLM used for a best-effort conversation
+                summary on the ticket. None (or any LLM failure) keeps
+                the structured context only — escalation never blocks.
+            summary_history_messages: Recent turns fed to the summary
+            summary_timeout_seconds: Budget before the summary is dropped
         """
         self._session_maker = session_maker
+        self._llm_service = llm_service
+        self._summary_history_messages = summary_history_messages
+        self._summary_timeout_seconds = summary_timeout_seconds
 
     # ── Chat path (never raises) ─────────────────────────────────────────────
 
@@ -92,6 +108,14 @@ class HandoffService:
         """
         if reason not in VALID_REASONS:
             reason = REASON_EXPLICIT
+        # Best-effort conversation summary: runs before the ticket
+        # transaction so the LLM call never holds a DB connection, and
+        # any failure simply leaves the structured context as-is.
+        if self._llm_service is not None:
+            with contextlib.suppress(Exception):
+                summary = await self._summarize_session(session_id, self._llm_service)
+                if summary:
+                    context = {**context, "conversation_summary": summary}
         try:
             async with self._session_maker() as session:
                 repo = TicketRepository(session)
@@ -123,6 +147,21 @@ class HandoffService:
                 exc,
             )
             return {"ticket_id": None, "queue_position": None, "reused": False}
+
+    async def _summarize_session(self, session_id: int, llm: SummaryLLM) -> str | None:
+        """Load recent turns (own DB session) and summarize them."""
+        from app.repositories.message_repository import MessageRepository
+        from app.services.handoff.summarizer import summarize_for_handoff
+
+        async with self._session_maker() as session:
+            messages = await MessageRepository(session).get_recent_messages(
+                session_id, limit=self._summary_history_messages
+            )
+        if not messages:
+            return None
+        return await summarize_for_handoff(
+            messages, llm, timeout_seconds=self._summary_timeout_seconds
+        )
 
     # ── Agent workspace (raises on conflict) ─────────────────────────────────
 
@@ -192,8 +231,8 @@ def _ticket_to_dict(ticket: HandoffTicket) -> dict[str, Any]:
     }
 
 
-def create_handoff_service() -> HandoffService:
+def create_handoff_service(llm_service: SummaryLLM | None = None) -> HandoffService:
     """Build the default handoff service bound to the app's session maker."""
     from app.api.database import async_session_maker
 
-    return HandoffService(session_maker=async_session_maker)
+    return HandoffService(session_maker=async_session_maker, llm_service=llm_service)
