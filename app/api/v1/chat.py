@@ -230,6 +230,7 @@ async def initialize_chat_service(
     from app.services.chat.compressor import SessionCompressor
     from app.services.chat.knowledge_gap_recorder import create_knowledge_gap_recorder
     from app.services.chat.persistence import ChatMessagePersister
+    from app.services.chat.user_fact_extractor import UserFactExtractor
 
     _chat_service = ChatServiceFactory.create_with_defaults(
         llm_service=llm_service,
@@ -251,6 +252,12 @@ async def initialize_chat_service(
                 llm_service=light_llm_service,
                 threshold=settings.CHAT_SUMMARY_THRESHOLD,
                 interval=settings.CHAT_SUMMARY_INTERVAL,
+            ),
+            fact_extractor=UserFactExtractor(
+                session_maker=async_session_maker,
+                llm_service=light_llm_service if settings.USER_FACT_EXTRACTION_ENABLED else None,
+                threshold=settings.USER_FACT_EXTRACTION_THRESHOLD,
+                interval=settings.USER_FACT_EXTRACTION_INTERVAL,
             ),
         ),
         gap_recorder=create_knowledge_gap_recorder(),

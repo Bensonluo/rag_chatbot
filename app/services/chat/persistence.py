@@ -22,6 +22,7 @@ from app.models.enums.message import MessageRole, MessageStatus
 from app.repositories.message_repository import MessageRepository
 from app.services.chat.chat_service import ChatMessage
 from app.services.chat.compressor import SessionCompressor
+from app.services.chat.user_fact_extractor import UserFactExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class ChatMessagePersister:
         self,
         session_maker: Callable[[], Any],
         compressor: SessionCompressor | None = None,
+        fact_extractor: UserFactExtractor | None = None,
     ) -> None:
         """
         Args:
@@ -40,10 +42,14 @@ class ChatMessagePersister:
                 (e.g. ``app.api.database.async_session_maker``).
             compressor: Optional rolling-summary writer scheduled after
                 each durable turn (fire-and-forget; ``drain`` awaits it).
+            fact_extractor: Optional cross-session user-fact extractor
+                (Phase B) with the same fire-and-forget contract.
         """
         self._session_maker = session_maker
         self._compressor = compressor
+        self._fact_extractor = fact_extractor
         self._pending_compressions: set[asyncio.Task[bool]] = set()
+        self._pending_extractions: set[asyncio.Task[bool]] = set()
 
     async def persist_turn(
         self,
@@ -95,10 +101,11 @@ class ChatMessagePersister:
                         )
                     )
                 await session.commit()
-            # Compression is post-durability housekeeping: scheduled off
-            # the request path so the user-visible turn never waits on
-            # an LLM summary call.
+            # Compression and fact extraction are post-durability
+            # housekeeping: scheduled off the request path so the
+            # user-visible turn never waits on an LLM call.
             self._schedule_compression(session_id)
+            self._schedule_extraction(session_id)
         except Exception as exc:  # noqa: BLE001 - availability over durability
             logger.warning(
                 "Failed to persist chat turn (session=%s): %s",
@@ -166,10 +173,25 @@ class ChatMessagePersister:
         self._pending_compressions.add(task)
         task.add_done_callback(self._pending_compressions.discard)
 
+    def _schedule_extraction(self, session_id: int) -> None:
+        """Schedule best-effort user-fact extraction (Phase B); same
+        fire-and-forget contract as compression."""
+        if self._fact_extractor is None:
+            return
+        try:
+            task: asyncio.Task[bool] = asyncio.create_task(
+                self._fact_extractor.maybe_extract(session_id)
+            )
+        except RuntimeError:  # no running loop (sync caller in tests)
+            return
+        self._pending_extractions.add(task)
+        task.add_done_callback(self._pending_extractions.discard)
+
     async def drain(self) -> None:
-        """Await outstanding compression tasks (shutdown / test seams)."""
-        if self._pending_compressions:
-            await asyncio.gather(*self._pending_compressions, return_exceptions=True)
+        """Await outstanding background tasks (shutdown / test seams)."""
+        pending = self._pending_compressions | self._pending_extractions
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
 
 def create_chat_persister() -> ChatMessagePersister:

@@ -97,6 +97,16 @@ class Settings(BaseSettings):
     CHAT_SUMMARY_INTERVAL: int = Field(
         default=10, description="Messages between subsequent session summaries"
     )
+    USER_FACT_EXTRACTION_ENABLED: bool = Field(
+        default=True,
+        description="Extract cross-session user facts from durable turns (Phase B memory)",
+    )
+    USER_FACT_EXTRACTION_THRESHOLD: int = Field(
+        default=12, description="Messages before the first user-fact extraction pass"
+    )
+    USER_FACT_EXTRACTION_INTERVAL: int = Field(
+        default=6, description="Messages between subsequent extraction passes"
+    )
     CHAT_STREAM_MAX_SECONDS: float = Field(
         default=120.0,
         description="Total budget for one SSE chat stream before it is cut off",

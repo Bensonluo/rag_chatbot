@@ -304,3 +304,62 @@ class TestCompressionScheduling:
     async def test_drain_without_pending_is_a_noop(self):
         persister = ChatMessagePersister(session_maker=lambda: None)
         await persister.drain()  # must not raise
+
+
+class TestExtractionScheduling:
+    """persist_turn schedules user-fact extraction post-commit (Phase B).
+
+    Same fire-and-forget contract as compression: both are background
+    consumers of the same durable turns, and neither may fail the turn.
+    """
+
+    async def test_persist_turn_schedules_extraction(self, session_maker):
+        extractor = Mock()
+        extractor.maybe_extract = AsyncMock(return_value=True)
+        persister = ChatMessagePersister(session_maker=session_maker, fact_extractor=extractor)
+
+        await persister.persist_turn(session_id=42, user_id=7, user_message="问", response="答")
+        await persister.drain()
+
+        extractor.maybe_extract.assert_awaited_once_with(42)
+
+    async def test_extraction_scheduled_alongside_compression(self, session_maker):
+        """Both background consumers fire on the same durable turn."""
+        compressor = Mock()
+        compressor.maybe_compress = AsyncMock(return_value=True)
+        extractor = Mock()
+        extractor.maybe_extract = AsyncMock(return_value=True)
+        persister = ChatMessagePersister(
+            session_maker=session_maker,
+            compressor=compressor,
+            fact_extractor=extractor,
+        )
+
+        await persister.persist_turn(session_id=1, user_id=7, user_message="问", response="答")
+        await persister.drain()
+
+        compressor.maybe_compress.assert_awaited_once_with(1)
+        extractor.maybe_extract.assert_awaited_once_with(1)
+
+    async def test_extractor_failure_does_not_break_persist(self, session_maker):
+        extractor = Mock()
+        extractor.maybe_extract = AsyncMock(side_effect=RuntimeError("boom"))
+        persister = ChatMessagePersister(session_maker=session_maker, fact_extractor=extractor)
+
+        await persister.persist_turn(session_id=1, user_id=7, user_message="问", response="答")
+        await persister.drain()
+
+        history = await persister.get_history(session_id=1)
+        assert [m.content for m in history] == ["问", "答"]
+
+    async def test_drain_awaits_extractions_too(self, session_maker):
+        """drain covers both pending sets — shutdown must not strand
+        extraction tasks mid-write."""
+        extractor = Mock()
+        extractor.maybe_extract = AsyncMock(return_value=True)
+        persister = ChatMessagePersister(session_maker=session_maker, fact_extractor=extractor)
+
+        await persister.persist_turn(session_id=9, user_id=7, user_message="问", response="答")
+        await persister.drain()
+
+        extractor.maybe_extract.assert_awaited_once_with(9)
