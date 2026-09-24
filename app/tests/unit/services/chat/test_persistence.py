@@ -98,6 +98,57 @@ class TestChatMessagePersister:
             ("assistant", "您好，请问有什么可以帮您？"),
         ]
 
+    async def test_get_history_returns_most_recent_turns(self, session_maker):
+        """limit means the newest N turns, chronological — not the oldest N"""
+        from datetime import datetime, timedelta
+
+        base = datetime(2026, 9, 24, 12, 0, 0)
+        async with session_maker() as session:
+            for i in (1, 2, 3):
+                session.add(
+                    Message(
+                        session_id=1,
+                        role=MessageRole.USER,
+                        content=f"第{i}条",
+                        created_at=base + timedelta(seconds=10 * i),
+                    )
+                )
+            await session.commit()
+
+        persister = ChatMessagePersister(session_maker=session_maker)
+        history = await persister.get_history(session_id=1, limit=2)
+
+        assert [m.content for m in history] == ["第2条", "第3条"]
+
+    async def test_get_history_skips_system_summary_rows(self, session_maker):
+        """Summary artifacts are not conversation turns in history either"""
+        from datetime import datetime, timedelta
+
+        base = datetime(2026, 9, 24, 12, 0, 0)
+        async with session_maker() as session:
+            session.add(
+                Message(
+                    session_id=1,
+                    role=MessageRole.USER,
+                    content="问题",
+                    created_at=base,
+                )
+            )
+            session.add(
+                Message(
+                    session_id=1,
+                    role=MessageRole.SYSTEM,
+                    content="压缩摘要",
+                    created_at=base + timedelta(seconds=10),
+                )
+            )
+            await session.commit()
+
+        persister = ChatMessagePersister(session_maker=session_maker)
+        history = await persister.get_history(session_id=1, limit=10)
+
+        assert [m.content for m in history] == ["问题"]
+
 
 class TestChatServicePersistence:
     """ChatService integration with the persister"""

@@ -53,7 +53,9 @@ class MessageRepository(BaseRepository[Message]):
         stmt = (
             select(Message)
             .where(Message.session_id == session_id)
-            .order_by(Message.created_at.desc())
+            # id as tiebreaker: rows created within the same second
+            # (bursty chat turns) must order deterministically.
+            .order_by(Message.created_at.desc(), Message.id.desc())
             .limit(limit)
         )
         result = await self.session.execute(stmt)
@@ -79,7 +81,7 @@ class MessageRepository(BaseRepository[Message]):
         stmt = (
             select(Message)
             .where(Message.session_id == session_id)
-            .order_by(Message.created_at.asc())
+            .order_by(Message.created_at.asc(), Message.id.asc())
             .offset(skip)
             .limit(limit)
         )

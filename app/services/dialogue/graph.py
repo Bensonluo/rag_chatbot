@@ -8,6 +8,7 @@ into a compiled graph ready for invocation.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from langgraph.checkpoint.memory import MemorySaver
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver
     from langgraph.graph.state import CompiledStateGraph
 
-    from app.services.agent.service import AgentService
+    from app.services.agent.service import AgentService  # noqa: F401 (type refs below)
     from app.services.dialogue.tools import ToolRegistry
     from app.services.faq.store import FAQService
     from app.services.graph.retrieval.graph_retrieval_service import (
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
     from app.services.guardrails.base import GuardrailService
     from app.services.handoff.service import HandoffService
     from app.services.intent.base import IntentDetector
-    from app.services.llm.base import LLMServiceBase
+    from app.services.llm.base import LLMMessage, LLMServiceBase
     from app.services.slot_filling.base import SlotFiller
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ def build_dialogue_graph(
     handoff_service: HandoffService | None = None,
     agent_service: AgentService | None = None,
     faq_service: FAQService | None = None,
+    history_provider: Callable[[int], Awaitable[list[LLMMessage]]] | None = None,
 ) -> CompiledStateGraph[Any]:
     """Build and compile the dialogue StateGraph.
 
@@ -80,6 +82,7 @@ def build_dialogue_graph(
 
     factory = NodeFactory(
         intent_detector=intent_detector,
+        history_provider=history_provider,
         slot_filler=slot_filler,
         tool_registry=tool_registry,
         retrieval_pipeline=retrieval_pipeline,

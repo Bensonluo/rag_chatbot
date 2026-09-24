@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
     from app.services.guardrails.base import GuardrailService
     from app.services.handoff.service import HandoffService
     from app.services.intent.base import IntentDetector
-    from app.services.llm.base import LLMServiceBase
+    from app.services.llm.base import LLMMessage, LLMServiceBase
     from app.services.retrieval.vector_base import SearchResult
     from app.services.slot_filling.base import SlotFiller, SlotFillingResult
 
@@ -105,8 +106,13 @@ class NodeFactory:
         handoff_service: HandoffService | None = None,
         agent_service: AgentService | None = None,
         faq_service: FAQService | None = None,
+        # Recent-turn provider for LLM context: chronological prior
+        # turns for the session (see chat/factory wiring — persister
+        # backed, best-effort). None leaves generators single-message.
+        history_provider: Callable[[int], Awaitable[list[LLMMessage]]] | None = None,
     ) -> None:
         self._intent_detector = intent_detector
+        self._history_provider = history_provider
         self._slot_filler = slot_filler
         self._tool_registry = tool_registry
         self._retrieval_pipeline = retrieval_pipeline or {}
@@ -625,14 +631,14 @@ class NodeFactory:
             return await self._generate_with_rag(intent, message, retrieved_docs, state, config)
 
         # Case 5: direct LLM call.
-        return await self._generate_direct(message, config)
+        return await self._generate_direct(message, config, state)
 
     async def direct_response_node(
         self, state: DialogueState, config: RunnableConfig | None = None
     ) -> dict[str, Any]:
         """Simple LLM call for chitchat / greeting."""
         message = state.get("message", "")
-        response = await self._generate_direct(message, config)
+        response = await self._generate_direct(message, config, state)
         return response
 
     async def handle_handoff_node(
@@ -918,7 +924,7 @@ class NodeFactory:
             f"工具执行结果: {_safe_json(tool_result)}\n"
             "请根据以上工具执行结果，用友好专业的语气回答用户。"
         )
-        response_text = await self._call_llm(context, config)
+        response_text = await self._call_llm(context, config, state)
         response_text = _maybe_append_resume_hint(response_text, state)
         return {"response": response_text}
 
@@ -939,15 +945,18 @@ class NodeFactory:
             f"用户问题: {message}\n"
             "请根据以上参考资料回答用户的问题。如果资料中没有相关内容，请如实告知。"
         )
-        response_text = await self._call_llm(context, config)
+        response_text = await self._call_llm(context, config, state)
         response_text = _maybe_append_resume_hint(response_text, state)
         return {"response": response_text}
 
     async def _generate_direct(
-        self, message: str, config: RunnableConfig | None = None
+        self,
+        message: str,
+        config: RunnableConfig | None = None,
+        state: DialogueState | None = None,
     ) -> dict[str, Any]:
         """Generate a direct response without additional context."""
-        response_text = await self._call_llm(message, config)
+        response_text = await self._call_llm(message, config, state)
         return {"response": response_text}
 
     async def _handle_meta_intent(
@@ -1033,8 +1042,19 @@ class NodeFactory:
 
         return {"response": "抱歉，我没有理解您的意思，请重新描述。"}
 
-    async def _call_llm(self, user_content: str, config: RunnableConfig | None = None) -> str:
-        """Call the LLM service with a single user message and return text.
+    async def _call_llm(
+        self,
+        user_content: str,
+        config: RunnableConfig | None = None,
+        state: DialogueState | None = None,
+    ) -> str:
+        """Call the LLM service with the recent turns plus this message.
+
+        Follow-up questions ("那运费谁出？") dominate real CS traffic —
+        without prior turns the model cannot resolve them. History comes
+        from the provider (chronological, already bounded) and is purely
+        best-effort: any provider failure degrades to the current
+        message only.
 
         When the request carries a stream queue (token streaming), chunks
         are pushed to the queue as they arrive and the accumulated text is
@@ -1046,7 +1066,14 @@ class NodeFactory:
 
         from app.services.llm.base import LLMMessage
 
-        messages = [LLMMessage(role="user", content=user_content)]
+        messages: list[LLMMessage] = []
+        if state is not None and self._history_provider is not None:
+            try:
+                messages = list(await self._history_provider(state.get("session_id", 0)))
+            except Exception:  # noqa: BLE001 - history is best-effort
+                logger.warning("History fetch failed; generating without prior turns")
+                messages = []
+        messages.append(LLMMessage(role="user", content=user_content))
         queue = _stream_queue(config)
 
         if queue is not None:

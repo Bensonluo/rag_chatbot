@@ -101,8 +101,14 @@ class ChatMessagePersister:
         try:
             async with self._session_maker() as session:
                 repo = MessageRepository(session)
-                messages = await repo.get_by_session(session_id, limit=limit)
-                return [ChatMessage(role=msg.role.value, content=msg.content) for msg in messages]
+                # Newest N, not oldest N: get_by_session paginates ASC
+                # from the session's first message, but a history read
+                # (API tail view / LLM context) wants the recent turns.
+                # DESC fetch + reverse = chronological most-recent-N.
+                recent = await repo.get_recent_messages(session_id, limit=limit)
+                # System-role rows are summary artifacts, not turns.
+                turns = [msg for msg in reversed(recent) if msg.role != MessageRole.SYSTEM]
+                return [ChatMessage(role=msg.role.value, content=msg.content) for msg in turns]
         except Exception as exc:  # noqa: BLE001 - degrade to empty history
             logger.warning(
                 "Failed to read chat history (session=%s): %s",
