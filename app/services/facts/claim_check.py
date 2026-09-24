@@ -1,20 +1,30 @@
 """Deterministic policy-claim verification (Phase A2).
 
-The LLM proposes; this gate verifies — never the reverse. Two failure
+The LLM proposes; this gate verifies — never the reverse. Three failure
 modes from the Air Canada / Klarna postmortems are checked mechanically:
 
-1. **numeric_mismatch** — a duration claim (SLA days, shipping hours,
-   return windows) that no eligible fact can entail. Claims are checked
-   per comma-clause so mixed-subject sentences ("普通订单 48 小时发货，
-   大促 72 小时") let each number pair with its own subject; subject
-   keywords restrict which channel's numbers apply (支付宝 1-3 vs 银行卡
-   3-7), and a clause naming no subject is checked against the topic's
-   default subject only. A claim passes when ANY eligible topic group
-   entails it; nothing checkable → conservative pass (never reject what
-   the table cannot disprove).
-2. **unexecuted_action** — past-tense action assertions ("已为您办理退
+1. **numeric_mismatch (durations)** — a duration claim (SLA days,
+   shipping hours, return windows) that no eligible fact can entail.
+2. **numeric_mismatch (money)** — a monetary claim (运费险 payout caps,
+   auto-refund thresholds, 基础运费 ranges) no eligible fact can back.
+   The Air Canada ruling made hallucinated compensation amounts a legal
+   liability the company must honor, so money claims get the same
+   deterministic gate; cap facts are enforced one-sidedly (only
+   over-promising violates — under-claiming a cap is conservative and
+   passes).
+3. **unexecuted_action** — past-tense action assertions ("已为您办理退
    款") asserted without an executed tool behind them. This is the #1
    trust killer in commerce bots; the clause is softened to guidance.
+
+Both numeric checks share one binding discipline: claims are checked per
+comma-clause so mixed-subject sentences ("普通订单 48 小时发货，大促
+72 小时") let each number pair with its own subject; subject keywords
+restrict which channel's numbers apply (支付宝 1-3 vs 银行卡 3-7), and a
+clause naming no subject is checked against the topic's default subject
+only. A claim passes when ANY eligible topic group entails it; nothing
+checkable → conservative pass (never reject what the table cannot
+disprove) — order-specific amounts ("您的订单 200 元") name no money
+topic and are never touched.
 
 Violation handling follows "downgrade before you reject": the violating
 clause is rewritten to the fact's grounded statement, so the user always
@@ -36,6 +46,10 @@ _CLAUSE_RE = re.compile(r"[^，,、]+[，,、]?")
 # "3 个工作日", "1-3 个工作日", "10—30 分钟", "7 到 15 天", "48小时".
 # 工作日 must be tried before 日 in the alternation.
 _CLAIM_RE = re.compile(r"(\d+)(?:\s*[-–~到至]\s*(\d+))?\s*(?:个)?\s*(工作日|小时|分钟|天|日)")
+
+# "25 元", "6-12 元", "赔付 24.5 元", "10 块钱" — decimal amounts are
+# first-class money claims (9.9-元 promos), so both bounds parse as floats.
+_MONEY_CLAIM_RE = re.compile(r"(\d+(?:\.\d+)?)(?:\s*[-–~到至]\s*(\d+(?:\.\d+)?))?\s*(?:元|块)")
 
 _UNIT_ALIASES = {"日": "天"}
 
@@ -111,7 +125,11 @@ def _check_clause(
         lo = int(match.group(1))
         hi = int(match.group(2) or match.group(1))
         unit = _UNIT_ALIASES.get(match.group(3), match.group(3))
-        _check_duration_claim(clause, sentence, lo, hi, unit, facts, violations)
+        _check_numeric_claim(clause, sentence, lo, hi, unit, facts, violations)
+    for match in _MONEY_CLAIM_RE.finditer(clause):
+        amount_lo = float(match.group(1))
+        amount_hi = float(match.group(2) or match.group(1))
+        _check_numeric_claim(clause, sentence, amount_lo, amount_hi, "元", facts, violations)
     if check_actions and any(pattern.search(clause) for pattern in _ACTION_PATTERNS):
         violations.append(
             ClaimViolation(
@@ -120,16 +138,16 @@ def _check_clause(
         )
 
 
-def _check_duration_claim(
+def _check_numeric_claim(
     clause: str,
     sentence: str,
-    lo: int,
-    hi: int,
+    lo: float,
+    hi: float,
     unit: str,
     facts: list[PolicyFact],
     violations: list[ClaimViolation],
 ) -> None:
-    """Check one numeric duration claim against eligible topic groups.
+    """Check one numeric claim (duration or money) against eligible topic groups.
 
     Topic binding is clause-first: the number pairs with the keywords in
     its own comma-clause. When the clause carries no topic keyword (LLMs
@@ -176,10 +194,17 @@ def _check_duration_claim(
     )
 
 
-def _entails(lo: int, hi: int, fact: PolicyFact) -> bool:
-    """True when the fact's numeric range covers the claim's range."""
+def _entails(lo: float, hi: float, fact: PolicyFact) -> bool:
+    """True when the fact's policy semantics back the claim's range.
+
+    Cap facts are one-sided: only the upper bound is enforced, because
+    over-promising (运费险赔 80 元 when the cap is 25) is the Air Canada
+    liability direction while under-claiming is merely conservative.
+    """
     bounds = fact.value_bounds()
     if bounds is None:
         return False
     fact_lo, fact_hi = bounds
+    if fact.kind == "cap":
+        return hi <= fact_hi
     return fact_lo <= lo and hi <= fact_hi

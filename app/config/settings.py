@@ -197,7 +197,8 @@ class Settings(BaseSettings):
     )
 
     # Claim gate (Phase A2): verify generated policy claims (SLA days,
-    # return windows, action assertions) against the curated fact table
+    # return windows, money caps/amounts, action assertions) against the
+    # curated fact table
     FACT_CLAIM_CHECK_ENABLED: bool = Field(
         default=True,
         description="Verify generated policy claims against the curated fact table before responses leave the graph",

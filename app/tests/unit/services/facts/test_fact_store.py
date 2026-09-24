@@ -75,6 +75,21 @@ class TestSubgraphRetrieval:
         subgraph = store.subgraph_for("怎么退货")
         assert "return_window" in {f.topic for f in subgraph}
 
+    def test_shipping_insurance_message_pulls_cap_fact(self):
+        store = FactStore(FACTS_FILE)
+        subgraph = store.subgraph_for("运费险能赔多少")
+        caps = [f for f in subgraph if f.topic == "shipping_insurance"]
+        assert caps and caps[0].unit == "元"
+
+    def test_money_facts_carry_topic_keywords(self):
+        """A fact with a value but no topic keywords can never bind to a
+        clause — dead config (regression: refund_auto_threshold shipped
+        uncheckable for exactly this reason)."""
+        store = FactStore(FACTS_FILE)
+        for fact in store.facts:
+            if fact.value and fact.kind != "statement":
+                assert fact.topic_keywords, f"{fact.id} has a value but no topic keywords"
+
     def test_chitchat_pulls_nothing(self):
         store = FactStore(FACTS_FILE)
         assert store.subgraph_for("你好呀") == []

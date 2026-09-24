@@ -167,6 +167,59 @@ class TestSmokeRegressions:
         assert result.passed, result.violations
 
 
+class TestMoneyClaims:
+    """Money claims (运费险 caps, auto-refund thresholds, 运费 ranges) —
+    the Air Canada failure mode: a hallucinated compensation amount is a
+    legal liability the company must honor, not a wording quirk.
+
+    Cap semantics are one-sided by design: only over-promising (hi above
+    the cap) is a violation — under-claiming a cap is conservative and
+    safe, so it passes."""
+
+    def test_inflated_insurance_payout_is_violation(self):
+        result = check_policy_claims("运费险最高赔付 80 元。", _facts_for("运费险能赔多少"))
+        assert not result.passed
+        assert result.violations[0].reason == "numeric_mismatch"
+        assert "25 元" in result.violations[0].grounded_statement
+
+    def test_insurance_payout_within_cap_passes(self):
+        assert check_policy_claims("运费险最高赔付 25 元。", _facts_for("运费险")).passed
+        assert check_policy_claims("运费险赔付 20 元。", _facts_for("运费险")).passed
+
+    def test_insurance_decimal_claim_checked(self):
+        assert check_policy_claims("运费险赔付 24.5 元。", _facts_for("运费险")).passed
+        assert not check_policy_claims("运费险赔付 30.5 元。", _facts_for("运费险")).passed
+
+    def test_auto_refund_cap_enforced(self):
+        """The 1000 元 auto-refund cap sat uncheckable (no 元 regex, no
+        topic keywords) until money claims became visible to the gate."""
+        result = check_policy_claims("5000 元以内可自动退款。", _facts_for("退款"))
+        assert not result.passed
+        assert "1000 元" in result.violations[0].grounded_statement
+
+    def test_auto_refund_within_cap_passes(self):
+        assert check_policy_claims("1000 元以内的退款可自动处理。", _facts_for("退款")).passed
+
+    def test_shipping_fee_range_enforced(self):
+        result = check_policy_claims("未满额订单收取 15 元运费。", _facts_for("运费多少钱"))
+        assert not result.passed
+        assert "6-12 元" in result.violations[0].grounded_statement
+
+    def test_in_range_shipping_fee_passes(self):
+        assert check_policy_claims("未满额收取 8 元运费。", _facts_for("运费")).passed
+
+    def test_free_shipping_threshold_enforced(self):
+        assert check_policy_claims("订单满 99 元包邮。", _facts_for("运费多少钱")).passed
+        result = check_policy_claims("订单满 59 元就包邮了。", _facts_for("运费多少钱"))
+        assert not result.passed
+        assert "99 元" in result.violations[0].grounded_statement
+
+    def test_order_amount_is_not_a_policy_claim(self):
+        """Order-specific amounts name no money topic — conservative
+        pass (the table cannot disprove a concrete order amount)."""
+        assert check_policy_claims("您的订单金额为 200 元。", _facts_for("运费险")).passed
+
+
 class TestApplyViolations:
     def test_violating_clause_is_replaced_and_rest_kept(self):
         text = "您好。退款将在 10 个工作日内到账。请问还有其他问题吗？"
