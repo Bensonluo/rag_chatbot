@@ -388,6 +388,42 @@ class QdrantClient(VectorClient):
                 f"Failed to get document: {str(e)}", details={"document_id": document_id}
             ) from e
 
+    async def list_chunks(self, max_chunks: int = 50_000) -> list[dict[str, Any]]:
+        """
+        Scroll the whole collection and return raw chunk payloads.
+
+        The BM25 warmup feed: pulls {id, content, metadata} for every
+        point so the keyword leg can index the live corpus. Errors
+        propagate to the caller, which decides how to degrade.
+
+        Args:
+            max_chunks: Upper bound on points pulled (memory guard)
+
+        Returns:
+            list[dict[str, Any]]: Chunk dicts with id/content/metadata
+        """
+        chunks: list[dict[str, Any]] = []
+        offset: Any = None
+        while len(chunks) < max_chunks:
+            points, offset = await self.client.scroll(
+                collection_name=self.collection_name,
+                limit=min(256, max_chunks - len(chunks)),
+                offset=offset,
+                with_payload=True,
+            )
+            for point in points:
+                payload = point.payload or {}
+                chunks.append(
+                    {
+                        "id": str(point.id),
+                        "content": payload.get("content", ""),
+                        "metadata": payload.get("metadata") or {},
+                    }
+                )
+            if not offset:
+                break
+        return chunks
+
     async def _generate_embedding(self, text: str) -> list[float]:
         """
         Generate embedding for text using the configured embedding service.

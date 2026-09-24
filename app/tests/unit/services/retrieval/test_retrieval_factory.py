@@ -1,8 +1,11 @@
 """Tests for retrieval service factory"""
 
-from unittest.mock import Mock, patch
+from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+
+from app.services.retrieval.hybrid_search import HybridSearchService, KeywordSearch
 
 
 class TestRetrievalFactory:
@@ -330,3 +333,51 @@ class TestRetrievalFactory:
         assert second is not None
         assert isinstance(second, RerankingService)
         assert second.top_n == 3
+
+
+def _hybrid() -> tuple[HybridSearchService, AsyncMock]:
+    keyword = KeywordSearch()
+    add_mock = AsyncMock()
+    keyword.add_documents = add_mock  # type: ignore[method-assign]
+    hybrid = HybridSearchService(vector_client=Mock(), keyword_search=keyword, vector_weight=0.5)
+    return hybrid, add_mock
+
+
+def _vector_client(chunks: list[dict[str, Any]]) -> Mock:
+    client = Mock()
+    client.list_chunks = AsyncMock(return_value=chunks)
+    return client
+
+
+class TestWarmKeywordIndex:
+    async def test_feeds_corpus_into_keyword_leg(self):
+        corpus = [{"id": "c1", "content": "政策", "metadata": {}}]
+        hybrid, add_mock = _hybrid()
+
+        from app.services.retrieval.factory import RetrievalFactory
+
+        warmed = await RetrievalFactory.warm_keyword_index(hybrid, _vector_client(corpus))
+
+        assert warmed == 1
+        add_mock.assert_awaited_once_with(corpus)
+
+    async def test_empty_corpus_skips_add(self):
+        hybrid, add_mock = _hybrid()
+
+        from app.services.retrieval.factory import RetrievalFactory
+
+        warmed = await RetrievalFactory.warm_keyword_index(hybrid, _vector_client([]))
+
+        assert warmed == 0
+        add_mock.assert_not_awaited()
+
+    async def test_vector_failure_propagates_to_caller(self):
+        hybrid, add_mock = _hybrid()
+        client = Mock()
+        client.list_chunks = AsyncMock(side_effect=RuntimeError("qdrant down"))
+
+        from app.services.retrieval.factory import RetrievalFactory
+
+        with pytest.raises(RuntimeError, match="qdrant down"):
+            await RetrievalFactory.warm_keyword_index(hybrid, client)
+        add_mock.assert_not_awaited()

@@ -1,5 +1,6 @@
 """Tests for Qdrant vector client"""
 
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -327,3 +328,84 @@ class TestQdrantClient:
             # Assert
             assert len(result) == 1
             mock_client.upsert.assert_called_once()
+
+
+class TestListChunks:
+    """Scroll-based corpus listing — the BM25 warmup source."""
+
+    @pytest.mark.asyncio
+    async def test_scrolls_all_pages_and_maps_payloads(self):
+        from app.services.retrieval.qdrant_client import QdrantClient
+
+        class _Point:
+            def __init__(self, point_id: str, payload: dict[str, Any]) -> None:
+                self.id = point_id
+                self.payload = payload
+
+        page_one = (
+            [
+                _Point("c1", {"content": "iPhone 退款 政策", "metadata": {"product": "iPhone 13"}}),
+                _Point("c2", {"content": "MacBook 退货 政策", "metadata": {"product": "MacBook"}}),
+            ],
+            "next-offset",
+        )
+        page_two = ([_Point("c3", {"content": "保修 条款"})], None)
+
+        mock_client = Mock()
+        mock_client.scroll = AsyncMock(side_effect=[page_one, page_two])
+        client = QdrantClient(
+            url="http://localhost:6333",
+            collection_name="documents",
+            client=mock_client,
+            embedding_service=Mock(dimensions=1024),
+        )
+
+        chunks = await client.list_chunks()
+
+        assert chunks == [
+            {"id": "c1", "content": "iPhone 退款 政策", "metadata": {"product": "iPhone 13"}},
+            {"id": "c2", "content": "MacBook 退货 政策", "metadata": {"product": "MacBook"}},
+            {"id": "c3", "content": "保修 条款", "metadata": {}},
+        ]
+        assert mock_client.scroll.await_count == 2
+        second_call = mock_client.scroll.await_args_list[1]
+        assert second_call.kwargs.get("offset") == "next-offset"
+
+    @pytest.mark.asyncio
+    async def test_empty_collection_returns_empty_list(self):
+        from app.services.retrieval.qdrant_client import QdrantClient
+
+        mock_client = Mock()
+        mock_client.scroll = AsyncMock(return_value=([], None))
+        client = QdrantClient(
+            url="http://localhost:6333",
+            collection_name="documents",
+            client=mock_client,
+            embedding_service=Mock(dimensions=1024),
+        )
+
+        assert await client.list_chunks() == []
+
+    @pytest.mark.asyncio
+    async def test_stops_at_max_chunks(self):
+        from app.services.retrieval.qdrant_client import QdrantClient
+
+        class _Point:
+            def __init__(self, point_id: str, payload: dict[str, Any]) -> None:
+                self.id = point_id
+                self.payload = payload
+
+        pages = [([_Point(f"c{i}", {"content": f"doc {i}"})], f"off-{i}") for i in range(5)]
+
+        mock_client = Mock()
+        mock_client.scroll = AsyncMock(side_effect=pages)
+        client = QdrantClient(
+            url="http://localhost:6333",
+            collection_name="documents",
+            client=mock_client,
+            embedding_service=Mock(dimensions=1024),
+        )
+
+        chunks = await client.list_chunks(max_chunks=3)
+
+        assert len(chunks) == 3

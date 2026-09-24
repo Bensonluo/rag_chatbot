@@ -92,6 +92,18 @@ async def initialize_chat_service(
                 vector_client=qdrant_client,
             ),
         }
+        # Warm the BM25 leg from the vector corpus so hybrid RRF runs on
+        # both legs; failure degrades to vector-only (availability over
+        # strictness).
+        if settings.KEYWORD_INDEX_WARMUP_ENABLED:
+            try:
+                warmed = await RetrievalFactory.warm_keyword_index(
+                    hybrid_search=retrieval_pipeline["hybrid_search"],
+                    vector_client=qdrant_client,
+                )
+                logger.info("Keyword index warmed with %d chunks", warmed)
+            except Exception as e:
+                logger.warning("Keyword index warmup skipped (vector-only): %s", e)
     except Exception as e:
         logger.warning("Failed to initialize retrieval pipeline: %s", e)
 

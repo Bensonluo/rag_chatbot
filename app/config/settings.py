@@ -77,6 +77,10 @@ class Settings(BaseSettings):
         default=120.0,
         description="Total budget for one SSE chat stream before it is cut off",
     )
+    KEYWORD_INDEX_WARMUP_ENABLED: bool = Field(
+        default=True,
+        description="Warm the BM25 leg from the vector corpus at service init",
+    )
 
     # Vector DB Service (external)
     VECTOR_DB_URL: str = Field(

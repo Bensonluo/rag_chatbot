@@ -131,6 +131,33 @@ class RetrievalFactory:
         )
 
     @staticmethod
+    async def warm_keyword_index(
+        hybrid_search: HybridSearchService,
+        vector_client: QdrantClient,
+        max_chunks: int = 50_000,
+    ) -> int:
+        """
+        Feed the BM25 leg from the vector store corpus.
+
+        The hybrid service otherwise boots with an empty keyword index,
+        so RRF degenerates to vector-only. Returns the number of chunks
+        indexed; errors propagate so the caller can degrade to
+        vector-only retrieval.
+
+        Args:
+            hybrid_search: Hybrid service whose keyword leg to warm
+            vector_client: Vector client to scroll the corpus from
+            max_chunks: Upper bound on points pulled
+
+        Returns:
+            int: Number of chunks fed into the keyword index
+        """
+        chunks = await vector_client.list_chunks(max_chunks=max_chunks)
+        if chunks:
+            await hybrid_search.keyword_search.add_documents(chunks)
+        return len(chunks)
+
+    @staticmethod
     def create_reranker(
         reranker_type: str = "llm",
         llm_service: LLMServiceBase | None = None,
