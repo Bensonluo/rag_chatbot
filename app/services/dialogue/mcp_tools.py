@@ -1,4 +1,4 @@
-"""MCP tool facade (Phase C slice 1) — read-only remote tools for the agent loop.
+"""MCP tool facade (Phase C) — remote tools for the agent loop.
 
 Industry pattern (Shopify ``get_order_status`` / Dynamics 365 Commerce MCP,
 2026 spec): a commerce bot's tool layer grows beyond built-in mocks by
@@ -10,19 +10,28 @@ request). Imported tools flow through the existing ``ToolRegistry``: the
 agent loop sees them as ordinary function-calling tools, and all local
 disciplines (step budget, confirmation gate, claim gate) keep applying.
 
-Safety posture, matching the research consensus (read-only facade first,
-money moves only via human-confirmed surfaces):
+Safety posture, matching the research consensus (money moves only via
+human-confirmed surfaces):
 
-- **Read-only gate.** Only manifest entries whose ``annotations``
-  positively declare ``readOnlyHint: true`` (and never
-  ``destructiveHint: true``) are admitted. The spec treats server
-  annotations as untrusted; here the *manifest is the operator's own
-  config*, so it is the trust boundary — write tools stay out until a
-  later slice wires remote confirmation flows.
+- **Read/write split with forced confirmation.** Manifest entries whose
+  ``annotations`` positively declare ``readOnlyHint: true`` register as
+  read tools; ``readOnlyHint: false`` registers as a *write* tool with
+  ``requires_confirmation=True`` forced server-side — the manifest can
+  never opt a write out of the human confirmation gate (Shopify
+  Checkout / UCP pattern). ``destructiveHint: true`` or ambiguous
+  annotations (missing) are rejected outright.
+- **Idempotency keys on writes.** The 2026-07-28 stateless spec removed
+  resumability, making retry safety application work: a write call that
+  times out and is re-confirmed must not double-execute server-side.
+  Write payloads carry ``params.idempotencyKey`` (SEP-3182 shape,
+  sibling of ``arguments``), derived deterministically from
+  (user, tool, model-visible args) — same logical op ⇒ same key, so the
+  remote server can dedup; different args or user ⇒ different key.
 - **Identity containment.** ``ToolRegistry.execute`` injects the
   authenticated ``user_id`` for local authorization; this layer strips
-  it before the payload leaves the process. Internal identity never
-  crosses the boundary uninvited.
+  it (and any model-forged ``idempotency_key``) before the payload
+  leaves the process. Internal identity never crosses the boundary
+  uninvited.
 - **Never-fail-chat.** A dead or slow remote server degrades to a
   structured ``ToolResult`` failure the agent loop can answer around;
   nothing raises into the dialogue graph.
@@ -50,6 +59,7 @@ points at the file, empty/unset = no remote tools):
 
 from __future__ import annotations
 
+import hashlib
 import itertools
 import json
 import logging
@@ -64,8 +74,9 @@ logger = logging.getLogger(__name__)
 _REQUEST_IDS = itertools.count(1)
 
 # Keys never forwarded to a remote server. ``user_id`` is injected
-# server-side for local authorization and is internal identity.
-_STRIP_ARG_KEYS = ("user_id",)
+# server-side for local authorization and is internal identity;
+# ``idempotency_key`` is server-derived and must never be model-supplied.
+_STRIP_ARG_KEYS = ("user_id", "idempotency_key")
 
 
 class ToolInvocationError(Exception):
@@ -150,16 +161,18 @@ def _register_entry(
         return False
 
     annotations = entry.get("annotations")
-    if not isinstance(annotations, dict) or annotations.get("readOnlyHint") is not True:
+    if not isinstance(annotations, dict) or "readOnlyHint" not in annotations:
         logger.warning(
-            "Skipping MCP tool %s: not positively read-only (readOnlyHint missing/false) — "
-            "write tools are not admitted by the facade yet",
+            "Skipping MCP tool %s: annotations must positively declare readOnlyHint "
+            "true or false (ambiguity is not admitted)",
             name,
         )
         return False
     if annotations.get("destructiveHint") is True:
         logger.warning("Skipping MCP tool %s: destructiveHint is set", name)
         return False
+
+    is_write = annotations.get("readOnlyHint") is False
 
     if registry.get_tool_by_name(name) is not None:
         logger.warning(
@@ -175,9 +188,10 @@ def _register_entry(
             intent=f"mcp:{name}",
             description=description,
             required_slots=list(input_schema.get("required", [])),
-            handler=_make_remote_handler(url, name, client, timeout=timeout),
-            # Read-only gate already ran; confirmation flow never applies.
-            requires_confirmation=False,
+            handler=_make_remote_handler(url, name, client, timeout=timeout, write=is_write),
+            # Write tools always pass through the human confirmation
+            # gate — server-side policy, never the manifest's call.
+            requires_confirmation=is_write,
             parameters_schema=input_schema,
         )
     )
@@ -190,9 +204,10 @@ def _make_remote_handler(
     client: RemoteToolClient,
     *,
     timeout: float,
+    write: bool,
 ) -> Any:
     async def handler(args: dict[str, Any]) -> dict[str, Any]:
-        payload = _build_call_payload(name, args)
+        payload = _build_call_payload(name, args, write=write)
         try:
             response = await client.call(url, payload, timeout)
             return _extract_result(response)
@@ -207,19 +222,39 @@ def _make_remote_handler(
     return handler
 
 
-def _build_call_payload(name: str, args: dict[str, Any]) -> dict[str, Any]:
+def _build_call_payload(name: str, args: dict[str, Any], *, write: bool) -> dict[str, Any]:
     """One stateless JSON-RPC 2.0 ``tools/call`` request.
 
     Internal identity keys are stripped before the payload leaves the
-    process (identity containment).
+    process (identity containment). Write calls additionally carry a
+    deterministic idempotency key (SEP-3182 shape, sibling of
+    ``arguments``) so a timeout-then-reconfirm flow cannot
+    double-execute server-side.
     """
     arguments = {key: value for key, value in args.items() if key not in _STRIP_ARG_KEYS}
+    params: dict[str, Any] = {"name": name, "arguments": arguments}
+    if write:
+        params["idempotencyKey"] = _derive_idempotency_key(
+            user_id=args.get("user_id"), name=name, arguments=arguments
+        )
     return {
         "jsonrpc": "2.0",
         "id": next(_REQUEST_IDS),
         "method": "tools/call",
-        "params": {"name": name, "arguments": arguments},
+        "params": params,
     }
+
+
+def _derive_idempotency_key(user_id: int | None, name: str, arguments: dict[str, Any]) -> str:
+    """Deterministic key over the logical operation identity.
+
+    Same user + tool + model-visible args ⇒ same key (a re-confirmed
+    retry dedups server-side); any variation ⇒ a different key (distinct
+    operations never collide).
+    """
+    canonical = json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=str)
+    digest = hashlib.sha256(f"{user_id}|{name}|{canonical}".encode()).hexdigest()
+    return f"idem-{digest[:32]}"
 
 
 def _extract_result(response: dict[str, Any]) -> dict[str, Any]:
