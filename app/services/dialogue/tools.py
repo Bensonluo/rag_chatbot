@@ -9,6 +9,7 @@ irreversible actions (refund / return) are flagged to require
 explicit user confirmation before execution.
 """
 
+import inspect
 import random
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -28,7 +29,9 @@ class ToolDefinition:
     intent: str
     description: str
     required_slots: list[str]
-    handler: Callable[[dict[str, Any]], dict[str, Any]]
+    # Sync (local mocks) or async (remote MCP tools — coroutines are
+    # awaited by ToolRegistry.execute via inspect.isawaitable).
+    handler: Callable[[dict[str, Any]], Any]
     # Irreversible actions ask the user for explicit confirmation before
     # the handler runs (Sierra/Fin-style confirmation gate).
     requires_confirmation: bool = False
@@ -112,6 +115,8 @@ class ToolRegistry:
             call_args.pop("user_id", None)
         try:
             result = tool.handler(call_args)
+            if inspect.isawaitable(result):
+                result = await result
             return ToolResult(success=True, data=result, message="OK")
         except Exception as e:
             return ToolResult(success=False, data={}, message=str(e))

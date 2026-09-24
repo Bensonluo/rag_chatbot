@@ -185,6 +185,18 @@ class ChatServiceFactory:
             from app.services.handoff import create_handoff_service
 
             tool_registry = create_default_tool_registry()
+            if settings.MCP_TOOLS_ENABLED and settings.MCP_TOOLS_MANIFEST:
+                from app.services.dialogue.mcp_tools import (
+                    HttpxRemoteToolClient,
+                    load_mcp_tools,
+                )
+
+                load_mcp_tools(
+                    tool_registry,
+                    settings.MCP_TOOLS_MANIFEST,
+                    HttpxRemoteToolClient(),
+                    timeout=settings.MCP_TOOL_TIMEOUT_SECONDS,
+                )
             agent_service = None
             if settings.AGENT_TOOLS_ENABLED and llm_service is not None:
                 agent_service = AgentService(

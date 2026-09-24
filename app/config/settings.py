@@ -180,6 +180,23 @@ class Settings(BaseSettings):
         description="Maximum model rounds per agent run (loop bound)",
     )
 
+    # MCP tool facade (Phase C): read-only remote tools imported from an
+    # MCP-shaped manifest (name/description/inputSchema, stateless
+    # JSON-RPC tools/call). Write tools are rejected at load time.
+    MCP_TOOLS_ENABLED: bool = Field(
+        default=False,
+        description="Import read-only remote tools from the MCP manifest into the tool registry",
+    )
+    MCP_TOOLS_MANIFEST: str = Field(
+        default="",
+        description="Path to the MCP tool manifest JSON; empty = no remote tools",
+    )
+    MCP_TOOL_TIMEOUT_SECONDS: float = Field(
+        default=5.0,
+        gt=0,
+        description="Per-call timeout for remote MCP tool invocations",
+    )
+
     # FAQ fast path (curated semantic match over pre-approved answers)
     FAQ_ENABLED: bool = Field(
         default=True,
