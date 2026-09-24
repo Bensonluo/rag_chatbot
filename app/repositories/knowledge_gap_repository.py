@@ -6,10 +6,12 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.models.database.knowledge_gap import KnowledgeGapRecord
+from app.models.database.knowledge_gap_resolution import KnowledgeGapResolution
 
 _WHITESPACE_RE = re.compile(r"\s+")
 
@@ -50,19 +52,64 @@ class KnowledgeGapRepository:
         await self._db.refresh(record)
         return record
 
+    async def resolve_query(
+        self, normalized_query: str, resolved_by: int = 0
+    ) -> KnowledgeGapResolution:
+        """Mark a normalized gap query resolved (upsert on the key).
+
+        Re-resolving updates ``resolved_at`` / ``resolved_by`` in place —
+        the worklist action is idempotent, and a later gap occurrence
+        still re-opens the group because ``top_gaps`` compares against
+        the latest hit.
+        """
+        normalized = normalize_query(normalized_query)
+        result = await self._db.execute(
+            select(KnowledgeGapResolution).where(
+                KnowledgeGapResolution.normalized_query == normalized
+            )
+        )
+        resolution = result.scalar_one_or_none()
+        if resolution is None:
+            resolution = KnowledgeGapResolution(
+                normalized_query=normalized, resolved_by=resolved_by
+            )
+        else:
+            resolution.resolved_at = func.now()
+            resolution.resolved_by = resolved_by
+        self._db.add(resolution)
+        await self._db.commit()
+        await self._db.refresh(resolution)
+        return resolution
+
     async def top_gaps(
         self,
         days: int = 7,
         limit: int = 20,
+        include_resolved: bool = False,
     ) -> list[dict[str, Any]]:
         """Most frequent unanswered queries in the window, newest-hit first.
 
+        A group counts as resolved when a resolution exists whose
+        ``resolved_at`` is at or after the group's latest occurrence;
+        resolved groups are hidden unless ``include_resolved`` is set
+        (they still come back annotated, and a fresh occurrence after
+        the resolution re-opens the group).
+
         Returns dicts (not ORM rows) so the API layer can serialize
         directly: ``normalized_query``, ``hits``, ``last_seen``,
-        ``sample_query``, ``sample_intent``.
+        ``sample_query``, ``sample_intent``, ``resolved``.
         """
         since = datetime.now(UTC) - timedelta(days=days)
-        result = await self._db.execute(
+        # Correlated "latest occurrence of this group" for the resolution
+        # comparison — an alias keeps the subquery independent of the
+        # outer GROUP BY.
+        occurrences = aliased(KnowledgeGapRecord)
+        last_hit = (
+            select(func.max(occurrences.created_at))
+            .where(occurrences.normalized_query == KnowledgeGapRecord.normalized_query)
+            .scalar_subquery()
+        )
+        stmt = (
             select(
                 KnowledgeGapRecord.normalized_query,
                 func.count().label("hits"),
@@ -75,13 +122,52 @@ class KnowledgeGapRepository:
             .order_by(func.count().desc())
             .limit(limit)
         )
-        return [
+        if not include_resolved:
+            stmt = stmt.where(
+                ~exists().where(
+                    KnowledgeGapResolution.normalized_query == KnowledgeGapRecord.normalized_query,
+                    KnowledgeGapResolution.resolved_at >= last_hit,
+                )
+            )
+        result = await self._db.execute(stmt)
+        groups = [
             {
                 "normalized_query": row.normalized_query,
                 "hits": row.hits,
-                "last_seen": row.last_seen.isoformat() if row.last_seen else None,
+                "last_seen": row.last_seen,
                 "sample_query": row.sample_query,
                 "sample_intent": row.sample_intent,
             }
             for row in result.fetchall()
+        ]
+        if not groups:
+            return []
+
+        # Annotate resolved status (one small IN query — resolutions are
+        # curator-managed and tiny next to the telemetry table).
+        resolution_rows = await self._db.execute(
+            select(
+                KnowledgeGapResolution.normalized_query,
+                KnowledgeGapResolution.resolved_at,
+            ).where(
+                KnowledgeGapResolution.normalized_query.in_([g["normalized_query"] for g in groups])
+            )
+        )
+        resolved_at_by_query: dict[str, datetime] = {}
+        for query, resolved_at in resolution_rows.fetchall():
+            resolved_at_by_query[query] = resolved_at
+
+        return [
+            {
+                "normalized_query": g["normalized_query"],
+                "hits": g["hits"],
+                "last_seen": g["last_seen"].isoformat() if g["last_seen"] else None,
+                "sample_query": g["sample_query"],
+                "sample_intent": g["sample_intent"],
+                "resolved": (
+                    (r := resolved_at_by_query.get(g["normalized_query"])) is not None
+                    and r >= g["last_seen"]
+                ),
+            }
+            for g in groups
         ]

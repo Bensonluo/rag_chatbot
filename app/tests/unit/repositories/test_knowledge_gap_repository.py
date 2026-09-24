@@ -105,3 +105,64 @@ class TestTopGaps:
             repo = KnowledgeGapRepository(session)
             gaps = await repo.top_gaps(days=7)
         assert gaps == []
+
+
+class TestResolveQuery:
+    async def test_resolve_upserts_and_returns_row(self, session_maker):
+        async with session_maker() as session:
+            repo = KnowledgeGapRepository(session)
+            resolution = await repo.resolve_query("发票怎么开", resolved_by=7)
+        assert resolution.normalized_query == "发票怎么开"
+        assert resolution.resolved_by == 7
+        assert resolution.resolved_at is not None
+
+    async def test_re_resolve_updates_same_row(self, session_maker):
+        async with session_maker() as session:
+            repo = KnowledgeGapRepository(session)
+            first = await repo.resolve_query("q")
+            second = await repo.resolve_query("q", resolved_by=9)
+        assert second.id == first.id  # updated in place, not duplicated
+        assert second.resolved_by == 9
+
+
+class TestTopGapsLifecycle:
+    async def test_resolved_group_hidden_by_default(self, session_maker):
+        async with session_maker() as session:
+            repo = KnowledgeGapRepository(session)
+            await repo.record(query="发票怎么开", intent="faq")
+            await repo.record(query="另一个问题", intent="faq")
+            await repo.resolve_query("发票怎么开")
+
+            gaps = await repo.top_gaps()
+
+        assert [g["normalized_query"] for g in gaps] == ["另一个问题"]
+
+    async def test_new_occurrence_reopens_resolved_group(self, session_maker):
+        from datetime import timedelta
+
+        async with session_maker() as session:
+            repo = KnowledgeGapRepository(session)
+            await repo.record(query="发票怎么开", intent="faq")
+            await repo.resolve_query("发票怎么开")
+            reopened = await repo.record(query="发票怎么开", intent="faq")
+            # SQLite CURRENT_TIMESTAMP is second-granular: force the new
+            # occurrence to land strictly after the resolution.
+            reopened.created_at = reopened.created_at + timedelta(seconds=5)
+            session.add(reopened)
+            await session.commit()
+
+            gaps = await repo.top_gaps()
+
+        assert [g["normalized_query"] for g in gaps] == ["发票怎么开"]
+        assert gaps[0]["resolved"] is False
+
+    async def test_include_resolved_annotates_resolved_groups(self, session_maker):
+        async with session_maker() as session:
+            repo = KnowledgeGapRepository(session)
+            await repo.record(query="发票怎么开", intent="faq")
+            await repo.resolve_query("发票怎么开")
+
+            gaps = await repo.top_gaps(include_resolved=True)
+
+        assert len(gaps) == 1
+        assert gaps[0]["resolved"] is True
