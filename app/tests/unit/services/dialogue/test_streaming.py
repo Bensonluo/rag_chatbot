@@ -259,3 +259,86 @@ class TestNodeStreaming:
         updates = await factory.generate_response_node(state, None)
 
         assert updates["response"] == "整段"
+
+
+class TestStreamClaimGating:
+    """Sentence-buffered claim gating on the token-streamed path (A2
+    streaming close-out): violating policy numbers must never reach the
+    consumer, and the persisted response must equal the streamed bytes
+    exactly — no divergence between what the user saw and what history
+    stores. Uncheckable turns keep raw token granularity."""
+
+    async def test_violating_stream_corrected_before_queue(self):
+        config, queue = _config_with_queue()
+        factory = _factory(llm=_StreamLLM(["退款", "将在 10 ", "个工作日", "内到账", "。"]))
+        state: DialogueState = {
+            "message": "退款多久到账",
+            "session_id": 1,
+            "user_id": 1,
+            "intent": "chitchat",
+        }
+
+        updates = await factory.generate_response_node(state, config)
+
+        streamed = _drain(queue)
+        joined = "".join(streamed)
+        assert "10 个工作日" not in joined  # never reached the consumer
+        assert "1-3 个工作日" in updates["response"]
+        assert joined == updates["response"]  # user saw == history stores
+        assert config["configurable"]["streamed_response"] is True
+
+    async def test_uncheckable_stream_keeps_token_granularity(self):
+        config, queue = _config_with_queue()
+        factory = _factory(llm=_StreamLLM(["您", "好", "呀"]))
+        state: DialogueState = {
+            "message": "你好",
+            "session_id": 1,
+            "user_id": 1,
+            "intent": "chitchat",
+        }
+
+        updates = await factory.generate_response_node(state, config)
+
+        assert _drain(queue) == ["您", "好", "呀"]  # per-token emission unchanged
+        assert updates["response"] == "您好呀"
+
+    async def test_clean_checkable_turn_emits_per_sentence(self):
+        config, queue = _config_with_queue()
+        factory = _factory(llm=_StreamLLM(["好的。", "退款 1-3 个工作日", "到账。"]))
+        state: DialogueState = {
+            "message": "退款多久到账",
+            "session_id": 1,
+            "user_id": 1,
+            "intent": "chitchat",
+        }
+
+        updates = await factory.generate_response_node(state, config)
+
+        streamed = _drain(queue)
+        assert streamed[0] == "好的。"  # first sentence released early
+        assert "".join(streamed) == updates["response"]
+        assert updates["response"].startswith("好的。")
+
+    async def test_midstream_failure_flushes_gated_holdings_then_fallback(self):
+        config, queue = _config_with_queue()
+        # Held text ends in 到账 so the deterministic checker can bind it —
+        # a keyword-less partial is (correctly, by design) uncheckable. The
+        # third token exists only to trip the raise mid-stream.
+        factory = _factory(
+            llm=_StreamLLM(["退款将在 ", "10 个工作日内到账", "后续"], raise_after=2)
+        )
+        state: DialogueState = {
+            "message": "退款多久到账",
+            "session_id": 1,
+            "user_id": 1,
+            "intent": "chitchat",
+        }
+
+        updates = await factory.generate_response_node(state, config)
+
+        streamed = _drain(queue)
+        assert streamed[-1] == _FALLBACK
+        gated_partial = streamed[0]
+        assert "10 个工作日" not in gated_partial  # held text gated, not dumped raw
+        assert "1-3 个工作日" in gated_partial
+        assert updates["response"] == gated_partial + _FALLBACK

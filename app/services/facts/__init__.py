@@ -11,12 +11,15 @@ from app.services.facts.claim_check import (
     check_policy_claims,
 )
 from app.services.facts.fact_store import FactStore, PolicyFact
+from app.services.facts.stream_gate import StreamClaimGate, make_stream_gate
 
 __all__ = [
     "ClaimCheckResult",
     "ClaimViolation",
     "FactStore",
     "PolicyFact",
+    "StreamClaimGate",
     "apply_violations",
     "check_policy_claims",
+    "make_stream_gate",
 ]

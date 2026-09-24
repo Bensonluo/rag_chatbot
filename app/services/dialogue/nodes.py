@@ -1205,16 +1205,45 @@ class NodeFactory:
 
         if queue is not None:
             chunks: list[str] = []
+            emitted: list[str] = []
+            # Sentence-buffered claim gating (A2 streaming close-out):
+            # armed exactly when the turn is checkable, so violating
+            # policy numbers can never reach the consumer ungated while
+            # chitchat keeps raw per-token emission. Everything put on
+            # the queue is already gated, and the returned text is the
+            # emitted text — stream and persistence cannot diverge.
+            gate = None
+            if (
+                state is not None
+                and not state.get("blocked")
+                and not state.get("tool_result")
+            ):
+                from app.services.facts.stream_gate import make_stream_gate
+
+                gate = make_stream_gate(state.get("message", ""))
             try:
                 async for chunk in self._llm_service.generate_stream(messages):
                     if not chunk:
                         continue
                     chunks.append(chunk)
-                    queue.put_nowait(chunk)
+                    ready = gate.feed(chunk) if gate is not None else chunk
+                    if ready:
+                        emitted.append(ready)
+                        queue.put_nowait(ready)
+                tail = gate.flush() if gate is not None else ""
+                if tail:
+                    emitted.append(tail)
+                    queue.put_nowait(tail)
             except Exception:
                 logger.exception("LLM streaming generation failed")
                 fallback = "抱歉，生成回复时出现错误，请稍后重试。"
-                if chunks:
+                # Text may still be held mid-sentence in the gate; flush it
+                # through the gate so ungated remains never reach the queue.
+                held = gate.flush() if gate is not None else ""
+                if emitted or held:
+                    if held:
+                        emitted.append(held)
+                        queue.put_nowait(held)
                     # Partial tokens already reached the consumer; append a
                     # visible apology rather than silently truncating. The
                     # consumer has now seen the entire response (tokens +
@@ -1224,12 +1253,12 @@ class NodeFactory:
                     configurable = config.get("configurable") if config else None
                     if isinstance(configurable, dict):
                         configurable["streamed_response"] = True
-                    return "".join(chunks) + fallback
+                    return "".join(emitted) + fallback
                 return fallback
             configurable = config.get("configurable") if config else None
             if isinstance(configurable, dict):
                 configurable["streamed_response"] = True
-            return "".join(chunks)
+            return "".join(emitted)
 
         try:
             response = await self._llm_service.generate(messages)
