@@ -15,6 +15,7 @@ from app.core.exceptions import ValidationError
 from app.repositories.message_repository import MessageRepository
 from app.repositories.session_repository import SessionRepository
 from app.services.chat.chat_service import ChatService
+from app.services.chat.user_facts_cache import cached_user_facts_provider
 from app.services.intent import IntentFactory
 from app.services.intent.base import IntentDetector
 from app.services.llm.base import LLMServiceBase
@@ -238,7 +239,10 @@ class ChatServiceFactory:
                 async def _user_facts(user_id: int) -> list[str]:
                     return await facts_persister.get_user_facts(user_id=user_id, limit=8)
 
-                user_facts_provider = _user_facts
+                user_facts_provider = cached_user_facts_provider(
+                    _user_facts,
+                    ttl_seconds=settings.USER_FACT_RECALL_CACHE_TTL_SECONDS,
+                )
             graph = build_dialogue_graph(
                 intent_detector=intent_detector,
                 history_provider=history_provider,

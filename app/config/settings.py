@@ -111,6 +111,16 @@ class Settings(BaseSettings):
         default=True,
         description="Inject the user's cross-session facts into generation prompts (Phase B read side)",
     )
+    USER_FACT_RECALL_CACHE_TTL_SECONDS: float = Field(
+        default=60.0,
+        ge=0,
+        description=(
+            "Per-worker TTL for user-facts recall caching; 0 disables caching. "
+            "Facts are slow-stale (extraction runs every "
+            "USER_FACT_EXTRACTION_INTERVAL turns), so 60s trades bounded "
+            "staleness for the bulk of per-turn store reads at scale"
+        ),
+    )
     CHAT_STREAM_MAX_SECONDS: float = Field(
         default=120.0,
         description="Total budget for one SSE chat stream before it is cut off",
