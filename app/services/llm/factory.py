@@ -138,6 +138,31 @@ class LLMFactory:
             raise ValidationError(f"Provider {provider} not implemented")
 
     @staticmethod
+    def create_light_from_settings(primary: LLMServiceBase) -> LLMServiceBase:
+        """Build the light (classification) tier for the primary provider.
+
+        Tier assignment is deterministic at composition time — the graph
+        is the router, so no runtime classification call is spent (the
+        structural analog of "never route with an LLM call if a regex
+        will do"). Returns the primary unchanged when
+        ``CHAT_LLM_LIGHT_MODEL`` is unset: single-tier deployments keep
+        today's behavior. Deliberately not wrapped in resilience —
+        light-tier consumers (hybrid intent, rule-based slots, score
+        fallback rerankers) degrade on their own when the model fails.
+        """
+        settings = get_settings()
+        light_model = settings.CHAT_LLM_LIGHT_MODEL
+        if not light_model:
+            return primary
+        if settings.GLM_API_KEY:
+            return GLMClient(api_key=settings.GLM_API_KEY, model=light_model)
+        if settings.OPENAI_API_KEY:
+            return OpenAIClient(api_key=settings.OPENAI_API_KEY, model=light_model)
+        if settings.ANTHROPIC_API_KEY:
+            return AnthropicClient(api_key=settings.ANTHROPIC_API_KEY, model=light_model)
+        return primary
+
+    @staticmethod
     def create_from_settings() -> LLMServiceBase:
         """
         Create LLM service from settings with automatic provider selection.

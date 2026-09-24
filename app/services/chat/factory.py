@@ -93,6 +93,7 @@ class ChatServiceFactory:
         llm_service: LLMServiceBase,
         message_repo: MessageRepository,
         session_repo: SessionRepository,  # noqa: ARG004 - interface symmetry
+        light_llm_service: LLMServiceBase | None = None,
         memory_type: str = "optimized",
         intent_type: str = "hybrid",
         retrieval_pipeline: dict[str, Any] | None = None,
@@ -110,7 +111,11 @@ class ChatServiceFactory:
         Create chat service with default memory, intent, and LangGraph graph.
 
         Args:
-            llm_service: LLM service for generation and intent detection
+            llm_service: LLM service (primary tier) for generation
+                and agent tool rounds
+            light_llm_service: Optional light tier for classification/
+                extraction consumers (intent, memory summaries, handoff);
+                defaults to llm_service when CHAT_LLM_LIGHT_MODEL is unset
             message_repo: Message repository for memory
             session_repo: Session repository
             memory_type: Type of memory strategy
@@ -134,14 +139,19 @@ class ChatServiceFactory:
         Returns:
             ChatService: Configured chat service with compiled LangGraph
         """
-        # One budget wrapper over the provider singleton: intent,
-        # slots, agent tool rounds, rerank, and generation all flow
-        # through it, each reserving against the per-request scope
-        # ChatService opens. Background consumers (session
-        # compression) keep the raw service — off request budget.
+        # Two tiers, one budget (the graph is the router — tier choice
+        # is deterministic per node, no runtime classification call):
+        # intent detection, memory summaries, and the handoff 交接单 run
+        # on the light tier; generation and agent tool rounds stay on
+        # the primary. Both wrappers reserve against the same
+        # per-request scope ChatService opens. Background consumers
+        # (session compression) keep the raw service — off request
+        # budget.
         from app.services.llm.budget import BudgetedLLMService
 
+        light_llm_service = light_llm_service or llm_service
         llm_service = BudgetedLLMService(llm_service)
+        light_llm_service = BudgetedLLMService(light_llm_service)
 
         # Create embedding service if using optimized memory
         from app.services.embeddings import EmbeddingFactory
@@ -154,7 +164,7 @@ class ChatServiceFactory:
         memory_strategy = MemoryFactory.create(
             memory_type=memory_type,
             message_repo=message_repo,
-            llm_service=llm_service if memory_type in ["summarization", "hybrid"] else None,
+            llm_service=light_llm_service if memory_type in ["summarization", "hybrid"] else None,
             embedding_service=embedding_service,
             **memory_kwargs,
         )
@@ -162,7 +172,7 @@ class ChatServiceFactory:
         # Create intent detector
         intent_detector = IntentFactory.create(
             detector_type=intent_type,
-            llm_service=llm_service if intent_type in ["llm_based", "hybrid"] else None,
+            llm_service=light_llm_service if intent_type in ["llm_based", "hybrid"] else None,
         )
 
         # Create tool registry and build LangGraph dialogue graph
@@ -218,7 +228,7 @@ class ChatServiceFactory:
                 guardrail_service=guardrail_service,
                 graph_retrieval_service=graph_retrieval_service,
                 checkpointer=checkpointer,
-                handoff_service=create_handoff_service(llm_service=llm_service),
+                handoff_service=create_handoff_service(llm_service=light_llm_service),
                 agent_service=agent_service,
                 faq_service=faq_service,
             )

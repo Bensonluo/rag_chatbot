@@ -74,6 +74,19 @@ async def initialize_chat_service(
     settings = get_settings()
     llm_service = LLMFactory.create_from_settings()
 
+    # Two tiers, one budget: classification/extraction (rerank, slot
+    # filling, Text-to-Cypher) run on the light model when
+    # CHAT_LLM_LIGHT_MODEL is set; generation and agent tool rounds
+    # stay on the primary. Request-path consumers get the budget
+    # wrapper — the reranker and slot filler run INSIDE graph nodes,
+    # so an unwrapped service would silently bypass the per-request
+    # LLM budget. The background compressor keeps the raw light
+    # service (off request budget by design).
+    from app.services.llm.budget import BudgetedLLMService
+
+    light_llm_service = LLMFactory.create_light_from_settings(llm_service)
+    budgeted_light_llm = BudgetedLLMService(light_llm_service)
+
     from app.repositories.message_repository import MessageRepository
     from app.repositories.session_repository import SessionRepository
 
@@ -125,7 +138,7 @@ async def initialize_chat_service(
     try:
         if settings.RERANKER_ENABLED and retrieval_pipeline is not None:
             reranker = RetrievalFactory.create_reranker_from_settings(
-                llm_service=llm_service,
+                llm_service=budgeted_light_llm,
             )
             retrieval_pipeline["reranker"] = reranker
     except Exception as e:
@@ -167,7 +180,7 @@ async def initialize_chat_service(
                     from app.services.graph.retrieval import TextToCypherService
 
                     graph_retrieval_service._cypher = TextToCypherService(
-                        llm_service=llm_service,
+                        llm_service=budgeted_light_llm,
                         graph_client=graph_client,
                     )
 
@@ -198,7 +211,7 @@ async def initialize_chat_service(
 
             slot_filler = SlotFillerFactory.create(
                 filler_type=settings.SLOT_FILLING_TYPE,
-                llm_service=llm_service,
+                llm_service=budgeted_light_llm,
             )
     except Exception as e:
         logger.warning("Failed to initialize slot filling: %s", e)
@@ -220,6 +233,7 @@ async def initialize_chat_service(
 
     _chat_service = ChatServiceFactory.create_with_defaults(
         llm_service=llm_service,
+        light_llm_service=light_llm_service,
         message_repo=message_repo,
         session_repo=session_repo,
         memory_type="optimized",
@@ -234,7 +248,7 @@ async def initialize_chat_service(
             session_maker=async_session_maker,
             compressor=SessionCompressor(
                 session_maker=async_session_maker,
-                llm_service=llm_service,
+                llm_service=light_llm_service,
                 threshold=settings.CHAT_SUMMARY_THRESHOLD,
                 interval=settings.CHAT_SUMMARY_INTERVAL,
             ),

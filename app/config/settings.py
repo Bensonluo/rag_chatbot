@@ -83,6 +83,14 @@ class Settings(BaseSettings):
         "Caps the pathological tail (agent rounds + intent + rerank + "
         "generation); 8 fits the normal path with headroom.",
     )
+    CHAT_LLM_LIGHT_MODEL: str | None = Field(
+        default=None,
+        description=(
+            "Model for the light classification tier (intent/slots/rerank/"
+            "handoff/summaries). Same provider as the primary; unset keeps "
+            "a single tier (light consumers use the primary model)."
+        ),
+    )
     CHAT_SUMMARY_THRESHOLD: int = Field(
         default=20, description="Messages before the first session summary on the chat path"
     )
