@@ -15,6 +15,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from app.config.settings import settings
+from app.services.chat.metrics import (
+    CHAT_FIRST_TOKEN_SECONDS,
+    CHAT_STREAM_DURATION_SECONDS,
+    CHAT_STREAM_OUTCOMES,
+)
 from app.services.llm.budget import (
     BudgetState,
     enter_llm_budget,
@@ -229,12 +234,18 @@ class ChatService:
         streamed_content: list[str] = []
         loop = asyncio.get_running_loop()
         deadline = loop.time() + stream_max_seconds
+        # 时效 observability (GB/T 47746 响应速度): TTFT to first content,
+        # total duration, and the outcome of whichever exit path runs.
+        stream_started = loop.time()
+        first_token_seen = False
+        outcome = "completed"
         try:
             while True:
                 remaining = deadline - loop.time()
                 if remaining <= 0:
                     # Budget exhausted — end the stream rather than hold the
                     # connection open on heartbeats forever.
+                    outcome = "budget_exhausted"
                     yield STREAM_ERROR
                     return
                 try:
@@ -243,20 +254,26 @@ class ChatService:
                     )
                 except TimeoutError:
                     if loop.time() >= deadline:
+                        outcome = "budget_exhausted"
                         yield STREAM_ERROR
                         return
                     yield HEARTBEAT
                     continue
                 if chunk is None:
                     break
+                if not first_token_seen:
+                    first_token_seen = True
+                    CHAT_FIRST_TOKEN_SECONDS.observe(loop.time() - stream_started)
                 streamed_content.append(chunk)
                 yield chunk
             if invoke_task.cancelled():
+                outcome = "graph_error"
                 yield STREAM_ERROR
                 return
             if invoke_task.exception() is not None:
                 # The client gets an explicit failure frame instead of a
                 # dropped connection; partial content is still persisted.
+                outcome = "graph_error"
                 yield STREAM_ERROR
                 return
             result = invoke_task.result()
@@ -268,7 +285,14 @@ class ChatService:
                     session_id=session_id,
                     user_id=user_id,
                 )
+        except GeneratorExit:
+            # Client disconnected mid-stream: record it, let the close
+            # proceed (partial-content persistence still runs in finally).
+            outcome = "client_disconnect"
+            raise
         finally:
+            CHAT_STREAM_DURATION_SECONDS.observe(loop.time() - stream_started)
+            CHAT_STREAM_OUTCOMES.labels(outcome=outcome).inc()
             if not invoke_task.done():
                 invoke_task.cancel()
             with contextlib.suppress(BaseException):
