@@ -20,7 +20,8 @@ class OptimizedContextBuilder(MemoryStrategy):
     Features:
     - Relevance-based filtering using embeddings
     - Smart token budgeting
-    - Automatic summarization on topic shift
+    - Prepends the latest session summary (when one exists) and keeps
+      it overlap-free with the message window
     - Dynamic context window adjustment
     """
 
@@ -74,6 +75,13 @@ class OptimizedContextBuilder(MemoryStrategy):
             session_id=session_id,
             limit=100,  # Get more, will filter
         )
+        # Long sessions: a compression pass (SummarizationMemory) stores a
+        # system-role summary. Consume it instead of replaying the covered
+        # turns — drop rows older than the summary, using the same
+        # boundary the archive does (created_at < summary.created_at).
+        summary = await self.message_repo.get_latest_summary(session_id)
+        if summary is not None:
+            rows = [row for row in rows if row.created_at >= summary.created_at]
         all_messages = [
             MessageContent(role=row.role, content=row.content, timestamp=row.created_at)
             for row in rows
@@ -84,6 +92,14 @@ class OptimizedContextBuilder(MemoryStrategy):
         all_messages.reverse()
 
         if not all_messages:
+            if summary is not None:
+                return [
+                    MessageContent(
+                        role="system",
+                        content=f"Previous conversation: {summary.content}",
+                        timestamp=summary.created_at,
+                    )
+                ]
             return []
 
         # 2. Always include most recent messages (for continuity)
@@ -99,9 +115,19 @@ class OptimizedContextBuilder(MemoryStrategy):
                 messages=older_messages, query=current_query, max_count=self.max_relevant_messages
             )
 
-        # 4. Combine chronologically: relevant older block, then the
-        # recent window — reads like a conversation log, newest last.
+        # 4. Combine chronologically: (optional summary), relevant older
+        # block, then the recent window — reads like a conversation log,
+        # newest last.
         combined = relevant_messages + recent_messages
+        if summary is not None:
+            combined.insert(
+                0,
+                MessageContent(
+                    role="system",
+                    content=f"Previous conversation: {summary.content}",
+                    timestamp=summary.created_at,
+                ),
+            )
 
         # 5. Truncate by tokens if needed
         budget = max_tokens or self.token_budget

@@ -1,6 +1,6 @@
 """OptimizedContextBuilder: ORM→dict conversion, relevance filtering, budgets."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, Mock
 
 from app.models.database.message import Message
@@ -9,10 +9,11 @@ from app.services.embeddings.base import EmbeddingServiceBase
 from app.services.memory.optimized_context import OptimizedContextBuilder
 
 
-def _repo(messages: list[Message]) -> MessageRepository:
+def _repo(messages: list[Message], summary: Message | None = None) -> MessageRepository:
     """MessageRepository stand-in returning ORM rows, newest first (prod order)."""
     repo = Mock(spec=MessageRepository)
     repo.get_recent_messages = AsyncMock(return_value=messages)
+    repo.get_latest_summary = AsyncMock(return_value=summary)
     return repo
 
 
@@ -131,3 +132,76 @@ class TestEstimateTokenSavings:
         assert report["selected_messages"] <= 3
         assert report["original_tokens"] == 75  # 3 × (100 // 4)
         assert "savings_percent" in report
+
+
+class TestSummaryAwareness:
+    """Long-session compression output (system summaries) joins the context.
+
+    SummarizationMemory writes a system-role summary message and archives
+    the covered prefix; the optimized strategy must consume that summary
+    and not repeat the covered turns.
+    """
+
+    @staticmethod
+    def _summary(content: str, created_at: datetime) -> Message:
+        return Message(id=99, role="system", content=content, created_at=created_at)
+
+    async def test_prepends_latest_summary_as_system_message(self):
+        cutoff = datetime(2026, 9, 24, 12, 0, 0)
+        summary = self._summary("用户咨询发票问题", cutoff)
+        rows = [  # newest first, all after the summary
+            Message(id=2, role="user", content="新的问题", created_at=cutoff.replace(minute=5)),
+            Message(
+                id=1, role="assistant", content="新的回答", created_at=cutoff.replace(minute=1)
+            ),
+        ]
+        memory = OptimizedContextBuilder(message_repo=_repo(rows, summary=summary))
+
+        context = await memory.get_context(session_id=1)
+
+        assert context[0]["role"] == "system"
+        assert context[0]["content"] == "Previous conversation: 用户咨询发票问题"
+        assert [m["content"] for m in context[1:]] == ["新的回答", "新的问题"]
+
+    async def test_turns_covered_by_the_summary_are_not_repeated(self):
+        cutoff = datetime(2026, 9, 24, 12, 0, 0)
+        summary = self._summary("前情摘要", cutoff)
+        rows = [  # newest first: one post-summary turn, two pre-summary turns
+            Message(id=4, role="user", content="之后的问题", created_at=cutoff.replace(minute=3)),
+            Message(
+                id=2,
+                role="assistant",
+                content="摘要前的回答",
+                created_at=cutoff - timedelta(minutes=1),
+            ),
+            Message(
+                id=1, role="user", content="摘要前的问题", created_at=cutoff - timedelta(minutes=2)
+            ),
+        ]
+        memory = OptimizedContextBuilder(message_repo=_repo(rows, summary=summary))
+
+        context = await memory.get_context(session_id=1)
+
+        contents = [m["content"] for m in context]
+        assert contents == ["Previous conversation: 前情摘要", "之后的问题"]
+
+    async def test_summary_only_when_window_fully_covered(self):
+        cutoff = datetime(2026, 9, 24, 12, 0, 0)
+        summary = self._summary("全部已摘要", cutoff)
+        rows = [
+            Message(id=1, role="user", content="更早的", created_at=cutoff - timedelta(minutes=5))
+        ]
+        memory = OptimizedContextBuilder(message_repo=_repo(rows, summary=summary))
+
+        context = await memory.get_context(session_id=1)
+
+        assert [m["content"] for m in context] == ["Previous conversation: 全部已摘要"]
+
+    async def test_summary_newer_than_every_row_still_kept(self):
+        cutoff = datetime(2026, 9, 24, 12, 0, 0)
+        summary = self._summary("摘要", cutoff)
+        memory = OptimizedContextBuilder(message_repo=_repo([], summary=summary))
+
+        context = await memory.get_context(session_id=1)
+
+        assert [m["content"] for m in context] == ["Previous conversation: 摘要"]
