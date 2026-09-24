@@ -1,0 +1,488 @@
+{
+  "title": "CS 漏斗北极星",
+  "uid": "cs-funnel",
+  "tags": [
+    "cs",
+    "funnel",
+    "north-star"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "漏斗分层流量（turns/s）",
+      "description": "每层服务的每轮触达速率。层触达按轮计数、非互斥：agent 轮若同时检索则两层都计——这是对层压力的诚实度量。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (layer) (rate(chat_funnel_layers_total[5m]))",
+          "legendFormat": "{{layer}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Handoff 占比（一次解决率反量）",
+      "description": "转人工触达占漏斗总流量比例——一次解决率的运营反量。HandoffShareHigh 告警在 >25% 持续 5m 时触发；阈值按真实流量基线调整。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(chat_funnel_layers_total{layer=\"handoff\"}[15m])) / sum(rate(chat_funnel_layers_total[15m]))",
+          "legendFormat": "handoff share"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "塔顶吸收率（缓存+FAQ）",
+      "description": "缓存金字塔顶三层（L0 精确命中 + L1 语义命中 + FAQ）吸收的流量占比——这层承重决定深层（RAG/agent）的产能余量。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(chat_funnel_layers_total{layer=~\"l0_cache|l1_semantic|faq\"}[5m])) / sum(rate(chat_funnel_layers_total[5m]))",
+          "legendFormat": "top absorption"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "TTFT p95",
+      "description": "首字延迟 p95（5m 窗口）。行业对话目标 <1s，每多等 1s 流失率约升 7-10%。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(chat_first_token_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Agent 终局分布（runs/s）",
+      "description": "漏斗最深层的终局构成：answered（一次解决）/ staged（待确认）/ steps_exhausted（截断）/ fallback（降级到槽位管道）。fallback 升高 = 深层用户失去 agent 服务。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(agent_loop_outcomes_total[5m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Agent 回退占比（深层降级）",
+      "description": "fallback 终局占 agent 循环总终局的比例。AgentFallbackShareHigh 在 >20% 持续 5m 时触发；fail-open 意味着回退用户仍被槽位管道服务——这是质量降级信号，不是宕机信号。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.2
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(agent_loop_outcomes_total{outcome=\"fallback\"}[15m])) / sum(rate(agent_loop_outcomes_total[15m]))",
+          "legendFormat": "fallback share"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Agent 工具调用深度 p95",
+      "description": "每次完成的 agent 循环运行的工具调用次数 p95——漏斗深处工具循环的真实深度。持续贴近 0 说明 agent 层没有真正动用工具，只在单轮应答。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(agent_loop_tool_calls_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "缓存金字塔命中率",
+      "description": "L0 精确 / L1 语义 / L2 检索 / L3 embedding 四层命中率。KB 翻新（epoch bump）后塌落是合法行为；持续贴 0 且有流量 = 层静默失效（看 KBEpochFailuresRising / EmbeddingCacheFailuresRising 告警与 Redis）。L1 = 直答层内命中占比（l1_semantic / (l1_semantic + direct)）；L3 按文本计数（批量 API）。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(answer_cache_hits_total[5m])) / (sum(rate(answer_cache_hits_total[5m])) + sum(rate(answer_cache_misses_total[5m])))",
+          "legendFormat": "L0 精确命中"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(chat_funnel_layers_total{layer=\"l1_semantic\"}[5m])) / (sum(rate(chat_funnel_layers_total{layer=\"l1_semantic\"}[5m])) + sum(rate(chat_funnel_layers_total{layer=\"direct\"}[5m])))",
+          "legendFormat": "L1 语义命中"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(retrieval_cache_hits_total[5m])) / (sum(rate(retrieval_cache_hits_total[5m])) + sum(rate(retrieval_cache_misses_total[5m])))",
+          "legendFormat": "L2 检索命中"
+        },
+        {
+          "refId": "D",
+          "expr": "sum(rate(embedding_cache_hits_total[5m])) / (sum(rate(embedding_cache_hits_total[5m])) + sum(rate(embedding_cache_misses_total[5m])))",
+          "legendFormat": "L3 embedding 命中"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "用户差评率（CSAT 反量）",
+      "description": "踩评占全部评价的比例——用户自证的「不是一次解决」。FeedbackNegativeShareHigh 在 >25% 持续 5m 触发；持续上升指向答案质量劣化（检索接地/KB 陈旧），而非流量结构变化。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(feedback_ratings_total{rating=\"-1\"}[15m])) / sum(rate(feedback_ratings_total[15m]))",
+          "legendFormat": "negative share"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "知识缺口占比",
+      "description": "知识意图轮中检索零结果的比例（缺口/RAG 层触达）。缺口清单驱动 KB 补内容——这是产品流程信号，不是页面信号；持续走高 = 知识覆盖在欠账。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(knowledge_gaps_total[5m])) / sum(rate(chat_funnel_layers_total{layer=\"rag\"}[5m]))",
+          "legendFormat": "gap share"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "一次解决率（会话级，真实口径）",
+      "description": "服务过的会话（窗口内≥1条assistant消息）中无任何转人工工单的占比——北极星最高权重指标的真实口径。与第2面板的轮级 handoff 占比互补：5轮+1次转人工在轮级读 20%，会话级读 0%。数值来自 DB 桥接 Gauge，周期刷新；DB 故障时冻结在上次值而非跌零。窗口内零流量时曲线断开（未定义，非 0%）。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(chat_one_shot_rate)",
+          "legendFormat": "one-shot (sessions, {{window}}d)"
+        },
+        {
+          "refId": "B",
+          "expr": "avg(chat_sessions_served)",
+          "legendFormat": "served sessions"
+        },
+        {
+          "refId": "C",
+          "expr": "avg(chat_sessions_escalated)",
+          "legendFormat": "escalated sessions"
+        }
+      ]
+    }
+  ]
+}

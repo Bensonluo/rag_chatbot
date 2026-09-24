@@ -56,3 +56,31 @@ ANSWER_CACHE_MISSES = Counter(
     "L0 answer-cache lookups that missed (no entry, disabled epoch, or Redis outage)",
     registry=REGISTRY,
 )
+
+# User-verified quality signals (one-shot-resolution proxies). An
+# answer the user downvoted was not a resolution; a knowledge-intent
+# turn with zero retrieval hits is a gap the KB must close. Both feed
+# the north-star dashboard and the CSAT alert.
+FEEDBACK_RATINGS = Counter(
+    "feedback_ratings_total",
+    "Submitted message ratings by rating value (1=thumbs up, -1=thumbs down)",
+    labelnames=["rating"],
+    registry=REGISTRY,
+)
+
+# Downvote-driven pyramid eviction: entries removed because their
+# response was user-rejected (rating < 0). The one-shot north star's
+# cleanup loop — without it the pyramid replays known-bad answers
+# until TTL/epoch rotation.
+CACHE_FEEDBACK_EVICTIONS = Counter(
+    "cache_feedback_evictions_total",
+    "Cache entries evicted because their response was downvoted (by layer)",
+    labelnames=["layer"],
+    registry=REGISTRY,
+)
+
+KNOWLEDGE_GAPS = Counter(
+    "knowledge_gaps_total",
+    "Knowledge-intent turns whose retrieval produced no usable documents",
+    registry=REGISTRY,
+)

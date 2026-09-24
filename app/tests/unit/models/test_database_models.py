@@ -262,3 +262,45 @@ class TestDocumentModel:
         assert document.chunk_count == 0
         assert document.is_active is True
         assert document.doc_metadata is None
+
+
+class TestMessageKpiIndex:
+    """The north-star KPI query's supporting index.
+
+    ``TicketRepository.get_one_shot_stats`` filters
+    ``role == ASSISTANT AND created_at >= since`` over the messages
+    table — the biggest table in the system (two rows per turn at
+    50-60M daily visits) — on a repeating timer (the Prometheus
+    bridge refreshes every 300s per replica) and on every stats API
+    poll. Unindexed, each run is a sequential scan of that table: the
+    KPI observability bridge itself becomes the database hotspot.
+    The model must declare a composite index covering the exact
+    predicate.
+    """
+
+    def test_messages_role_created_at_composite_index_exists(self) -> None:
+        from app.models.database.message import Message
+
+        wanted = {"role", "created_at"}
+        matches = [ix for ix in Message.__table__.indexes if {c.name for c in ix.columns} == wanted]
+        assert matches, (
+            "messages needs a composite index on (role, created_at): the "
+            "one-shot KPI query filters exactly this predicate on a timer"
+        )
+
+    def test_migration_chain_creates_the_kpi_index(self) -> None:
+        """Versioned databases converge: some revision in the chain to
+        head must carry the index DDL, not just the model metadata
+        (create_all only covers fresh test databases)."""
+        import re
+        from pathlib import Path
+
+        versions_dir = Path(__file__).resolve().parents[4] / "migrations" / "versions"
+        needle = re.compile(r"create_index\([^)]*ix_messages_role_created_at", re.S)
+        found = any(
+            needle.search(path.read_text(encoding="utf-8")) for path in versions_dir.glob("*.py")
+        )
+        assert found, (
+            "no migration creates ix_messages_role_created_at — existing "
+            "deployments will keep seq-scanning messages on every KPI refresh"
+        )

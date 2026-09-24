@@ -77,7 +77,7 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 
 | 📈 Stats | | |
 |:---:|:---:|:---:|
-| **1295** maintained tests | **3** LLM providers | **85.67%** core coverage |
+| **1536** maintained tests | **3** LLM providers | **86.75%** core coverage |
 | **12** dialogue nodes | **5** data stores | **4** memory strategies |
 
 </div>
@@ -334,7 +334,7 @@ See [.env.example](.env.example) for the full list.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 1295 tests / 85.67%)
+# Maintained core suite (70% minimum; currently 1536 tests / 86.75%)
 pytest
 
 # Targeted runs
@@ -359,7 +359,7 @@ mypy app/core/security.py app/services/documents/base.py \
 | Metric | Value |
 |--------|-------|
 | Maintained test cases | **1295** |
-| Maintained core coverage | **85.67%** (70% minimum enforced locally) |
+| Maintained core coverage | **86.75%** (70% minimum enforced locally) |
 | Python files | ~200 |
 | Test files | ~58 |
 
@@ -372,7 +372,7 @@ mypy app/core/security.py app/services/documents/base.py \
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 1295 maintained core tests, 85.67% coverage
+- [x] 1536 maintained core tests, 86.75% coverage
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)

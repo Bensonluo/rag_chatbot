@@ -13,6 +13,14 @@ import jwt
 from app.core.exceptions import ExternalServiceError
 from app.services.embeddings.base import EmbeddingResult, EmbeddingServiceBase
 
+# Embedding calls are short and batched (<=16 chunks); a modest pool
+# with a warm keepalive floor matches the traffic shape. Streaming
+# LLM-scale pools would over-commit file descriptors for no benefit.
+_EMBED_POOL_LIMITS = httpx.Limits(
+    max_connections=64,
+    max_keepalive_connections=32,
+)
+
 
 def _generate_token(api_key: str, exp_seconds: int = 3600) -> str:
     """Generate JWT token for Zhipu AI API authentication."""
@@ -76,6 +84,7 @@ class GLMEmbeddingService(EmbeddingServiceBase):
             base_url=self.API_BASE_URL,
             headers={"Content-Type": "application/json"},
             timeout=60.0,
+            limits=_EMBED_POOL_LIMITS,
         )
 
     def _auth_headers(self) -> dict[str, str]:

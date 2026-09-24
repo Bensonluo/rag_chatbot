@@ -50,7 +50,7 @@ spec:
             secretKeyRef:
               name: rag-chatbot-secrets
               key: redis-url
-        - name: QDRANT_URL
+        - name: VECTOR_DB_URL
           value: "http://qdrant-service:6333"
         # LLM provider chain is GLM -> OpenAI -> Anthropic (first key wins).
         # GLM is the default provider — its key must be present; the

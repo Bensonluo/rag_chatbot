@@ -218,3 +218,25 @@ class TestCachedEmbeddingFailOpen:
         result = await service.embed(["a", "b", "c"])
 
         assert result.embeddings == [[1.0], [2.0], [3.0]]
+
+
+class TestGLMEmbeddingPoolLimits:
+    """Outbound HTTP pool contract for the API embedding provider.
+
+    Embedding calls are short and batched, so the pool stays modest —
+    but it must still be explicit. An unconfigured pool inherits
+    httpx defaults tuned for generic traffic, and keepalive churn
+    (new TCP + TLS handshake per burst) dominates latency at
+    ingestion time.
+    """
+
+    def test_embed_pool_is_explicitly_sized(self):
+        from unittest.mock import patch
+
+        from app.services.embeddings.glm_embeddings import GLMEmbeddingService
+
+        with patch("app.services.embeddings.glm_embeddings.httpx.AsyncClient") as ctor:
+            GLMEmbeddingService(api_key="id.secret")
+
+        limits = ctor.call_args.kwargs["limits"]
+        assert 0 < limits.max_keepalive_connections < limits.max_connections

@@ -110,3 +110,31 @@ class TestFailureIsolation:
         recorder = KnowledgeGapRecorder(session_maker=exploding_maker, rng=_rng(0.0))
         recorded = await recorder.record_if_gap(query="发票怎么开", intent="faq", retrieved_docs=[])
         assert recorded is False
+
+
+class TestGapMetric:
+    """The counter is unsampled truth; only the DB write is sampled."""
+
+    def _gaps(self) -> float:
+        from prometheus_client import REGISTRY
+
+        value = REGISTRY.get_sample_value("knowledge_gaps_total")
+        return value if value is not None else 0.0
+
+    async def test_gap_counts_even_when_sampling_skips_write(self, session_maker):
+        # sample_rate=0 suppresses every DB write, but the metric must
+        # still reflect the true gap rate — dashboards divide it by RAG
+        # traffic, and a sampled numerator would silently misstate the
+        # KB's coverage.
+        recorder = _recorder(session_maker, sample_rate=0.0, rng_value=0.0)
+        before = self._gaps()
+        recorded = await recorder.record_if_gap(query="发票怎么开", intent="faq", retrieved_docs=[])
+        assert recorded is False
+        assert self._gaps() == before + 1.0
+
+    async def test_non_gap_does_not_count(self, session_maker):
+        recorder = _recorder(session_maker)
+        before = self._gaps()
+        await recorder.record_if_gap(query="退货政策", intent="faq", retrieved_docs=[{"id": "d1"}])
+        await recorder.record_if_gap(query="你好", intent="chitchat", retrieved_docs=[])
+        assert self._gaps() == before

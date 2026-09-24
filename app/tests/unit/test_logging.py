@@ -23,7 +23,10 @@ class TestLoggingConfig:
 
         # Assert
         assert logger is not None
-        assert isinstance(logger, structlog.stdlib.BoundLogger)
+        # structlog.get_logger returns a lazy proxy (structlog's
+        # documented contract); binding once proves the stdlib
+        # BoundLogger integration is actually active.
+        assert isinstance(logger.bind(), structlog.stdlib.BoundLogger)
 
     def test_configure_logging_production(self, monkeypatch):
         """Test logging configuration for production environment"""
@@ -38,7 +41,10 @@ class TestLoggingConfig:
 
         # Assert
         assert logger is not None
-        assert isinstance(logger, structlog.stdlib.BoundLogger)
+        # structlog.get_logger returns a lazy proxy (structlog's
+        # documented contract); binding once proves the stdlib
+        # BoundLogger integration is actually active.
+        assert isinstance(logger.bind(), structlog.stdlib.BoundLogger)
 
     def test_logger_has_standard_keys(self, monkeypatch):
         """Test that logger includes standard context keys"""

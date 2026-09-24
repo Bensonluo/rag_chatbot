@@ -68,6 +68,13 @@ class KnowledgeGapRecorder:
             return False
         if retrieved_docs:
             return False
+        # Metric first, sampling second: the counter is the unsampled
+        # truth (dashboards divide it by RAG traffic; a sampled
+        # numerator would misstate KB coverage), while the DB write
+        # below keeps its sampling valve for write-volume control.
+        from app.services.chat.metrics import KNOWLEDGE_GAPS
+
+        KNOWLEDGE_GAPS.inc()
         if self._sample_rate <= 0.0 or self._rng.random() >= self._sample_rate:
             return False
 

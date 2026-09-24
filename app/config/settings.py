@@ -41,7 +41,7 @@ class Settings(BaseSettings):
         default=10, description="Database connection pool max overflow"
     )
     DIALOGUE_CHECKPOINTER_TYPE: str = Field(
-        default="memory",
+        default="postgres",
         description="Dialogue checkpointer backend: memory | postgres (shared across replicas)",
     )
     DIALOGUE_CHECKPOINTER_DB_URL: str | None = Field(
@@ -156,6 +156,62 @@ class Settings(BaseSettings):
         ge=1,
         description="Responses longer than this are not cached (bounds Redis memory per entry)",
     )
+    SEMANTIC_CACHE_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "L1 semantic answer cache (docs/cache-layering-plan.md): near-duplicate "
+            "smalltalk turns replay a cached direct-tier answer. Only the "
+            "greeting/chitchat allowlist is ever cached, writes are anonymous-only, "
+            "and every hit re-runs the claim gate and output guardrail — the "
+            "service is fail-open end to end"
+        ),
+    )
+    SEMANTIC_CACHE_SIMILARITY_THRESHOLD: float = Field(
+        default=0.92,
+        ge=0.0,
+        le=1.0,
+        description="Cosine similarity required for a semantic-cache hit",
+    )
+    SEMANTIC_CACHE_TTL_SECONDS: int = Field(
+        default=3600,
+        ge=1,
+        description="Namespace TTL for semantic-cache entries, renewed on each write",
+    )
+    SEMANTIC_CACHE_MAX_ENTRIES: int = Field(
+        default=256,
+        ge=1,
+        description="Entry cap: full store refuses new writes (bounds scan cost and memory)",
+    )
+    SEMANTIC_CACHE_SERVED_INTENTS: str = Field(
+        default="greeting,chitchat",
+        description=(
+            "Comma-separated intent allowlist — only these intents are cached "
+            "(policy/RAG answers are L0-exact-only; semantic nearness across "
+            "paraphrased policy questions is the plan's highest-risk layer)"
+        ),
+    )
+    RETRIEVAL_CACHE_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "L2 retrieval-result cache (docs/cache-layering-plan.md): identical "
+            "(query, filters) pairs within one KB epoch replay the cached doc "
+            "set instead of re-running the Qdrant+BM25 legs — protects Qdrant "
+            "under repeated traffic. Fail-open end to end"
+        ),
+    )
+    RETRIEVAL_CACHE_TTL_SECONDS: int = Field(
+        default=300,
+        ge=1,
+        description=(
+            "Per-entry TTL for L2 retrieval results; 300s matches the BM25 "
+            "rebuild cadence so staleness is bounded by index freshness"
+        ),
+    )
+    RETRIEVAL_CACHE_MAX_ENTRIES: int = Field(
+        default=512,
+        ge=1,
+        description="Entry cap per KB epoch: full store refuses writes (bounds scan cost and memory)",
+    )
     HANDOFF_SLA_WAIT_SECONDS: float = Field(
         default=30.0,
         gt=0,
@@ -171,6 +227,17 @@ class Settings(BaseSettings):
     KEYWORD_INDEX_REFRESH_SECONDS: float = Field(
         default=300.0,
         description="Interval for the periodic BM25 rebuild from the vector store (0 disables)",
+    )
+    ONE_SHOT_STATS_REFRESH_SECONDS: float = Field(
+        default=300.0,
+        description=(
+            "Interval for the periodic one-shot KPI bridge (repo aggregate → "
+            "Prometheus Gauge; 0 disables)"
+        ),
+    )
+    ONE_SHOT_STATS_WINDOW_DAYS: int = Field(
+        default=7,
+        description="Rolling window (days) for the session-level one-shot rate",
     )
 
     # Vector DB Service (external)
@@ -220,13 +287,34 @@ class Settings(BaseSettings):
 
     # Agent mode (LLM function-calling loop)
     AGENT_TOOLS_ENABLED: bool = Field(
-        default=False,
-        description="Route task intents through the LLM function-calling agent loop",
+        default=True,
+        description=(
+            "Route task intents through the LLM function-calling agent loop "
+            "(the deep-funnel serving layer). On by default: every failure "
+            "path degrades into the deterministic slot pipeline (provider "
+            "without function calling, loop error, budget exhaustion), "
+            "irreversible tools stay confirmation-gated, and the request "
+            "LLM budget caps the pathological tail"
+        ),
     )
     AGENT_MAX_STEPS: int = Field(
         default=3,
         ge=1,
         description="Maximum model rounds per agent run (loop bound)",
+    )
+    AGENT_KNOWLEDGE_TOOL_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "Register the read-only KB search tool for the agent loop "
+            "(mid-task policy grounding; fail-open)"
+        ),
+    )
+    AGENT_ESCALATE_TOOL_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "Register the human-handoff tool for the agent loop (routes "
+            "unresolvable cases into the SLA queue mid-run; fail-open)"
+        ),
     )
 
     # MCP tool facade (Phase C): read-only remote tools imported from an
@@ -378,7 +466,12 @@ class Settings(BaseSettings):
 
     # Reranker
     RERANKER_ENABLED: bool = Field(
-        default=True, description="Enable reranking in retrieval pipeline"
+        default=False,
+        description=(
+            "Enable reranking in retrieval pipeline. Off by default: no node "
+            "on the per-turn path consumes the reranker yet, and the "
+            "CrossEncoder costs ~GB of RSS per process/replica"
+        ),
     )
     RERANKER_TYPE: str = Field(
         default="cross_encoder",

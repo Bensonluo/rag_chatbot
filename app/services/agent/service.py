@@ -27,6 +27,14 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.services.agent.metrics import (
+    AGENT_TOOL_CALLS,
+    OUTCOME_ANSWERED,
+    OUTCOME_BUDGET_EXHAUSTED,
+    OUTCOME_STAGED,
+    OUTCOME_STEPS_EXHAUSTED,
+    record_agent_outcome,
+)
 from app.services.llm.base import LLMMessage
 from app.services.llm.budget import LLMBudgetExceeded
 
@@ -34,14 +42,18 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "你是电商平台的智能客服助手。你可以调用工具查询订单状态、查询物流、"
-    "提交投诉，以及发起退款和退货。\n"
+    "提交投诉，发起退款和退货，搜索知识库，以及转接人工客服。\n"
     "规则：\n"
     "1. 只处理用户本人的订单；用户没有提供订单号时，先调用 get_recent_orders "
     "查询其本人最近的订单，从结果中选择订单，仅当查不到订单或无法确定时才向用户"
     "询问，不要编造订单号。\n"
-    "2. 退款、退货是不可逆操作：工具会代你向用户确认，不要试图绕过。\n"
-    "3. 工具返回错误时，如实告知用户并给出下一步建议；无法解决的，建议转人工客服。\n"
-    "4. 用简体中文回答，友好、专业、简洁。"
+    "2. 回答退货/退款政策、运费规则、保修条款等政策或规则类问题前，先调用 "
+    "search_knowledge_base 获取依据，不要凭记忆作答。\n"
+    "3. 退款、退货是不可逆操作：工具会代你向用户确认，不要试图绕过。\n"
+    "4. 工具返回错误时，如实告知用户并给出下一步建议。\n"
+    "5. 当工具无法解决用户问题、请求超出自动服务范围或用户情绪明显不满时，"
+    "调用 escalate_to_human 转接人工客服，不要只是口头建议转人工。\n"
+    "6. 用简体中文回答，友好、专业、简洁。"
 )
 
 _FALLBACK_RESPONSE = (
@@ -71,6 +83,8 @@ class AgentResult:
             (refunds) are traceable after the fact.
         truncated: True when the step budget ran out before a final
             answer.
+        outcome: Terminal outcome label for telemetry (answered /
+            staged / budget_exhausted / steps_exhausted).
     """
 
     response: str
@@ -78,6 +92,7 @@ class AgentResult:
     executed_tools: list[str] = field(default_factory=list)
     tool_trace: list[dict[str, Any]] = field(default_factory=list)
     truncated: bool = False
+    outcome: str = OUTCOME_ANSWERED
 
 
 class AgentService:
@@ -108,6 +123,30 @@ class AgentService:
         user_id: int | None = None,
         context_note: str = "",
         history: list[LLMMessage] | None = None,
+        session_id: int | None = None,
+    ) -> AgentResult:
+        """Answer one user message, orchestrating tools as needed.
+
+        Records the run's telemetry (outcome mix, tool-call depth) —
+        see ``app/services/agent/metrics.py``.
+        """
+        result = await self._run(
+            user_message=user_message,
+            user_id=user_id,
+            context_note=context_note,
+            history=history,
+            session_id=session_id,
+        )
+        record_agent_outcome(result.outcome, len(result.tool_trace))
+        return result
+
+    async def _run(
+        self,
+        user_message: str,
+        user_id: int | None = None,
+        context_note: str = "",
+        history: list[LLMMessage] | None = None,
+        session_id: int | None = None,
     ) -> AgentResult:
         """Answer one user message, orchestrating tools as needed.
 
@@ -115,6 +154,9 @@ class AgentService:
             user_message: The user's current message.
             user_id: Authenticated caller id, threaded into every tool
                 execution for ownership checks.
+            session_id: Authenticated conversation id, threaded so
+                conversation-scoped tools (e.g. human handoff) open
+                their ticket against the real session.
             context_note: Compact prior-turn context (e.g. an already
                 known order id) prepended as a system note so the
                 agent does not re-ask for information the dialogue
@@ -150,6 +192,7 @@ class AgentService:
                     executed_tools=executed,
                     tool_trace=trace,
                     truncated=True,
+                    outcome=OUTCOME_BUDGET_EXHAUSTED,
                 )
             calls = response.tool_calls or []
 
@@ -172,6 +215,7 @@ class AgentService:
                     executed_tools=executed,
                     tool_trace=trace,
                     truncated=True,
+                    outcome=OUTCOME_STEPS_EXHAUSTED,
                 )
 
             # Echo the model's tool request back into history (the API
@@ -192,13 +236,14 @@ class AgentService:
                     staged.executed_tools = executed
                     staged.tool_trace = trace
                     return staged
-                await self._execute_call(call, messages, executed, trace, user_id)
+                await self._execute_call(call, messages, executed, trace, user_id, session_id)
 
         return AgentResult(
             response=_FALLBACK_RESPONSE,
             executed_tools=executed,
             tool_trace=trace,
             truncated=True,
+            outcome=OUTCOME_STEPS_EXHAUSTED,
         )
 
     # ── Internals ────────────────────────────────────────────────────────
@@ -218,6 +263,7 @@ class AgentService:
         return AgentResult(
             response=_build_confirmation_summary(tool, args),
             pending_confirmation={"intent": tool.intent, "args": args},
+            outcome=OUTCOME_STAGED,
         )
 
     async def _execute_call(
@@ -227,11 +273,13 @@ class AgentService:
         executed: list[str],
         trace: list[dict[str, Any]],
         user_id: int | None,
+        session_id: int | None = None,
     ) -> None:
         """Execute one tool call and append its result to the history."""
         tool = self._tools.get_tool_by_name(call.get("name", ""))
         if tool is None:
             unknown = f"未知工具: {call.get('name', '')}"
+            AGENT_TOOL_CALLS.labels(tool=str(call.get("name", "")), outcome="unknown_tool").inc()
             messages.append(_tool_result_message(call.get("id", ""), {"error": unknown}))
             trace.append(
                 {
@@ -244,7 +292,12 @@ class AgentService:
             return
 
         args = _parse_arguments(call)
-        result = await self._tools.execute(tool.intent, args, user_id=user_id)
+        result = await self._tools.execute(
+            tool.intent, args, user_id=user_id, session_id=session_id
+        )
+        AGENT_TOOL_CALLS.labels(
+            tool=tool.name, outcome="success" if result.success else "error"
+        ).inc()
         executed.append(tool.name)
         payload = result.data if result.success else {"error": result.message}
         messages.append(_tool_result_message(call.get("id", ""), payload))

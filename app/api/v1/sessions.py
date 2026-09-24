@@ -5,12 +5,15 @@ Provides endpoints for managing chat sessions.
 """
 
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
     get_current_active_user,
+    get_db,
     get_session_repository,
 )
 from app.models.database.session import ChatSession
@@ -22,11 +25,32 @@ from app.models.schemas.session import (
     SessionUpdate,
 )
 from app.repositories.session_repository import SessionRepository
+from app.repositories.ticket_repository import TicketRepository
 from app.services.session_service import SessionService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+
+@router.get("/one-shot-stats")
+async def get_one_shot_stats(
+    window_days: Annotated[int, Query(ge=1, le=90)] = 7,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),  # noqa: ARG001  # FastAPI DI: enforces auth; value unused
+) -> dict[str, Any]:
+    """Session-level one-shot-resolution rate (north-star KPI).
+
+    Denominator: sessions the bot served (≥1 assistant message) in
+    the window. Numerator: served sessions with no handoff ticket —
+    any ticket status counts as "a human was pulled in", so the rate
+    is the honest complement of the handoff share at session
+    granularity. Registered before the ``/{session_id}`` route:
+    a path-param route would otherwise swallow this literal path.
+    """
+    since = datetime.now(UTC) - timedelta(days=window_days)
+    repo = TicketRepository(db)
+    return await repo.get_one_shot_stats(since=since)
 
 
 async def get_session_service(

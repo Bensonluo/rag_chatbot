@@ -16,6 +16,16 @@ from app.core.exceptions import ExternalServiceError
 from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
 from app.services.llm.token_counter import TokenCounter
 
+# Streaming completions pin one connection for the full SSE duration
+# (seconds). httpx's default pool (100 connections) starves under the
+# per-node template load (~30-50 QPS x 3-8s in flight) and turns
+# healthy provider capacity into client-side PoolTimeout — size the
+# pool so concurrency surfaces as provider backpressure instead.
+_STREAM_POOL_LIMITS = httpx.Limits(
+    max_connections=256,
+    max_keepalive_connections=64,
+)
+
 
 def _generate_token(api_key: str, exp_seconds: int = 3600) -> str:
     """Generate JWT token for Zhipu AI API authentication.
@@ -106,6 +116,7 @@ class GLMClient(LLMServiceBase):
             base_url=self.API_BASE_URL,
             headers={"Content-Type": "application/json"},
             timeout=120.0,
+            limits=_STREAM_POOL_LIMITS,
         )
 
     def _auth_headers(self) -> dict[str, str]:

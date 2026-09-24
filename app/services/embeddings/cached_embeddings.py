@@ -12,6 +12,11 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from app.core.exceptions import ExternalServiceError
+from app.services.embeddings.metrics import (
+    EMBEDDING_CACHE_FAILURES,
+    EMBEDDING_CACHE_HITS,
+    EMBEDDING_CACHE_MISSES,
+)
 
 if TYPE_CHECKING:
     from redis.asyncio import Redis
@@ -170,14 +175,24 @@ class CachedEmbeddingService(EmbeddingServiceBase):
         # of amplifying into a failed retrieval leg. Fail-open iron
         # law (docs/cache-layering-plan.md §4.3).
         cached: dict[int, list[float] | None] = dict.fromkeys(range(len(texts)), None)
+        read_ok = True
         try:
             cached = await self._get_cached_embeddings(texts)
         except Exception:  # noqa: BLE001 - cache must never fail the embed
+            read_ok = False
+            EMBEDDING_CACHE_FAILURES.labels(op="read").inc()
             logger.warning("Embedding cache read failed; embedding directly", exc_info=True)
+        if read_ok:
+            # Per-text counting: hits/misses only on a healthy read, so
+            # the hit rate stays conditional on the cache actually being
+            # consulted — outage noise lives in the failure counter.
+            EMBEDDING_CACHE_HITS.inc(sum(1 for emb in cached.values() if emb is not None))
 
         # Separate cached and uncached texts
         uncached_indices = [i for i, emb in cached.items() if emb is None]
         cached_indices = [i for i, emb in cached.items() if emb is not None]
+        if read_ok:
+            EMBEDDING_CACHE_MISSES.inc(len(uncached_indices))
 
         result_embeddings: list[list[float] | None] = [None] * len(texts)
 
@@ -201,6 +216,7 @@ class CachedEmbeddingService(EmbeddingServiceBase):
             try:
                 await self._set_cached_embeddings(uncached_texts, new_result.embeddings)
             except Exception:  # noqa: BLE001 - cache must never fail the embed
+                EMBEDDING_CACHE_FAILURES.labels(op="write").inc()
                 logger.warning("Embedding cache write failed; continuing uncached", exc_info=True)
 
         # Every index is filled from cache or fresh generation; a None

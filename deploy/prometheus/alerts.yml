@@ -15,7 +15,7 @@ groups:
   - name: cs-handoff-sla
     rules:
       - alert: HandoffQueueSLABreach
-        expr: handoff_queue_sla_breaches > 0
+        expr: avg(handoff_queue_sla_breaches) > 0
         for: 1m
         labels:
           severity: critical
@@ -27,7 +27,7 @@ groups:
             while no agent picks up. Check agent staffing / claim rate.
 
       - alert: HandoffQueueOldestWaitCritical
-        expr: handoff_queue_oldest_wait_seconds > 60
+        expr: avg(handoff_queue_oldest_wait_seconds) > 60
         for: 2m
         labels:
           severity: warning
@@ -36,6 +36,142 @@ groups:
           description: >-
             The oldest open handoff ticket has waited {{ $value }}s — twice
             the HollyCRM <30s industry target. Queue is draining too slowly.
+
+  - name: cs-funnel
+    rules:
+      - alert: HandoffShareHigh
+        expr: |
+          (
+            sum(rate(chat_funnel_layers_total{layer="handoff"}[15m]))
+            /
+            sum(rate(chat_funnel_layers_total[15m]))
+          ) > 0.25
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "转人工占漏斗流量超过 25%（一次解决率在劣化）"
+          description: >-
+            Handoff layer touches made up {{ $value | humanizePercentage }} of
+            all funnel layer traffic over 15m. Handoff share is the operational
+            inverse of the one-shot-resolution north star — a sustained rise
+            means the upper layers (L0 cache, FAQ, RAG, agent loop) stopped
+            resolving demand. The 25% threshold is a starting point: tune it
+            against the observed baseline once real traffic exists. Layer
+            touches are counted per turn and are not mutually exclusive, so
+            treat the ratio as a trend signal, not an exact session rate.
+            Zero traffic yields NaN and simply does not fire.
+
+  - name: cs-agent-loop
+    rules:
+      - alert: AgentFallbackShareHigh
+        expr: |
+          (
+            sum(rate(agent_loop_outcomes_total{outcome="fallback"}[15m]))
+            /
+            sum(rate(agent_loop_outcomes_total[15m]))
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Agent 回退占比超过 20%（深漏斗在静默降级）"
+          description: >-
+            {{ $value | humanizePercentage }} of agent-loop runs ended in
+            fallback over 15m — the deepest funnel layer (task-intent
+            users, the north star's real need) is being served by the
+            deterministic slot pipeline instead of the tool loop. The
+            fail-open fallback looks identical to healthy traffic from
+            the outside, so this outcome mix is the only signal. Usual
+            causes: provider lost function-calling support, or the
+            loop is failing mid-run (see agent logs). The 20% threshold
+            is a starting point — tune against the observed baseline
+            once real traffic exists. Zero traffic yields NaN and
+            simply does not fire.
+
+  - name: cs-cache-pyramid
+    rules:
+      - alert: KBEpochFailuresRising
+        expr: sum(increase(kb_epoch_failures_total[15m])) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "KB epoch 操作持续失败（缓存金字塔失效脊柱宕了）"
+          description: >-
+            {{ $value }} epoch read/bump failures in 15m. The epoch is the
+            invalidation spine of the whole cache pyramid: sustained read
+            failures silently disable every epoch-scoped layer (L0/L1/L2
+            all refuse reads — the fail-open direction), and failed bumps
+            serve stale answers until TTL. Neither is visible in request
+            outcomes, so this counter is the only signal. A single
+            transient Redis blip stays under the threshold; sustained
+            degradation does not. Usual cause: Redis unreachable or
+            overloaded — check the shared Redis first.
+
+      - alert: EmbeddingCacheFailuresRising
+        expr: sum(increase(embedding_cache_failures_total[15m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Embedding 缓存操作持续失败（金字塔地基静默失效）"
+          description: >-
+            {{ $value }} embedding cache read/write failures in 15m. L3 sits
+            under every semantic operation — L1 semantic lookups embed the
+            query first, so a dead L3 also craters L1's latency budget —
+            and every RAG turn embeds too. Fail-open means every text
+            silently re-embeds: the visible symptom is TTFT creep
+            (ChatTTFTSlow) with no root-cause signal, because outcome
+            metrics stay perfectly healthy. This counter is the only
+            mechanism-level signal. A single failed batch stays under the
+            threshold; a sustained outage at any real traffic does not.
+            Usual cause: Redis unreachable or in an eviction storm — check
+            Redis memory and connectivity.
+
+  - name: cs-csat
+    rules:
+      - alert: FeedbackNegativeShareHigh
+        expr: |
+          (
+            sum(rate(feedback_ratings_total{rating="-1"}[15m]))
+            /
+            sum(rate(feedback_ratings_total[15m]))
+          ) > 0.25
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "用户差评率超过 25%（答案质量在劣化）"
+          description: >-
+            {{ $value | humanizePercentage }} of submitted ratings were
+            thumbs-down over 15m. A downvote is the user-verified signal
+            that an answer was not a resolution — the closest proxy to
+            the one-shot-resolution north star. Sustained rise means
+            answers are degrading (check RAG grounding, claim-gate
+            violations, KB staleness) rather than traffic mix shifting.
+            The 25% threshold is a starting point — tune against the
+            observed baseline once real traffic exists. Zero traffic
+            yields NaN and simply does not fire.
+
+      - alert: OneShotRateLow
+        expr: avg(chat_one_shot_rate) < 0.7
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "会话级一次解决率低于 70%（北极星在失血）"
+          description: >-
+            Session-level one-shot resolution over the stats window is
+            {{ $value | humanizePercentage }} — fewer than 7 in 10 served
+            sessions end without pulling in a human. This is the north
+            star's highest-weighted metric at its honest granularity
+            (turn-level handoff share understates failure: a 5-turn
+            session with one handoff reads 20% there, 0% here). The
+            gauge is DB-bridged and refreshed periodically; a DB outage
+            freezes it at the last value rather than dropping it, so a
+            firing alert reflects real escalation volume, not scrape
+            loss. Absent gauge (no refresh ever ran) does not fire.
 
   - name: cs-chat-latency
     rules:

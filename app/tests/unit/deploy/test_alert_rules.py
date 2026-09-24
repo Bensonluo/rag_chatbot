@@ -18,9 +18,13 @@ import yaml
 # Importing every metrics module registers its collectors, so the
 # generate_latest inventory below is the app's true export surface.
 import app.middleware.metrics  # noqa: F401
+import app.services.agent.metrics  # noqa: F401
 import app.services.chat.metrics  # noqa: F401
+import app.services.dialogue.funnel_metrics  # noqa: F401
+import app.services.embeddings.metrics  # noqa: F401
 import app.services.facts.metrics  # noqa: F401
 import app.services.handoff.metrics  # noqa: F401
+import app.services.handoff.one_shot_metrics  # noqa: F401
 import app.services.retrieval.metrics  # noqa: F401
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -31,10 +35,31 @@ _COMPOSE_PATH = _REPO_ROOT / "docker-compose.yml"
 _PINNED_ALERTS = {
     "HandoffQueueSLABreach",
     "HandoffQueueOldestWaitCritical",
+    "HandoffShareHigh",
+    "AgentFallbackShareHigh",
+    "KBEpochFailuresRising",
+    "EmbeddingCacheFailuresRising",
+    "FeedbackNegativeShareHigh",
+    "OneShotRateLow",
     "ChatTTFTSlow",
     "ChatStreamErrorRateHigh",
     "ClaimGateViolationsRising",
 }
+
+# DB-bridged replica-invariant gauges (handoff/metrics.py +
+# handoff/one_shot_metrics.py): every replica's refresher sets its own
+# copy from the same DB aggregate, and dns_sd scrapes them all
+# (test_scale_readiness) — a raw reference evaluates once per replica
+# (duplicate alert instances) instead of once for the truth.
+_DB_BRIDGED_GAUGES = (
+    "chat_one_shot_rate",
+    "chat_sessions_served",
+    "chat_sessions_escalated",
+    "handoff_queue_sla_breaches",
+    "handoff_queue_oldest_wait_seconds",
+    "handoff_pickup_avg_seconds",
+    "handoff_handle_avg_seconds",
+)
 
 
 def _rules() -> list[dict[str, Any]]:
@@ -67,6 +92,22 @@ def _referenced_metrics(expr: str, known: set[str]) -> set[str]:
 
 
 class TestAlertRulesContract:
+    def test_db_bridged_gauges_are_replica_aggregated(self):
+        """A DB-bridged gauge holds replica-invariant truth, but each
+        scraped replica contributes its own series — reference it
+        through avg() so an alert evaluates the truth once, not N
+        times (and a single fail-open frozen replica cannot alone page
+        or alone silence the alert)."""
+        for rule in _rules():
+            expr = str(rule.get("expr", ""))
+            for gauge in _DB_BRIDGED_GAUGES:
+                if gauge in expr:
+                    assert f"avg({gauge})" in expr, (
+                        f"alert {rule.get('alert')} references DB-bridged gauge "
+                        f"{gauge} without avg(): under dns_sd it evaluates one "
+                        "series per replica"
+                    )
+
     def test_rules_file_has_valid_structure(self):
         for rule in _rules():
             assert rule.get("alert"), "every rule needs an alert name"

@@ -27,7 +27,17 @@ services:
     container_name: rag-chatbot-redis
     ports:
       - "127.0.0.1:6379:6379"
-    command: redis-server --appendonly yes
+    # Cache + sliding-window state only (all keys TTL-bearing): an
+    # explicit ceiling keeps growth from reaching the kernel OOM killer
+    # on the shared 4GB box; allkeys-lru degrades to recomputation.
+    command: >
+      redis-server --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 512m
     volumes:
       - redis_data:/data
     healthcheck:
@@ -79,7 +89,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: rag-chatbot-api
+    # No container_name: fixed names block `docker compose up --scale api=N`
     environment:
       # Database
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/rag_chatbot
@@ -123,7 +133,12 @@ services:
     volumes:
       - ./app:/home/appuser/app/app
     ports:
-      - "127.0.0.1:8000:8000"
+      # Host port RANGE: Docker allocates one host port per replica, so
+      # `docker compose up --scale api=N` (N<=4) boots without port
+      # conflicts — the first replica keeps 8000 for the host nginx
+      # upstream. Scale beyond 4: widen the range (and the nginx
+      # upstream) — no re-architecture, just a wider window.
+      - "127.0.0.1:8000-8003:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -177,6 +192,8 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./deploy/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./deploy/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
     networks:

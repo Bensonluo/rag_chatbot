@@ -10,6 +10,7 @@ dependency).
 from typing import Any
 
 import pytest
+from prometheus_client import REGISTRY
 
 from app.services.retrieval import kb_epoch
 from app.services.retrieval.kb_epoch import (
@@ -18,6 +19,11 @@ from app.services.retrieval.kb_epoch import (
     bump_kb_epoch,
     get_kb_epoch,
 )
+
+
+def _epoch_failures(op: str) -> float:
+    value = REGISTRY.get_sample_value("kb_epoch_failures_total", {"op": op})
+    return value if value is not None else 0.0
 
 
 class _FakeRedis:
@@ -65,6 +71,23 @@ class TestKBEpoch:
         fake_redis.fail = True
         assert await get_kb_epoch() == EPOCH_UNAVAILABLE
 
+    async def test_outage_increments_read_failure_counter(self, fake_redis: _FakeRedis) -> None:
+        # A sustained read-failure streak silently disables every
+        # epoch-scoped cache layer (all refuse reads); the counter is
+        # the only signal that the pyramid's spine is down.
+        fake_redis.fail = True
+        before = _epoch_failures("read")
+        await get_kb_epoch()
+        assert _epoch_failures("read") == before + 1.0
+
     async def test_redis_outage_bump_does_not_raise(self, fake_redis: _FakeRedis) -> None:
         fake_redis.fail = True
         await bump_kb_epoch()  # must swallow — ingestion must not fail over invalidation
+
+    async def test_outage_increments_bump_failure_counter(self, fake_redis: _FakeRedis) -> None:
+        # A failed bump leaves all caches on the old epoch — stale
+        # answers served until TTL. Same counter family, op label.
+        fake_redis.fail = True
+        before = _epoch_failures("bump")
+        await bump_kb_epoch()
+        assert _epoch_failures("bump") == before + 1.0

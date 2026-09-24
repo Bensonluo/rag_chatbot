@@ -10,12 +10,15 @@ explicit user confirmation before execution.
 """
 
 import inspect
+import logging
 import random
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from app.models.enums.intent import TASK_INTENTS  # noqa: F401 (re-exported)
+
+logger = logging.getLogger(__name__)
 
 # Refunds above this amount skip auto-processing and escalate to a human.
 REFUND_AUTO_THRESHOLD = 1000.00
@@ -93,12 +96,15 @@ class ToolRegistry:
         intent: str,
         args: dict[str, Any],
         user_id: int | None = None,
+        session_id: int | None = None,
     ) -> ToolResult:
         """Run the handler for ``intent`` with per-user authorization.
 
         The caller's ``user_id`` (from the authenticated session, not the
         request body) is injected into the handler args so order-scoped
-        tools can verify ownership.
+        tools can verify ownership; ``session_id`` follows the same
+        server-truth doctrine for tools that scope work to the ongoing
+        conversation (e.g. the handoff ticket).
         """
         tool = self._tools.get(intent)
         if not tool:
@@ -113,6 +119,13 @@ class ToolRegistry:
             # Anonymous callers get no identity at all — strip any
             # supplied one instead of trusting it.
             call_args.pop("user_id", None)
+        if session_id is not None:
+            # Same server-truth doctrine as user_id: the conversation id
+            # comes from the authenticated session, never from
+            # model-supplied args.
+            call_args["session_id"] = session_id
+        else:
+            call_args.pop("session_id", None)
         try:
             result = tool.handler(call_args)
             if inspect.isawaitable(result):
@@ -291,6 +304,133 @@ def create_default_tool_registry() -> ToolRegistry:
     for tool in DEFAULT_TOOLS:
         registry.register(tool)
     return registry
+
+
+def create_knowledge_tool(hybrid_search: Any) -> ToolDefinition:
+    """Read-only KB search tool for the LLM agent loop.
+
+    The default registry is purely transactional; mid-task policy
+    questions (「退货超过 7 天还能退吗」 while a return is staged) had no
+    grounded source, so the loop answered from model priors — a
+    documented hallucination surface the claim gate only catches after
+    the fact. This tool exposes the same hybrid search the RAG leg
+    uses. Read-only and fail-open: an outage returns a structured
+    message the model can act on, never a dead loop. The factory wires
+    it only when a hybrid search is available (ChatServiceFactory).
+    """
+
+    async def _search_kb(args: dict[str, Any]) -> dict[str, Any]:
+        from app.services.retrieval.vector_base import VectorSearchRequest
+
+        query = str(args.get("query", "")).strip()
+        if not query:
+            return {"results": [], "count": 0, "message": "缺少检索关键词"}
+        try:
+            hits = await hybrid_search.search(VectorSearchRequest(query=query, top_k=3))
+        except Exception:  # noqa: BLE001 - fail-open, agent keeps serving
+            logger.warning("Knowledge tool search failed", exc_info=True)
+            return {
+                "results": [],
+                "count": 0,
+                "message": "知识检索暂时不可用，请基于已确认的信息回答或建议转人工",
+            }
+        results = [
+            {
+                "content": str(hit.content),
+                "score": round(float(getattr(hit, "score", 0.0)), 4),
+            }
+            for hit in hits
+        ]
+        return {"results": results, "count": len(results)}
+
+    return ToolDefinition(
+        name="search_knowledge_base",
+        # Registry key only — deliberately not a dialogue intent, so the
+        # slot pipeline can never route here; this tool exists for the
+        # agent loop to ground policy claims mid-task (same doctrine as
+        # get_recent_orders).
+        intent="knowledge_search",
+        description=(
+            "搜索客服知识库（退货/退款政策、运费规则、保修条款等）。"
+            "回答政策或规则类问题时必须先调用此工具获取依据。"
+        ),
+        required_slots=["query"],
+        handler=_search_kb,
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "检索关键词或完整问题",
+                },
+            },
+            "required": ["query"],
+        },
+    )
+
+
+def create_escalate_tool(handoff_service: Any) -> ToolDefinition:
+    """Route an unresolvable case to a human, from inside the loop.
+
+    The agent loop's outcome set had no escalation path: a task the
+    model could not resolve (failed tool, out-of-policy request) was
+    still "answered", with only the claim gate catching fabricated
+    resolutions after the fact. This tool hands the conversation to the
+    SLA queue (same HandoffService the intent-routed handoff node uses,
+    same session-dedup semantics) so the fastest resolution path for an
+    unsolvable case is one tool call away. session_id/user_id are
+    injected server-side by the registry; a ticket-persistence failure
+    degrades to "requested, no number" — never a failed loop.
+    """
+
+    async def _escalate(args: dict[str, Any]) -> dict[str, Any]:
+        from app.services.dialogue.funnel_metrics import LAYER_HANDOFF, record_funnel_layer
+
+        session_id = args.get("session_id")
+        if session_id is None:
+            # No authenticated conversation to attach the ticket to —
+            # structured degradation, not an exception.
+            return {
+                "ticket_id": None,
+                "queue_position": None,
+                "reused": False,
+                "message": "当前会话无法定位，请直接联系人工客服",
+            }
+        result = await handoff_service.create_ticket_for_session(
+            session_id=session_id,
+            user_id=args.get("user_id"),
+            reason="agent",
+            context={"source": "agent_tool"},
+        )
+        # Agent escalations must count toward the handoff funnel layer —
+        # otherwise the handoff share (one-shot inverse) undercounts.
+        record_funnel_layer(LAYER_HANDOFF)
+        if result.get("ticket_id") is None:
+            return {**result, "message": "转人工请求已提交，请留意后续通知"}
+        position = result.get("queue_position")
+        queue_note = f"当前排队第 {position} 位" if position else "已进入人工队列"
+        return {**result, "message": f"已为您转接人工客服，{queue_note}"}
+
+    return ToolDefinition(
+        name="escalate_to_human",
+        # Registry key only — deliberately not a dialogue intent, so the
+        # slot pipeline can never route here; escalation is an agent-loop
+        # decision (same doctrine as knowledge_search).
+        intent="agent_escalate",
+        description=(
+            "将当前对话转接人工客服。当工具调用无法解决用户问题、"
+            "请求超出自动服务范围或用户情绪明显不满时调用此工具。"
+        ),
+        required_slots=[],
+        handler=_escalate,
+        # No model-supplied parameters: the session identity is injected
+        # server-side, so the ticket always belongs to the real caller.
+        parameters_schema={
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    )
 
 
 DEFAULT_TOOLS: list[ToolDefinition] = [

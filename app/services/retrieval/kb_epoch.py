@@ -1,10 +1,10 @@
 """KB epoch: a rotating content version for the vector knowledge base.
 
 Every successful Qdrant mutation (ingest, delete) rotates a Redis-held
-epoch value. Cache keys that embed the epoch — the L0 answer cache
-today, retrieval-result caches if ever added — are invalidated
-wholesale by the bump: no per-entry eviction, no tombstones, no
-partial-invalidation bugs.
+epoch value. Cache keys that embed the epoch — the L0 answer cache,
+the L1 semantic cache, and the L2 retrieval-result cache — are
+invalidated wholesale by the bump: no per-entry eviction, no
+tombstones, no partial-invalidation bugs.
 
 Why Redis and not the Postgres documents table: the upload path never
 writes that table (it is metadata-only), and more importantly the epoch
@@ -64,6 +64,9 @@ async def get_kb_epoch() -> str:
         return str(epoch) if epoch is not None else candidate
     except Exception:  # noqa: BLE001 - the epoch is never a dependency
         logger.warning("KB epoch read failed; epoch-scoped caches will miss", exc_info=True)
+        from app.services.retrieval.metrics import KB_EPOCH_FAILURES
+
+        KB_EPOCH_FAILURES.labels(op="read").inc()
         return EPOCH_UNAVAILABLE
 
 
@@ -79,3 +82,6 @@ async def bump_kb_epoch() -> None:
         await client.set(EPOCH_KEY, uuid.uuid4().hex)
     except Exception:  # noqa: BLE001 - invalidation must not fail ingestion
         logger.warning("KB epoch bump failed; caches stay on the old epoch", exc_info=True)
+        from app.services.retrieval.metrics import KB_EPOCH_FAILURES
+
+        KB_EPOCH_FAILURES.labels(op="bump").inc()

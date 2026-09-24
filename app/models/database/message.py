@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, ForeignKey, Index, Integer, String, Text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,6 +32,13 @@ class Message(Base, TimestampMixin):
     """
 
     __tablename__ = "messages"
+    __table_args__ = (
+        # Serves the one-shot KPI aggregate (role == ASSISTANT AND
+        # created_at >= since): the Prometheus bridge reruns it on a
+        # timer per replica, so without this index the KPI observability
+        # itself seq-scans the biggest table in the system.
+        Index("ix_messages_role_created_at", "role", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     session_id: Mapped[int] = mapped_column(

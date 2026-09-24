@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     from app.services.agent.service import AgentService
     from app.services.chat.answer_cache import AnswerCacheService
+    from app.services.chat.semantic_cache import SemanticCacheService
     from app.services.dialogue.tools import ToolDefinition, ToolRegistry
     from app.services.faq.store import FAQService
     from app.services.graph.retrieval.graph_retrieval_service import (
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from app.services.handoff.service import HandoffService
     from app.services.intent.base import IntentDetector
     from app.services.llm.base import LLMMessage, LLMServiceBase
+    from app.services.retrieval.retrieval_cache import RetrievalCacheService
     from app.services.retrieval.vector_base import SearchResult
     from app.services.slot_filling.base import SlotFiller, SlotFillingResult
 
@@ -44,7 +46,19 @@ from app.models.enums.intent import (
     RAG_INTENTS,
     TASK_INTENTS,
 )
+from app.services.agent.metrics import AGENT_LOOP_OUTCOMES, OUTCOME_FALLBACK
+from app.services.chat.answer_cache import CachedAnswer
 from app.services.dialogue.emotion import assess_emotion
+from app.services.dialogue.funnel_metrics import (
+    LAYER_AGENT_TOOL,
+    LAYER_DIRECT,
+    LAYER_FAQ,
+    LAYER_HANDOFF,
+    LAYER_L0_CACHE,
+    LAYER_L1_SEMANTIC,
+    LAYER_RAG,
+    record_funnel_layer,
+)
 from app.services.dialogue.state import DialogueState
 from app.services.facts.metrics import CLAIM_CHECKS, CLAIM_VIOLATIONS
 from app.services.handoff.service import (
@@ -128,6 +142,14 @@ class NodeFactory:
         # leaves the lookup node as a pure pass-through — the cache is
         # an optimization, never a dependency.
         answer_cache: AnswerCacheService | None = None,
+        # L1 semantic answer cache (plan layer 1): when provided, the
+        # direct tier (greeting/chitchat) replays near-duplicate
+        # smalltalk without the LLM call. Same fail-open doctrine.
+        semantic_cache: SemanticCacheService | None = None,
+        # L2 retrieval-result cache (plan layer 2): when provided,
+        # repeated identical (query, filters) pairs replay their doc
+        # set without re-running the Qdrant+BM25 legs.
+        retrieval_cache: RetrievalCacheService | None = None,
     ) -> None:
         self._intent_detector = intent_detector
         self._history_provider = history_provider
@@ -143,6 +165,8 @@ class NodeFactory:
         self._agent_service = agent_service
         self._faq_service = faq_service
         self._answer_cache = answer_cache
+        self._semantic_cache = semantic_cache
+        self._retrieval_cache = retrieval_cache
 
     # ── Nodes ────────────────────────────────────────────────────────────────
 
@@ -229,6 +253,7 @@ class NodeFactory:
         updates["response"] = response
 
         emit_trace("cs.cache", hit=True, sources=cached.sources[:3])
+        record_funnel_layer(LAYER_L0_CACHE)
         _emit_response(response, config)
         return updates
 
@@ -516,6 +541,7 @@ class NodeFactory:
             # Gate every prepared irreversible action, overwriting any
             # stale pending confirmation from an earlier turn.
             summary = _build_confirmation_summary(tool, filled_slots)
+            record_funnel_layer(LAYER_AGENT_TOOL)
             _emit_response(summary, config)
             return {
                 "pending_confirmation": {"intent": intent, "args": dict(filled_slots)},
@@ -527,6 +553,7 @@ class NodeFactory:
         result = await self._tool_registry.execute(intent, filled_slots, user_id=user_id)
 
         if result.success:
+            record_funnel_layer(LAYER_AGENT_TOOL)
             return {"tool_result": result.data, "pending_confirmation": None}
 
         logger.warning("Tool execution failed for intent %s: %s", intent, result.message)
@@ -567,6 +594,7 @@ class NodeFactory:
                 response = check.sanitized_content
 
         emit_trace("cs.faq", hit=True, faq_id=entry.faq_id)
+        record_funnel_layer(LAYER_FAQ)
         _emit_response(response, config)
         return {
             "route_after_faq": "hit",
@@ -635,21 +663,60 @@ class NodeFactory:
                 filters = (
                     intersect_metadata_filters(fill_result.to_filters()) if fill_result else {}
                 )
-                if filters:
-                    RETRIEVAL_FILTERED_SEARCHES.inc()
-                search_req = VectorSearchRequest(query=query, top_k=3, filters=filters or None)
-                search_results = await _search_once(search_req)
-                if not search_results and filters:
-                    RETRIEVAL_FILTER_FALLBACKS.inc()
-                    # A metadata miss must not zero out recall: retry unfiltered.
-                    search_results = await _search_once(VectorSearchRequest(query=query, top_k=3))
-                retrieved_docs = [_search_result_to_dict(r) for r in search_results]
-                sources = _extract_sources(retrieved_docs)
+                # L2 retrieval cache: repeated identical (query, filters)
+                # within this KB epoch replay without touching Qdrant —
+                # the layer exists to protect it. Fail-open inside the
+                # service, so an outage just means "search as usual".
+                if self._retrieval_cache is not None:
+                    cached_docs = await self._retrieval_cache.get(query, filters)
+                    if cached_docs is not None:
+                        retrieved_docs = cached_docs
+                        sources = _extract_sources(retrieved_docs)
+                if not retrieved_docs:
+                    if filters:
+                        RETRIEVAL_FILTERED_SEARCHES.inc()
+                    search_req = VectorSearchRequest(query=query, top_k=3, filters=filters or None)
+                    search_results = await _search_once(search_req)
+                    if not search_results and filters:
+                        RETRIEVAL_FILTER_FALLBACKS.inc()
+                        # A metadata miss must not zero out recall: retry unfiltered.
+                        search_results = await _search_once(
+                            VectorSearchRequest(query=query, top_k=3)
+                        )
+                    # Rerank before conversion and caching: the stored L2
+                    # order IS the reranked order, so cache hits replay it
+                    # without paying the rerank again.
+                    search_results = await self._rerank_results(search_results, search_req)
+                    retrieved_docs = [_search_result_to_dict(r) for r in search_results]
+                    sources = _extract_sources(retrieved_docs)
+                    if retrieved_docs and self._retrieval_cache is not None:
+                        await self._retrieval_cache.put(query, filters, retrieved_docs)
             except Exception:
                 logger.exception("Hybrid search failed")
 
+        if retrieved_docs:
+            record_funnel_layer(LAYER_RAG)
         emit_trace("cs.retrieval", mode="hybrid", docs=len(retrieved_docs), sources=sources[:3])
         return {"retrieved_docs": retrieved_docs, "sources": sources}
+
+    async def _rerank_results(self, results: list[Any], request: Any) -> list[Any]:
+        """Rerank search results when the pipeline carries a reranker.
+
+        The reranker is built and budget-wrapped in chat.py for exactly
+        this call site; it stayed unconsumed for a long stretch (dead
+        wiring — the documented Reranking stage silently never ran).
+        Fail-open like every retrieval leg: a rerank failure degrades
+        to the hybrid order, never a failed lookup.
+        """
+        reranker = self._retrieval_pipeline.get("reranker")
+        if reranker is None or not results:
+            return results
+        try:
+            reranked = await reranker.rerank(results, request)
+            return list(reranked) if reranked else results
+        except Exception:  # noqa: BLE001 - rerank is precision, not availability
+            logger.exception("Reranking failed; keeping hybrid order")
+            return results
 
     async def _extract_query_entities(self, message: str) -> SlotFillingResult | None:
         """Run the slot filler over the raw message for retrieval enrichment.
@@ -809,10 +876,66 @@ class NodeFactory:
     async def direct_response_node(
         self, state: DialogueState, config: Optional[RunnableConfig] = None
     ) -> dict[str, Any]:
-        """Simple LLM call for chitchat / greeting."""
+        """Smalltalk tier: L1 semantic replay first, LLM call second.
+
+        The L1 cache lives here — after intent detection, inside the
+        only tier it serves — so the embedding lookup is paid on
+        direct-tier turns rather than taxing every L0-miss turn. A hit
+        re-runs the deterministic freshness insurance (claim gate +
+        output guardrail) exactly like the L0 and FAQ fast paths: a
+        cached serve is never trusted blindly.
+
+        Lookup is intentionally NOT gated on pending task state: direct
+        answers are persona + message only (anonymous writes only), so
+        a replay cannot smuggle in another user's context. The write
+        side is gated — see ``_maybe_put_semantic``.
+        """
         message = state.get("message", "")
+        if self._semantic_cache is not None:
+            cached = await self._semantic_cache.get(message)
+            if cached is not None:
+                updates: dict[str, Any] = {
+                    "response": cached.response,
+                    "sources": cached.sources,
+                    "intent": cached.intent,
+                }
+                updates = self._gate_claims(updates, message=message, check_actions=True)
+                response = updates["response"]
+                if self._guardrail_service is not None:
+                    check = self._guardrail_service.check_output(response)
+                    if check.was_blocked:
+                        response = "抱歉，该回复未能通过安全检查，请重新提问。"
+                    elif check.sanitized_content and check.sanitized_content != response:
+                        response = check.sanitized_content
+                updates["response"] = response
+
+                emit_trace("cs.semantic_cache", hit=True, intent=cached.intent)
+                record_funnel_layer(LAYER_L1_SEMANTIC)
+                _emit_response(response, config)
+                return updates
+
+        record_funnel_layer(LAYER_DIRECT)
         response = await self._generate_direct(message, config, state)
+        await self._maybe_put_semantic(state, message, response.get("response", ""))
         return response
+
+    async def _maybe_put_semantic(self, state: DialogueState, message: str, response: str) -> None:
+        """L1 write gate: only anonymous, stateless smalltalk turns.
+
+        Mirrors the L0 doctrine: personalized turns (identified users,
+        whose generators may fold cross-session facts into the answer)
+        are never written — a hit replays the stored text verbatim at
+        any later visitor. The service's own intent allowlist and
+        capacity cap apply on top; put() is fail-open.
+        """
+        if self._semantic_cache is None or not response:
+            return
+        if state.get("user_id") or state.get("pending_confirmation"):
+            return
+        await self._semantic_cache.put(
+            message,
+            CachedAnswer(response=response, sources=[], intent=state.get("intent", "")),
+        )
 
     @traced_stage("cs.handoff")
     async def handle_handoff_node(
@@ -860,6 +983,7 @@ class NodeFactory:
 
         response = _build_handoff_response(reason, ticket)
 
+        record_funnel_layer(LAYER_HANDOFF)
         emit_trace(
             "cs.handoff",
             reason=reason,
@@ -898,6 +1022,7 @@ class NodeFactory:
         pending confirmation (same semantics as execute_tool_node).
         """
         if self._agent_service is None:
+            AGENT_LOOP_OUTCOMES.labels(outcome=OUTCOME_FALLBACK).inc()
             return {"route_after_agent": "agent_fallback"}
 
         context_note = ""
@@ -921,17 +1046,26 @@ class NodeFactory:
                 user_id=state.get("user_id"),
                 context_note=context_note,
                 history=history,
+                # Server-truth conversation id: conversation-scoped agent
+                # tools (human handoff) open tickets against the real
+                # session, never a model-supplied one.
+                session_id=state.get("session_id"),
             )
         except NotImplementedError:
             logger.warning(
                 "Agent mode unavailable (provider lacks function calling); "
                 "falling back to slot pipeline"
             )
+            AGENT_LOOP_OUTCOMES.labels(outcome=OUTCOME_FALLBACK).inc()
             return {"route_after_agent": "agent_fallback"}
         except Exception:  # noqa: BLE001 - availability over agent mode
             logger.exception("Agent loop failed; falling back to slot pipeline")
+            AGENT_LOOP_OUTCOMES.labels(outcome=OUTCOME_FALLBACK).inc()
             return {"route_after_agent": "agent_fallback"}
 
+        # The agent loop is the funnel's deepest serving layer — its
+        # traffic is the "real need" the funnel inversion optimizes for.
+        record_funnel_layer(LAYER_AGENT_TOOL)
         updates: dict[str, Any] = {
             "route_after_agent": "agent_done",
             "response": result.response,

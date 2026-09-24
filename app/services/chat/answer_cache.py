@@ -28,6 +28,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from app.services.chat.cache_eviction import record_response_index
 from app.services.chat.metrics import ANSWER_CACHE_HITS, ANSWER_CACHE_MISSES
 from app.services.retrieval.kb_epoch import EPOCH_UNAVAILABLE, get_kb_epoch
 
@@ -89,7 +90,7 @@ class AnswerCacheService:
         pipeline. A miss ratio of 100% is the ceiling of safe behavior.
         """
         try:
-            key = await self._key(message)
+            key, _ = await self._key_and_epoch(message)
             if key is None:
                 ANSWER_CACHE_MISSES.inc()
                 return None
@@ -125,7 +126,7 @@ class AnswerCacheService:
         if not response or not sources or len(response) > self._max_response_chars:
             return
         try:
-            key = await self._key(message)
+            key, epoch = await self._key_and_epoch(message)
             if key is None:
                 # Epoch unavailable: refuse to populate a key namespace
                 # that bypasses KB invalidation.
@@ -135,20 +136,34 @@ class AnswerCacheService:
                 ensure_ascii=False,
             )
             await self._client().set(key, payload, ex=self._ttl)
+            # Reverse index for downvote eviction (cache_eviction): the
+            # L0 key digests the query, but feedback only knows the
+            # response text — so record key ← response digest.
+            await record_response_index(
+                self._client(),
+                index_name=f"answer_resp_index:{epoch}",
+                response=response,
+                target=key,
+                ttl_seconds=self._ttl,
+            )
         except Exception:  # noqa: BLE001 - cache is never a dependency
             logger.warning("Answer cache write failed; answer simply not cached", exc_info=True)
 
-    async def _key(self, message: str) -> str | None:
-        """Epoch-scoped digest key; None when the epoch is unavailable."""
+    async def _key_and_epoch(self, message: str) -> tuple[str | None, str | None]:
+        """Epoch-scoped digest key with its epoch; Nones when unavailable.
+
+        The epoch is returned alongside the key so ``put`` can index
+        the entry for downvote eviction without a second epoch read.
+        """
         epoch = await get_kb_epoch()
         if epoch == EPOCH_UNAVAILABLE:
-            return None
+            return None, None
         digest = hashlib.sha256(
             "\x00".join(
                 (normalize_message(message), epoch, self._model_tag, self._persona_tag)
             ).encode()
         ).hexdigest()
-        return f"answer:{digest}"
+        return f"answer:{digest}", epoch
 
     def _client(self) -> Redis[str]:
         if self._redis is None:

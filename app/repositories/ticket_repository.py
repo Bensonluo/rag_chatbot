@@ -7,11 +7,14 @@ and open-queue depth for position estimates.
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.database.message import Message
 from app.models.database.ticket import HandoffTicket
+from app.models.enums.message import MessageRole
 from app.repositories.base import BaseRepository
 
 # Ticket lifecycle: open (waiting in queue) → claimed (an agent is on it)
@@ -221,6 +224,59 @@ class TicketRepository(BaseRepository[HandoffTicket]):
         if not samples:
             return None
         return sum(samples) / len(samples)
+
+    async def get_one_shot_stats(self, since: datetime) -> dict[str, Any]:
+        """Session-level one-shot-resolution stats for a window.
+
+        The north star's highest-weighted metric, at its honest
+        granularity: the denominator is sessions the bot actually
+        served (≥1 assistant message) in the window, and the numerator
+        is served sessions with NO handoff ticket (any status — a
+        resolved ticket still means a human was pulled in) and NO
+        downvoted assistant answer in-window (a thumbs-down is the
+        operational proxy for "not a resolution" — the same doctrine
+        the cache-eviction loop applies). Turn-level handoff share
+        understates failure: five turns plus one handoff is 20% there,
+        0% here. Tickets whose session was never served in-window count
+        nowhere (queue noise, not a resolution outcome). A session
+        carrying both failure signals is subtracted once: the failed
+        set is the UNION of ticketed and downvoted sessions, while
+        sessions_downvoted reports the signal on its own.
+        """
+        in_window = (
+            Message.role == MessageRole.ASSISTANT,
+            Message.created_at >= since.replace(tzinfo=None),
+        )
+        served_sessions = select(func.distinct(Message.session_id)).where(*in_window)
+        ticketed = select(func.distinct(HandoffTicket.session_id).label("session_id")).where(
+            HandoffTicket.session_id.in_(served_sessions)
+        )
+        downvoted = select(func.distinct(Message.session_id).label("session_id")).where(
+            *in_window,
+            Message.user_rating < 0,
+        )
+        failed = ticketed.union(downvoted).subquery()
+
+        served = select(func.count()).select_from(served_sessions.subquery())
+        escalated = select(func.count()).select_from(ticketed.subquery())
+        rejected = select(func.count()).select_from(downvoted.subquery())
+        failed_count = select(func.count()).select_from(failed)
+
+        result = await self.session.execute(served)
+        total = result.scalar() or 0
+        result = await self.session.execute(escalated)
+        handed_off = result.scalar() or 0
+        result = await self.session.execute(rejected)
+        rejected_n = result.scalar() or 0
+        result = await self.session.execute(failed_count)
+        failed_n = result.scalar() or 0
+        return {
+            "window_start": since.isoformat(),
+            "sessions_served": total,
+            "sessions_escalated": handed_off,
+            "sessions_downvoted": rejected_n,
+            "one_shot_rate": round((total - failed_n) / total, 4) if total else None,
+        }
 
     async def get_open_ticket_for_session(
         self,

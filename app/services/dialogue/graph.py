@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from app.services.agent.service import AgentService  # noqa: F401 (type refs below)
     from app.services.chat.answer_cache import AnswerCacheService
+    from app.services.chat.semantic_cache import SemanticCacheService
     from app.services.dialogue.tools import ToolRegistry
     from app.services.faq.store import FAQService
     from app.services.graph.retrieval.graph_retrieval_service import (
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from app.services.handoff.service import HandoffService
     from app.services.intent.base import IntentDetector
     from app.services.llm.base import LLMMessage, LLMServiceBase
+    from app.services.retrieval.retrieval_cache import RetrievalCacheService
     from app.services.slot_filling.base import SlotFiller
 
 logger = logging.getLogger(__name__)
@@ -54,6 +56,8 @@ def build_dialogue_graph(
     system_prompt: str | None = None,
     user_facts_provider: Callable[[int], Awaitable[list[str]]] | None = None,
     answer_cache: AnswerCacheService | None = None,
+    semantic_cache: SemanticCacheService | None = None,
+    retrieval_cache: RetrievalCacheService | None = None,
 ) -> CompiledStateGraph[Any]:
     """Build and compile the dialogue StateGraph.
 
@@ -82,6 +86,10 @@ def build_dialogue_graph(
             cache). When provided, the post-guardrail lookup node
             replays a previously grounded answer in ~5ms on an exact
             key hit; a miss (or None) leaves the pipeline unchanged.
+        semantic_cache: Optional SemanticCacheService (L1 near-duplicate
+            cache). When provided, the direct tier replays cached
+            smalltalk answers on semantic hits; a miss (or None)
+            leaves the direct path unchanged.
 
     Returns:
         Compiled StateGraph with the requested checkpointer.
@@ -103,6 +111,8 @@ def build_dialogue_graph(
         agent_service=agent_service,
         faq_service=faq_service,
         answer_cache=answer_cache,
+        semantic_cache=semantic_cache,
+        retrieval_cache=retrieval_cache,
     )
 
     graph = StateGraph(DialogueState)

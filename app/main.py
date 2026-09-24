@@ -57,13 +57,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Shutdown
     logger.info("Shutting down RAG Chatbot")
 
-    # Close the dialogue checkpointer's connection pool
-    await checkpointer_manager.stop()
+    # Stop the periodic tasks first — each polls the databases whose
+    # pools close right after (a refresher mid-query against a closing
+    # pool is shutdown-window noise at best).
+    from app.services.handoff.one_shot_metrics import stop_one_shot_refresher
 
-    # Stop the periodic BM25 keyword-index refresher
+    stop_one_shot_refresher()
+
     from app.services.retrieval.keyword_refresh import stop_keyword_index_refresher
 
     stop_keyword_index_refresher()
+
+    # Close the dialogue checkpointer's connection pool
+    await checkpointer_manager.stop()
 
     # Close the shared rate-limit Redis connection
     from app.middleware.rate_limiter_redis import close_rate_limit_redis

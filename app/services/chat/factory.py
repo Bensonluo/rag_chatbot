@@ -185,14 +185,38 @@ class ChatServiceFactory:
         # Create tool registry and build LangGraph dialogue graph
         graph = None
         answer_cache = None
+        semantic_cache = None
+        retrieval_cache = None
         try:
             from app.services.agent import AgentService
             from app.services.dialogue.graph import build_dialogue_graph
-            from app.services.dialogue.tools import create_default_tool_registry
+            from app.services.dialogue.tools import (
+                create_default_tool_registry,
+                create_escalate_tool,
+                create_knowledge_tool,
+            )
             from app.services.faq import create_faq_service
             from app.services.handoff import create_handoff_service
 
             tool_registry = create_default_tool_registry()
+            # Built once, shared by the agent tool and the intent-routed
+            # handoff node below — one queue, one dedup path.
+            handoff_service = create_handoff_service(llm_service=light_llm_service)
+            # Agent knowledge tool: the default registry is transactional
+            # only; this gives task-intent loops the same hybrid search
+            # the RAG leg uses, so mid-task policy questions are grounded
+            # instead of answered from model priors. Read-only, fail-open,
+            # and inert unless agent mode itself is enabled.
+            if settings.AGENT_KNOWLEDGE_TOOL_ENABLED:
+                hybrid_search = (retrieval_pipeline or {}).get("hybrid_search")
+                if hybrid_search is not None:
+                    tool_registry.register(create_knowledge_tool(hybrid_search))
+            # Agent escalate tool: routes unresolvable cases into the
+            # SLA queue mid-run instead of "answering" them — the
+            # one-shot-resolution complement for the funnel's deepest
+            # layer. Inert unless agent mode itself is enabled.
+            if settings.AGENT_ESCALATE_TOOL_ENABLED:
+                tool_registry.register(create_escalate_tool(handoff_service))
             if settings.MCP_TOOLS_ENABLED and settings.MCP_TOOLS_MANIFEST:
                 from app.services.dialogue.mcp_tools import (
                     HttpxRemoteToolClient,
@@ -265,6 +289,39 @@ class ChatServiceFactory:
                         (settings.CHAT_SYSTEM_PROMPT or "default").encode()
                     ).hexdigest()[:8],
                 )
+            # L1 semantic answer cache: near-duplicate smalltalk
+            # replay for the direct tier. Same epoch doctrine as L0
+            # (read per call), same fail-open iron law; shares the
+            # embedding service the FAQ fast path already uses. Like
+            # the FAQ tier, no embedding service means unwired.
+            semantic_cache = None
+            if settings.SEMANTIC_CACHE_ENABLED and embedding_service is not None:
+                from redis import asyncio as aioredis
+
+                from app.services.chat.semantic_cache import SemanticCacheService
+                from app.services.retrieval.kb_epoch import get_kb_epoch
+
+                semantic_cache = SemanticCacheService(
+                    embedding_service=embedding_service,
+                    redis_client=aioredis.from_url(settings.REDIS_URL, decode_responses=True),
+                    epoch_provider=get_kb_epoch,
+                    settings=settings,
+                )
+            # L2 retrieval-result cache: repeated identical (query,
+            # filters) pairs replay their doc set without re-running
+            # the Qdrant+BM25 legs. Epoch-scoped like L0/L1; fail-open.
+            retrieval_cache = None
+            if settings.RETRIEVAL_CACHE_ENABLED:
+                from redis import asyncio as aioredis
+
+                from app.services.retrieval.kb_epoch import get_kb_epoch
+                from app.services.retrieval.retrieval_cache import RetrievalCacheService
+
+                retrieval_cache = RetrievalCacheService(
+                    redis_client=aioredis.from_url(settings.REDIS_URL, decode_responses=True),
+                    epoch_provider=get_kb_epoch,
+                    settings=settings,
+                )
             graph = build_dialogue_graph(
                 intent_detector=intent_detector,
                 history_provider=history_provider,
@@ -277,10 +334,12 @@ class ChatServiceFactory:
                 guardrail_service=guardrail_service,
                 graph_retrieval_service=graph_retrieval_service,
                 checkpointer=checkpointer,
-                handoff_service=create_handoff_service(llm_service=light_llm_service),
+                handoff_service=handoff_service,
                 agent_service=agent_service,
                 faq_service=faq_service,
                 answer_cache=answer_cache,
+                semantic_cache=semantic_cache,
+                retrieval_cache=retrieval_cache,
             )
         except Exception as exc:
             logger.warning("Failed to build LangGraph dialogue graph: %s", exc)

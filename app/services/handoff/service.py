@@ -36,16 +36,20 @@ logger = logging.getLogger(__name__)
 REASON_EXPLICIT = "explicit"  # user asked for a human
 REASON_EMOTION = "emotion"  # negative-emotion escalation
 REASON_REFUND_THRESHOLD = "refund_threshold"  # amount over auto-process bar
+REASON_AGENT = "agent"  # agent loop judged the task unresolvable
 
-VALID_REASONS = frozenset({REASON_EXPLICIT, REASON_EMOTION, REASON_REFUND_THRESHOLD})
+VALID_REASONS = frozenset({REASON_EXPLICIT, REASON_EMOTION, REASON_REFUND_THRESHOLD, REASON_AGENT})
 
 # Reason → queue tier. Angry users and high-value refund disputes are
 # churn/chargeback risks: they jump the FIFO queue ahead of explicit
-# requests (industry-standard priority routing).
+# requests (industry-standard priority routing). Agent escalations sit
+# at normal priority: the loop already exhausted the automated paths,
+# but the user is not (yet) an escalation-risk signal.
 _PRIORITY_BY_REASON = {
     REASON_EMOTION: PRIORITY_HIGH,
     REASON_REFUND_THRESHOLD: PRIORITY_HIGH,
     REASON_EXPLICIT: PRIORITY_NORMAL,
+    REASON_AGENT: PRIORITY_NORMAL,
 }
 
 
