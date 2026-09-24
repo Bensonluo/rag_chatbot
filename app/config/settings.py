@@ -77,6 +77,12 @@ class Settings(BaseSettings):
         default="",
         description="Override persona system prompt for chat generators (empty = built-in CS persona)",
     )
+    CHAT_LLM_CALL_BUDGET: int = Field(
+        default=8,
+        description="Hard cap on LLM calls per chat request (0 disables). "
+        "Caps the pathological tail (agent rounds + intent + rerank + "
+        "generation); 8 fits the normal path with headroom.",
+    )
     CHAT_SUMMARY_THRESHOLD: int = Field(
         default=20, description="Messages before the first session summary on the chat path"
     )

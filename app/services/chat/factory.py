@@ -134,6 +134,15 @@ class ChatServiceFactory:
         Returns:
             ChatService: Configured chat service with compiled LangGraph
         """
+        # One budget wrapper over the provider singleton: intent,
+        # slots, agent tool rounds, rerank, and generation all flow
+        # through it, each reserving against the per-request scope
+        # ChatService opens. Background consumers (session
+        # compression) keep the raw service — off request budget.
+        from app.services.llm.budget import BudgetedLLMService
+
+        llm_service = BudgetedLLMService(llm_service)
+
         # Create embedding service if using optimized memory
         from app.services.embeddings import EmbeddingFactory
 

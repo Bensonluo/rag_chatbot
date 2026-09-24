@@ -63,7 +63,12 @@ class TestChatServiceFactory:
                 intent_type="hybrid",
             )
         assert isinstance(service, ChatService)
-        assert service.llm_service is mock_llm
+        # LLM calls flow through the budget wrapper; the provider is
+        # its delegate.
+        from app.services.llm.budget import BudgetedLLMService
+
+        assert isinstance(service.llm_service, BudgetedLLMService)
+        assert service.llm_service._inner is mock_llm
 
     @patch("app.services.chat.factory.MemoryFactory")
     @patch("app.services.chat.factory.IntentFactory")

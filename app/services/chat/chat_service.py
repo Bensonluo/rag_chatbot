@@ -14,6 +14,8 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from app.config.settings import settings
+from app.services.llm.budget import enter_llm_budget
 from app.services.observability.pipeline_tracer import traced_stage
 
 if TYPE_CHECKING:
@@ -117,10 +119,11 @@ class ChatService:
             ChatResponse with graph output
         """
         config = {"configurable": {"thread_id": str(session_id)}}
-        result = await self.graph.ainvoke(
-            {"message": message, "session_id": session_id, "user_id": user_id},
-            config,
-        )
+        async with enter_llm_budget(settings.CHAT_LLM_CALL_BUDGET):
+            result = await self.graph.ainvoke(
+                {"message": message, "session_id": session_id, "user_id": user_id},
+                config,
+            )
 
         metadata: dict[str, Any] = {
             "confidence": result.get("confidence"),
@@ -198,12 +201,16 @@ class ChatService:
         config = {"configurable": {"thread_id": str(session_id), "stream_queue": queue}}
         # The sentinel is enqueued only after the graph task settles, so
         # the consumer can never exit before the task is observed done.
-        invoke_task = asyncio.create_task(
-            self.graph.ainvoke(
-                {"message": message, "session_id": session_id, "user_id": user_id},
-                config,
+        # Budget scope wraps the whole stream: the graph task inherits
+        # the ContextVar (asyncio copies context at task creation), so
+        # every node's LLM call in this turn counts against it.
+        async with enter_llm_budget(settings.CHAT_LLM_CALL_BUDGET):
+            invoke_task = asyncio.create_task(
+                self.graph.ainvoke(
+                    {"message": message, "session_id": session_id, "user_id": user_id},
+                    config,
+                )
             )
-        )
         invoke_task.add_done_callback(lambda _task: queue.put_nowait(None))
         streamed_content: list[str] = []
         loop = asyncio.get_running_loop()

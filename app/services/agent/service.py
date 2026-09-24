@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.services.llm.base import LLMMessage
+from app.services.llm.budget import LLMBudgetExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +138,19 @@ class AgentService:
         trace: list[dict[str, Any]] = []
 
         for step in range(self._max_steps):
-            response = await self._llm.generate_with_tools(messages, tools)
+            try:
+                response = await self._llm.generate_with_tools(messages, tools)
+            except LLMBudgetExceeded:
+                # The request's LLM call budget is spent: stop the loop
+                # with what has already run — degrading beats failing
+                # the whole turn.
+                logger.warning("Agent stopped at step %d: request LLM budget exhausted", step)
+                return AgentResult(
+                    response=_FALLBACK_RESPONSE,
+                    executed_tools=executed,
+                    tool_trace=trace,
+                    truncated=True,
+                )
             calls = response.tool_calls or []
 
             if not calls:
