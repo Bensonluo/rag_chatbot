@@ -12,7 +12,14 @@ from unittest.mock import patch
 
 import pytest
 
-from app.services.observability.pipeline_tracer import traced_stage
+pytest.importorskip("opentelemetry.sdk.trace")  # noqa: E402
+
+from opentelemetry.sdk.trace.export import (  # noqa: E402
+    SpanExporter,
+    SpanExportResult,
+)
+
+from app.services.observability.pipeline_tracer import traced_stage  # noqa: E402
 
 
 class _RecordingSpan:
@@ -21,8 +28,11 @@ class _RecordingSpan:
         self.attributes: dict[str, Any] = {}
         self.events: list[tuple[str, BaseException]] = []
         self.ended = False
+        self.exit_exc_type: type[BaseException] | None = None
 
     def set_attribute(self, key: str, value: Any) -> None:
+        if self.ended:
+            raise AssertionError(f"set_attribute after end on {self.name}")
         self.attributes[key] = value
 
     def record_exception(self, exception: BaseException) -> None:
@@ -32,14 +42,30 @@ class _RecordingSpan:
         self.ended = True
 
 
+class _SpanCM:
+    """Models the real OTel contract: the tracer returns a context
+    manager, and the span only becomes usable through __enter__."""
+
+    def __init__(self, span: _RecordingSpan) -> None:
+        self._span = span
+
+    def __enter__(self) -> _RecordingSpan:
+        return self._span
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        if exc_type is not None:
+            self._span.exit_exc_type = exc_type
+        self._span.ended = True
+
+
 class _RecordingTracer:
     def __init__(self) -> None:
         self.spans: list[_RecordingSpan] = []
 
-    def start_as_current_span(self, name: str, **kwargs: Any) -> _RecordingSpan:
+    def start_as_current_span(self, name: str, **kwargs: Any) -> _SpanCM:
         span = _RecordingSpan(name)
         self.spans.append(span)
-        return span
+        return _SpanCM(span)
 
 
 class TestTracedStageDecorator:
@@ -144,6 +170,80 @@ class TestTracedStageDecorator:
         span = tracer.spans[0]
         assert span.ended is True
         assert span.events[0][1].args[0] == "tool loop blew up"
+
+    async def test_span_exit_receives_exception_type(self):
+        """The CM __exit__ must carry the exception for OTel status."""
+        tracer = _RecordingTracer()
+
+        class _Svc:
+            @traced_stage("cs.tool")
+            async def node(self) -> dict[str, Any]:
+                raise RuntimeError("tool blew up")
+
+        with (
+            patch(
+                "app.services.observability.pipeline_tracer.get_tracer",
+                return_value=tracer,
+            ),
+            pytest.raises(RuntimeError, match="tool blew up"),
+        ):
+            await _Svc().node()
+
+        span = tracer.spans[0]
+        assert span.exit_exc_type is RuntimeError
+        assert span.ended is True
+
+
+class _ListExporter(SpanExporter):
+    """SDK-conformant exporter collecting ReadableSpans in memory."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.exported: list[Any] = []
+
+    def export(self, spans: Any) -> SpanExportResult:
+        self.exported.extend(spans)
+        return SpanExportResult.SUCCESS
+
+    def shutdown(self) -> None:
+        return None
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:  # noqa: ARG002
+        return True
+
+
+class TestRealSDKCompatibility:
+    async def test_decorated_calls_produce_real_exported_spans(self):
+        """Regression: real OTel tracers return a context manager, not
+        a span — the decorator must honor the CM protocol or spans are
+        silently never ended/exported."""
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+
+        provider = TracerProvider()
+        exporter = _ListExporter()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        class _Svc:
+            @traced_stage("cs.intent")
+            async def node(self, session_id: int = 0) -> dict[str, Any]:
+                return {"intent": "order_query"}
+
+        try:
+            with patch(
+                "app.services.observability.pipeline_tracer.get_tracer",
+                return_value=provider.get_tracer("rag-chatbot.dialogue"),
+            ):
+                result = await _Svc().node(session_id=7)
+        finally:
+            provider.shutdown()
+
+        assert result == {"intent": "order_query"}
+        exported = [s for s in exporter.exported if s.name == "cs.intent"]
+        assert len(exported) == 1
+        span = exported[0]
+        assert span.attributes["session_id"] == 7
+        assert span.end_time is not None  # actually ended, so exported
 
 
 class TestPipelineSpansWired:

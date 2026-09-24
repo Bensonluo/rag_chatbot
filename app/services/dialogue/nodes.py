@@ -49,6 +49,7 @@ from app.services.handoff.service import (
     REASON_EMOTION,
     REASON_EXPLICIT,
 )
+from app.services.observability.pipeline_tracer import traced_stage
 from app.services.retrieval.metrics import (
     RETRIEVAL_FILTER_FALLBACKS,
     RETRIEVAL_FILTERED_SEARCHES,
@@ -60,8 +61,6 @@ from app.services.slot_filling.slot_types import (
 )
 
 logger = logging.getLogger(__name__)
-
-from app.services.observability.pipeline_tracer import traced_stage
 
 
 def _stream_queue(config: RunnableConfig | None) -> asyncio.Queue[Any] | None:

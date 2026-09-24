@@ -1,10 +1,17 @@
-"""Full-pipeline stage tracing for the chat spine.
+"""Full-pipeline stage tracing for the dialogue graph.
 
-Wraps each dialogue-graph node (and the ChatService entrypoints) in an
-OpenTelemetry span so one trace per request shows guardrail → intent →
-slots → retrieval/FAQ/agent → generation → handoff as a span tree.
-Legacy setup traced LLM calls only — a latency regression or error
-hotspot was attributable to "the pipeline", not to a stage.
+Industry baseline: one trace per chat request with a span per pipeline
+stage (guardrail → intent → slots → retrieval/agent → generation →
+handoff) so latency regressions and error hotspots are attributable to
+a stage, not the pipeline blob.
+
+Real OpenTelemetry tracers return a CONTEXT MANAGER from
+``start_as_current_span`` — the span only becomes usable via
+``__enter__`` and must be closed via ``__exit__(exc_type, exc, tb)``
+with attributes set BEFORE exit, or the span leaks and is never
+exported. The no-op tracer in ``app.middleware.tracing`` returns a
+span that doubles as its own context manager; ``_StageSpan`` handles
+both contracts.
 """
 
 from __future__ import annotations
@@ -20,90 +27,95 @@ from app.middleware.tracing import get_tracer
 
 logger = logging.getLogger(__name__)
 
-# Telemetry-safe attribute allowlists: identifiers and routing signals
-# only — never message bodies or responses (PII discipline).
+# PII-safe allowlists: only these kwargs/results become span attributes.
 _KWARG_ATTRS = frozenset({"session_id", "user_id"})
 _RESULT_ATTRS = frozenset({"intent", "confidence"})
 
-
-# Identity-typed decorator (same pattern as functools.lru_cache): the
-# wrapper preserves the decorated callable's kind and signature at
-# runtime, and the static type is unchanged so callers of decorated
-# methods keep their coroutine-vs-asyncgen narrowing.
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 
-def traced_stage(name: str) -> Callable[[_F], _F]:
-    """Decorator: wrap an async dialogue/chat method in an OTel span.
+class _StageSpan:
+    """Bridges OTel's context-manager span protocol for stage spans."""
 
-    The tracer is resolved at call time so a patched ``get_tracer``
-    (tests) or a reconfigured provider (runtime) is always honored.
-    ``functools.wraps`` keeps the original signature visible to
-    LangGraph's config-injection introspection.
+    __slots__ = ("_cm", "_span")
+
+    def __init__(self, name: str, kwargs: dict[str, Any]) -> None:
+        self._cm: Any = get_tracer("rag-chatbot.dialogue").start_as_current_span(name)
+        # The CM's __enter__ yields the live span (and activates it).
+        self._span: Any = self._cm.__enter__()
+        for key in _KWARG_ATTRS:
+            if kwargs.get(key) is not None:
+                self._set(key, kwargs[key])
+
+    def _set(self, key: str, value: Any) -> None:
+        set_attribute = getattr(self._span, "set_attribute", None)
+        if set_attribute is not None:
+            set_attribute(key, value)
+
+    def set_result_attrs(self, result: dict[str, Any]) -> None:
+        for key in _RESULT_ATTRS:
+            if result.get(key) is not None:
+                self._set(key, result[key])
+
+    def record_and_end(self, exc: BaseException) -> None:
+        """Record the exception and close carrying it (for OTel status)."""
+        record_exception = getattr(self._span, "record_exception", None)
+        if record_exception is not None:
+            record_exception(exc)
+        self._cm.__exit__(type(exc), exc, exc.__traceback__)
+
+    def end(self) -> None:
+        self._cm.__exit__(None, None, None)
+
+
+def traced_stage(name: str) -> Callable[[_F], _F]:
+    """Identity-typed decorator wrapping a dialogue node in a span.
+
+    The wrapper must stay a genuine coroutine function / async generator
+    function: LangGraph probes with ``iscoroutinefunction``, which does
+    NOT follow ``functools.wraps``' ``__wrapped__`` chain — a sync
+    dispatch wrapper makes nodes look sync and their updates invalid.
     """
 
     def decorator(fn: _F) -> _F:
         if inspect.isasyncgenfunction(fn):
-            # The wrapper must itself be an async generator function:
-            # LangGraph probes streaming entrypoints with
-            # inspect.isasyncgenfunction, which does not follow the
-            # __wrapped__ chain functools.wraps installs.
+
             @functools.wraps(fn)
             async def agen_wrapper(*args: Any, **kwargs: Any) -> AsyncIterator[Any]:
                 agen = fn(*args, **kwargs)
-                span = _start_span(name, kwargs)
+                span = _StageSpan(name, kwargs)
                 try:
                     async for item in agen:
                         yield item
-                except Exception as exc:
-                    if hasattr(span, "record_exception"):
-                        span.record_exception(exc)
+                except BaseException as exc:
+                    # BaseException: a consumer abandoning the stream
+                    # throws GeneratorExit, which still ends the span.
+                    span.record_and_end(exc)
                     raise
+                else:
+                    span.end()
                 finally:
-                    # Close the wrapped generator deterministically.
-                    # Without this, closing the wrapper leaves the inner
-                    # generator to the event loop's asyncgen finalizer,
-                    # which runs a tick later — client-disconnect cleanup
-                    # (task cancellation, partial-turn persistence) would
-                    # observably lag the disconnect.
+                    # Outer aclose() does not synchronously close the
+                    # inner generator; close it deterministically here.
                     with contextlib.suppress(Exception):
                         await agen.aclose()
-                    if hasattr(span, "end"):
-                        span.end()
 
             return cast(_F, agen_wrapper)
 
-        # Same for coroutine nodes: the wrapper must be a genuine
-        # coroutine function — LangGraph's iscoroutinefunction probe
-        # does not follow __wrapped__ either, and a sync wrapper makes
-        # the node look sync so its coroutine return is never awaited.
         @functools.wraps(fn)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            span = _start_span(name, kwargs)
+            span = _StageSpan(name, kwargs)
             try:
                 result = await fn(*args, **kwargs)
-                if isinstance(result, dict) and hasattr(span, "set_attribute"):
-                    for key in _RESULT_ATTRS:
-                        if result.get(key) is not None:
-                            span.set_attribute(key, result[key])
-                return result
             except Exception as exc:
-                if hasattr(span, "record_exception"):
-                    span.record_exception(exc)
+                span.record_and_end(exc)
                 raise
-            finally:
-                if hasattr(span, "end"):
-                    span.end()
+            else:
+                if isinstance(result, dict):
+                    span.set_result_attrs(result)
+                span.end()
+                return result
 
         return cast(_F, wrapper)
 
     return decorator
-
-
-def _start_span(name: str, kwargs: dict[str, Any]) -> Any:
-    span = get_tracer("rag-chatbot.dialogue").start_as_current_span(name)
-    if hasattr(span, "set_attribute"):
-        for key in _KWARG_ATTRS:
-            if kwargs.get(key) is not None:
-                span.set_attribute(key, kwargs[key])
-    return span
