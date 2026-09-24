@@ -205,3 +205,21 @@ class TestSummaryAwareness:
         context = await memory.get_context(session_id=1)
 
         assert [m["content"] for m in context] == ["Previous conversation: 摘要"]
+
+    async def test_summary_row_does_not_leak_into_the_window(self):
+        cutoff = datetime(2026, 9, 24, 12, 0, 0)
+        summary = self._summary("压缩摘要", cutoff)
+        rows = [  # newest first; the summary row itself is among the rows
+            Message(id=5, role="user", content="最新问题", created_at=cutoff.replace(minute=9)),
+            Message(id=99, role="system", content="压缩摘要", created_at=cutoff),
+            Message(
+                id=1, role="user", content="更早的问题", created_at=cutoff - timedelta(minutes=5)
+            ),
+        ]
+        memory = OptimizedContextBuilder(message_repo=_repo(rows, summary=summary))
+
+        context = await memory.get_context(session_id=1)
+
+        # Exactly one appearance — the wrapped prepend, never a raw replay.
+        contents = [m["content"] for m in context]
+        assert contents == ["Previous conversation: 压缩摘要", "最新问题"]

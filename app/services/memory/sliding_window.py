@@ -60,6 +60,10 @@ class SlidingWindowMemory(MemoryStrategy):
             session_id=session_id,
             limit=self.window_size,
         )
+        # System-role rows are summary artifacts, not conversation turns.
+        from app.models.enums.message import MessageRole
+
+        messages = [msg for msg in messages if msg.role != MessageRole.SYSTEM]
 
         # Convert to MessageContent format. The repo returns newest-first
         # rows; reverse so the context is chronological (newest last),

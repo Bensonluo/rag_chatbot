@@ -209,3 +209,23 @@ class TestChronologicalContext:
         context = await memory.get_context(session_id=1)
 
         assert [m["content"] for m in context] == ["第三条", "第四条", "第五条"]
+
+    @pytest.mark.asyncio
+    async def test_system_rows_are_not_conversation_turns(self):
+        """Summary/system artifacts must not surface as window turns."""
+        from datetime import datetime as _dt
+
+        from app.services.memory.sliding_window import SlidingWindowMemory
+
+        base = _dt(2026, 9, 24, 12, 0, 0)
+        messages = [  # newest first
+            Message(id=4, role="user", content="第四条", created_at=base),
+            Message(id=3, role="system", content="系统摘要行", created_at=base),
+            Message(id=2, role="user", content="第二条", created_at=base),
+        ]
+        mock_repo = _repo_with_messages(messages)
+        memory = SlidingWindowMemory(message_repo=mock_repo, window_size=3)
+
+        context = await memory.get_context(session_id=1)
+
+        assert [m["content"] for m in context] == ["第二条", "第四条"]

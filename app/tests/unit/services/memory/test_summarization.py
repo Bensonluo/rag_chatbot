@@ -62,6 +62,31 @@ class TestSummarizationMemory:
         ]
 
     @pytest.mark.asyncio
+    async def test_summary_row_does_not_leak_into_recent_window(self):
+        """The summary row itself must not reappear as a raw turn."""
+        from app.models.database.message import Message
+        from app.services.memory.summarization import SummarizationMemory
+
+        mock_repo = Mock()
+        memory = SummarizationMemory(
+            message_repo=mock_repo, llm_service=Mock(), summary_threshold=5, summary_interval=3
+        )
+        summary_msg = Message(id=99, role="system", content="历史摘要", created_at=datetime.now())
+        recent_messages = [  # newest first; includes the summary row itself
+            Message(id=5, role="user", content="新问题", created_at=datetime.now()),
+            Message(id=99, role="system", content="历史摘要", created_at=datetime.now()),
+        ]
+        mock_repo.get_latest_summary = AsyncMock(return_value=summary_msg)
+        mock_repo.get_recent_messages = AsyncMock(return_value=recent_messages)
+
+        context = await memory.get_context(session_id=1)
+
+        assert [m["content"] for m in context] == [
+            "Previous conversation: 历史摘要",
+            "新问题",
+        ]
+
+    @pytest.mark.asyncio
     async def test_get_context_without_summary(self):
         """Test getting context when no summary exists yet"""
         # Arrange

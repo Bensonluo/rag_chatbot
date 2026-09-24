@@ -72,6 +72,11 @@ class SummarizationMemory(MemoryStrategy):
             session_id=session_id,
             limit=self.summary_interval,
         )
+        # System-role rows are summaries — the prepend above already
+        # carries the latest one; they are not conversation turns.
+        from app.models.enums.message import MessageRole
+
+        recent = [msg for msg in recent if msg.role != MessageRole.SYSTEM]
 
         # Convert to MessageContent format
         context = []

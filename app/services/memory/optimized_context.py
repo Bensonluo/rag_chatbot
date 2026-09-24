@@ -80,6 +80,12 @@ class OptimizedContextBuilder(MemoryStrategy):
         # turns — drop rows older than the summary, using the same
         # boundary the archive does (created_at < summary.created_at).
         summary = await self.message_repo.get_latest_summary(session_id)
+        # System-role rows are compression artifacts (summaries), not
+        # conversation turns. Dropping them also keeps the latest summary
+        # from appearing twice — as a raw row AND the wrapped prepend.
+        from app.models.enums.message import MessageRole
+
+        rows = [row for row in rows if row.role != MessageRole.SYSTEM]
         if summary is not None:
             rows = [row for row in rows if row.created_at >= summary.created_at]
         all_messages = [
