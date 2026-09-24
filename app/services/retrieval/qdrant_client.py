@@ -506,15 +506,24 @@ class QdrantClient(VectorClient):
             if self._collection_ready:
                 return
 
-            collection_exists = getattr(self.client, "collection_exists", None)
-            if collection_exists is not None:
-                exists = await collection_exists(self.collection_name)
-            else:
+            async def _list_contains_collection() -> bool:
                 collections = await self.client.get_collections()
-                exists = any(
+                return any(
                     collection.name == self.collection_name
                     for collection in collections.collections
                 )
+
+            collection_exists = getattr(self.client, "collection_exists", None)
+            if collection_exists is None:
+                exists = await _list_contains_collection()
+            else:
+                try:
+                    exists = await collection_exists(self.collection_name)
+                except Exception:
+                    # Qdrant servers older than 1.8 answer 404 for the
+                    # /collections/{name}/exists endpoint. The collection
+                    # listing is authoritative on every server version.
+                    exists = await _list_contains_collection()
 
             if not exists:
                 Distance = self._qdrant_model("Distance")

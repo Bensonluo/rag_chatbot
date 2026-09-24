@@ -5,7 +5,7 @@ Implements Reciprocal Rank Fusion (RRF) to combine results from
 vector similarity search and keyword-based search.
 """
 
-import contextlib
+import logging
 import re
 from collections import defaultdict
 from typing import Any
@@ -17,6 +17,8 @@ from app.services.retrieval.vector_base import (
     VectorClientError,
     VectorSearchRequest,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _matches_metadata_filters(doc: dict[str, Any], filters: dict[str, Any]) -> bool:
@@ -241,14 +243,19 @@ class HybridSearchService:
         vector_results = []
         keyword_results = []
 
-        # Try vector search
-        # Log error but continue with keyword-only
-        with contextlib.suppress(Exception):
+        # Try vector search; log and continue with keyword-only
+        try:
             vector_results = await self.vector_client.search(request)
+        except Exception:
+            logger.warning("Vector search leg failed", exc_info=True)
+            vector_results = []
 
-        # Log error but continue with vector-only
-        with contextlib.suppress(Exception):
+        # Try keyword search; log and continue with vector-only
+        try:
             keyword_results = await self.keyword_search.search(request)
+        except Exception:
+            logger.warning("Keyword search leg failed", exc_info=True)
+            keyword_results = []
 
         # If both failed, raise error
         if not vector_results and not keyword_results:

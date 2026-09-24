@@ -191,6 +191,29 @@ class TestMetadataFilters:
         assert state["retrieved_docs"][0]["document_id"] == "d1"
 
     @pytest.mark.asyncio
+    async def test_filtered_miss_raising_still_falls_back_to_unfiltered(self):
+        """The real HybridSearchService raises VectorClientError when both
+        legs come back empty — a metadata-filter miss produces exactly
+        that shape. The raise used to bypass the unfiltered retry (the
+        ``if not search_results`` guard never saw an empty list), zeroing
+        recall on every filter miss; it must be caught and retried.
+        """
+        from app.services.retrieval.vector_base import VectorClientError
+
+        result = SimpleNamespace(document_id="d1", content="政策", score=0.9)
+        hybrid = Mock()
+        hybrid.search = AsyncMock(
+            side_effect=[VectorClientError("Both vector and keyword search failed"), [result]]
+        )
+
+        factory = _make_factory(hybrid=hybrid, filler=_filler(SLOT_PRODUCT))
+        state = await factory.rag_lookup_node({"message": "iPhone 退款政策", "intent": "question"})
+
+        assert hybrid.search.await_count == 2
+        assert hybrid.search.await_args_list[1].args[0].filters is None
+        assert state["retrieved_docs"][0]["document_id"] == "d1"
+
+    @pytest.mark.asyncio
     async def test_filtered_hit_skips_fallback(self):
         result = SimpleNamespace(document_id="d1", content="政策", score=0.9)
         hybrid = Mock()

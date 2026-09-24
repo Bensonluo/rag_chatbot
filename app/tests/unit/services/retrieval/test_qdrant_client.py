@@ -48,6 +48,78 @@ class TestQdrantClient:
         assert vector_config.size == 1024
         assert vector_config.distance == "Cosine"
 
+    @pytest.mark.asyncio
+    async def test_ensure_collection_falls_back_when_exists_endpoint_missing(self):
+        """Qdrant servers < 1.8 answer 404 for GET /collections/{name}/exists;
+        ensure must fall back to the collection listing instead of crashing
+        before create_collection ever runs."""
+        from app.services.retrieval.qdrant_client import QdrantClient
+
+        class FakeDistance:
+            COSINE = "Cosine"
+
+        class FakeVectorParams:
+            def __init__(self, **values):
+                self.__dict__.update(values)
+
+        models = {
+            "Distance": FakeDistance,
+            "VectorParams": FakeVectorParams,
+        }
+        mock_client = Mock()
+        mock_client.collection_exists = AsyncMock(
+            side_effect=RuntimeError("Unexpected Response: 404 (Not Found)")
+        )
+        mock_client.get_collections = AsyncMock(return_value=Mock(collections=[]))
+        mock_client.create_collection = AsyncMock(return_value=True)
+        client = QdrantClient(
+            url="http://localhost:6333",
+            collection_name="documents",
+            client=mock_client,
+            embedding_service=Mock(dimensions=512),
+        )
+        client._client_injected = False
+
+        with patch.object(
+            client,
+            "_qdrant_model",
+            side_effect=lambda name: models[name],
+        ):
+            await client._ensure_collection()
+
+        mock_client.get_collections.assert_awaited_once()
+        mock_client.create_collection.assert_awaited_once()
+        vector_config = mock_client.create_collection.await_args.kwargs["vectors_config"]
+        assert vector_config.size == 512
+
+    @pytest.mark.asyncio
+    async def test_ensure_collection_fallback_skips_create_when_present(self):
+        """When the fallback listing finds the collection, creation is skipped."""
+        from app.services.retrieval.qdrant_client import QdrantClient
+
+        mock_client = Mock()
+        mock_client.collection_exists = AsyncMock(
+            side_effect=RuntimeError("Unexpected Response: 404 (Not Found)")
+        )
+        # NOTE: Mock(name=...) is a constructor-reserved kwarg; assign the
+        # attribute directly so `collection.name` reads the plain string.
+        listed = Mock()
+        listed.name = "documents"
+        mock_client.get_collections = AsyncMock(return_value=Mock(collections=[listed]))
+        mock_client.create_collection = AsyncMock(return_value=True)
+        client = QdrantClient(
+            url="http://localhost:6333",
+            collection_name="documents",
+            client=mock_client,
+            embedding_service=Mock(dimensions=512),
+        )
+        client._client_injected = False
+
+        await client._ensure_collection()
+
+        mock_client.get_collections.assert_awaited_once()
+        mock_client.create_collection.assert_not_awaited()
+
     def test_client_initialization(self):
         """Test Qdrant client initialization"""
         # Arrange & Act
