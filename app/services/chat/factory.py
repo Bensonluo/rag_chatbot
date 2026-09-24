@@ -192,7 +192,9 @@ class ChatServiceFactory:
                 async def _session_history(session_id: int) -> list[Any]:
                     from app.services.llm.base import LLMMessage
 
-                    turns = await bound_persister.get_history(session_id=session_id, limit=6)
+                    turns = await bound_persister.get_history(
+                        session_id=session_id, limit=6, include_summary=True
+                    )
                     return [LLMMessage(role=t.role, content=t.content) for t in turns]
 
                 history_provider = _session_history

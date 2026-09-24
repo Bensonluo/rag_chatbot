@@ -1,7 +1,8 @@
 """Tests for chat turn persistence (request-scoped sessions)."""
 
+from datetime import datetime
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from sqlalchemy import select
@@ -207,3 +208,99 @@ class TestChatServicePersistence:
 
         # Assert
         persister.get_history.assert_awaited_once()
+
+
+class TestSummaryAwareHistory:
+    """get_history(include_summary=True) is the LLM-context read."""
+
+    async def test_include_summary_prepends_and_cuts(self, session_maker):
+        async with session_maker() as session:
+            session.add(
+                Message(
+                    session_id=1,
+                    role=MessageRole.USER,
+                    content="早期问题",
+                    created_at=datetime(2026, 9, 24, 10, 0, 0),
+                )
+            )
+            session.add(
+                Message(
+                    session_id=1,
+                    role=MessageRole.SYSTEM,
+                    content="早期已摘要",
+                    created_at=datetime(2026, 9, 24, 10, 0, 5),
+                )
+            )
+            session.add(
+                Message(
+                    session_id=1,
+                    role=MessageRole.ASSISTANT,
+                    content="新回答",
+                    created_at=datetime(2026, 9, 24, 10, 0, 8),
+                )
+            )
+            await session.commit()
+        persister = ChatMessagePersister(session_maker=session_maker)
+
+        history = await persister.get_history(session_id=1, limit=10, include_summary=True)
+
+        # Summary block first, covered row cut, post-summary turn kept
+        assert [m.role for m in history] == ["system", "assistant"]
+        assert history[0].content == "Previous conversation: 早期已摘要"
+        assert history[1].content == "新回答"
+
+    async def test_default_read_stays_turns_only(self, session_maker):
+        async with session_maker() as session:
+            session.add(
+                Message(
+                    session_id=1,
+                    role=MessageRole.USER,
+                    content="早期问题",
+                    created_at=datetime(2026, 9, 24, 10, 0, 0),
+                )
+            )
+            session.add(
+                Message(
+                    session_id=1,
+                    role=MessageRole.SYSTEM,
+                    content="早期已摘要",
+                    created_at=datetime(2026, 9, 24, 10, 0, 5),
+                )
+            )
+            await session.commit()
+        persister = ChatMessagePersister(session_maker=session_maker)
+
+        history = await persister.get_history(session_id=1, limit=10)
+
+        # API tail view: raw turns only, no synthetic summary block
+        assert [m.content for m in history] == ["早期问题"]
+
+
+class TestCompressionScheduling:
+    """persist_turn schedules best-effort compression post-commit."""
+
+    async def test_persist_turn_schedules_compression(self, session_maker):
+        compressor = Mock()
+        compressor.maybe_compress = AsyncMock(return_value=True)
+        persister = ChatMessagePersister(session_maker=session_maker, compressor=compressor)
+
+        await persister.persist_turn(session_id=42, user_id=7, user_message="问", response="答")
+        await persister.drain()
+
+        compressor.maybe_compress.assert_awaited_once_with(42)
+
+    async def test_compressor_failure_does_not_break_persist(self, session_maker):
+        compressor = Mock()
+        compressor.maybe_compress = AsyncMock(side_effect=RuntimeError("boom"))
+        persister = ChatMessagePersister(session_maker=session_maker, compressor=compressor)
+
+        await persister.persist_turn(session_id=1, user_id=7, user_message="问", response="答")
+        await persister.drain()
+
+        # The turn itself must be durable even when compression explodes
+        history = await persister.get_history(session_id=1)
+        assert [m.content for m in history] == ["问", "答"]
+
+    async def test_drain_without_pending_is_a_noop(self):
+        persister = ChatMessagePersister(session_maker=lambda: None)
+        await persister.drain()  # must not raise

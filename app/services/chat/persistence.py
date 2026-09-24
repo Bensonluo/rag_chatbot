@@ -12,6 +12,7 @@ recoverable from upstream logs if needed.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -20,6 +21,7 @@ from app.models.database.message import Message
 from app.models.enums.message import MessageRole, MessageStatus
 from app.repositories.message_repository import MessageRepository
 from app.services.chat.chat_service import ChatMessage
+from app.services.chat.compressor import SessionCompressor
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +29,21 @@ logger = logging.getLogger(__name__)
 class ChatMessagePersister:
     """Persists chat turns with request-scoped database sessions."""
 
-    def __init__(self, session_maker: Callable[[], Any]) -> None:
+    def __init__(
+        self,
+        session_maker: Callable[[], Any],
+        compressor: SessionCompressor | None = None,
+    ) -> None:
         """
         Args:
             session_maker: Factory producing context-managed async sessions
                 (e.g. ``app.api.database.async_session_maker``).
+            compressor: Optional rolling-summary writer scheduled after
+                each durable turn (fire-and-forget; ``drain`` awaits it).
         """
         self._session_maker = session_maker
+        self._compressor = compressor
+        self._pending_compressions: set[asyncio.Task[bool]] = set()
 
     async def persist_turn(
         self,
@@ -85,6 +95,10 @@ class ChatMessagePersister:
                         )
                     )
                 await session.commit()
+            # Compression is post-durability housekeeping: scheduled off
+            # the request path so the user-visible turn never waits on
+            # an LLM summary call.
+            self._schedule_compression(session_id)
         except Exception as exc:  # noqa: BLE001 - availability over durability
             logger.warning(
                 "Failed to persist chat turn (session=%s): %s",
@@ -96,8 +110,16 @@ class ChatMessagePersister:
         self,
         session_id: int,
         limit: int = 50,
+        include_summary: bool = False,
     ) -> list[ChatMessage]:
-        """Read chat history for a session using a request-scoped session."""
+        """Read chat history for a session using a request-scoped session.
+
+        With ``include_summary=True`` (the LLM-context read), the latest
+        session summary is prepended as a system block and turns it
+        already covers are cut — same overlap-free contract as the
+        optimized memory strategy. The default (API tail view) stays
+        raw turns only.
+        """
         try:
             async with self._session_maker() as session:
                 repo = MessageRepository(session)
@@ -106,9 +128,23 @@ class ChatMessagePersister:
                 # (API tail view / LLM context) wants the recent turns.
                 # DESC fetch + reverse = chronological most-recent-N.
                 recent = await repo.get_recent_messages(session_id, limit=limit)
+                summary = await repo.get_latest_summary(session_id) if include_summary else None
                 # System-role rows are summary artifacts, not turns.
-                turns = [msg for msg in reversed(recent) if msg.role != MessageRole.SYSTEM]
-                return [ChatMessage(role=msg.role.value, content=msg.content) for msg in turns]
+                rows = [msg for msg in reversed(recent) if msg.role != MessageRole.SYSTEM]
+                if summary is not None:
+                    # Overlap-free: the summary already carries whatever
+                    # happened before it was written.
+                    rows = [msg for msg in rows if msg.created_at >= summary.created_at]
+                turns = [ChatMessage(role=msg.role.value, content=msg.content) for msg in rows]
+                if summary is not None and summary.content:
+                    turns.insert(
+                        0,
+                        ChatMessage(
+                            role="system",
+                            content=f"Previous conversation: {summary.content}",
+                        ),
+                    )
+                return turns
         except Exception as exc:  # noqa: BLE001 - degrade to empty history
             logger.warning(
                 "Failed to read chat history (session=%s): %s",
@@ -116,6 +152,24 @@ class ChatMessagePersister:
                 exc,
             )
             return []
+
+    def _schedule_compression(self, session_id: int) -> None:
+        """Schedule best-effort compression; never disturbs the caller."""
+        if self._compressor is None:
+            return
+        try:
+            task: asyncio.Task[bool] = asyncio.create_task(
+                self._compressor.maybe_compress(session_id)
+            )
+        except RuntimeError:  # no running loop (sync caller in tests)
+            return
+        self._pending_compressions.add(task)
+        task.add_done_callback(self._pending_compressions.discard)
+
+    async def drain(self) -> None:
+        """Await outstanding compression tasks (shutdown / test seams)."""
+        if self._pending_compressions:
+            await asyncio.gather(*self._pending_compressions, return_exceptions=True)
 
 
 def create_chat_persister() -> ChatMessagePersister:

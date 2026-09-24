@@ -77,6 +77,12 @@ class Settings(BaseSettings):
         default="",
         description="Override persona system prompt for chat generators (empty = built-in CS persona)",
     )
+    CHAT_SUMMARY_THRESHOLD: int = Field(
+        default=20, description="Messages before the first session summary on the chat path"
+    )
+    CHAT_SUMMARY_INTERVAL: int = Field(
+        default=10, description="Messages between subsequent session summaries"
+    )
     CHAT_STREAM_MAX_SECONDS: float = Field(
         default=120.0,
         description="Total budget for one SSE chat stream before it is cut off",

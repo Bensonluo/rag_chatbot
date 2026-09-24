@@ -213,8 +213,10 @@ async def initialize_chat_service(
         logger.warning("Failed to initialize guardrails: %s", e)
 
     # ── Build ChatService via factory (graph constructed internally) ──────
+    from app.api.database import async_session_maker
+    from app.services.chat.compressor import SessionCompressor
     from app.services.chat.knowledge_gap_recorder import create_knowledge_gap_recorder
-    from app.services.chat.persistence import create_chat_persister
+    from app.services.chat.persistence import ChatMessagePersister
 
     _chat_service = ChatServiceFactory.create_with_defaults(
         llm_service=llm_service,
@@ -228,7 +230,15 @@ async def initialize_chat_service(
         multi_path_fusion=multi_path_fusion,
         slot_filler=slot_filler,
         guardrail_service=guardrail_service,
-        persister=create_chat_persister(),
+        persister=ChatMessagePersister(
+            session_maker=async_session_maker,
+            compressor=SessionCompressor(
+                session_maker=async_session_maker,
+                llm_service=llm_service,
+                threshold=settings.CHAT_SUMMARY_THRESHOLD,
+                interval=settings.CHAT_SUMMARY_INTERVAL,
+            ),
+        ),
         gap_recorder=create_knowledge_gap_recorder(),
         checkpointer=checkpointer,
     )
