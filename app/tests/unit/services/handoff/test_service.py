@@ -279,6 +279,68 @@ class TestHandoffSlaSettings:
         assert settings.HANDOFF_SLA_WAIT_SECONDS == 30.0
 
 
+class TestQueueStatsAht:
+    """AHT dimensions (GB/T 47746 时效 / contact-center canonical KPI):
+    avg pickup (created→claimed) and avg handle (claimed→resolved) ride
+    along queue_stats with matching gauges."""
+
+    async def _backdate(
+        self,
+        session_maker: async_sessionmaker[Any],
+        ticket_id: int,
+        *,
+        created_off: float,
+        claimed_off: float | None = None,
+    ) -> None:
+        from datetime import datetime, timedelta
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+        async with session_maker() as session:
+            ticket = await session.get(HandoffTicket, ticket_id)
+            ticket.created_at = now - timedelta(seconds=created_off)
+            if claimed_off is not None:
+                ticket.claimed_at = now - timedelta(seconds=claimed_off)
+            await session.commit()
+
+    async def test_stats_include_aht_dimensions(self, session_maker):
+        from prometheus_client import REGISTRY
+
+        service = HandoffService(session_maker=session_maker)
+        created = await service.create_ticket_for_session(1, 7, "explicit", {})
+        await service.claim_ticket(created["ticket_id"], agent_id=9)
+
+        stats = await service.queue_stats()
+
+        pickup = stats["avg_pickup_seconds"]
+        assert pickup is not None and pickup >= 0
+        assert stats["avg_handle_seconds"] is None  # nothing resolved yet
+        assert (REGISTRY.get_sample_value("handoff_pickup_avg_seconds") or 0) >= 0
+        assert REGISTRY.get_sample_value("handoff_handle_avg_seconds") == 0
+
+    async def test_resolved_ticket_feeds_handle_average(self, session_maker):
+        from prometheus_client import REGISTRY
+
+        service = HandoffService(session_maker=session_maker)
+        created = await service.create_ticket_for_session(1, 7, "explicit", {})
+        await service.claim_ticket(created["ticket_id"], agent_id=9)
+        await self._backdate(session_maker, created["ticket_id"], created_off=300, claimed_off=120)
+        await service.resolve_ticket(created["ticket_id"], agent_id=9)
+
+        stats = await service.queue_stats()
+
+        handle = stats["avg_handle_seconds"]
+        assert handle is not None and handle >= 115
+        assert (REGISTRY.get_sample_value("handoff_handle_avg_seconds") or 0) >= 115
+
+    async def test_ticket_dict_exposes_claimed_at(self, session_maker):
+        service = HandoffService(session_maker=session_maker)
+        created = await service.create_ticket_for_session(1, 7, "explicit", {})
+        await service.claim_ticket(created["ticket_id"], agent_id=9)
+
+        tickets = await service.list_tickets("claimed")
+        assert tickets[0]["claimed_at"] is not None
+
+
 class TestTicketSummary:
     """Ticket creation enriches context with an LLM conversation summary."""
 

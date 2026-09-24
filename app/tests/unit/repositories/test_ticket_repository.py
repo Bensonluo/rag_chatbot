@@ -245,3 +245,87 @@ class TestQueueWaitQueries:
             repo = TicketRepository(session)
             assert await repo.count_open_older_than(60) == 1
             assert await repo.count_open_older_than(300) == 0
+
+
+class TestClaimLatencyQueries:
+    """AHT dimensions (contact-center canonical KPI; GB/T 47746 时效):
+    pickup = created→claimed, handle = claimed→resolved. Averaged over
+    the most recent bounded window — dashboards poll, never scan."""
+
+    async def _backdate_pair(
+        self,
+        session_maker: async_sessionmaker[AsyncSession],
+        ticket_id: int,
+        created_off: float,
+        claimed_off: float,
+    ) -> None:
+        from datetime import datetime, timedelta
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+        async with session_maker() as session:
+            ticket = await session.get(HandoffTicket, ticket_id)
+            assert ticket is not None
+            ticket.created_at = now - timedelta(seconds=created_off)
+            ticket.claimed_at = now - timedelta(seconds=claimed_off)
+            ticket.status = "claimed"
+            ticket.assigned_to = 1
+            await session.commit()
+
+    async def test_claim_stamps_claimed_at(self, session_maker):
+        ids = await _seed(session_maker, 1)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            ticket = await repo.claim(ids[0], agent_id=1)
+        assert ticket is not None
+        assert ticket.claimed_at is not None
+        assert ticket.claimed_at >= ticket.created_at
+
+    async def test_avg_pickup_seconds_over_recent_claims(self, session_maker):
+        ids = await _seed(session_maker, 2)
+        for tid in ids:
+            await self._backdate_pair(session_maker, tid, created_off=120, claimed_off=60)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            avg = await repo.avg_pickup_seconds()
+        assert avg is not None
+        assert 55 <= avg <= 65  # both samples: 120-60 = 60s
+
+    async def test_avg_pickup_ignores_unclaimed(self, session_maker):
+        ids = await _seed(session_maker, 2)
+        await self._backdate_pair(session_maker, ids[0], created_off=120, claimed_off=60)
+        # ids[1] stays open — must not dilute the average (no claimed_at).
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            avg = await repo.avg_pickup_seconds()
+        assert avg is not None
+        assert 55 <= avg <= 65
+
+    async def test_avg_pickup_none_when_no_claims(self, session_maker):
+        await _seed(session_maker, 1)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            assert await repo.avg_pickup_seconds() is None
+
+    async def test_avg_handle_seconds_over_resolved(self, session_maker):
+        ids = await _seed(session_maker, 1)
+        await self._backdate_pair(session_maker, ids[0], created_off=300, claimed_off=120)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            await repo.resolve(ids[0], agent_id=1)  # updated_at stamps ≈ now
+            avg = await repo.avg_handle_seconds()
+        assert avg is not None
+        assert 115 <= avg <= 125  # handle = resolve_time - claimed_at = 120s
+
+    async def test_avg_handle_excludes_resolved_without_claim(self, session_maker):
+        ids = await _seed(session_maker, 1)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            await repo.resolve(ids[0], agent_id=1)  # open→resolved, no claim
+            assert await repo.avg_handle_seconds() is None
+
+    async def test_avg_handle_none_when_nothing_resolved(self, session_maker):
+        ids = await _seed(session_maker, 1)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            await repo.claim(ids[0], agent_id=1)
+            assert await repo.avg_handle_seconds() is None

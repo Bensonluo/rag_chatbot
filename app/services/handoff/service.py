@@ -257,9 +257,20 @@ class HandoffService:
             breaches = await repo.count_open_older_than(sla_seconds)
             stats["open_sla_breaches"] = breaches
             stats["sla_wait_seconds"] = sla_seconds
+            # AHT dimensions (contact-center canonical KPI): recent-window
+            # averages, None when no ticket has reached the stage yet.
+            stats["avg_pickup_seconds"] = await repo.avg_pickup_seconds()
+            stats["avg_handle_seconds"] = await repo.avg_handle_seconds()
 
         HANDOFF_QUEUE_OLDEST_WAIT_SECONDS.set(stats["oldest_open_wait_seconds"] or 0.0)
         HANDOFF_QUEUE_SLA_BREACHES.set(float(breaches))
+        from app.services.handoff.metrics import (
+            HANDOFF_HANDLE_AVG_SECONDS,
+            HANDOFF_PICKUP_AVG_SECONDS,
+        )
+
+        HANDOFF_PICKUP_AVG_SECONDS.set(stats["avg_pickup_seconds"] or 0.0)
+        HANDOFF_HANDLE_AVG_SECONDS.set(stats["avg_handle_seconds"] or 0.0)
         return stats
 
 
@@ -275,6 +286,7 @@ def _ticket_to_dict(ticket: HandoffTicket) -> dict[str, Any]:
         "status": ticket.status,
         "assigned_to": ticket.assigned_to,
         "created_at": ticket.created_at.isoformat() if ticket.created_at else None,
+        "claimed_at": ticket.claimed_at.isoformat() if ticket.claimed_at else None,
         "updated_at": ticket.updated_at.isoformat() if ticket.updated_at else None,
     }
 

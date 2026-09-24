@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.database.base import Base, TimestampMixin
@@ -32,6 +34,10 @@ class HandoffTicket(Base, TimestampMixin):
         status: open | claimed | resolved
         priority: Queue tier — PRIORITY_HIGH jumps the FIFO queue
         assigned_to: User id of the claiming agent (null while open)
+        claimed_at: When an agent claimed the ticket (null while open) —
+            the boundary between queue wait and agent handling; pickup
+            (created→claimed) and handle (claimed→resolved) durations
+            derive from it (GB/T 47746 时效 / AHT)
     """
 
     __tablename__ = "handoff_tickets"
@@ -48,6 +54,9 @@ class HandoffTicket(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="open", index=True)
     priority: Mapped[int] = mapped_column(nullable=False, default=PRIORITY_NORMAL)
     assigned_to: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
 
     def __repr__(self) -> str:
         return (

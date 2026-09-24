@@ -22,3 +22,18 @@ HANDOFF_QUEUE_SLA_BREACHES = Gauge(
     "Open handoff tickets currently waiting past the queue-wait SLA threshold",
     registry=REGISTRY,
 )
+
+# AHT dimensions (contact-center canonical KPI): average created→claimed
+# pickup and claimed→resolved handle over the recent bounded window.
+# None (no samples yet) → gauge set to 0.
+HANDOFF_PICKUP_AVG_SECONDS = Gauge(
+    "handoff_pickup_avg_seconds",
+    "Average seconds from ticket creation to agent claim (recent window)",
+    registry=REGISTRY,
+)
+
+HANDOFF_HANDLE_AVG_SECONDS = Gauge(
+    "handoff_handle_avg_seconds",
+    "Average seconds from claim to resolution (recent window, AHT)",
+    registry=REGISTRY,
+)

@@ -22,6 +22,21 @@ TICKET_STATUS_CLAIMED = "claimed"
 TICKET_STATUS_RESOLVED = "resolved"
 
 
+def _duration_seconds(start: datetime, end: datetime) -> float:
+    """end - start in seconds, tolerating naive stored timestamps.
+
+    Postgres returns aware datetimes; sqlite (unit tests) returns naive
+    ones stored as UTC wall-clock — treat naive as UTC.
+    """
+    return (_as_utc(end) - _as_utc(start)).total_seconds()
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 class TicketRepository(BaseRepository[HandoffTicket]):
     """
     Repository for HandoffTicket entity operations.
@@ -157,6 +172,56 @@ class TicketRepository(BaseRepository[HandoffTicket]):
         result = await self.session.execute(stmt)
         return result.scalar() or 0
 
+    async def avg_pickup_seconds(self, limit: int = 100) -> float | None:
+        """Average created→claimed duration over the most recent claims.
+
+        None when no ticket has ever been claimed. Bounded to ``limit``
+        samples — dashboards poll this on every stats pull, so the query
+        must stay O(limit), not O(table).
+        """
+        stmt = (
+            select(HandoffTicket.created_at, HandoffTicket.claimed_at)
+            .where(HandoffTicket.claimed_at.is_not(None))
+            .order_by(HandoffTicket.id.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        samples = [
+            _duration_seconds(created, claimed)
+            for created, claimed in result.fetchall()
+            if created is not None and claimed is not None
+        ]
+        if not samples:
+            return None
+        return sum(samples) / len(samples)
+
+    async def avg_handle_seconds(self, limit: int = 100) -> float | None:
+        """Average claimed→resolved duration over recent resolved tickets.
+
+        Resolve stamps ``updated_at`` (onupdate), so handle time is
+        ``updated_at - claimed_at``. Tickets resolved without ever being
+        claimed have no claimed_at and no meaningful handle time — they
+        are excluded from the sample.
+        """
+        stmt = (
+            select(HandoffTicket.updated_at, HandoffTicket.claimed_at)
+            .where(
+                HandoffTicket.status == TICKET_STATUS_RESOLVED,
+                HandoffTicket.claimed_at.is_not(None),
+            )
+            .order_by(HandoffTicket.id.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        samples = [
+            _duration_seconds(claimed, updated)
+            for updated, claimed in result.fetchall()
+            if updated is not None and claimed is not None
+        ]
+        if not samples:
+            return None
+        return sum(samples) / len(samples)
+
     async def get_open_ticket_for_session(
         self,
         session_id: int,
@@ -204,6 +269,10 @@ class TicketRepository(BaseRepository[HandoffTicket]):
 
         ticket.status = TICKET_STATUS_CLAIMED
         ticket.assigned_to = agent_id
+        # AHT boundary: queue wait ends, agent handling begins (GB/T 47746
+        # 时效). Stamped here — not defaulted — so the open→claimed
+        # transition is the only writer.
+        ticket.claimed_at = datetime.now(UTC)
         await self.session.commit()
         await self.session.refresh(ticket)
         return ticket
