@@ -29,6 +29,12 @@ RUN apt-get update && apt-get install -y \
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+# Build the project in its own directory — never at /. With the default
+# workdir (/), `pip install .` makes setuptools' package discovery
+# (where=["."]) walk the whole container filesystem (/proc, /sys, the
+# venv itself), pinning a core at 100% indefinitely.
+WORKDIR /build
+
 # Upgrade pip and install build tools FIRST (separate layer for caching)
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
     --upgrade pip setuptools wheel
