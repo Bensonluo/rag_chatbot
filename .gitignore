@@ -114,3 +114,7 @@ TOKEN_OPTIMIZATION_COMPLETE.md
 # Test/sample data
 /data/
 docker-compose.override.yml
+
+# Local artifacts
+.playwright-mcp/
+*.png
