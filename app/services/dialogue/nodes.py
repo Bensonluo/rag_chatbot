@@ -577,24 +577,35 @@ class NodeFactory:
             return None
 
     def _apply_claim_gate(self, state: DialogueState, updates: dict[str, Any]) -> dict[str, Any]:
-        """Deterministic policy-claim verification (Phase A2).
+        """Main-path policy-claim verification (Phase A2).
 
-        The LLM proposes; this gate verifies — generated duration claims
-        are checked against the message-anchored fact subgraph by range
-        entailment with subject restriction, and past-tense action
-        assertions without an executed tool are softened to guidance.
-        Violations are rewritten to grounded statements (downgrade
-        before reject), so the user always leaves with the correct
-        number. Skipped for tool-grounded responses (numbers come from
-        executed tool output by construction), blocked turns (template
-        text), empty subgraphs, and when the setting is off.
+        Wraps the shared gate for generate_response_node: fixed-format
+        tool responses (state.tool_result) quote executed tool output
+        verbatim — grounded by construction — so they skip entirely.
+        See _gate_claims for the check itself and its limitations.
+        """
+        if state.get("blocked") or state.get("tool_result"):
+            return updates
+        return self._gate_claims(updates, message=state.get("message", ""), check_actions=True)
+
+    def _gate_claims(
+        self, updates: dict[str, Any], *, message: str, check_actions: bool
+    ) -> dict[str, Any]:
+        """Shared deterministic claim gate (Phase A2).
+
+        The LLM proposes; this gate verifies — duration claims are
+        checked against the message-anchored fact subgraph by range
+        entailment with subject restriction; when ``check_actions`` is
+        set, past-tense action assertions without an executed tool are
+        softened to guidance. Violations are rewritten to grounded
+        statements (downgrade before reject), so the user always leaves
+        with the correct number. Skipped for empty subgraphs and when
+        the setting is off.
 
         Known limitation: on the token-streamed path violating tokens
         may have already reached the consumer; the rewrite applies to
         the persisted/sync text (same contract as the output guardrail).
         """
-        if state.get("blocked") or state.get("tool_result"):
-            return updates
         response = updates.get("response", "")
         if not response:
             return updates
@@ -607,12 +618,12 @@ class NodeFactory:
         from app.services.facts.claim_check import apply_violations, check_policy_claims
         from app.services.facts.fact_store import FactStore
 
-        facts = FactStore.load_default().subgraph_for(state.get("message", ""))
+        facts = FactStore.load_default().subgraph_for(message)
         if not facts:
             return updates
 
         CLAIM_CHECKS.inc()
-        result = check_policy_claims(response, facts)
+        result = check_policy_claims(response, facts, check_actions=check_actions)
         for violation in result.violations:
             CLAIM_VIOLATIONS.labels(reason=violation.reason).inc()
         if result.violations:
@@ -818,11 +829,24 @@ class NodeFactory:
             "pending_confirmation": result.pending_confirmation,
         }
 
-        if self._guardrail_service is not None and result.response:
-            check = self._guardrail_service.check_output(result.response)
+        # Phase A2 claim gate: agent responses are LLM paraphrases of
+        # tool output, not fixed formats — misstating tool numbers and
+        # fabricating completions are documented agent hallucination
+        # modes, so policy claims are verified here too. A completed-
+        # action assertion is trusted only when tool_trace proves the
+        # tool actually executed.
+        updates = self._gate_claims(
+            updates,
+            message=state.get("message", ""),
+            check_actions=not result.tool_trace,
+        )
+
+        response = updates.get("response", "")
+        if self._guardrail_service is not None and response:
+            check = self._guardrail_service.check_output(response)
             if check.was_blocked:
                 updates["response"] = "抱歉，该回复未能通过安全检查，请重新提问。"
-            elif check.sanitized_content and check.sanitized_content != result.response:
+            elif check.sanitized_content and check.sanitized_content != response:
                 updates["response"] = check.sanitized_content
 
         _emit_response(updates["response"], config)

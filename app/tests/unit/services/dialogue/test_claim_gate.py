@@ -117,3 +117,67 @@ class TestClaimGateSettings:
         from app.config.settings import settings
 
         assert settings.FACT_CLAIM_CHECK_ENABLED is True
+
+
+class TestAgentPathClaimGate:
+    """Agent responses are LLM paraphrases of tool output, not fixed
+    formats — misstating tool numbers and fabricating completions are
+    documented agent hallucination modes (arXiv 2026 agent-hallucination
+    surveys), so policy claims are verified on this path too. A
+    completed-action assertion is trusted only when tool_trace proves
+    the tool actually executed."""
+
+    @staticmethod
+    def _agent_factory(
+        response: str,
+        tool_trace: list[dict[str, Any]] | None = None,
+    ) -> NodeFactory:
+        from app.services.agent.service import AgentResult
+
+        factory = _make_factory()
+        agent = Mock()
+        agent.run = AsyncMock(
+            return_value=AgentResult(
+                response=response,
+                pending_confirmation=None,
+                tool_trace=tool_trace or [],
+            )
+        )
+        factory._agent_service = agent
+        return factory
+
+    async def test_agent_wrong_sla_is_rewritten(self):
+        factory = self._agent_factory("退款将在 10 个工作日内到账。")
+        updates = await factory.handle_agent_node(dict(REFUND_ASK))  # type: ignore[arg-type]
+        assert "10 个工作日" not in updates["response"]
+        assert "1-3 个工作日" in updates["response"]
+
+    async def test_agent_completed_action_without_tools_softened(self):
+        factory = self._agent_factory("已为您办理退款，请耐心等待。")
+        updates = await factory.handle_agent_node({"message": "我要退款", "session_id": 1})
+        assert "已为您办理退款" not in updates["response"]
+
+    async def test_agent_executed_tool_legitimizes_action_assertion(self):
+        factory = self._agent_factory(
+            "已为您提交退款申请，预计 3-5 个工作日完成处理。",
+            tool_trace=[{"name": "submit_refund", "status": "success"}],
+        )
+        updates = await factory.handle_agent_node({"message": "我要退款", "session_id": 1})
+        assert "已为您提交退款申请" in updates["response"]
+
+    async def test_agent_tool_execution_does_not_exempt_numbers(self):
+        factory = self._agent_factory(
+            "已为您提交退款申请，预计 10 个工作日完成处理。",
+            tool_trace=[{"name": "submit_refund", "status": "success"}],
+        )
+        updates = await factory.handle_agent_node({"message": "我要退款", "session_id": 1})
+        assert "10 个工作日" not in updates["response"]
+        assert "3-5 个工作日" in updates["response"]
+
+    async def test_agent_clean_response_untouched(self):
+        response = "退款已提交，预计 3-5 个工作日完成处理。"
+        factory = self._agent_factory(
+            response, tool_trace=[{"name": "submit_refund", "status": "success"}]
+        )
+        updates = await factory.handle_agent_node({"message": "我要退款", "session_id": 1})
+        assert updates["response"] == response

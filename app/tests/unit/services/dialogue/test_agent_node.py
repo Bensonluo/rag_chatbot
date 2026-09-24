@@ -211,7 +211,15 @@ def _build_graph(agent_service: AgentService | None) -> Any:
 
 class TestGraphAgentFlow:
     async def test_task_intent_answered_by_agent(self):
-        agent = _agent_returning(AgentResult(response="已为您办理退款，3-5 个工作日到账。"))
+        # Fixture must stay policy-clean: the claim gate (Phase A2) runs
+        # on agent output — the action assertion needs a tool_trace to
+        # prove execution, and duration claims must match the fact table.
+        agent = _agent_returning(
+            AgentResult(
+                response="已为您提交退款申请，预计 3-5 个工作日完成处理。",
+                tool_trace=[{"name": "submit_refund", "status": "success"}],
+            )
+        )
         graph = _build_graph(agent)
 
         turn = await graph.ainvoke(
@@ -224,7 +232,7 @@ class TestGraphAgentFlow:
         )
 
         agent.run.assert_awaited_once()
-        assert turn["response"] == "已为您办理退款，3-5 个工作日到账。"
+        assert turn["response"] == "已为您提交退款申请，预计 3-5 个工作日完成处理。"
         # The agent handled the whole turn: the slot pipeline never ran.
         assert "pending_confirmation" not in turn or turn["pending_confirmation"] is None
         assert not turn.get("tool_result")

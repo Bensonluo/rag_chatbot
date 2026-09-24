@@ -70,13 +70,22 @@ class ClaimCheckResult:
     violations: list[ClaimViolation] = field(default_factory=list)
 
 
-def check_policy_claims(text: str, facts: list[PolicyFact]) -> ClaimCheckResult:
-    """Verify every checkable claim in ``text`` against the subgraph."""
+def check_policy_claims(
+    text: str, facts: list[PolicyFact], *, check_actions: bool = True
+) -> ClaimCheckResult:
+    """Verify every checkable claim in ``text`` against the subgraph.
+
+    ``check_actions=False`` skips the unexecuted-action check — for
+    callers that hold execution proof (e.g. the agent path's tool_trace)
+    while still wanting numeric policy claims verified.
+    """
     violations: list[ClaimViolation] = []
     for sentence_match in _SENTENCE_RE.finditer(text):
         sentence = sentence_match.group(0)
         for clause_match in _CLAUSE_RE.finditer(sentence):
-            _check_clause(clause_match.group(0), sentence, facts, violations)
+            _check_clause(
+                clause_match.group(0), sentence, facts, violations, check_actions=check_actions
+            )
     return ClaimCheckResult(passed=not violations, violations=violations)
 
 
@@ -95,13 +104,15 @@ def _check_clause(
     sentence: str,
     facts: list[PolicyFact],
     violations: list[ClaimViolation],
+    *,
+    check_actions: bool = True,
 ) -> None:
     for match in _CLAIM_RE.finditer(clause):
         lo = int(match.group(1))
         hi = int(match.group(2) or match.group(1))
         unit = _UNIT_ALIASES.get(match.group(3), match.group(3))
         _check_duration_claim(clause, sentence, lo, hi, unit, facts, violations)
-    if any(pattern.search(clause) for pattern in _ACTION_PATTERNS):
+    if check_actions and any(pattern.search(clause) for pattern in _ACTION_PATTERNS):
         violations.append(
             ClaimViolation(
                 clause=clause, reason="unexecuted_action", grounded_statement=ACTION_FALLBACK
