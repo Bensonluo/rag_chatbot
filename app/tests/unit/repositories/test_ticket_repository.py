@@ -1,5 +1,7 @@
 """TicketRepository queue ordering (priority → FIFO) and claim/resolve guards."""
 
+from datetime import UTC
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -191,3 +193,55 @@ class TestSessionLookup:
             repo = TicketRepository(session)
             await repo.resolve((await repo.list_by_status("open"))[0].id, agent_id=1)
             assert await repo.count_open() == 2
+
+
+class TestQueueWaitQueries:
+    """Queue-wait SLA dimensions (GB/T 47746-2026 / HollyCRM <30s target):
+    counting must be COUNT queries (never materialized rows), and the
+    oldest open ticket's age must be queryable for breach detection."""
+
+    async def test_count_by_status_matches_rows(self, session_maker):
+        ids = await _seed(session_maker, 2)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            await repo.claim(ids[0], agent_id=7)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            assert await repo.count_by_status("open") == 1
+            assert await repo.count_by_status("claimed") == 1
+            assert await repo.count_by_status("resolved") == 0
+
+    async def test_oldest_open_created_at_returns_earliest(self, session_maker):
+        ids = await _seed(session_maker, 2)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            oldest = await repo.oldest_open_created_at()
+            first = await repo.get_by_id(ids[0])
+        assert oldest is not None
+        assert first is not None and first.created_at is not None
+        assert oldest <= first.created_at
+
+    async def test_oldest_open_ignores_resolved(self, session_maker):
+        ids = await _seed(session_maker, 2)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            await repo.resolve(ids[0], agent_id=1)
+            oldest = await repo.oldest_open_created_at()
+            second = await repo.get_by_id(ids[1])
+        assert oldest is not None
+        assert second is not None and second.created_at is not None
+        assert oldest >= second.created_at  # the resolved one can never win
+
+    async def test_count_open_older_than_bounds(self, session_maker):
+        from datetime import datetime, timedelta
+
+        ids = await _seed(session_maker, 2)
+        backdated = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=120)
+        async with session_maker() as session:
+            ticket = await session.get(HandoffTicket, ids[0])
+            ticket.created_at = backdated
+            await session.commit()
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            assert await repo.count_open_older_than(60) == 1
+            assert await repo.count_open_older_than(300) == 0

@@ -62,8 +62,13 @@ async def list_tickets(
 @router.get("/stats")
 async def queue_stats(
     _admin: User = Depends(require_admin),
-) -> dict[str, int]:
-    """Queue depth per ticket status (agent dashboard)."""
+) -> dict[str, int | float | None]:
+    """Queue depth per status plus wait-time SLA dimensions (agent dashboard).
+
+    ``oldest_open_wait_seconds`` is the worst live wait (None = empty
+    queue); ``open_sla_breaches`` counts open tickets past
+    ``HANDOFF_SLA_WAIT_SECONDS`` (GB/T 47746—2026 转人工时效).
+    """
     return await get_handoff_service().queue_stats()
 
 

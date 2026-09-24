@@ -115,7 +115,13 @@ class TestAdminLifecycle:
 
             stats = await client.get("/handoff/stats")
             assert stats.status_code == 200
-            assert stats.json() == {"open": 0, "claimed": 1, "resolved": 0}
+            body = stats.json()
+            assert body["open"] == 0
+            assert body["claimed"] == 1
+            assert body["resolved"] == 0
+            # SLA dimensions ride along (additive keys; GB/T 47746 时效观测)
+            assert body["open_sla_breaches"] == 0
+            assert body["sla_wait_seconds"] == 30.0
 
             resolved = await client.post(f"/handoff/tickets/{created['ticket_id']}/resolve")
             assert resolved.status_code == 200

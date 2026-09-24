@@ -1,5 +1,6 @@
 """HandoffService: ticket lifecycle and the never-raise chat contract."""
 
+from datetime import UTC
 from typing import Any
 
 import pytest
@@ -188,7 +189,94 @@ class TestAgentWorkspace:
         await service.claim_ticket(a["ticket_id"], agent_id=99)
 
         stats = await service.queue_stats()
-        assert stats == {"open": 1, "claimed": 1, "resolved": 0}
+        assert stats["open"] == 1
+        assert stats["claimed"] == 1
+        assert stats["resolved"] == 0
+        assert stats["oldest_open_wait_seconds"] is not None
+        assert stats["oldest_open_wait_seconds"] >= 0
+        assert stats["open_sla_breaches"] == 0
+        assert stats["sla_wait_seconds"] == 30.0
+
+
+class TestQueueStatsSla:
+    """Queue-wait SLA dimensions (GB/T 47746—2026 转人工时效要求;
+    HollyCRM 基准: 转人工等待 < 30s). A ticket stuck past the SLA
+    threshold must be visible to ops the moment stats are pulled."""
+
+    async def _backdate(
+        self, session_maker: async_sessionmaker[Any], ticket_id: int, seconds: float
+    ) -> None:
+        from datetime import datetime, timedelta
+
+        backdated = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=seconds)
+        async with session_maker() as session:
+            ticket = await session.get(HandoffTicket, ticket_id)
+            ticket.created_at = backdated
+            await session.commit()
+
+    async def test_backdated_ticket_counts_as_sla_breach(self, session_maker):
+        from prometheus_client import REGISTRY
+
+        service = HandoffService(session_maker=session_maker)
+        first = await service.create_ticket_for_session(1, 7, "explicit", {})
+        await service.create_ticket_for_session(2, 8, "explicit", {})
+        await self._backdate(session_maker, first["ticket_id"], seconds=120)
+
+        stats = await service.queue_stats()
+
+        assert stats["open"] == 2
+        assert stats["open_sla_breaches"] == 1
+        oldest_wait = stats["oldest_open_wait_seconds"]
+        assert oldest_wait is not None and oldest_wait >= 120
+        assert REGISTRY.get_sample_value("handoff_queue_sla_breaches") == 1
+        assert (REGISTRY.get_sample_value("handoff_queue_oldest_wait_seconds") or 0) >= 120
+
+    async def test_empty_queue_reports_no_wait(self, session_maker):
+        from prometheus_client import REGISTRY
+
+        service = HandoffService(session_maker=session_maker)
+
+        stats = await service.queue_stats()
+
+        assert stats["oldest_open_wait_seconds"] is None
+        assert stats["open_sla_breaches"] == 0
+        assert REGISTRY.get_sample_value("handoff_queue_sla_breaches") == 0
+
+    async def test_sla_threshold_respects_setting(self, session_maker):
+        from unittest.mock import patch
+
+        from app.config.settings import settings
+
+        service = HandoffService(session_maker=session_maker)
+        created = await service.create_ticket_for_session(1, 7, "explicit", {})
+        await self._backdate(session_maker, created["ticket_id"], seconds=5)
+
+        with patch.object(settings, "HANDOFF_SLA_WAIT_SECONDS", 0.5):
+            strict = await service.queue_stats()
+        assert strict["open_sla_breaches"] == 1
+
+        with patch.object(settings, "HANDOFF_SLA_WAIT_SECONDS", 600.0):
+            loose = await service.queue_stats()
+        assert loose["open_sla_breaches"] == 0
+
+    async def test_resolved_tickets_never_breach(self, session_maker):
+        service = HandoffService(session_maker=session_maker)
+        created = await service.create_ticket_for_session(1, 7, "explicit", {})
+        await service.resolve_ticket(created["ticket_id"], agent_id=1)
+        await self._backdate(session_maker, created["ticket_id"], seconds=600)
+
+        stats = await service.queue_stats()
+
+        assert stats["open"] == 0
+        assert stats["open_sla_breaches"] == 0
+        assert stats["oldest_open_wait_seconds"] is None
+
+
+class TestHandoffSlaSettings:
+    def test_sla_defaults_to_thirty_seconds(self):
+        from app.config.settings import settings
+
+        assert settings.HANDOFF_SLA_WAIT_SECONDS == 30.0
 
 
 class TestTicketSummary:

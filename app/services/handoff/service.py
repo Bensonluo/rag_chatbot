@@ -18,6 +18,7 @@ import contextlib
 import json
 import logging
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from app.models.database.ticket import PRIORITY_HIGH, PRIORITY_NORMAL, HandoffTicket
@@ -50,6 +51,22 @@ _PRIORITY_BY_REASON = {
 
 def _priority_for_reason(reason: str) -> int:
     return _PRIORITY_BY_REASON.get(reason, PRIORITY_NORMAL)
+
+
+async def _utcnow() -> datetime:
+    """Current aware UTC time (asyncio-friendly seam for tests)."""
+    return datetime.now(UTC)
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Normalize a stored timestamp to aware UTC.
+
+    Postgres returns aware datetimes; sqlite (unit tests) returns naive
+    ones stored as UTC wall-clock — treat naive as UTC.
+    """
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 class HandoffService:
@@ -207,14 +224,43 @@ class HandoffService:
                 raise LookupError(f"Ticket {ticket_id} is not resolvable")
             return _ticket_to_dict(ticket)
 
-    async def queue_stats(self) -> dict[str, int]:
-        """Counts per status for the agent dashboard."""
+    async def queue_stats(self) -> dict[str, int | float | None]:
+        """Queue counts plus wait-time SLA dimensions for the agent dashboard.
+
+        Counts come from COUNT queries (the old implementation
+        materialized up to 10k rows per status to take their length —
+        unworkable at scale). The SLA dimensions (GB/T 47746—2026
+        转人工时效): the oldest open ticket's age is the worst wait a
+        customer is experiencing, and ``open_sla_breaches`` counts open
+        tickets waiting past ``HANDOFF_SLA_WAIT_SECONDS``. Gauges are
+        refreshed here so Prometheus sees the same numbers the API
+        returns.
+        """
+        from app.config.settings import get_settings
+        from app.services.handoff.metrics import (
+            HANDOFF_QUEUE_OLDEST_WAIT_SECONDS,
+            HANDOFF_QUEUE_SLA_BREACHES,
+        )
+
+        sla_seconds = get_settings().HANDOFF_SLA_WAIT_SECONDS
         async with self._session_maker() as session:
             repo = TicketRepository(session)
-            counts = {}
+            stats: dict[str, int | float | None] = {}
             for status_value in (TICKET_STATUS_OPEN, TICKET_STATUS_CLAIMED, TICKET_STATUS_RESOLVED):
-                counts[status_value] = len(await repo.list_by_status(status_value, limit=10000))
-            return counts
+                stats[status_value] = await repo.count_by_status(status_value)
+            oldest = await repo.oldest_open_created_at()
+            stats["oldest_open_wait_seconds"] = (
+                None
+                if oldest is None
+                else max(0.0, (await _utcnow() - _as_utc(oldest)).total_seconds())
+            )
+            breaches = await repo.count_open_older_than(sla_seconds)
+            stats["open_sla_breaches"] = breaches
+            stats["sla_wait_seconds"] = sla_seconds
+
+        HANDOFF_QUEUE_OLDEST_WAIT_SECONDS.set(stats["oldest_open_wait_seconds"] or 0.0)
+        HANDOFF_QUEUE_SLA_BREACHES.set(float(breaches))
+        return stats
 
 
 def _ticket_to_dict(ticket: HandoffTicket) -> dict[str, Any]:

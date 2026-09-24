@@ -115,6 +115,14 @@ class Settings(BaseSettings):
         default=120.0,
         description="Total budget for one SSE chat stream before it is cut off",
     )
+    HANDOFF_SLA_WAIT_SECONDS: float = Field(
+        default=30.0,
+        gt=0,
+        description=(
+            "Target human-handoff queue wait before a ticket counts as an SLA breach "
+            "(GB/T 47746—2026 转人工时效要求; HollyCRM industry target <30s)"
+        ),
+    )
     KEYWORD_INDEX_WARMUP_ENABLED: bool = Field(
         default=True,
         description="Warm the BM25 leg from the vector corpus at service init",

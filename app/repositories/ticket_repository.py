@@ -6,6 +6,8 @@ queue listings for the agent workspace, claim/resolve transitions,
 and open-queue depth for position estimates.
 """
 
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -107,6 +109,50 @@ class TicketRepository(BaseRepository[HandoffTicket]):
             select(func.count())
             .select_from(HandoffTicket)
             .where(HandoffTicket.status == TICKET_STATUS_OPEN)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar() or 0
+
+    async def count_by_status(self, status: str) -> int:
+        """Count tickets in a status via COUNT — never materialized rows.
+
+        Ops dashboards poll queue_stats at scale; listing up to 10k
+        tickets per status to take their length is unworkable at
+        800K-1M daily requests.
+        """
+        stmt = select(func.count()).select_from(HandoffTicket).where(HandoffTicket.status == status)
+        result = await self.session.execute(stmt)
+        return result.scalar() or 0
+
+    async def oldest_open_created_at(self) -> datetime | None:
+        """Creation time of the oldest open ticket; None when queue is empty.
+
+        The queue-wait SLA clock (GB/T 47746—2026 转人工时效): the oldest
+        ticket's age is the worst wait a customer is experiencing right
+        now.
+        """
+        stmt = select(func.min(HandoffTicket.created_at)).where(
+            HandoffTicket.status == TICKET_STATUS_OPEN
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar()
+
+    async def count_open_older_than(self, seconds: float) -> int:
+        """Count open tickets whose created_at predates the cutoff.
+
+        The caller passes an aware-UTC datetime; the naive storage
+        convention (sqlite tests) stores UTC wall-clock, so the cutoff is
+        normalized to naive UTC for comparison.
+        """
+        cutoff = datetime.now(UTC) - timedelta(seconds=seconds)
+        naive_cutoff = cutoff.replace(tzinfo=None)
+        stmt = (
+            select(func.count())
+            .select_from(HandoffTicket)
+            .where(
+                HandoffTicket.status == TICKET_STATUS_OPEN,
+                HandoffTicket.created_at < naive_cutoff,
+            )
         )
         result = await self.session.execute(stmt)
         return result.scalar() or 0
