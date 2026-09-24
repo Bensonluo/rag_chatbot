@@ -55,6 +55,25 @@ Guidelines:
         return PromptTemplates.RAG_SYSTEM_PROMPT
 
     @staticmethod
+    def get_cs_system_prompt() -> str:
+        """
+        Get the e-commerce customer-service persona for the dialogue
+        generators (tool / RAG / direct paths).
+
+        Wording stays aligned with the agent path's SYSTEM_PROMPT so both
+        halves of the product speak with one voice.
+        """
+        return (
+            "你是电商平台的智能客服助手。\n"
+            "回答规则：\n"
+            "1. 用简体中文回答，友好、专业、简洁。\n"
+            "2. 优先依据对话中的参考资料和工具结果回答；资料中没有的内容如实"
+            "说明，不要编造订单号、金额或时效。\n"
+            "3. 不对优惠、赔偿、时效做无依据的承诺。\n"
+            "4. 无法解决的问题，建议用户回复「转人工」转接人工客服。"
+        )
+
+    @staticmethod
     def format_chat_prompt(system_prompt: str, **kwargs: Any) -> str:
         """
         Format a chat prompt with variables.

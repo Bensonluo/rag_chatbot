@@ -110,9 +110,14 @@ class NodeFactory:
         # turns for the session (see chat/factory wiring — persister
         # backed, best-effort). None leaves generators single-message.
         history_provider: Callable[[int], Awaitable[list[LLMMessage]]] | None = None,
+        # Persona system message prepended by every generator. None →
+        # the built-in e-commerce CS persona; a custom string overrides
+        # it (per-tenant voice) — see CHAT_SYSTEM_PROMPT setting.
+        system_prompt: str | None = None,
     ) -> None:
         self._intent_detector = intent_detector
         self._history_provider = history_provider
+        self._system_prompt = system_prompt
         self._slot_filler = slot_filler
         self._tool_registry = tool_registry
         self._retrieval_pipeline = retrieval_pipeline or {}
@@ -1065,14 +1070,17 @@ class NodeFactory:
             return user_content
 
         from app.services.llm.base import LLMMessage
+        from app.services.llm.prompt_templates import PromptTemplates
 
-        messages: list[LLMMessage] = []
+        # Persona first: tone, grounding rules, and the handoff escape
+        # hatch are policy, not per-turn context.
+        persona = self._system_prompt or PromptTemplates.get_cs_system_prompt()
+        messages: list[LLMMessage] = [LLMMessage(role="system", content=persona)]
         if state is not None and self._history_provider is not None:
             try:
-                messages = list(await self._history_provider(state.get("session_id", 0)))
+                messages.extend(await self._history_provider(state.get("session_id", 0)))
             except Exception:  # noqa: BLE001 - history is best-effort
                 logger.warning("History fetch failed; generating without prior turns")
-                messages = []
         messages.append(LLMMessage(role="user", content=user_content))
         queue = _stream_queue(config)
 

@@ -50,6 +50,7 @@ def build_dialogue_graph(
     agent_service: AgentService | None = None,
     faq_service: FAQService | None = None,
     history_provider: Callable[[int], Awaitable[list[LLMMessage]]] | None = None,
+    system_prompt: str | None = None,
 ) -> CompiledStateGraph[Any]:
     """Build and compile the dialogue StateGraph.
 
@@ -83,6 +84,7 @@ def build_dialogue_graph(
     factory = NodeFactory(
         intent_detector=intent_detector,
         history_provider=history_provider,
+        system_prompt=system_prompt,
         slot_filler=slot_filler,
         tool_registry=tool_registry,
         retrieval_pipeline=retrieval_pipeline,

@@ -192,15 +192,14 @@ class ChatServiceFactory:
                 async def _session_history(session_id: int) -> list[Any]:
                     from app.services.llm.base import LLMMessage
 
-                    turns = await bound_persister.get_history(
-                        session_id=session_id, limit=6
-                    )
+                    turns = await bound_persister.get_history(session_id=session_id, limit=6)
                     return [LLMMessage(role=t.role, content=t.content) for t in turns]
 
                 history_provider = _session_history
             graph = build_dialogue_graph(
                 intent_detector=intent_detector,
                 history_provider=history_provider,
+                system_prompt=settings.CHAT_SYSTEM_PROMPT or None,
                 slot_filler=slot_filler,
                 tool_registry=tool_registry,
                 retrieval_pipeline=retrieval_pipeline,

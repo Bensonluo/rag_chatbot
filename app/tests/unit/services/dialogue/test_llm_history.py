@@ -23,7 +23,7 @@ def _sent_messages(llm: Any) -> list[Any]:
     return list(llm.generate.await_args.args[0])
 
 
-def _factory(llm: Any, history_provider: Any = None) -> Any:
+def _factory(llm: Any, history_provider: Any = None, system_prompt: Any = None) -> Any:
     from app.services.dialogue.nodes import NodeFactory
 
     return NodeFactory(
@@ -35,6 +35,7 @@ def _factory(llm: Any, history_provider: Any = None) -> Any:
         guardrail_service=None,
         graph_retrieval_service=None,
         history_provider=history_provider,
+        system_prompt=system_prompt,
     )
 
 
@@ -61,7 +62,8 @@ class TestDirectPathHistory:
         await factory.direct_response_node(state)
 
         messages = _sent_messages(llm)
-        assert [(m.role, m.content) for m in messages] == [
+        assert messages[0].role == "system"
+        assert [(m.role, m.content) for m in messages[1:]] == [
             ("user", "昨天买的手机想退货"),
             ("assistant", "好的，已受理退货"),
             ("user", "那运费谁出？"),
@@ -86,10 +88,10 @@ class TestRagPathHistory:
         )
 
         messages = _sent_messages(llm)
-        assert [m.role for m in messages] == ["user", "user"]
-        assert messages[0].content == "iPhone 退货怎么办理"
-        assert "退货包邮" in messages[1].content
-        assert "那运费谁出？" in messages[1].content
+        assert [m.role for m in messages] == ["system", "user", "user"]
+        assert messages[1].content == "iPhone 退货怎么办理"
+        assert "退货包邮" in messages[2].content
+        assert "那运费谁出？" in messages[2].content
 
 
 class TestHistoryBoundedAndSafe:
@@ -106,7 +108,8 @@ class TestHistoryBoundedAndSafe:
 
         messages = _sent_messages(llm)
         # Provider already bounds; the node must not re-expand it.
-        assert len(messages) == 9
+        # (+1 for the persona system message.)
+        assert len(messages) == 10
 
     async def test_provider_failure_degrades_to_current_message_only(self):
         llm = _capturing_llm()
@@ -120,7 +123,8 @@ class TestHistoryBoundedAndSafe:
         await factory.direct_response_node(state)
 
         messages = _sent_messages(llm)
-        assert [(m.role, m.content) for m in messages] == [("user", "当前")]
+        assert messages[0].role == "system"
+        assert [(m.role, m.content) for m in messages[1:]] == [("user", "当前")]
 
     async def test_no_provider_keeps_single_message(self):
         llm = _capturing_llm()
@@ -129,4 +133,46 @@ class TestHistoryBoundedAndSafe:
 
         await factory.direct_response_node(state)
 
-        assert [(m.role, m.content) for m in _sent_messages(llm)] == [("user", "你好")]
+        messages = _sent_messages(llm)
+        assert messages[0].role == "system"
+        assert [(m.role, m.content) for m in messages[1:]] == [("user", "你好")]
+
+
+class TestSystemPersona:
+    async def test_default_cs_persona_prepended(self):
+        llm = _capturing_llm()
+        factory = _factory(llm)  # system_prompt=None → built-in persona
+        state: DialogueState = {"message": "退货政策是什么", "session_id": 1}
+
+        await factory.direct_response_node(state)
+
+        messages = _sent_messages(llm)
+        assert messages[0].role == "system"
+        assert "客服" in messages[0].content
+        assert messages[-1].role == "user"
+
+    async def test_custom_system_prompt_override(self):
+        llm = _capturing_llm()
+        factory = _factory(llm, system_prompt="测试人设：只谈物流")
+        state: DialogueState = {"message": "你好", "session_id": 1}
+
+        await factory.direct_response_node(state)
+
+        assert _sent_messages(llm)[0].content == "测试人设：只谈物流"
+
+    async def test_system_message_precedes_history(self):
+        llm = _capturing_llm()
+
+        async def provider(session_id: int) -> list[Any]:
+            return _turns(
+                ("user", "昨天买的手机想退货"),
+                ("assistant", "好的，已受理退货"),
+            )
+
+        factory = _factory(llm, history_provider=provider)
+        state: DialogueState = {"message": "那运费谁出？", "session_id": 7}
+
+        await factory.direct_response_node(state)
+
+        roles = [m.role for m in _sent_messages(llm)]
+        assert roles == ["system", "user", "assistant", "user"]

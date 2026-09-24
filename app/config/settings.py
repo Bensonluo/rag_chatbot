@@ -73,6 +73,10 @@ class Settings(BaseSettings):
         description="Tighter per-IP budget for LLM-backed chat endpoints (Redis-backed)",
     )
 
+    CHAT_SYSTEM_PROMPT: str = Field(
+        default="",
+        description="Override persona system prompt for chat generators (empty = built-in CS persona)",
+    )
     CHAT_STREAM_MAX_SECONDS: float = Field(
         default=120.0,
         description="Total budget for one SSE chat stream before it is cut off",
