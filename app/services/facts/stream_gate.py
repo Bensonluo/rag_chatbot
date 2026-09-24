@@ -21,6 +21,7 @@ from app.config.settings import settings
 from app.services.facts.claim_check import apply_violations, check_policy_claims
 from app.services.facts.fact_store import FactStore, PolicyFact
 from app.services.facts.metrics import CLAIM_VIOLATIONS
+from app.services.observability.trace_events import emit_trace
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,15 @@ class StreamClaimGate:
             return text
         for violation in result.violations:
             CLAIM_VIOLATIONS.labels(reason=violation.reason).inc()
+            # Same demo-panel triple as the post-hoc gate in nodes.py —
+            # streamed or not, the viewer sees the catch.
+            emit_trace(
+                "cs.claim_gate",
+                action="rewrite",
+                reason=violation.reason,
+                clause=violation.clause,
+                grounded=violation.grounded_statement,
+            )
         if result.violations:
             return apply_violations(text, result)
         return text

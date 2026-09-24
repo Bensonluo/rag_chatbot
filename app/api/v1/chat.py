@@ -7,6 +7,7 @@ streaming responses, and history management.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
@@ -24,6 +25,7 @@ from app.services.chat.chat_service import HEARTBEAT, STREAM_ERROR, ChatService
 from app.services.chat.factory import ChatServiceFactory
 from app.services.embeddings import EmbeddingFactory
 from app.services.llm import LLMFactory
+from app.services.observability.trace_events import TraceEvent
 from app.services.retrieval import RetrievalFactory
 from app.services.retrieval.keyword_refresh import (
     KEYWORD_INDEX_CHUNKS,
@@ -369,6 +371,17 @@ def _sse_frame(chunk: str) -> str:
     return "".join(f"data: {line}\n" for line in lines) + "\n"
 
 
+def _sse_trace_frame(event: TraceEvent) -> str:
+    """Encode a pipeline trace event as a NAMED SSE event.
+
+    ``event: trace`` frames are invisible to EventSource consumers that
+    listen only to ``message`` — the content contract is unchanged —
+    while the execution-chain demo panel subscribes to ``trace``.
+    """
+    payload = json.dumps(event.payload(), ensure_ascii=False)
+    return f"event: trace\ndata: {payload}\n\n"
+
+
 @router.post("/stream")
 async def chat_stream(
     request: ChatRequest,
@@ -389,7 +402,11 @@ async def chat_stream(
                 user_id=user_id or 0,
                 stream_max_seconds=settings.CHAT_STREAM_MAX_SECONDS,
             ):
-                if chunk == HEARTBEAT:
+                if isinstance(chunk, TraceEvent):
+                    # Pipeline execution chain for the demo panel — a
+                    # named event, so content-only consumers never see it.
+                    yield _sse_trace_frame(chunk)
+                elif chunk == HEARTBEAT:
                     # SSE comment keepalive — ignored by EventSource parsers,
                     # keeps proxies from closing an idle connection.
                     yield ": ping\n\n"

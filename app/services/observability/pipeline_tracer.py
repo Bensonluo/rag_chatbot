@@ -20,10 +20,12 @@ import contextlib
 import functools
 import inspect
 import logging
+import time
 from collections.abc import AsyncIterator, Callable
 from typing import Any, TypeVar, cast
 
 from app.middleware.tracing import get_tracer
+from app.services.observability.trace_events import emit_trace
 
 logger = logging.getLogger(__name__)
 
@@ -35,17 +37,29 @@ _F = TypeVar("_F", bound=Callable[..., Any])
 
 
 class _StageSpan:
-    """Bridges OTel's context-manager span protocol for stage spans."""
+    """Bridges OTel's context-manager span protocol for stage spans.
 
-    __slots__ = ("_cm", "_span")
+    Also mirrors each stage's lifecycle onto the in-band trace channel
+    (``emit_trace``): same information the OTel span carries, delivered
+    where a live viewer can see it. With no active trace sink this is a
+    no-op, so non-streamed turns pay nothing.
+    """
+
+    __slots__ = ("_cm", "_span", "_name", "_started")
 
     def __init__(self, name: str, kwargs: dict[str, Any]) -> None:
+        self._name = name
+        self._started = time.perf_counter()
+        emit_trace(name, status="start")
         self._cm: Any = get_tracer("rag-chatbot.dialogue").start_as_current_span(name)
         # The CM's __enter__ yields the live span (and activates it).
         self._span: Any = self._cm.__enter__()
         for key in _KWARG_ATTRS:
             if kwargs.get(key) is not None:
                 self._set(key, kwargs[key])
+
+    def _emit_done(self, status: str) -> None:
+        emit_trace(self._name, status=status, ms=(time.perf_counter() - self._started) * 1000)
 
     def _set(self, key: str, value: Any) -> None:
         set_attribute = getattr(self._span, "set_attribute", None)
@@ -59,12 +73,14 @@ class _StageSpan:
 
     def record_and_end(self, exc: BaseException) -> None:
         """Record the exception and close carrying it (for OTel status)."""
+        self._emit_done("error")
         record_exception = getattr(self._span, "record_exception", None)
         if record_exception is not None:
             record_exception(exc)
         self._cm.__exit__(type(exc), exc, exc.__traceback__)
 
     def end(self) -> None:
+        self._emit_done("end")
         self._cm.__exit__(None, None, None)
 
 

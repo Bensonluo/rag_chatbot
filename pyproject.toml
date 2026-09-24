@@ -221,6 +221,7 @@ testpaths = [
     "app/tests/unit/deploy",
     "app/tests/unit/repositories",
     "app/tests/unit/api/v1/test_chat_rate_limit.py",
+    "app/tests/unit/api/v1/test_chat_stream_frames.py",
 ]
 pythonpath = ["."]
 asyncio_mode = "auto"

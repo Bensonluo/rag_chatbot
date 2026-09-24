@@ -26,6 +26,7 @@ from app.services.llm.budget import (
     record_budget_on_span,
 )
 from app.services.observability.pipeline_tracer import traced_stage
+from app.services.observability.trace_events import TraceEvent, TraceSink, trace_sink_active
 
 if TYPE_CHECKING:
     from app.services.chat.knowledge_gap_recorder import KnowledgeGapRecorder
@@ -188,7 +189,7 @@ class ChatService:
         user_id: int,
         heartbeat_seconds: float = 15.0,
         stream_max_seconds: float = 120.0,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[str | TraceEvent, None]:
         """
         Process a user message with true token streaming.
 
@@ -204,6 +205,12 @@ class ChatService:
         cancelled and the partial turn is persisted (checkpointer state
         was already committed by the graph itself).
 
+        When ``CHAT_TRACE_STREAM_ENABLED`` a TraceSink is published into
+        the graph task's context: nodes mirror their stage lifecycle and
+        stage-specific detail onto this queue as TraceEvent items, which
+        this consumer yields interleaved with content (in arrival order)
+        for the live execution-chain demo panel.
+
         Args:
             session_id: Session identifier
             message: User message
@@ -212,24 +219,38 @@ class ChatService:
             stream_max_seconds: Total budget before the stream is cut off
 
         Yields:
-            str: Response text chunks (HEARTBEAT sentinel on idle)
+            str | TraceEvent: Response text chunks (HEARTBEAT sentinel
+            on idle) interleaved with pipeline trace events
         """
-        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        queue: asyncio.Queue[str | TraceEvent | None] = asyncio.Queue()
         config = {"configurable": {"thread_id": str(session_id), "stream_queue": queue}}
         # The sentinel is enqueued only after the graph task settles, so
         # the consumer can never exit before the task is observed done.
         # Budget scope wraps the whole stream: the graph task inherits
         # the ContextVar (asyncio copies context at task creation), so
-        # every node's LLM call in this turn counts against it.
+        # every node's LLM call in this turn counts against it. The
+        # trace sink rides the same mechanism — created inside the
+        # budget scope, scoped exactly around task creation so nodes
+        # (and only nodes) inherit it.
+        trace_sink = TraceSink(queue) if settings.CHAT_TRACE_STREAM_ENABLED else None
         budget: BudgetState | None = None
         async with enter_llm_budget(settings.CHAT_LLM_CALL_BUDGET) as budget_state:
             budget = budget_state
-            invoke_task = asyncio.create_task(
-                self.graph.ainvoke(
-                    {"message": message, "session_id": session_id, "user_id": user_id},
-                    config,
+            if trace_sink is not None:
+                with trace_sink_active(trace_sink):
+                    invoke_task = asyncio.create_task(
+                        self.graph.ainvoke(
+                            {"message": message, "session_id": session_id, "user_id": user_id},
+                            config,
+                        )
+                    )
+            else:
+                invoke_task = asyncio.create_task(
+                    self.graph.ainvoke(
+                        {"message": message, "session_id": session_id, "user_id": user_id},
+                        config,
+                    )
                 )
-            )
         invoke_task.add_done_callback(lambda _task: queue.put_nowait(None))
         streamed_content: list[str] = []
         loop = asyncio.get_running_loop()
@@ -261,6 +282,12 @@ class ChatService:
                     continue
                 if chunk is None:
                     break
+                if isinstance(chunk, TraceEvent):
+                    # Pipeline observability riding the same channel —
+                    # forwarded in arrival order, excluded from content
+                    # accounting (TTFT / persistence stay text-only).
+                    yield chunk
+                    continue
                 if not first_token_seen:
                     first_token_seen = True
                     CHAT_FIRST_TOKEN_SECONDS.observe(loop.time() - stream_started)

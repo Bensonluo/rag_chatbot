@@ -125,6 +125,16 @@ class Settings(BaseSettings):
         default=120.0,
         description="Total budget for one SSE chat stream before it is cut off",
     )
+    CHAT_TRACE_STREAM_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "Multiplex pipeline trace events (stage timing, retrieval hits, "
+            "claim-gate verdicts) onto the chat SSE stream as named "
+            "'event: trace' frames for the live execution-chain demo panel. "
+            "EventSource consumers listening only to 'message' never see "
+            "them; set False for a pure-content stream"
+        ),
+    )
     HANDOFF_SLA_WAIT_SECONDS: float = Field(
         default=30.0,
         gt=0,

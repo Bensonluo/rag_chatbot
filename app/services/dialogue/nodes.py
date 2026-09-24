@@ -51,6 +51,7 @@ from app.services.handoff.service import (
     REASON_EXPLICIT,
 )
 from app.services.observability.pipeline_tracer import traced_stage
+from app.services.observability.trace_events import emit_trace
 from app.services.retrieval.metrics import (
     RETRIEVAL_FILTER_FALLBACKS,
     RETRIEVAL_FILTERED_SEARCHES,
@@ -156,6 +157,7 @@ class NodeFactory:
         result = self._guardrail_service.check_input(message)
 
         if result.was_blocked:
+            emit_trace("cs.guardrail_input", blocked=True, violations=result.violations[:3])
             return {
                 "blocked": True,
                 "blocked_reason": ", ".join(result.violations)
@@ -167,12 +169,19 @@ class NodeFactory:
         # Propagate sanitized content (PII redaction) into the dialogue state
         # so redacted text — not the raw input — flows to slots/LLM/retrieval.
         if result.sanitized_content and result.sanitized_content != message:
+            emit_trace("cs.guardrail_input", redacted=True)
             return {"message": result.sanitized_content}
 
         return {}
 
     @traced_stage("cs.intent")
     async def detect_intent_node(self, state: DialogueState) -> dict[str, Any]:
+        """Detect user intent, then publish the verdict on the trace channel."""
+        updates = await self._detect_intent_logic(state)
+        emit_trace("cs.intent", intent=updates.get("intent"), confidence=updates.get("confidence"))
+        return updates
+
+    async def _detect_intent_logic(self, state: DialogueState) -> dict[str, Any]:
         """Detect user intent from the current message.
 
         Priority logic:
@@ -420,6 +429,7 @@ class NodeFactory:
         pending = get_missing_slots(intent, merged)
         next_prompt = get_next_prompt(intent, merged)
 
+        emit_trace("cs.slots", filled_slots=merged, pending_slots=pending)
         return {
             "filled_slots": merged,
             "pending_slots": pending,
@@ -498,6 +508,7 @@ class NodeFactory:
             elif check.sanitized_content and check.sanitized_content != response:
                 response = check.sanitized_content
 
+        emit_trace("cs.faq", hit=True, faq_id=entry.faq_id)
         _emit_response(response, config)
         return {
             "route_after_faq": "hit",
@@ -538,6 +549,7 @@ class NodeFactory:
                     sources = _extract_sources(retrieved_docs)
             except Exception:
                 logger.exception("Graph retrieval failed for intent %s", intent)
+            emit_trace("cs.retrieval", mode="graph", docs=len(retrieved_docs), sources=sources[:3])
             return {"retrieved_docs": retrieved_docs, "sources": sources}
 
         # Standard hybrid search for RAG intents.
@@ -566,6 +578,7 @@ class NodeFactory:
             except Exception:
                 logger.exception("Hybrid search failed")
 
+        emit_trace("cs.retrieval", mode="hybrid", docs=len(retrieved_docs), sources=sources[:3])
         return {"retrieved_docs": retrieved_docs, "sources": sources}
 
     async def _extract_query_entities(self, message: str) -> SlotFillingResult | None:
@@ -632,6 +645,19 @@ class NodeFactory:
         result = check_policy_claims(response, facts, check_actions=check_actions)
         for violation in result.violations:
             CLAIM_VIOLATIONS.labels(reason=violation.reason).inc()
+            # Demo centerpiece: the exact triple the execution panel
+            # renders — model's claim, why it fails, the grounded rewrite.
+            emit_trace(
+                "cs.claim_gate",
+                action="rewrite",
+                reason=violation.reason,
+                clause=violation.clause,
+                grounded=violation.grounded_statement,
+            )
+        if not result.violations:
+            # A green check is only meaningful if the viewer knows the
+            # gate actually ran, not that it was skipped.
+            emit_trace("cs.claim_gate", action="pass", facts=len(facts))
         if result.violations:
             updates = {**updates, "response": apply_violations(response, result)}
         return updates
@@ -764,6 +790,13 @@ class NodeFactory:
 
         response = _build_handoff_response(reason, ticket)
 
+        emit_trace(
+            "cs.handoff",
+            reason=reason,
+            ticket_id=ticket.get("ticket_id"),
+            queue_position=ticket.get("queue_position"),
+            reused=bool(ticket.get("reused")),
+        )
         updates: dict[str, Any] = {
             "response": response,
             "intent": "handoff",
@@ -838,6 +871,10 @@ class NodeFactory:
             # None when this run staged nothing — clears stale gates.
             "pending_confirmation": result.pending_confirmation,
         }
+        emit_trace(
+            "cs.agent",
+            tools=[str(entry.get("tool", "")) for entry in result.tool_trace],
+        )
 
         # Phase A2 claim gate: agent responses are LLM paraphrases of
         # tool output, not fixed formats — misstating tool numbers and
@@ -1157,10 +1194,12 @@ class NodeFactory:
         if not user_id:
             return []
         try:
-            return [fact for fact in await self._user_facts_provider(int(user_id)) if fact]
+            facts = [fact for fact in await self._user_facts_provider(int(user_id)) if fact]
         except Exception:  # noqa: BLE001 - availability over personalization
             logger.warning("User facts recall failed; continuing without them")
             return []
+        emit_trace("cs.memory", facts=facts)
+        return facts
 
     async def _call_llm(
         self,
