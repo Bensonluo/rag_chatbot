@@ -35,7 +35,8 @@ echo "==> 2/5 pre-flight: resolved api port must be exactly 127.0.0.1:$API_PORT"
 RESOLVED=$($SSH_CMD "cd $REMOTE_DIR && docker compose config --format json" | python3 -c '
 import json, sys
 ports = json.load(sys.stdin)["services"]["api"]["ports"]
-print(";".join(f"{p.get(\"host_ip\",\"\")}:{p[\"published\"]}" for p in ports))
+parts = [str(p.get("host_ip", "")) + ":" + str(p["published"]) for p in ports]
+print(";".join(parts))
 ')
 if [ "$RESOLVED" != "127.0.0.1:$API_PORT" ]; then
   echo "FATAL: api ports resolve to [$RESOLVED], expected [127.0.0.1:$API_PORT]."
