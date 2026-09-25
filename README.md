@@ -75,6 +75,11 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 | Claim-gated streaming | Prometheus + Grafana | Knowledge-gap closeout |
 | PII redaction + `<think>` filtering | TTFT/duration/outcome + alert rules | Cross-session user memory |
 
+| ⚡ Caching | 📈 Funnel KPI | 📦 Scaling |
+|:---:|:---:|:---:|
+| L0/L1/L2 epoch-scoped pyramid | One-shot resolution rate | 2→N node template |
+| Answer / semantic / retrieval tiers | Downvote-aware aggregation | nginx upstream + dns_sd |
+
 | 📈 Stats | | |
 |:---:|:---:|:---:|
 | **1536** maintained tests | **3** LLM providers | **86.75%** core coverage |
@@ -92,6 +97,9 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 6. **Hybrid retrieval** — vector (Qdrant) + BM25 keyword → RRF fusion → Cross-Encoder rerank
 7. **Human handoff loop** — emotion/complexity-triggered tickets with queue position and AHT, plus knowledge-gap recording
 8. **Observable demo runtime** — `/metrics`, TTFT/duration/outcome metrics, SLA + policy-gate alert rules, tracing hooks
+9. **Epoch-scoped cache pyramid** — L0 answer / L1 semantic / L2 retrieval caches; every KB mutation rotates an epoch that invalidates all three wholesale — no stale entries, no per-key eviction
+10. **One-shot resolution KPI** — the north-star metric with downvote doctrine (a downvoted answer counts as unresolved), served as a DB-bridged Prometheus gauge
+11. **Scale-ready node template** — compose port range + nginx upstream template + dns_sd multi-replica scraping: one node today, N replicas without re-architecture
 
 ---
 
@@ -213,7 +221,7 @@ Try these scenarios:
 | **Vector DB** | Qdrant | Fast hybrid search, open-source |
 | **Graph DB** (optional) | Neo4j | Knowledge graph for GraphRAG |
 | **Relational DB** | PostgreSQL | Sessions, users, feedback |
-| **Cache** | Redis | Rate limiting, embeddings cache |
+| **Cache** | Redis | Rate limiting + L0/L1/L2 answer/semantic/retrieval caches (epoch-scoped) |
 | **LLM** | GLM / OpenAI / Anthropic | Auto-fallback by API key availability |
 | **Embeddings** | BGE-M3 (local) | Free, multilingual, no API key |
 | **Observability** | OpenTelemetry + Prometheus + Grafana | Inspect demo traces and metrics |
@@ -358,10 +366,10 @@ mypy app/core/security.py app/services/documents/base.py \
 
 | Metric | Value |
 |--------|-------|
-| Maintained test cases | **1295** |
+| Maintained test cases | **1536** |
 | Maintained core coverage | **86.75%** (70% minimum enforced locally) |
-| Python files | ~200 |
-| Test files | ~58 |
+| Python files | ~345 |
+| Test files | ~145 |
 
 ---
 
@@ -380,6 +388,10 @@ mypy app/core/security.py app/services/documents/base.py \
 - [x] Human handoff: tickets, queue position, AHT, knowledge-gap closeout
 - [x] Postgres checkpointer (AsyncPostgresSaver, MemorySaver fallback)
 - [x] Prometheus alert rules (SLA / TTFT / claim gate / handoff queue)
+- [x] Epoch-scoped cache pyramid (L0 answer / L1 semantic / L2 retrieval)
+- [x] One-shot resolution KPI (downvote-aware, DB-bridged gauge)
+- [x] 2→N scaling readiness (nginx upstream template + dns_sd multi-replica metrics)
+- [x] Graceful shutdown choreography (background refreshers stop before pools close)
 - [ ] Fine-tuned intent classifier (replace LLM-based with small specialized model)
 - [ ] A/B testing framework for prompt variants
 - [ ] Multi-tenant knowledge bases
@@ -432,6 +444,9 @@ If this project helped you, please ⭐ star the repo — it helps others discove
 - **GraphRAG**:Neo4j 知识图谱 + Text-to-Cypher + 社区发现
 - **混合检索**:向量 + BM25 → RRF 融合 → Cross-Encoder 重排序
 - **全链路可观测**:OpenTelemetry + Prometheus 指标(TTFT/时长/结果)+ SLA/策略门控告警规则
+- **缓存金字塔**:L0 答案缓存 / L1 语义缓存 / L2 检索结果缓存,KB epoch 轮换整体失效,无逐键驱逐
+- **一次解决率 KPI**:北极星指标,转人工与差评双信号排除口径,Prometheus DB 桥接 gauge
+- **横向扩展就绪**:单机即节点模板(compose 端口段 + nginx upstream + dns_sd 多副本抓取),2→N 不重构
 - **Checkpoint 持久化**:LangGraph Postgres Checkpointer(本地降级 MemorySaver)
 
 ### 快速开始
