@@ -1,6 +1,6 @@
 <div align="center">
 
-# GraphRAG Smart Customer Service
+# Agentic RAG Smart Customer Service
 
 **A personal technical demo powered by LangGraph — 12-node dialogue graph, Function Calling, agent tool loop, hybrid RAG, claim-gated streaming, and human handoff.**
 
@@ -428,7 +428,7 @@ If this project helped you, please ⭐ star the repo — it helps others discove
 
 ## 🇨🇳 中文说明
 
-**GraphRAG 智能客服** — 基于 LangGraph 构建的个人技术 Demo，重点展示对话状态、混合检索、可靠性与可观测链路。
+**Agentic RAG 智能客服** — 基于 LangGraph 构建的个人技术 Demo，重点展示对话状态、混合检索、可靠性与可观测链路。
 
 ### 核心亮点
 
