@@ -56,6 +56,13 @@ class DialogueState(TypedDict, total=False):
     # Set while an irreversible tool is staged awaiting explicit user
     # confirmation: {"intent": ..., "args": {...}}
     pending_confirmation: dict[str, Any] | None
+    # True from the turn a task's tool actually ran (direct execution,
+    # confirm-resolved staging, or an agent tool call) until the next
+    # intent switch consumes it. An executed task is terminal: it is
+    # never pushed onto the switch stack, never auto-resumed, and no
+    # longer captures follow-ups — re-entering it risks re-executing an
+    # irreversible action (double refund).
+    task_executed: bool
 
     # RAG
     retrieved_docs: list[dict[str, Any]]

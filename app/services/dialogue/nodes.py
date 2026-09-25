@@ -268,10 +268,13 @@ class NodeFactory:
         """Detect user intent from the current message.
 
         Priority logic:
-        1. Cancel always overrides — user wants to abort current task
-        2. If prev intent is a task and the message provides slot values
-           for that task, keep the task intent (user is answering a prompt)
-        3. Confirm/deny after a task preserves the task intent
+        1. Handoff / cancel / emotion escalation override everything
+        2. Confirm/deny resolving a staged action become meta intents
+        3. An affirmative with a suspended task resumes it; "unknown"
+           never resumes — unrecognized input is answered, not hijacked
+        4. A non-executed task intent captures slot answers and
+           affirmatives; an executed task is terminal and captures
+           nothing (see ``task_executed`` in state.py)
         """
         message = state.get("message", "")
         prev_intent = state.get("intent")
@@ -321,9 +324,12 @@ class NodeFactory:
                 "confidence": confidence,
             }
 
-        # Resume: if confirm/unknown and a task is suspended on the stack,
-        # set intent to the suspended task so slot collection continues.
-        if detected_intent in META_INTENTS or detected_intent == "unknown":
+        # Resume: an affirmative (confirm/deny/cancel) with a task
+        # suspended on the stack sets intent to that task so slot
+        # collection continues. "unknown" deliberately does NOT resume —
+        # an unrecognized message (e.g. an off-domain question) must be
+        # answered, not silently folded back into the suspended task.
+        if detected_intent in META_INTENTS:
             state_stack = state.get("state_stack") or []
             if state_stack:
                 suspended_intent = state_stack[-1].get("intent", "")
@@ -334,8 +340,11 @@ class NodeFactory:
                         "confidence": confidence,
                     }
 
-        # If prev is a task intent, check if message provides slot values
-        if prev_intent and prev_intent in TASK_INTENTS:
+        # If prev is a task intent, check if message provides slot values.
+        # An executed task is terminal: it no longer captures follow-ups
+        # (slot answers, affirmatives, unknowns) — a "好的" landing after
+        # a completed refund must never re-enter and re-stage it.
+        if prev_intent and prev_intent in TASK_INTENTS and not state.get("task_executed"):
             existing = dict(state.get("filled_slots") or {})
             merged = extract_slots_from_message(prev_intent, message, existing)
             if len(merged) > len(existing):
@@ -385,8 +394,12 @@ class NodeFactory:
         if intent in META_INTENTS:
             return {}
 
-        # Direct/social intents do not push state.
-        if prev_intent in DIRECT_INTENTS or prev_intent == "unknown":
+        # Only in-flight tasks are suspendable. The stack exists to hold
+        # tasks a later "继续" can resume (see the resume check in
+        # _detect_intent_logic and the pop scan below); pushing anything
+        # else (greeting, chitchat, policy, handoff, unknown) would only
+        # pollute the resume hint with an entry nothing can resume.
+        if prev_intent not in TASK_INTENTS:
             return {}
 
         state_stack: list[dict[str, Any]] = list(state.get("state_stack") or [])
@@ -401,9 +414,30 @@ class NodeFactory:
                         "state_stack": state_stack,
                         "filled_slots": restored.get("filled_slots", {}),
                         "pending_slots": restored.get("pending_slots", []),
+                        # Anything restored here was suspended before it
+                        # executed (executed tasks are never pushed), so a
+                        # stale flag from the just-finished task must not
+                        # leak into the resumed one.
+                        "task_executed": False,
                     }
 
-        # Suspend the current task.
+        # An executed task is terminal — never suspended, never resumable.
+        # Resuming a task whose tool already ran could only re-run it
+        # (risking a second irreversible action) or re-ask a dead
+        # confirmation. The flag consumes exactly one switch.
+        if state.get("task_executed"):
+            return {
+                "filled_slots": {},
+                "pending_slots": [],
+                "slot_prompt": "",
+                "task_executed": False,
+                "pending_confirmation": None,
+            }
+
+        # Suspend the current task. Its staged (unconfirmed) action is
+        # discarded with it: a later bare "好的" must never execute a
+        # refund the user walked away from. Resuming the task re-stages
+        # and re-asks — the safe direction.
         suspended = {
             "intent": prev_intent,
             "filled_slots": state.get("filled_slots", {}),
@@ -416,6 +450,8 @@ class NodeFactory:
             "filled_slots": {},
             "pending_slots": [],
             "slot_prompt": "",
+            "task_executed": False,
+            "pending_confirmation": None,
         }
 
     async def route_intent_node(self, state: DialogueState) -> dict[str, Any]:
@@ -546,6 +582,9 @@ class NodeFactory:
             return {
                 "pending_confirmation": {"intent": intent, "args": dict(filled_slots)},
                 "response": summary,
+                # Staging re-opens the task: it is in flight again and
+                # may be suspended/resumed until the action executes.
+                "task_executed": False,
             }
 
         # Reversible tools run immediately; clear any stale pending
@@ -554,10 +593,16 @@ class NodeFactory:
 
         if result.success:
             record_funnel_layer(LAYER_AGENT_TOOL)
-            return {"tool_result": result.data, "pending_confirmation": None}
+            return {"tool_result": result.data, "pending_confirmation": None, "task_executed": True}
 
         logger.warning("Tool execution failed for intent %s: %s", intent, result.message)
-        return {"tool_result": {"error": result.message}, "pending_confirmation": None}
+        return {
+            "tool_result": {"error": result.message},
+            "pending_confirmation": None,
+            # The tool ran and was refused — the task is terminal either
+            # way; re-running it can only repeat the failure.
+            "task_executed": True,
+        }
 
     @traced_stage("cs.faq")
     async def faq_lookup_node(
@@ -889,6 +934,12 @@ class NodeFactory:
         answers are persona + message only (anonymous writes only), so
         a replay cannot smuggle in another user's context. The write
         side is gated — see ``_maybe_put_semantic``.
+
+        When a task is suspended, the answer carries a visible resume
+        hint: the direct tier answers unrecognized input instead of
+        silently resuming the suspended task (see
+        ``_detect_intent_logic``). The hint is appended after the cache
+        write/read so cached bodies stay state-free.
         """
         message = state.get("message", "")
         if self._semantic_cache is not None:
@@ -911,12 +962,16 @@ class NodeFactory:
 
                 emit_trace("cs.semantic_cache", hit=True, intent=cached.intent)
                 record_funnel_layer(LAYER_L1_SEMANTIC)
+                response = _maybe_append_resume_hint(response, state)
+                updates["response"] = response
                 _emit_response(response, config)
                 return updates
 
         record_funnel_layer(LAYER_DIRECT)
         response = await self._generate_direct(message, config, state)
+        # Cache the clean body; the resume hint is per-turn state.
         await self._maybe_put_semantic(state, message, response.get("response", ""))
+        response["response"] = _maybe_append_resume_hint(response.get("response", ""), state)
         return response
 
     async def _maybe_put_semantic(self, state: DialogueState, message: str, response: str) -> None:
@@ -1075,6 +1130,9 @@ class NodeFactory:
             # None when this run staged nothing — clears stale gates.
             "pending_confirmation": result.pending_confirmation,
         }
+        if result.tool_trace:
+            # Tools actually ran — the task is terminal (task_executed).
+            updates["task_executed"] = True
         emit_trace(
             "cs.agent",
             tools=[str(entry.get("tool", "")) for entry in result.tool_trace],
@@ -1334,6 +1392,10 @@ class NodeFactory:
                     "filled_slots": restored.get("filled_slots", {}),
                     "pending_slots": restored.get("pending_slots", []),
                     "pending_confirmation": None,
+                    # Restored tasks were suspended pre-execution; clear
+                    # any stale flag from the cancelled turn (see the
+                    # handle_switch resume note).
+                    "task_executed": False,
                 }
             return {
                 "response": "已取消当前操作。",
@@ -1358,6 +1420,9 @@ class NodeFactory:
                     "intent": pending.get("intent", ""),
                     "filled_slots": dict(pending.get("args") or {}),
                     "tool_result": tool_result,
+                    # The staged action ran — the task is terminal now,
+                    # success or failure (see task_executed in state.py).
+                    "task_executed": True,
                 }
                 generated = await self._generate_with_tool(
                     pending.get("intent", ""),
@@ -1381,6 +1446,10 @@ class NodeFactory:
                     "intent": restored.get("intent", ""),
                     "filled_slots": restored.get("filled_slots", {}),
                     "pending_slots": restored.get("pending_slots", []),
+                    # Restored tasks were suspended pre-execution; clear
+                    # any stale flag from the previous turn (see the
+                    # handle_switch resume note).
+                    "task_executed": False,
                 }
             return {"response": "好的，已确认。请稍等，我正在为您处理。"}
 
