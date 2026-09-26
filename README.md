@@ -82,7 +82,7 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 
 | 📈 Stats | | |
 |:---:|:---:|:---:|
-| **1536** maintained tests | **3** LLM providers | **86.75%** core coverage |
+| **1572** maintained tests | **3** LLM providers | **86.85%** core coverage |
 | **12** dialogue nodes | **5** data stores | **4** memory strategies |
 
 </div>
@@ -90,7 +90,7 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 ### 🧠 What makes it different
 
 1. **LangGraph StateGraph, not a chain** — 12 nodes with conditional edges, checkpointed for resume
-2. **Intent switch with state stack** — push/pop pattern to save & restore in-flight tasks
+2. **Intent switch with state stack** — push/pop pattern to save & restore in-flight tasks; executed tasks are terminal (never suspended, never auto-resumed)
 3. **Five-way dispatch** — task → tool execution / faq → curated direct answer / rag → retrieval / agent → tool loop / direct → LLM
 4. **Claim-gated streaming** — sentence-buffered policy checks gate what leaves the stream; stream and persistence stay identical
 5. **GraphRAG (optional)** — Neo4j knowledge graph + Text-to-Cypher + community detection
@@ -147,6 +147,17 @@ User: "继续，原因是质量问题"
 → execute_tool: refund → {status:success, refund_id:"RF123456"}
 → "退款已受理，退款单号RF123456"
 ```
+
+Two safety rules bound the resume feature:
+
+- **Executed tasks are terminal.** Once a task's tool has actually run (a refund
+  confirmed, an order queried), it is never pushed onto the stack and never
+  auto-resumed — resurrecting it could only re-run an irreversible action
+  (a second refund the user never asked for).
+- **Unrecognized input is answered, not hijacked.** An "unknown" classification
+  never silently resumes a suspended task: the question gets a direct answer
+  plus a visible hint that the suspended task is still there; resume happens
+  only on an explicit "继续" or by restating the task.
 
 ---
 
@@ -288,6 +299,7 @@ rag_chatbot/
 │   ├── models/              # ORM + Pydantic schemas
 │   ├── repositories/        # Async data access layer
 │   └── tests/               # Unit + integration + e2e
+├── deploy/deploy-server.sh  # One-command demo-box deploy (port-pinned, pre-flight gated)
 ├── deploy/k8s/              # Kubernetes manifests
 ├── deploy/prometheus/       # Alert rules (SLA / TTFT / claim gate / handoff queue)
 └── docker-compose*.yml
@@ -342,7 +354,7 @@ See [.env.example](.env.example) for the full list.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 1536 tests / 86.75%)
+# Maintained core suite (70% minimum; currently 1572 tests / 86.85%)
 pytest
 
 # Targeted runs
@@ -366,8 +378,8 @@ mypy app/core/security.py app/services/documents/base.py \
 
 | Metric | Value |
 |--------|-------|
-| Maintained test cases | **1536** |
-| Maintained core coverage | **86.75%** (70% minimum enforced locally) |
+| Maintained test cases | **1572** |
+| Maintained core coverage | **86.85%** (70% minimum enforced locally) |
 | Python files | ~345 |
 | Test files | ~145 |
 
@@ -377,10 +389,11 @@ mypy app/core/security.py app/services/documents/base.py \
 
 - [x] LangGraph StateGraph with 12 nodes + conditional routing
 - [x] Intent switch & resume via state stack
+- [x] Task terminality guard (executed tasks never suspended or auto-resumed)
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 1536 maintained core tests, 86.75% coverage
+- [x] 1572 maintained core tests, 86.85% coverage
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)
@@ -437,7 +450,7 @@ If this project helped you, please ⭐ star the repo — it helps others discove
 - **五路路由**:task → 槽位收集 → 工具执行;faq → 策展命中直出;rag → 检索生成;agent → 工具循环;direct → LLM 直答
 - **多轮槽位收集**:正则提取 + 短消息回退,缺槽追问
 - **Function Calling**:ToolRegistry + 5 个 Mock 工具 + Agent 工具循环
-- **意图切换与恢复**:State Stack 推栈保存/弹栈恢复
+- **意图切换与恢复**:State Stack 推栈保存/弹栈恢复;已执行任务为终态,不再挂起或自动恢复(防止二次执行)
 - **声明门控流式输出**:句子缓冲 + 策展事实校验,越界声明拦截/改写后才放出
 - **跨会话用户记忆**:user_facts 长期画像 + TTL 召回缓存
 - **转人工兜底**:情绪/复杂度触发工单(队列位置、AHT),知识缺口记录与闭环
