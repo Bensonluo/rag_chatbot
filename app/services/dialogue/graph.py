@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
-from app.services.dialogue.state import DialogueState
+from app.services.dialogue.state import DialogueState, begin_turn
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -118,6 +118,7 @@ def build_dialogue_graph(
     graph = StateGraph(DialogueState)
 
     # ── Nodes ────────────────────────────────────────────────────────────────
+    graph.add_node("begin_turn", begin_turn)
     graph.add_node("guardrail", factory.guardrail_node)
     graph.add_node("answer_cache", factory.answer_cache_lookup_node)
     graph.add_node("detect_intent", factory.detect_intent_node)
@@ -133,7 +134,8 @@ def build_dialogue_graph(
     graph.add_node("faq_lookup", factory.faq_lookup_node)
 
     # ── Fixed edges ──────────────────────────────────────────────────────────
-    graph.add_edge(START, "guardrail")
+    graph.add_edge(START, "begin_turn")
+    graph.add_edge("begin_turn", "guardrail")
 
     # After guardrail: the L0 answer-cache lookup. A hit ends the turn
     # with the replayed (and re-gated) answer; a miss runs the intent

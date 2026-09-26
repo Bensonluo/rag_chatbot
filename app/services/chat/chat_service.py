@@ -151,6 +151,8 @@ class ChatService:
             "llm_calls": budget.used if budget else 0,
             "llm_refused": budget.refused if budget else 0,
         }
+        if result.get("turn_id"):
+            metadata["turn_id"] = result["turn_id"]
         # Durable audit trail of agent tool executions (refunds and
         # other irreversible support actions must be traceable).
         executed_tools = result.get("executed_tools") or []
@@ -264,6 +266,7 @@ class ChatService:
         stream_started = loop.time()
         first_token_seen = False
         outcome = "completed"
+        result: dict[str, Any] = {}
         try:
             while True:
                 remaining = deadline - loop.time()
@@ -339,15 +342,18 @@ class ChatService:
                 # real consumption (the scope only wrapped task creation).
                 record_budget_on_span(budget)
             if self.persister is not None and streamed_content:
+                metadata: dict[str, Any] = {
+                    "llm_calls": budget.used if budget else 0,
+                    "llm_refused": budget.refused if budget else 0,
+                }
+                if result.get("turn_id"):
+                    metadata["turn_id"] = result["turn_id"]
                 await self.persister.persist_turn(
                     session_id=session_id,
                     user_id=user_id,
                     user_message=message,
                     response="".join(streamed_content),
-                    metadata={
-                        "llm_calls": budget.used if budget else 0,
-                        "llm_refused": budget.refused if budget else 0,
-                    },
+                    metadata=metadata,
                 )
 
     async def _maybe_cache_answer(self, message: str, result: dict[str, Any], user_id: int) -> None:

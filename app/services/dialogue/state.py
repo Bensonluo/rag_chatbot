@@ -7,14 +7,51 @@ routing decisions, tool results, and intent switch stack.
 """
 
 from typing import Any, TypedDict
+from uuid import uuid4
 
 
-class DialogueState(TypedDict, total=False):
+class ToolExecutionContext(TypedDict):
+    """Last tool-bearing turn, retained only for human handoff context."""
+
+    turn_id: str
+    tool_result: dict[str, Any]
+    executed_tools: list[dict[str, Any]]
+
+
+class TurnState(TypedDict, total=False):
+    """Transient fields replaced at the start of every new graph invocation.
+
+    Tool results, retrieval and output in this state all belong to turn_id.
+    They must never be carried into a later turn by the checkpointer.
+    """
+
+    turn_id: str
+    prev_intent: str
+    confidence: float
+    slot_prompt: str
+    route: str
+    route_after_agent: str
+    route_after_faq: str
+    route_after_cache: str
+    tool_name: str
+    tool_result: dict[str, Any]
+    executed_tools: list[dict[str, Any]]
+    retrieved_docs: list[dict[str, Any]]
+    sources: list[str]
+    response: str
+    handoff_reason: str
+    handoff_ticket_id: int
+    blocked: bool
+    blocked_reason: str
+
+
+class DialogueState(TurnState, total=False):
     """
     State flowing through the dialogue graph.
 
     LangGraph merges returned dicts into the state automatically.
-    Each node returns only the fields it wants to update.
+    Each node returns only the fields it wants to update. Fields declared
+    here survive new turns; inherited TurnState fields are reset first.
     """
 
     # Input
@@ -24,35 +61,15 @@ class DialogueState(TypedDict, total=False):
 
     # Intent
     intent: str
-    prev_intent: str
-    confidence: float
 
     # Slots
     filled_slots: dict[str, Any]
     pending_slots: list[str]
-    slot_prompt: str
-
-    # Routing
-    route: str
-    # Agent-path routing decision: "agent_done" ends the turn,
-    # "agent_fallback" rejoins the slot pipeline (see handle_agent_node).
-    route_after_agent: str
-    # FAQ fast-path routing decision: "hit" ends the turn with the
-    # curated answer, "miss" continues into RAG (see faq_lookup_node).
-    route_after_faq: str
-    # L0 answer-cache routing decision: "hit" ends the turn with the
-    # cached answer; anything else falls through to the normal intent
-    # pipeline (see answer_cache_lookup_node).
-    route_after_cache: str
 
     # Tool execution
-    tool_name: str
-    tool_result: dict[str, Any]
-    # Structured agent audit trail ({"tool", "ok", "args", "summary"}
-    # per executed call) — persisted with the assistant message and
-    # included in handoff context. Declared explicitly per the
-    # route_after_agent lesson: undeclared keys are silently dropped.
-    executed_tools: list[dict[str, Any]]
+    # Historical context is deliberately separate from current results:
+    # only the handoff node consumes it, never response generation.
+    last_tool_execution: ToolExecutionContext
     # Set while an irreversible tool is staged awaiting explicit user
     # confirmation: {"intent": ..., "args": {...}}
     pending_confirmation: dict[str, Any] | None
@@ -64,21 +81,41 @@ class DialogueState(TypedDict, total=False):
     # irreversible action (double refund).
     task_executed: bool
 
-    # RAG
-    retrieved_docs: list[dict[str, Any]]
-    sources: list[str]
-
-    # Output
-    response: str
-
-    # Human handoff: why the handoff fired (explicit / emotion /
-    # refund_threshold) and the created ticket id, if any.
-    handoff_reason: str
-    handoff_ticket_id: int
-
     # Intent switch stack (manually managed, not a reducer)
     state_stack: list[dict[str, Any]]
 
-    # Guardrail
-    blocked: bool
-    blocked_reason: str
+
+def begin_turn(state: DialogueState) -> DialogueState:
+    """Reset per-turn outputs before guardrails, caches or routing run.
+
+    Returning only transient updates preserves slots, confirmations,
+    task terminality and suspended tasks. Each collection is fresh.
+    A resumed checkpoint inside a turn does not traverse this entry node.
+    """
+    updates: DialogueState = {
+        "turn_id": uuid4().hex,
+        "prev_intent": "",
+        "confidence": 0.0,
+        "slot_prompt": "",
+        "route": "",
+        "route_after_agent": "",
+        "route_after_faq": "",
+        "route_after_cache": "",
+        "tool_name": "",
+        "tool_result": {},
+        "executed_tools": [],
+        "retrieved_docs": [],
+        "sources": [],
+        "response": "",
+        "handoff_reason": "",
+        "handoff_ticket_id": 0,
+        "blocked": False,
+        "blocked_reason": "",
+    }
+    if state.get("tool_result") or state.get("executed_tools"):
+        updates["last_tool_execution"] = {
+            "turn_id": state.get("turn_id", ""),
+            "tool_result": state.get("tool_result") or {},
+            "executed_tools": state.get("executed_tools") or [],
+        }
+    return updates

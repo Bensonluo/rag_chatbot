@@ -1010,6 +1010,15 @@ class NodeFactory:
         ambush a later turn.
         """
         reason = state.get("handoff_reason") or REASON_EXPLICIT
+        # New turns clear live tool fields; retain the last tool-bearing
+        # turn for the human without exposing it to generation/routing.
+        tool_context = state.get("last_tool_execution")
+        if state.get("tool_result") or state.get("executed_tools"):
+            tool_context = {
+                "turn_id": state.get("turn_id", ""),
+                "tool_result": state.get("tool_result") or {},
+                "executed_tools": state.get("executed_tools") or [],
+            }
         context = {
             "trigger": reason,
             "user_message": state.get("message", ""),
@@ -1019,8 +1028,9 @@ class NodeFactory:
             # What the bot already tried, so the human agent does not
             # make the user repeat the story (industry-standard
             # context transfer on escalation).
-            "bot_executed_tools": state.get("executed_tools") or [],
-            "last_tool_result": state.get("tool_result") or None,
+            "bot_executed_tools": tool_context["executed_tools"] if tool_context else [],
+            "last_tool_result": (tool_context["tool_result"] or None) if tool_context else None,
+            "last_tool_turn_id": tool_context["turn_id"] if tool_context else None,
         }
 
         ticket: dict[str, Any] = {
