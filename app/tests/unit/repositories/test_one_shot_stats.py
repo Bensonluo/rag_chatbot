@@ -17,6 +17,7 @@ resolution. This pins the real metric at the real granularity:
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -47,9 +48,9 @@ async def _seed(
     sessions: list[int],
     assistant_turns: dict[int, int],
     ticket_sessions: list[int],
-    old_sessions: set[int] = frozenset(),
-    downvoted_sessions: set[int] = frozenset(),
-    upvoted_sessions: set[int] = frozenset(),
+    old_sessions: set[int] | frozenset[int] = frozenset(),
+    downvoted_sessions: set[int] | frozenset[int] = frozenset(),
+    upvoted_sessions: set[int] | frozenset[int] = frozenset(),
 ) -> None:
     """Seed chat sessions, assistant turns, and handoff tickets.
 
@@ -81,7 +82,7 @@ async def _seed(
         await session.commit()
 
 
-async def _stats(session_maker: async_sessionmaker[AsyncSession]) -> dict:
+async def _stats(session_maker: async_sessionmaker[AsyncSession]) -> dict[str, Any]:
     async with session_maker() as session:
         repo = TicketRepository(session)
         return await repo.get_one_shot_stats(since=_NOW - timedelta(days=7))

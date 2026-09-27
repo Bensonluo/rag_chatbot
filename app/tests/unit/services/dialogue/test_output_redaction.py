@@ -25,6 +25,7 @@ from app.services.guardrails.base import GuardrailService
 from app.services.guardrails.output_guard import DefaultOutputGuardrail
 from app.services.guardrails.stream_redactor import PIIStreamRedactor
 from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
+from app.services.observability.trace_events import TraceEvent
 
 EMAIL = "audit@example.invalid"
 
@@ -87,7 +88,9 @@ def _guardrails() -> GuardrailService:
     return GuardrailService(output_guard=DefaultOutputGuardrail())
 
 
-async def _turn(chat: ChatService, message: str, streaming: bool) -> tuple[str, list[str]]:
+async def _turn(
+    chat: ChatService, message: str, streaming: bool
+) -> tuple[str, list[str | TraceEvent]]:
     if not streaming:
         return (await chat.process_message(1, message, 0)).content, []
     chunks = [c async for c in chat.process_message_stream(1, message, 0)]
@@ -97,7 +100,7 @@ async def _turn(chat: ChatService, message: str, streaming: bool) -> tuple[str, 
 
 async def _state_response(chat: ChatService) -> str:
     snapshot = await chat.graph.aget_state({"configurable": {"thread_id": "1"}})
-    return cast(dict[str, Any], snapshot.values).get("response", "")
+    return str(cast(dict[str, Any], snapshot.values).get("response", ""))
 
 
 # ── Part A: direct tier cache-miss generations ──────────────────────────────

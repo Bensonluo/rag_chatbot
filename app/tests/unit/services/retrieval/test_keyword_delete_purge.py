@@ -10,6 +10,7 @@ ingestion path calls right after the epoch bump, so both retrieval
 legs are clean before ``delete_document`` returns.
 """
 
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import app.services.retrieval.keyword_refresh as keyword_refresh_module
@@ -17,17 +18,17 @@ from app.services.retrieval.hybrid_search import HybridSearchService, KeywordSea
 from app.services.retrieval.vector_base import VectorSearchRequest
 
 # Chunk dicts in the exact list_chunks shape: id / content / metadata.
-_CHUNK_A1 = {
+_CHUNK_A1: dict[str, Any] = {
     "id": "a1",
     "content": "zxqalpha 退货政策第一条",
     "metadata": {"document_id": "docA"},
 }
-_CHUNK_A2 = {
+_CHUNK_A2: dict[str, Any] = {
     "id": "a2",
     "content": "zxqalpha 退货政策第二条",
     "metadata": {"document_id": "docA"},
 }
-_CHUNK_B1 = {
+_CHUNK_B1: dict[str, Any] = {
     "id": "b1",
     "content": "yxwbeta 运费说明",
     "metadata": {"document_id": "docB"},
@@ -122,7 +123,8 @@ class TestIngestionWiring:
 
         qdrant = Mock()
         qdrant.delete_by_filter = AsyncMock(return_value=2)
-        monkeypatch.setattr(ingestion_module, "bump_kb_epoch", AsyncMock())
+        bump_epoch = AsyncMock()
+        monkeypatch.setattr(ingestion_module, "bump_kb_epoch", bump_epoch)
         service = DocumentIngestionService(
             qdrant_client=qdrant,
             embedding_provider="local",
@@ -132,7 +134,7 @@ class TestIngestionWiring:
         result = await service.delete_document("docA")
 
         assert result["deleted_chunks"] == 2
-        ingestion_module.bump_kb_epoch.assert_awaited_once()
+        bump_epoch.assert_awaited_once()
         # The stale-recall window is closed before the call returns.
         hits = await leg.search(VectorSearchRequest(query="zxqalpha", top_k=5))
         assert hits == []
@@ -149,7 +151,8 @@ class TestIngestionWiring:
 
         qdrant = Mock()
         qdrant.delete_by_filter = AsyncMock(return_value=0)
-        monkeypatch.setattr(ingestion_module, "bump_kb_epoch", AsyncMock())
+        bump_epoch = AsyncMock()
+        monkeypatch.setattr(ingestion_module, "bump_kb_epoch", bump_epoch)
         service = DocumentIngestionService(
             qdrant_client=qdrant,
             embedding_provider="local",
@@ -158,5 +161,5 @@ class TestIngestionWiring:
 
         await service.delete_document("docA")
 
-        ingestion_module.bump_kb_epoch.assert_not_awaited()
+        bump_epoch.assert_not_awaited()
         assert set(leg.documents) == {"a1", "a2", "b1"}

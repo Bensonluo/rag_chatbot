@@ -17,9 +17,10 @@ checkpoint thread dies with the messages.
 
 from collections.abc import AsyncGenerator
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 
 from app.models.enums.intent import Intent
@@ -177,7 +178,7 @@ class TestClearHistoryResetsDialogue:
             checkpointer=MemorySaver(),
         )
         chat = ChatService(graph=graph)
-        cfg = {"configurable": {"thread_id": "9"}}
+        cfg: RunnableConfig = {"configurable": {"thread_id": "9"}}
         await graph.aupdate_state(
             cfg, {"pending_confirmation": {"intent": "refund", "args": {"order_id": "ORD1001"}}}
         )
@@ -206,7 +207,7 @@ class TestClearHistoryResetsDialogue:
             checkpointer=MemorySaver(),
         )
         chat = ChatService(graph=graph)
-        cfg = {"configurable": {"thread_id": "9"}}
+        cfg: RunnableConfig = {"configurable": {"thread_id": "9"}}
         await graph.aupdate_state(
             cfg, {"pending_confirmation": {"intent": "refund", "args": {"order_id": "ORD1001"}}}
         )
@@ -215,8 +216,7 @@ class TestClearHistoryResetsDialogue:
         response = await chat.process_message(9, "确认", 0)
 
         registry.execute.assert_not_awaited()
-        content = cast(str, response.content)
-        assert "RF1" not in content
+        assert "RF1" not in response.content
 
     async def test_clear_history_survives_graphless_service(self) -> None:
         """Legacy wiring (no graph) keeps working; the memory strategy

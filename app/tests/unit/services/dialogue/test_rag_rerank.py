@@ -10,10 +10,11 @@ failure degrades to the hybrid order (fail-open, like every retrieval
 leg), and a cache hit skips the reranker entirely.
 """
 
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 from app.services.dialogue.nodes import NodeFactory
+from app.services.retrieval.retrieval_cache import RetrievalCacheService
 
 
 class FakeSearchResult:
@@ -53,7 +54,7 @@ def _factory(
         slot_filler=None,
         tool_registry=Mock(),
         retrieval_pipeline=pipeline,
-        retrieval_cache=cache,
+        retrieval_cache=cast("RetrievalCacheService | None", cache),
     )
 
 

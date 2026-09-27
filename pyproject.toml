@@ -194,6 +194,10 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = "app.tests.*"
 disallow_untyped_defs = false
+# Test methods take fixtures (monkeypatch, seams, ...) whose annotations
+# add no information; fully-untyped defs are already allowed above —
+# partial annotations (e.g. only the fixture param) hit this flag.
+disallow_incomplete_defs = false
 
 # python-louvain ships no type hints and no py.typed marker
 [[tool.mypy.overrides]]

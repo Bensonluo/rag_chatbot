@@ -16,6 +16,8 @@ on an affirmative ("确认" / "继续") or by restating the task.
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
+from langchain_core.runnables import RunnableConfig
+
 from app.models.enums.intent import Intent
 from app.services.agent import AgentResult
 from app.services.dialogue.nodes import NodeFactory
@@ -312,7 +314,7 @@ class TestLiveBugRegression:
             retrieval_pipeline={},
             llm_service=None,
         )
-        config = {"configurable": {"thread_id": "weather-regression-1"}}
+        config: RunnableConfig = {"configurable": {"thread_id": "weather-regression-1"}}
 
         turn1 = await graph.ainvoke(
             {

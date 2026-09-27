@@ -8,8 +8,10 @@ repositories and API layers build on: nullable/unique constraints,
 server-side defaults, and FK relationships.
 """
 
+from typing import cast
+
 import pytest
-from sqlalchemy import select
+from sqlalchemy import Table, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -282,7 +284,11 @@ class TestMessageKpiIndex:
         from app.models.database.message import Message
 
         wanted = {"role", "created_at"}
-        matches = [ix for ix in Message.__table__.indexes if {c.name for c in ix.columns} == wanted]
+        matches = [
+            ix
+            for ix in cast(Table, Message.__table__).indexes
+            if {c.name for c in ix.columns} == wanted
+        ]
         assert matches, (
             "messages needs a composite index on (role, created_at): the "
             "one-shot KPI query filters exactly this predicate on a timer"

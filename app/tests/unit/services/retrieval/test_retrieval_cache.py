@@ -12,7 +12,7 @@ Redis failure, and hit/miss telemetry so the protection is measurable.
 """
 
 import json
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 from prometheus_client import REGISTRY
@@ -239,7 +239,7 @@ class TestRagNodeWiring:
             slot_filler=None,
             tool_registry=Mock(),
             retrieval_pipeline={"hybrid_search": hybrid},
-            retrieval_cache=stub_cache,
+            retrieval_cache=cast("RetrievalCacheService", stub_cache),
         )
 
         updates = await factory.rag_lookup_node(
@@ -260,7 +260,7 @@ class TestRagNodeWiring:
             slot_filler=None,
             tool_registry=Mock(),
             retrieval_pipeline={"hybrid_search": hybrid},
-            retrieval_cache=stub_cache,
+            retrieval_cache=cast("RetrievalCacheService", stub_cache),
         )
 
         updates = await factory.rag_lookup_node(

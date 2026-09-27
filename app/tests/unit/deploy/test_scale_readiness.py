@@ -18,7 +18,7 @@ easy to silently break:
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -28,11 +28,11 @@ _PROM_CONFIG_PATH = _REPO_ROOT / "deploy" / "prometheus" / "prometheus.yml"
 
 
 def _compose() -> dict[str, Any]:
-    return yaml.safe_load(_COMPOSE_PATH.read_text())
+    return cast("dict[str, Any]", yaml.safe_load(_COMPOSE_PATH.read_text()))
 
 
 def _prom_config() -> dict[str, Any]:
-    return yaml.safe_load(_PROM_CONFIG_PATH.read_text())
+    return cast("dict[str, Any]", yaml.safe_load(_PROM_CONFIG_PATH.read_text()))
 
 
 def _api_ports() -> list[str]:
@@ -41,7 +41,7 @@ def _api_ports() -> list[str]:
 
 
 def _api_scrape_job() -> dict[str, Any]:
-    jobs = _prom_config().get("scrape_configs") or []
+    jobs: list[dict[str, Any]] = _prom_config().get("scrape_configs") or []
     api_jobs = [j for j in jobs if "api" in str(j.get("job_name", ""))]
     assert api_jobs, "prometheus.yml must define a scrape job for the api service"
     return api_jobs[0]

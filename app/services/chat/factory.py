@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.config.settings import settings
 from app.core.exceptions import ValidationError
@@ -298,12 +298,16 @@ class ChatServiceFactory:
             if settings.SEMANTIC_CACHE_ENABLED and embedding_service is not None:
                 from redis import asyncio as aioredis
 
-                from app.services.chat.semantic_cache import SemanticCacheService
+                from app.services.chat.semantic_cache import RedisSeam, SemanticCacheService
                 from app.services.retrieval.kb_epoch import get_kb_epoch
 
                 semantic_cache = SemanticCacheService(
                     embedding_service=embedding_service,
-                    redis_client=aioredis.from_url(settings.REDIS_URL, decode_responses=True),
+                    # redis-py's method signatures are wider than the
+                    # seam protocol but behaviorally compatible.
+                    redis_client=cast(
+                        "RedisSeam", aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+                    ),
                     epoch_provider=get_kb_epoch,
                     settings=settings,
                 )
@@ -315,10 +319,18 @@ class ChatServiceFactory:
                 from redis import asyncio as aioredis
 
                 from app.services.retrieval.kb_epoch import get_kb_epoch
-                from app.services.retrieval.retrieval_cache import RetrievalCacheService
+                from app.services.retrieval.retrieval_cache import (
+                    RedisSeam as RetrievalRedisSeam,
+                )
+                from app.services.retrieval.retrieval_cache import (
+                    RetrievalCacheService,
+                )
 
                 retrieval_cache = RetrievalCacheService(
-                    redis_client=aioredis.from_url(settings.REDIS_URL, decode_responses=True),
+                    redis_client=cast(
+                        "RetrievalRedisSeam",
+                        aioredis.from_url(settings.REDIS_URL, decode_responses=True),
+                    ),
                     epoch_provider=get_kb_epoch,
                     settings=settings,
                 )

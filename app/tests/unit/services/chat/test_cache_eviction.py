@@ -25,12 +25,12 @@ from unittest.mock import AsyncMock
 import pytest
 from redis.asyncio import Redis
 
-from app.services.chat.answer_cache import AnswerCacheService, normalize_message
+from app.services.chat.answer_cache import AnswerCacheService, CachedAnswer, normalize_message
 from app.services.chat.cache_eviction import (
     evict_downvoted_response,
     response_digest,
 )
-from app.services.chat.semantic_cache import CachedAnswer, SemanticCacheService
+from app.services.chat.semantic_cache import SemanticCacheService
 
 
 class _FakeRedis:

@@ -13,7 +13,7 @@ cannot silently drop it.
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
@@ -23,7 +23,7 @@ _COMPOSE_PATH = _REPO_ROOT / "docker-compose.yml"
 
 def _redis_service() -> dict[str, Any]:
     compose = yaml.safe_load(_COMPOSE_PATH.read_text())
-    return compose["services"]["redis"]
+    return cast("dict[str, Any]", compose["services"]["redis"])
 
 
 def _to_mb(size: str) -> float:

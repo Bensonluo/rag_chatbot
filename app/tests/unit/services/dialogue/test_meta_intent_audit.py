@@ -131,6 +131,7 @@ class TestConfirmExecutionAudit:
         assert entry["args"] == {"order_id": "ORD1001"}
         assert "RF1" in entry["summary"]
         # End to end: the response carries the same trail.
+        assert response.metadata is not None
         assert response.metadata["executed_tools"] == trace
 
     async def test_failed_execution_is_audited_as_not_ok(self) -> None:
@@ -163,5 +164,6 @@ class TestConfirmIdempotency:
         second = await chat.process_message(9, "确认", 1)
 
         assert registry.execute.await_count == 1
+        assert first.metadata is not None
         assert first.metadata.get("executed_tools")
-        assert not (second.metadata.get("executed_tools") or [])
+        assert not (second.metadata or {}).get("executed_tools")

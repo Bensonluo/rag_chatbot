@@ -9,13 +9,15 @@ freshness insurance (claim gate + output guardrail); a miss generates
 as before and writes back only for anonymous, stateless turns.
 """
 
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 from prometheus_client import REGISTRY
 
 from app.services.chat.answer_cache import CachedAnswer
+from app.services.chat.semantic_cache import SemanticCacheService
 from app.services.dialogue.nodes import NodeFactory
+from app.services.dialogue.state import DialogueState
 from app.services.llm.base import LLMResponse
 
 
@@ -56,10 +58,10 @@ def _layer_value(layer: str) -> float:
     return value if value is not None else 0.0
 
 
-def _state(**overrides: Any) -> dict[str, Any]:
+def _state(**overrides: Any) -> DialogueState:
     state: dict[str, Any] = {"message": "你好呀", "session_id": 1, "intent": "chitchat"}
     state.update(overrides)
-    return state
+    return cast("DialogueState", state)
 
 
 class TestSemanticCacheHit:
@@ -109,7 +111,7 @@ class TestSemanticCacheHit:
             tool_registry=Mock(),
             llm_service=_stub_llm(),
             guardrail_service=guardrail,
-            semantic_cache=StubSemanticCache(hit=cached),
+            semantic_cache=cast("SemanticCacheService", StubSemanticCache(hit=cached)),
         )
 
         updates = await factory.direct_response_node(_state(), None)
