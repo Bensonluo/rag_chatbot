@@ -29,6 +29,9 @@ class _FakeCheckpointerManager:
     def __init__(self) -> None:
         self.started = False
         self.stopped = False
+        # Lifespan reads this to withhold readiness when postgres mode
+        # was requested but MemorySaver substituted (review #12).
+        self.degraded = False
 
     async def start(self) -> object:
         self.started = True

@@ -21,7 +21,12 @@ from app.api.deps import get_current_user
 from app.config.settings import settings
 from app.middleware.rate_limiter_redis import EndpointRateLimiter, client_ip_from_request
 from app.models.database.user import User
-from app.services.chat.chat_service import HEARTBEAT, STREAM_ERROR, ChatService
+from app.services.chat.chat_service import (
+    HEARTBEAT,
+    STREAM_ERROR,
+    ChatService,
+    GraphUnavailableError,
+)
 from app.services.chat.factory import ChatServiceFactory
 from app.services.embeddings import EmbeddingFactory
 from app.services.handoff.one_shot_metrics import start_one_shot_refresher
@@ -284,6 +289,12 @@ async def initialize_chat_service(
         gap_recorder=create_knowledge_gap_recorder(),
         checkpointer=checkpointer,
     )
+    if _chat_service.graph is None:
+        # Factory-level graceful fallback keeps a graphless service for
+        # legacy callers, but the demo API cannot serve chat without
+        # the graph — refuse readiness instead of a green /ready that
+        # 500s on every message (review 2026-09-26, #12).
+        raise RuntimeError("Dialogue graph failed to build — refusing readiness")
 
 
 def get_chat_service() -> ChatService:
@@ -375,6 +386,14 @@ async def chat(
             metadata=response.metadata,
             dialogue_state=dialogue_state,
         )
+
+    except GraphUnavailableError as e:
+        # Degraded window before /ready flips: retryable 503, not a
+        # generic 500 (review 2026-09-26, #12).
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Chat engine not initialized",
+        ) from e
 
     except Exception as e:
         logger.error("Failed to process chat message: %s", e)

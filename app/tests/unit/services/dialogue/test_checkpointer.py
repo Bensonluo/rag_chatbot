@@ -56,6 +56,8 @@ class TestManagerLifecycle:
         manager = DialogueCheckpointerManager("memory", db_url=None)
         saver = await manager.start()
         assert isinstance(saver, MemorySaver)
+        # Explicitly requested memory mode is not a degradation
+        assert manager.degraded is False
         # stop() must be a no-op without an open connection pool
         await manager.stop()
 
@@ -77,6 +79,7 @@ class TestManagerLifecycle:
             from_conn.assert_called_once_with("postgresql://u:p@h:5432/db")
             cm.__aenter__.assert_awaited_once()
             saver.setup.assert_awaited_once()
+            assert manager.degraded is False
 
             await manager.stop()
             cm.__aexit__.assert_awaited_once()
@@ -90,12 +93,16 @@ class TestManagerLifecycle:
             started = await manager.start()
 
         assert isinstance(started, MemorySaver)
+        # The swap must be observable: lifespan withholds readiness
+        # when postgres mode was requested but not delivered.
+        assert manager.degraded is True
         await manager.stop()  # nothing open — must not raise
 
     async def test_postgres_without_url_degrades_to_memory_saver(self):
         manager = DialogueCheckpointerManager("postgres", db_url=None)
         started = await manager.start()
         assert isinstance(started, MemorySaver)
+        assert manager.degraded is True
 
     async def test_stop_swallows_close_errors(self):
         saver = MagicMock()

@@ -48,8 +48,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
         async with async_session_maker() as db:
             await initialize_chat_service(db, checkpointer=checkpointer)
-        app.state.chat_ready = True
-        logger.info("Chat service initialized successfully")
+        if checkpointer_manager.degraded:
+            # Required dependency silently substituted: chat serves,
+            # but dialogue durability is gone — readiness is withheld
+            # so orchestrators see a not-ready replica instead of one
+            # that forgets conversations (review 2026-09-26, #12).
+            logger.error("Dialogue checkpointer degraded to MemorySaver — readiness withheld")
+        else:
+            app.state.chat_ready = True
+            logger.info("Chat service initialized successfully")
     except Exception as e:
         logger.warning("Failed to initialize chat service: %s", e)
 

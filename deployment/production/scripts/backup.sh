@@ -61,6 +61,10 @@ else
     cat "$ERR_FILE" 2>/dev/null || echo "(no stderr captured)"
     rm -f "$ERR_FILE"
     rm -f "$BACKUP_FILE"
+    # Cron/monitoring can only see the exit code, not red text — and
+    # retention cleanup must NOT run: keeping the last good backup is
+    # the safe direction when the new one failed (review 2026-09-26 #12).
+    exit 1
 fi
 
 echo ""

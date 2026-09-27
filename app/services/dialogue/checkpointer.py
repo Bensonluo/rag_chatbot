@@ -39,6 +39,15 @@ class DialogueCheckpointerManager:
         self._db_url = db_url
         self._entered_cm: AbstractAsyncContextManager[Any] | None = None
 
+    @property
+    def degraded(self) -> bool:
+        """True when postgres mode was requested but a process-local
+        MemorySaver was substituted — dialogue state will not survive
+        restarts or replica changes. Lifespan withholds readiness on
+        this signal (review 2026-09-26, #12): the swap must be visible
+        to orchestrators, not just the log."""
+        return self._type == "postgres" and self._entered_cm is None
+
     async def start(self) -> BaseCheckpointSaver[Any]:
         """Create and initialize the shared checkpointer.
 

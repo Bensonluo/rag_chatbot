@@ -47,6 +47,16 @@ HEARTBEAT = ""
 STREAM_ERROR = "[[STREAM_ERROR]]"
 
 
+class GraphUnavailableError(RuntimeError):
+    """The dialogue graph was never built — chat cannot run.
+
+    The factory's graceful fallback keeps a legacy service object
+    alive without a graph; both transports refuse it with this typed
+    error so the API can answer 503 instead of letting
+    ``NoneType.ainvoke`` surface as a 500 (review 2026-09-26, #12).
+    """
+
+
 @dataclass
 class ChatResponse:
     """
@@ -131,6 +141,8 @@ class ChatService:
         Returns:
             ChatResponse with graph output
         """
+        if self.graph is None:
+            raise GraphUnavailableError("dialogue graph is not initialized")
         config = {"configurable": {"thread_id": str(session_id)}}
         budget: BudgetState | None = None
         async with enter_llm_budget(settings.CHAT_LLM_CALL_BUDGET) as budget_state:
@@ -228,6 +240,12 @@ class ChatService:
             str | TraceEvent: Response text chunks (HEARTBEAT sentinel
             on idle) interleaved with pipeline trace events
         """
+        if self.graph is None:
+            # STREAM_ERROR frame per the stream failure convention —
+            # raising inside an async generator would only surface as
+            # a dropped connection after SSE headers were already sent.
+            yield STREAM_ERROR
+            return
         queue: asyncio.Queue[str | TraceEvent | None] = asyncio.Queue()
         config = {"configurable": {"thread_id": str(session_id), "stream_queue": queue}}
         # The sentinel is enqueued only after the graph task settles, so

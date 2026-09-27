@@ -230,6 +230,7 @@ testpaths = [
     "app/tests/unit/test_config.py",
     "app/tests/unit/test_lifespan.py",
     "app/tests/unit/test_logging.py",
+    "app/tests/unit/test_readiness_honesty.py",
     "app/tests/unit/test_pyproject_deps.py",
     "app/tests/unit/services/llm/test_anthropic_client.py",
     "app/tests/unit/services/llm/test_openai_client.py",
