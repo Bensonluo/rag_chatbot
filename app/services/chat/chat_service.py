@@ -365,6 +365,10 @@ class ChatService:
         grounded (sources present). Personalized turns must never be
         written: a hit replays the stored text verbatim at any later
         anonymous visitor, so one user's context must not be baked in.
+        That includes session history: an anonymous session's follow-up
+        answer is personal to that dialogue (review 2026-09-26, #5) —
+        the graph flags such turns ``personalized`` when the generation
+        folded in history or user facts.
         The write key uses the post-guardrail sanitized message (the
         read site looks up with sanitized text); put() itself is
         fail-open, so an outage only means "not cached".
@@ -380,6 +384,7 @@ class ChatService:
             or result.get("pending_confirmation")
             or result.get("executed_tools")
             or result.get("blocked")
+            or result.get("personalized")
         ):
             return
         await self.answer_cache.put(

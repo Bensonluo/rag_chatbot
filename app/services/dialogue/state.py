@@ -43,6 +43,11 @@ class TurnState(TypedDict, total=False):
     handoff_ticket_id: int
     blocked: bool
     blocked_reason: str
+    # True when this turn's generation folded in session history or
+    # cross-session user facts: the answer is personal to this dialogue
+    # and must never enter a shared (cross-session) cache — see the
+    # L0/L1 write gates in chat_service / nodes.
+    personalized: bool
 
 
 class DialogueState(TurnState, total=False):
@@ -111,6 +116,7 @@ def begin_turn(state: DialogueState) -> DialogueState:
         "handoff_ticket_id": 0,
         "blocked": False,
         "blocked_reason": "",
+        "personalized": False,
     }
     if state.get("tool_result") or state.get("executed_tools"):
         updates["last_tool_execution"] = {

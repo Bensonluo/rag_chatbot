@@ -88,6 +88,20 @@ def _stream_queue(config: Optional[RunnableConfig]) -> asyncio.Queue[Any] | None
     return queue if isinstance(queue, asyncio.Queue) else None
 
 
+def _used_history(config: Optional[RunnableConfig]) -> bool:
+    """Whether this request's generation folded in history or user facts.
+
+    ``_call_llm`` sets the flag on the per-request ``configurable`` when
+    prior turns or cross-session facts entered the prompt. Write gates
+    (L0 answer cache, L1 semantic cache) read it back through here: a
+    history-derived answer is personal to this dialogue and must never
+    be replayed at a different visitor (review 2026-09-26, finding #5).
+    """
+    if config is None:
+        return False
+    return bool((config.get("configurable") or {}).get("generation_used_history"))
+
+
 def _emit_response(text: str, config: Optional[RunnableConfig]) -> None:
     """Push a complete response to the stream queue.
 
@@ -870,6 +884,11 @@ class NodeFactory:
         when it was not already streamed token-by-token.
         """
         updates = await self._generate_response_logic(state, config)
+        # Shared-cache eligibility: when the generation folded in history
+        # or user facts, flag it so the L0 write gate in ChatService can
+        # refuse to store a dialogue-personal answer.
+        if _used_history(config):
+            updates["personalized"] = True
         updates = self._apply_claim_gate(state, updates)
 
         if self._guardrail_service is None or state.get("blocked"):
@@ -983,22 +1002,29 @@ class NodeFactory:
         record_funnel_layer(LAYER_DIRECT)
         response = await self._generate_direct(message, config, state)
         # Cache the clean body; the resume hint is per-turn state.
-        await self._maybe_put_semantic(state, message, response.get("response", ""))
+        await self._maybe_put_semantic(
+            state, message, response.get("response", ""), used_history=_used_history(config)
+        )
         response["response"] = _maybe_append_resume_hint(response.get("response", ""), state)
         return response
 
-    async def _maybe_put_semantic(self, state: DialogueState, message: str, response: str) -> None:
-        """L1 write gate: only anonymous, stateless smalltalk turns.
+    async def _maybe_put_semantic(
+        self, state: DialogueState, message: str, response: str, *, used_history: bool = False
+    ) -> None:
+        """L1 write gate: only anonymous, stateless, context-free turns.
 
         Mirrors the L0 doctrine: personalized turns (identified users,
         whose generators may fold cross-session facts into the answer)
         are never written — a hit replays the stored text verbatim at
-        any later visitor. The service's own intent allowlist and
-        capacity cap apply on top; put() is fail-open.
+        any later visitor. Session history counts the same way: an
+        anonymous session's follow-up answer still leaks that dialogue's
+        context into a shared replay (review 2026-09-26, finding #5).
+        The service's own intent allowlist and capacity cap apply on
+        top; put() is fail-open.
         """
         if self._semantic_cache is None or not response:
             return
-        if state.get("user_id") or state.get("pending_confirmation"):
+        if state.get("user_id") or state.get("pending_confirmation") or used_history:
             return
         await self._semantic_cache.put(
             message,
@@ -1558,11 +1584,21 @@ class NodeFactory:
         if facts:
             persona = f"{persona}\n\n已知用户信息（跨会话，仅供个性化参考）：{'；'.join(facts)}"
         messages: list[LLMMessage] = [LLMMessage(role="system", content=persona)]
+        history_added = False
         if state is not None and self._history_provider is not None:
             try:
-                messages.extend(await self._history_provider(state.get("session_id", 0)))
+                history = await self._history_provider(state.get("session_id", 0))
+                messages.extend(history)
+                history_added = bool(history)
             except Exception:  # noqa: BLE001 - history is best-effort
                 logger.warning("History fetch failed; generating without prior turns")
+        if (facts or history_added) and config is not None:
+            # Shared-cache eligibility flag: this generation is personal
+            # to the dialogue, so its output must not be stored in any
+            # cross-session cache (see _used_history consumers).
+            configurable = config.get("configurable")
+            if isinstance(configurable, dict):
+                configurable["generation_used_history"] = True
         messages.append(LLMMessage(role="user", content=user_content))
         queue = _stream_queue(config)
 
