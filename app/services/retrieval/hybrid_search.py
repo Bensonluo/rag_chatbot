@@ -90,6 +90,33 @@ class KeywordSearch:
         self.documents = new_documents
         self.document_terms = new_terms
 
+    async def remove_document(self, document_id: str) -> int:
+        """
+        Drop every chunk of one document from the index.
+
+        The delete-time synchronous purge: without it the periodic
+        rebuild is the only expiry, and for up to one refresh interval
+        a deleted document stays recallable by keyword after the
+        vector leg and the KB epoch already moved on — a stale hit
+        then gets cached under the new epoch and outlives the index
+        window (review 2026-09-26, #7).
+
+        Args:
+            document_id: Document whose chunks to drop
+
+        Returns:
+            int: Number of chunks removed
+        """
+        doomed = [
+            chunk_id
+            for chunk_id, chunk in self.documents.items()
+            if (chunk.get("metadata") or {}).get("document_id") == document_id
+        ]
+        for chunk_id in doomed:
+            self.documents.pop(chunk_id, None)
+            self.document_terms.pop(chunk_id, None)
+        return len(doomed)
+
     async def search(
         self,
         request: VectorSearchRequest,

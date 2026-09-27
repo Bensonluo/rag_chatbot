@@ -39,6 +39,52 @@ KEYWORD_INDEX_REFRESH_SECONDS = Histogram(
 
 _refresh_task: asyncio.Task[None] | None = None
 
+# The live hybrid service whose keyword leg this process serves. The
+# refresher already holds the instance; the registry exposes it so the
+# ingestion path can purge deleted documents synchronously instead of
+# waiting out the refresh interval (review 2026-09-26, #7). Overwritten
+# on re-init; never cleared on stop — a stopped refresher leaves the
+# index correct, merely frozen.
+_keyword_hybrid: HybridSearchService | None = None
+
+
+def register_keyword_index(hybrid_search: HybridSearchService) -> None:
+    """Make ``hybrid_search``'s keyword leg the purge target."""
+    global _keyword_hybrid
+    _keyword_hybrid = hybrid_search
+
+
+async def purge_keyword_document(document_id: str) -> int:
+    """
+    Remove a deleted document's chunks from the live keyword leg.
+
+    Fail-open by design: a missing registration (keyword leg not yet
+    warmed) or a purge failure must not break the delete API — the
+    periodic rebuild remains the backstop that eventually drops the
+    chunks in every process.
+
+    Args:
+        document_id: Document whose chunks to purge
+
+    Returns:
+        int: Chunks removed (0 when nothing is registered)
+    """
+    if _keyword_hybrid is None:
+        return 0
+    try:
+        removed = await _keyword_hybrid.keyword_search.remove_document(document_id)
+        if removed:
+            KEYWORD_INDEX_CHUNKS.set(max(0, len(_keyword_hybrid.keyword_search.documents)))
+            logger.info("Purged %d keyword chunks of document %s", removed, document_id)
+        return removed
+    except Exception:  # noqa: BLE001 - fail-open; rebuild is the backstop
+        logger.warning(
+            "Keyword purge failed for document %s; periodic rebuild will drop it",
+            document_id,
+            exc_info=True,
+        )
+        return 0
+
 
 async def refresh_keyword_index(
     hybrid_search: HybridSearchService,

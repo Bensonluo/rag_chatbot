@@ -35,6 +35,7 @@ from app.services.observability.trace_events import TraceEvent
 from app.services.retrieval import RetrievalFactory
 from app.services.retrieval.keyword_refresh import (
     KEYWORD_INDEX_CHUNKS,
+    register_keyword_index,
     start_keyword_index_refresher,
 )
 
@@ -117,6 +118,11 @@ async def initialize_chat_service(
                 vector_client=qdrant_client,
             ),
         }
+        # Publish this process's keyword leg as the delete-time purge
+        # target (see purge_keyword_document): a deleted document must
+        # leave the BM25 index when the vectors leave Qdrant, not one
+        # refresh interval later (review 2026-09-26, #7).
+        register_keyword_index(retrieval_pipeline["hybrid_search"])
         # Warm the BM25 leg from the vector corpus so hybrid RRF runs on
         # both legs; failure degrades to vector-only (availability over
         # strictness).

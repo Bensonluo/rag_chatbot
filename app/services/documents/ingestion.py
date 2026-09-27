@@ -22,6 +22,7 @@ from app.services.embeddings.base import EmbeddingServiceBase
 from app.services.graph.base import GraphClient
 from app.services.graph.extraction.base import EntityExtractor
 from app.services.retrieval.kb_epoch import bump_kb_epoch
+from app.services.retrieval.keyword_refresh import purge_keyword_document
 from app.services.retrieval.qdrant_client import QdrantClient
 
 
@@ -373,5 +374,12 @@ class DocumentIngestionService:
         # epoch (no-op on an empty delete; content did not change).
         if deleted_count:
             await bump_kb_epoch()
+            # Close the stale-recall window synchronously: the keyword
+            # leg must not keep serving (and caching, under the new
+            # epoch) chunks the vector leg already dropped — waiting
+            # for the periodic rebuild leaves that window open for a
+            # full refresh interval (review 2026-09-26, #7). Fail-open:
+            # the rebuild remains the backstop.
+            await purge_keyword_document(document_id)
 
         return {"document_id": document_id, "deleted_chunks": deleted_count}
