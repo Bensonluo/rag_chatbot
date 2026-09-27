@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 from langchain_core.runnables import RunnableConfig
 
+from app.config.settings import settings
 from app.models.enums.intent import (
     DIRECT_INTENTS,
     GRAPH_INTENTS,
@@ -59,6 +60,7 @@ from app.services.dialogue.funnel_metrics import (
     LAYER_RAG,
     record_funnel_layer,
 )
+from app.services.dialogue.query_rewriter import condense_for_retrieval
 from app.services.dialogue.state import DialogueState
 from app.services.facts.metrics import CLAIM_CHECKS, CLAIM_VIOLATIONS
 from app.services.guardrails.base import GuardrailService
@@ -179,6 +181,10 @@ class NodeFactory:
     ) -> None:
         self._intent_detector = intent_detector
         self._history_provider = history_provider
+        # One history fetch per turn: the retrieval-side condense and
+        # generation read the same snapshot (turn_id-keyed single-slot
+        # memo; interleaved turns just refetch on a key miss).
+        self._turn_history_memo: tuple[str, list[Any]] | None = None
         self._system_prompt = system_prompt
         self._user_facts_provider = user_facts_provider
         self._slot_filler = slot_filler
@@ -703,9 +709,18 @@ class NodeFactory:
         retrieval_ran = False
         retrieval_degraded = False
 
+        # Follow-up questions carry their subject in history, not in the
+        # string (「那运费呢？」) — condense against recent turns before
+        # search. Slot extraction still reads the raw message (order ids
+        # and entities live there). Fail-open: None keeps the original.
+        rewritten = await self._condense_query(message, state)
+        search_message = rewritten if rewritten else message
+        if rewritten:
+            emit_trace("cs.query_rewrite", original=message, rewritten=rewritten)
+
         fill_result = await self._extract_query_entities(message)
         entity_hints = fill_result.to_entity_hints() if fill_result else []
-        query = _enriched_query(message, fill_result)
+        query = _enriched_query(search_message, fill_result)
 
         # Graph intents go through graph retrieval.
         if intent in GRAPH_INTENTS and self._graph_retrieval_service is not None:
@@ -828,6 +843,39 @@ class NodeFactory:
         except Exception:  # noqa: BLE001 - rerank is precision, not availability
             logger.exception("Reranking failed; keeping hybrid order")
             return results
+
+    async def _turn_history(self, state: DialogueState) -> list[Any]:
+        """Session history for this turn, fetched at most once.
+
+        The retrieval-side condense and the generation prompt need the
+        same snapshot; fetching twice would double the provider cost
+        and could race a concurrent persist between the two reads.
+        Raises whatever the provider raises — callers own the policy.
+        """
+        assert self._history_provider is not None
+        turn_id = state.get("turn_id", "")
+        if self._turn_history_memo is not None and self._turn_history_memo[0] == turn_id:
+            return self._turn_history_memo[1]
+        history = list(await self._history_provider(state.get("session_id", 0)))
+        self._turn_history_memo = (turn_id, history)
+        return history
+
+    async def _condense_query(self, message: str, state: DialogueState) -> str | None:
+        """Best-effort standalone-question rewrite for retrieval (review #6).
+
+        Skipped when disabled, unwired, history-less, or on any failure —
+        every path returns None and the raw message is searched instead.
+        """
+        if not settings.QUERY_REWRITE_ENABLED:
+            return None
+        if self._llm_service is None or self._history_provider is None:
+            return None
+        try:
+            history = await self._turn_history(state)
+        except Exception:  # noqa: BLE001 - history is best-effort context
+            logger.warning("History fetch failed; retrieval searches the raw message")
+            return None
+        return await condense_for_retrieval(self._llm_service, message, history)
 
     async def _extract_query_entities(self, message: str) -> SlotFillingResult | None:
         """Run the slot filler over the raw message for retrieval enrichment.
@@ -1208,7 +1256,7 @@ class NodeFactory:
             history = None
             if self._history_provider is not None:
                 try:
-                    history = list(await self._history_provider(state.get("session_id", 0)))
+                    history = await self._turn_history(state)
                 except Exception:  # noqa: BLE001 - history is best-effort
                     logger.warning("History fetch failed; agent runs without prior turns")
             result = await self._agent_service.run(
@@ -1663,7 +1711,7 @@ class NodeFactory:
         history_added = False
         if state is not None and self._history_provider is not None:
             try:
-                history = await self._history_provider(state.get("session_id", 0))
+                history = await self._turn_history(state)
                 messages.extend(history)
                 history_added = bool(history)
             except Exception:  # noqa: BLE001 - history is best-effort

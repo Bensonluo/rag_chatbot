@@ -228,6 +228,13 @@ class Settings(BaseSettings):
         default=300.0,
         description="Interval for the periodic BM25 rebuild from the vector store (0 disables)",
     )
+    QUERY_REWRITE_ENABLED: bool = Field(
+        default=True,
+        description=(
+            "Condense follow-up questions into standalone retrieval queries "
+            "using recent history (adds one light LLM call per retrieval turn)"
+        ),
+    )
     CONTAINMENT_STATS_REFRESH_SECONDS: float = Field(
         default=300.0,
         description=(

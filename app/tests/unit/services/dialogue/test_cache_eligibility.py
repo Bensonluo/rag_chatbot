@@ -173,7 +173,11 @@ class TestAnswerCacheEligibility:
 
         await _turn(chat, "退款政策是什么", streaming)
 
-        assert len(llm.calls[1]) == 3  # history folded into the RAG prompt
+        # Turn 2 added a retrieval-condense call (system prompt mentions
+        # 改写); the generation call is the other one — and it is the one
+        # that must still fold history into the RAG prompt.
+        gen = next(m for m in llm.calls[1:] if "改写" not in m[0].content)
+        assert len(gen) == 3
         assert answer_cache.put.await_count == 1  # history turn not cached
 
     async def test_anonymous_stateless_rag_answer_still_cached(self, llm: _RecordingLLM) -> None:
