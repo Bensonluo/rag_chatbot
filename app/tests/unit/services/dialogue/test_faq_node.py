@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
-from app.services.dialogue.nodes import NodeFactory
+from app.services.dialogue.nodes import NO_EVIDENCE_RESPONSE, NodeFactory
 from app.services.dialogue.tools import create_default_tool_registry
 from app.services.faq import FAQEntry, FAQService
 from app.services.guardrails.base import GuardrailService
@@ -175,5 +175,8 @@ class TestGraphFaqFlow:
             {"configurable": {"thread_id": "faq-miss-1"}},
         )
 
+        # Miss reaches the hybrid leg, and with an empty KB the turn
+        # ends in the deterministic no-evidence branch (review #6) —
+        # not a free LLM generation over no context.
         hybrid.search.assert_awaited_once()
-        assert turn["response"] == "RAG 生成的回答"
+        assert turn["response"] == NO_EVIDENCE_RESPONSE

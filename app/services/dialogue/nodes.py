@@ -81,6 +81,16 @@ from app.services.slot_filling.slot_types import (
 
 logger = logging.getLogger(__name__)
 
+# Deterministic evidence-gap copy (review 2026-09-26, #6): a knowledge
+# question with an empty KB slice must not fall through to free LLM
+# generation — the model would invent policy. Two distinct sentences,
+# because the correct next move differs: rephrase/handoff when the KB
+# simply lacks the answer, retry/handoff when retrieval itself failed.
+NO_EVIDENCE_RESPONSE = (
+    "抱歉，暂未在知识库中找到与您问题相关的信息。您可以换个说法再试，或输入「转人工」联系人工客服。"
+)
+RETRIEVAL_DEGRADED_RESPONSE = "检索服务暂时不可用，请稍后再试，或输入「转人工」联系人工客服。"
+
 
 def _stream_queue(config: Optional[RunnableConfig]) -> asyncio.Queue[Any] | None:
     """Extract the per-request stream queue from a LangGraph invoke config."""
@@ -690,6 +700,8 @@ class NodeFactory:
         intent = state.get("intent", "")
         retrieved_docs: list[dict[str, Any]] = []
         sources: list[str] = []
+        retrieval_ran = False
+        retrieval_degraded = False
 
         fill_result = await self._extract_query_entities(message)
         entity_hints = fill_result.to_entity_hints() if fill_result else []
@@ -697,6 +709,7 @@ class NodeFactory:
 
         # Graph intents go through graph retrieval.
         if intent in GRAPH_INTENTS and self._graph_retrieval_service is not None:
+            retrieval_ran = True
             try:
                 # GraphRetrievalService exposes search() returning a fused,
                 # ranked list — the old .query() call raised AttributeError
@@ -708,9 +721,15 @@ class NodeFactory:
                     retrieved_docs = [_graph_doc_to_dict(r) for r in graph_results]
                     sources = _extract_sources(retrieved_docs)
             except Exception:
+                retrieval_degraded = True
                 logger.exception("Graph retrieval failed for intent %s", intent)
             emit_trace("cs.retrieval", mode="graph", docs=len(retrieved_docs), sources=sources[:3])
-            return {"retrieved_docs": retrieved_docs, "sources": sources}
+            return {
+                "retrieved_docs": retrieved_docs,
+                "sources": sources,
+                "retrieval_ran": retrieval_ran,
+                "retrieval_degraded": retrieval_degraded,
+            }
 
         # Standard hybrid search for RAG intents.
         hybrid_search = self._retrieval_pipeline.get("hybrid_search")
@@ -722,7 +741,14 @@ class NodeFactory:
                     intersect_metadata_filters,
                 )
 
+                # Counted per _search_once call: a swallowed
+                # VectorClientError means both legs raised. Ending the
+                # turn with no docs AND swallowed failures is a service
+                # outage, not an honest empty KB (review 2026-09-26, #6).
+                leg_failures = 0
+
                 async def _search_once(request: VectorSearchRequest) -> list[Any]:
+                    nonlocal leg_failures
                     # HybridSearchService raises VectorClientError when both
                     # legs come back empty — a metadata-filter miss looks
                     # exactly like that. Normalize to [] so the unfiltered
@@ -732,6 +758,7 @@ class NodeFactory:
                         hits = await hybrid_search.search(request)
                         return list(hits)
                     except VectorClientError:
+                        leg_failures += 1
                         return []
 
                 filters = (
@@ -765,13 +792,23 @@ class NodeFactory:
                     sources = _extract_sources(retrieved_docs)
                     if retrieved_docs and self._retrieval_cache is not None:
                         await self._retrieval_cache.put(query, filters, retrieved_docs)
+                    if not retrieved_docs and leg_failures:
+                        retrieval_degraded = True
             except Exception:
+                retrieval_degraded = True
                 logger.exception("Hybrid search failed")
 
+        if hybrid_search is not None:
+            retrieval_ran = True
         if retrieved_docs:
             record_funnel_layer(LAYER_RAG)
         emit_trace("cs.retrieval", mode="hybrid", docs=len(retrieved_docs), sources=sources[:3])
-        return {"retrieved_docs": retrieved_docs, "sources": sources}
+        return {
+            "retrieved_docs": retrieved_docs,
+            "sources": sources,
+            "retrieval_ran": retrieval_ran,
+            "retrieval_degraded": retrieval_degraded,
+        }
 
     async def _rerank_results(self, results: list[Any], request: Any) -> list[Any]:
         """Rerank search results when the pipeline carries a reranker.
@@ -947,6 +984,16 @@ class NodeFactory:
         retrieved_docs = state.get("retrieved_docs")
         if retrieved_docs:
             return await self._generate_with_rag(intent, message, retrieved_docs, state, config)
+
+        # Case 4b: retrieval ran and found nothing — deterministic
+        # evidence gap. Free generation with no context is exactly how
+        # a customer-service bot invents return policies; a failed leg
+        # is a service outage and must not read as "no knowledge"
+        # (review 2026-09-26, #6).
+        if state.get("retrieval_ran") and not retrieved_docs:
+            if state.get("retrieval_degraded"):
+                return {"response": RETRIEVAL_DEGRADED_RESPONSE}
+            return {"response": NO_EVIDENCE_RESPONSE}
 
         # Case 5: direct LLM call.
         return await self._generate_direct(message, config, state)

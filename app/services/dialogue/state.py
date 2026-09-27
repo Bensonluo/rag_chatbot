@@ -38,6 +38,14 @@ class TurnState(TypedDict, total=False):
     executed_tools: list[dict[str, Any]]
     retrieved_docs: list[dict[str, Any]]
     sources: list[str]
+    # True when a retrieval leg actually ran this turn (empty results
+    # included) — begin_turn pre-clears retrieved_docs to [], so the
+    # generation-side no-evidence branch cannot key on emptiness alone.
+    retrieval_ran: bool
+    # True when a retrieval leg raised instead of answering: the
+    # evidence gap is a service outage, not missing knowledge, and the
+    # user-facing copy must say so (retry/handoff vs rephrase).
+    retrieval_degraded: bool
     response: str
     handoff_reason: str
     handoff_ticket_id: int
@@ -111,6 +119,8 @@ def begin_turn(state: DialogueState) -> DialogueState:
         "executed_tools": [],
         "retrieved_docs": [],
         "sources": [],
+        "retrieval_ran": False,
+        "retrieval_degraded": False,
         "response": "",
         "handoff_reason": "",
         "handoff_ticket_id": 0,
