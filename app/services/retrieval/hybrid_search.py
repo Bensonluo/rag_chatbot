@@ -6,8 +6,9 @@ vector similarity search and keyword-based search.
 """
 
 import logging
+import math
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from typing import Any
 
 from app.core.exceptions import ValidationError
@@ -19,6 +20,19 @@ from app.services.retrieval.vector_base import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Okapi BM25 parameters — Robertson-Sparck Jones IDF with saturated TF
+# and length normalization (the rank_bm25 defaults). Exposed at module
+# level so tests and tuners can reference one source of truth.
+BM25_K1 = 1.5
+BM25_B = 0.75
+
+# Character classes for keyword tokenization. CJK text has no word
+# boundaries, so contiguous CJK runs are indexed as character bigrams
+# (the Elasticsearch cjk_bigram baseline); ASCII runs stay whole words.
+_CJK_CLASS = "\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
+_CJK_RUN = re.compile(rf"[{_CJK_CLASS}]+")
+_TOKEN_RUN = re.compile(rf"([{_CJK_CLASS}]+)|([a-z0-9]+)")
 
 
 def _matches_metadata_filters(doc: dict[str, Any], filters: dict[str, Any]) -> bool:
@@ -50,7 +64,7 @@ class KeywordSearch:
     def __init__(self) -> None:
         """Initialize keyword search."""
         self.documents: dict[str, dict[str, Any]] = {}
-        self.document_terms: dict[str, set[str]] = {}
+        self.document_terms: dict[str, Counter[str]] = {}
 
     async def add_documents(
         self,
@@ -154,10 +168,29 @@ class KeywordSearch:
         # Extract query terms
         query_terms = self._extract_terms(request.query)
 
+        # Corpus statistics the BM25 formula needs, computed once per
+        # query. The KB corpus is chunk-sized, so a per-query scan is
+        # cheap; IDF stays corpus-wide even when metadata filters
+        # narrow the candidate set.
+        n_docs = len(self.documents)
+        doc_frequency: Counter[str] = Counter()
+        total_len = 0
+        for terms in self.document_terms.values():
+            for term in terms:
+                doc_frequency[term] += 1
+            total_len += sum(terms.values())
+        avg_doc_len = total_len / n_docs if n_docs else 0.0
+
         # Score each document
         scores = []
         for doc_id in doc_ids:
-            score = self._compute_bm25_score(query_terms, self.document_terms[doc_id])
+            score = self._compute_bm25_score(
+                query_terms,
+                self.document_terms[doc_id],
+                doc_frequency,
+                n_docs,
+                avg_doc_len,
+            )
             if score > 0:
                 scores.append(
                     SearchResult(
@@ -173,47 +206,81 @@ class KeywordSearch:
         # Apply top_k limit
         return scores[: request.top_k]
 
-    def _extract_terms(self, text: str) -> set[str]:
+    def _extract_terms(self, text: str) -> Counter[str]:
         """
         Extract search terms from text.
+
+        ASCII word runs become lowercase word tokens. Contiguous CJK
+        runs have no word boundaries, so they are indexed as character
+        bigrams (a lone CJK char stays a unigram) — the standard
+        dependency-free baseline for CJK keyword retrieval, and the
+        only way a sub-phrase query like 无理由退货 can intersect a
+        document that contains it (review 2026-09-26, #6).
 
         Args:
             text: Input text
 
         Returns:
-            set[str]: Set of lowercase terms
+            Counter[str]: Term frequencies of lowercase tokens
         """
-        # Convert to lowercase and extract alphanumeric terms
-        terms = re.findall(r"\b\w+\b", text.lower())
-        return set(terms)
+        terms: Counter[str] = Counter()
+        for run in _TOKEN_RUN.findall(text.lower()):
+            # findall with two capture groups yields (cjk, ascii) pairs
+            # where exactly one side is populated.
+            token = run[0] or run[1]
+            if not _CJK_RUN.fullmatch(token):
+                terms[token] += 1
+                continue
+            if len(token) == 1:
+                terms[token] += 1
+                continue
+            for i in range(len(token) - 1):
+                terms[token[i : i + 2]] += 1
+        return terms
 
     def _compute_bm25_score(
         self,
-        query_terms: set[str],
-        doc_terms: set[str],
+        query_terms: Counter[str],
+        doc_terms: Counter[str],
+        doc_frequency: Counter[str],
+        n_docs: int,
+        avg_doc_len: float,
     ) -> float:
         """
-        Compute BM25-style score.
+        Compute Okapi BM25 score for one document.
+
+        Robertson-Sparck Jones IDF (always positive), saturated term
+        frequency, and document-length normalization — the previous
+        implementation was a set-intersection ratio that ignored all
+        three, so a term in every document counted as much as a term
+        in one (review 2026-09-26, #6).
 
         Args:
-            query_terms: Query term set
-            doc_terms: Document term set
+            query_terms: Query term frequencies
+            doc_terms: This document's term frequencies
+            doc_frequency: Corpus-wide number of documents per term
+            n_docs: Number of indexed documents
+            avg_doc_len: Average document length in tokens
 
         Returns:
-            float: BM25 score
+            float: BM25 score (0.0 when nothing matches)
         """
-        if not query_terms or not doc_terms:
+        if not query_terms or not doc_terms or avg_doc_len <= 0:
             return 0.0
 
-        # Count matching terms
-        matches = query_terms.intersection(doc_terms)
-
-        if not matches:
-            return 0.0
-
-        # Simple score: number of matching terms / query length
-        # This is a simplified BM25 (without IDF and document length normalization)
-        return len(matches) / len(query_terms)
+        doc_len = sum(doc_terms.values())
+        score = 0.0
+        for term in query_terms:
+            tf = doc_terms.get(term, 0)
+            if tf == 0:
+                continue
+            idf = math.log(1.0 + (n_docs - doc_frequency[term] + 0.5) / (doc_frequency[term] + 0.5))
+            score += (
+                idf
+                * (tf * (BM25_K1 + 1.0))
+                / (tf + BM25_K1 * (1.0 - BM25_B + BM25_B * doc_len / avg_doc_len))
+            )
+        return score
 
 
 class HybridSearchService:
