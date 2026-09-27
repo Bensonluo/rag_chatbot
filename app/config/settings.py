@@ -228,16 +228,16 @@ class Settings(BaseSettings):
         default=300.0,
         description="Interval for the periodic BM25 rebuild from the vector store (0 disables)",
     )
-    ONE_SHOT_STATS_REFRESH_SECONDS: float = Field(
+    CONTAINMENT_STATS_REFRESH_SECONDS: float = Field(
         default=300.0,
         description=(
-            "Interval for the periodic one-shot KPI bridge (repo aggregate → "
+            "Interval for the periodic containment KPI bridge (repo aggregate → "
             "Prometheus Gauge; 0 disables)"
         ),
     )
-    ONE_SHOT_STATS_WINDOW_DAYS: int = Field(
+    CONTAINMENT_STATS_WINDOW_DAYS: int = Field(
         default=7,
-        description="Rolling window (days) for the session-level one-shot rate",
+        description="Rolling window (days) for the session-level containment rate",
     )
 
     # Vector DB Service (external)

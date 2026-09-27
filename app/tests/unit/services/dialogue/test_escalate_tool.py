@@ -144,7 +144,7 @@ class TestEscalateTool:
             context={"source": "agent_tool"},
         )
         # Agent escalations must count toward the handoff funnel layer —
-        # otherwise the handoff share (one-shot inverse) undercounts.
+        # otherwise the handoff share (containment inverse) undercounts.
         assert _layers() == before + 1.0
 
     async def test_reused_ticket_passes_through(self) -> None:

@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 import app.api.v1.chat as chat_api
 import app.middleware.rate_limiter_redis as rate_limiter_module
 import app.services.dialogue.checkpointer as checkpointer_module
-import app.services.handoff.one_shot_metrics as one_shot_module
+import app.services.handoff.containment_metrics as containment_module
 import app.services.retrieval.keyword_refresh as keyword_refresh_module
 from app.api.v1.chat import get_chat_service, initialize_chat_service
 from app.config.settings import settings
@@ -121,7 +121,7 @@ def seams(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     monkeypatch.setattr(chat_api, "initialize_chat_service", initialize)
     monkeypatch.setattr(keyword_refresh_module, "stop_keyword_index_refresher", Mock())
     monkeypatch.setattr(rate_limiter_module, "close_rate_limit_redis", AsyncMock())
-    monkeypatch.setattr(one_shot_module, "stop_one_shot_refresher", Mock())
+    monkeypatch.setattr(containment_module, "stop_containment_refresher", Mock())
     return SimpleNamespace(manager=manager, initialize=initialize)
 
 

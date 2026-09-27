@@ -50,11 +50,11 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "转人工占漏斗流量超过 25%（一次解决率在劣化）"
+          summary: "转人工占漏斗流量超过 25%（自动处理率在劣化）"
           description: >-
             Handoff layer touches made up {{ $value | humanizePercentage }} of
             all funnel layer traffic over 15m. Handoff share is the operational
-            inverse of the one-shot-resolution north star — a sustained rise
+            inverse of the containment north star — a sustained rise
             means the upper layers (L0 cache, FAQ, RAG, agent loop) stopped
             resolving demand. The 25% threshold is a starting point: tune it
             against the observed baseline once real traffic exists. Layer
@@ -147,22 +147,22 @@ groups:
             {{ $value | humanizePercentage }} of submitted ratings were
             thumbs-down over 15m. A downvote is the user-verified signal
             that an answer was not a resolution — the closest proxy to
-            the one-shot-resolution north star. Sustained rise means
+            the containment north star. Sustained rise means
             answers are degrading (check RAG grounding, claim-gate
             violations, KB staleness) rather than traffic mix shifting.
             The 25% threshold is a starting point — tune against the
             observed baseline once real traffic exists. Zero traffic
             yields NaN and simply does not fire.
 
-      - alert: OneShotRateLow
-        expr: avg(chat_one_shot_rate) < 0.7
+      - alert: ContainmentRateLow
+        expr: avg(chat_containment_rate) < 0.7
         for: 30m
         labels:
           severity: warning
         annotations:
-          summary: "会话级一次解决率低于 70%（北极星在失血）"
+          summary: "会话级自动处理率低于 70%（北极星在失血）"
           description: >-
-            Session-level one-shot resolution over the stats window is
+            Session-level containment over the stats window is
             {{ $value | humanizePercentage }} — fewer than 7 in 10 served
             sessions end without pulling in a human. This is the north
             star's highest-weighted metric at its honest granularity

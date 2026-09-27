@@ -1,9 +1,9 @@
-"""Session-level one-shot-resolution stats (north star, highest weight).
+"""Session-level containment stats (north star, highest weight).
 
-The only computable one-shot signal was the turn-level handoff share
+The only computable containment signal was the turn-level handoff share
 (a proxy): a 5-turn session with one handoff reads 20% there, while
-the honest session-level answer is 0% — that user did not get one-shot
-resolution. This pins the real metric at the real granularity:
+the honest session-level answer is 0% — that session was not
+contained. This pins the real metric at the real granularity:
 
 - denominator: sessions the bot actually served (≥1 assistant
   message) inside the window
@@ -11,9 +11,13 @@ resolution. This pins the real metric at the real granularity:
   status — a resolved ticket still means a human was pulled in) and
   NO downvoted assistant answer in-window (a thumbs-down is the
   operational proxy for "not a resolution" — counting those sessions
-  as one-shot inflates the north star)
+  as containment inflates the north star)
 - tickets for never-served sessions count nowhere (a handoff without
   a served turn is queue noise, not a resolution outcome)
+
+Naming (review 2026-09-26, #11): containment — the bot served the
+session with no escalation and no downvote — is what this measures;
+it is NOT verified problem resolution.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -85,10 +89,10 @@ async def _seed(
 async def _stats(session_maker: async_sessionmaker[AsyncSession]) -> dict[str, Any]:
     async with session_maker() as session:
         repo = TicketRepository(session)
-        return await repo.get_one_shot_stats(since=_NOW - timedelta(days=7))
+        return await repo.get_containment_stats(since=_NOW - timedelta(days=7))
 
 
-class TestOneShotStats:
+class TestContainmentStats:
     async def test_rate_excludes_escalated_sessions(self, session_maker):
         await _seed(
             session_maker,
@@ -101,7 +105,7 @@ class TestOneShotStats:
 
         assert stats["sessions_served"] == 3
         assert stats["sessions_escalated"] == 1
-        assert stats["one_shot_rate"] == pytest.approx(2 / 3, abs=1e-4)
+        assert stats["containment_rate"] == pytest.approx(2 / 3, abs=1e-4)
 
     async def test_window_excludes_stale_served_sessions(self, session_maker):
         await _seed(
@@ -130,7 +134,7 @@ class TestOneShotStats:
 
         assert stats["sessions_served"] == 1
         assert stats["sessions_escalated"] == 0
-        assert stats["one_shot_rate"] == 1.0
+        assert stats["containment_rate"] == 1.0
 
     async def test_empty_window_returns_none_rate(self, session_maker):
         await _seed(
@@ -144,11 +148,11 @@ class TestOneShotStats:
         stats = await _stats(session_maker)
 
         assert stats["sessions_served"] == 0
-        assert stats["one_shot_rate"] is None
+        assert stats["containment_rate"] is None
 
-    async def test_multi_turn_escalated_session_is_wholly_not_one_shot(self, session_maker):
+    async def test_multi_turn_escalated_session_is_wholly_uncontained(self, session_maker):
         """The proxy-vs-real difference in one row: five served turns and
-        one ticket → 0% one-shot at session granularity (turn-level
+        one ticket → 0% containment at session granularity (turn-level
         handoff share would read 20%)."""
         await _seed(
             session_maker,
@@ -161,12 +165,12 @@ class TestOneShotStats:
 
         assert stats["sessions_served"] == 1
         assert stats["sessions_escalated"] == 1
-        assert stats["one_shot_rate"] == 0.0
+        assert stats["containment_rate"] == 0.0
 
-    async def test_downvoted_session_is_not_one_shot(self, session_maker):
+    async def test_downvoted_session_is_uncontained(self, session_maker):
         """A thumbs-down on the served answer is the operational proxy
         for "not a resolution" (same doctrine as the cache-eviction
-        loop): counting this session as one-shot inflates the north
+        loop): counting this session as containment inflates the north
         star. It stays in the denominator (it WAS served) but leaves
         the numerator, surfaced as sessions_downvoted."""
         await _seed(
@@ -182,7 +186,7 @@ class TestOneShotStats:
         assert stats["sessions_served"] == 2
         assert stats["sessions_escalated"] == 0
         assert stats["sessions_downvoted"] == 1
-        assert stats["one_shot_rate"] == pytest.approx(0.5, abs=1e-4)
+        assert stats["containment_rate"] == pytest.approx(0.5, abs=1e-4)
 
     async def test_upvoted_and_unrated_sessions_still_count(self, session_maker):
         """Only a negative rating excludes: NULL (unrated) and +1
@@ -199,7 +203,7 @@ class TestOneShotStats:
         stats = await _stats(session_maker)
 
         assert stats["sessions_downvoted"] == 0
-        assert stats["one_shot_rate"] == 1.0
+        assert stats["containment_rate"] == 1.0
 
     async def test_escalated_and_downvoted_session_is_subtracted_once(self, session_maker):
         """A session can carry both failure signals (a ticket AND a
@@ -219,4 +223,4 @@ class TestOneShotStats:
         assert stats["sessions_served"] == 1
         assert stats["sessions_escalated"] == 1
         assert stats["sessions_downvoted"] == 1
-        assert stats["one_shot_rate"] == 0.0
+        assert stats["containment_rate"] == 0.0

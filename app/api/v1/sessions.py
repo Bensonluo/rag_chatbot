@@ -33,24 +33,26 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-@router.get("/one-shot-stats")
-async def get_one_shot_stats(
+@router.get("/containment-stats")
+async def get_containment_stats(
     window_days: Annotated[int, Query(ge=1, le=90)] = 7,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),  # noqa: ARG001  # FastAPI DI: enforces auth; value unused
 ) -> dict[str, Any]:
-    """Session-level one-shot-resolution rate (north-star KPI).
+    """Session-level containment rate (north-star KPI).
 
     Denominator: sessions the bot served (≥1 assistant message) in
     the window. Numerator: served sessions with no handoff ticket —
     any ticket status counts as "a human was pulled in", so the rate
     is the honest complement of the handoff share at session
-    granularity. Registered before the ``/{session_id}`` route:
+    granularity. Containment is the no-escalation share, not a
+    verified problem-resolution rate (review 2026-09-26, #11).
+    Registered before the ``/{session_id}`` route:
     a path-param route would otherwise swallow this literal path.
     """
     since = datetime.now(UTC) - timedelta(days=window_days)
     repo = TicketRepository(db)
-    return await repo.get_one_shot_stats(since=since)
+    return await repo.get_containment_stats(since=since)
 
 
 async def get_session_service(

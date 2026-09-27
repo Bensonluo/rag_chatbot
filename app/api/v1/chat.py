@@ -29,7 +29,7 @@ from app.services.chat.chat_service import (
 )
 from app.services.chat.factory import ChatServiceFactory
 from app.services.embeddings import EmbeddingFactory
-from app.services.handoff.one_shot_metrics import start_one_shot_refresher
+from app.services.handoff.containment_metrics import start_containment_refresher
 from app.services.llm import LLMFactory
 from app.services.observability.trace_events import TraceEvent
 from app.services.retrieval import RetrievalFactory
@@ -148,23 +148,23 @@ async def initialize_chat_service(
     except Exception as e:
         logger.warning("Failed to initialize retrieval pipeline: %s", e)
 
-    # North-star KPI bridge: the session-level one-shot rate lives in
+    # North-star KPI bridge: the session-level containment rate lives in
     # Postgres, so a periodic refresh exports it to Prometheus Gauges
-    # (Grafana panel + OneShotRateLow alert consume them). Independent
+    # (Grafana panel + ContainmentRateLow alert consume them). Independent
     # of the retrieval stack above — a retrieval outage must not blind
     # the KPI, and vice versa. Fail-open: a DB outage freezes the
     # gauges at their last values.
-    if settings.ONE_SHOT_STATS_REFRESH_SECONDS > 0:
+    if settings.CONTAINMENT_STATS_REFRESH_SECONDS > 0:
         try:
             from app.api.database import async_session_maker
 
-            start_one_shot_refresher(
+            start_containment_refresher(
                 session_maker=async_session_maker,
-                interval_seconds=settings.ONE_SHOT_STATS_REFRESH_SECONDS,
-                window_days=settings.ONE_SHOT_STATS_WINDOW_DAYS,
+                interval_seconds=settings.CONTAINMENT_STATS_REFRESH_SECONDS,
+                window_days=settings.CONTAINMENT_STATS_WINDOW_DAYS,
             )
         except Exception as e:
-            logger.warning("Failed to start one-shot KPI refresher: %s", e)
+            logger.warning("Failed to start containment KPI refresher: %s", e)
 
     # Initialize reranker
     try:

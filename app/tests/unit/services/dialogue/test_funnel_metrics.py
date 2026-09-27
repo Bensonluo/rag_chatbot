@@ -1,7 +1,7 @@
 """Funnel-layer telemetry contract: every serving layer is countable.
 
 The funnel inversion makes deep-layer traffic (agent tool loops) the
-product's real customer-service needs, and one-shot resolution its
+product's real customer-service needs, and containment its
 highest-weight metric — but neither is optimizable while the funnel
 itself is invisible. These tests pin that each routing path records
 its layer, so the distribution and the resolution proxy (served vs

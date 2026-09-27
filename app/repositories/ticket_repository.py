@@ -225,8 +225,8 @@ class TicketRepository(BaseRepository[HandoffTicket]):
             return None
         return sum(samples) / len(samples)
 
-    async def get_one_shot_stats(self, since: datetime) -> dict[str, Any]:
-        """Session-level one-shot-resolution stats for a window.
+    async def get_containment_stats(self, since: datetime) -> dict[str, Any]:
+        """Session-level containment stats for a window.
 
         The north star's highest-weighted metric, at its honest
         granularity: the denominator is sessions the bot actually
@@ -242,6 +242,9 @@ class TicketRepository(BaseRepository[HandoffTicket]):
         carrying both failure signals is subtracted once: the failed
         set is the UNION of ticketed and downvoted sessions, while
         sessions_downvoted reports the signal on its own.
+
+        Contained is not resolved: this is the absence of failure
+        signals, not a verified resolution (review 2026-09-26, #11).
         """
         in_window = (
             Message.role == MessageRole.ASSISTANT,
@@ -275,7 +278,7 @@ class TicketRepository(BaseRepository[HandoffTicket]):
             "sessions_served": total,
             "sessions_escalated": handed_off,
             "sessions_downvoted": rejected_n,
-            "one_shot_rate": round((total - failed_n) / total, 4) if total else None,
+            "containment_rate": round((total - failed_n) / total, 4) if total else None,
         }
 
     async def get_open_ticket_for_session(

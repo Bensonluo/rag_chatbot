@@ -57,7 +57,7 @@ ANSWER_CACHE_MISSES = Counter(
     registry=REGISTRY,
 )
 
-# User-verified quality signals (one-shot-resolution proxies). An
+# User-verified quality signals (containment proxies). An
 # answer the user downvoted was not a resolution; a knowledge-intent
 # turn with zero retrieval hits is a gap the KB must close. Both feed
 # the north-star dashboard and the CSAT alert.
@@ -69,7 +69,7 @@ FEEDBACK_RATINGS = Counter(
 )
 
 # Downvote-driven pyramid eviction: entries removed because their
-# response was user-rejected (rating < 0). The one-shot north star's
+# response was user-rejected (rating < 0). The containment north star's
 # cleanup loop — without it the pyramid replays known-bad answers
 # until TTL/epoch rotation.
 CACHE_FEEDBACK_EVICTIONS = Counter(

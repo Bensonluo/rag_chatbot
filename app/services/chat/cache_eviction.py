@@ -5,7 +5,7 @@ marks an answer as "was not a resolution". Without eviction the
 pyramid (L0 exact + L1 semantic) keeps replaying that rejected answer
 in ~5ms until TTL/epoch rotation — at storm scale the cache re-serves
 the failure to every near-duplicate ask, the exact opposite of the
-one-shot north star.
+containment north star.
 
 Mechanics: cache keys cannot be derived from a downvoted message (the
 L0 key digests the *query*; feedback only knows the *response*), so

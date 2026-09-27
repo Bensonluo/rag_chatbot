@@ -403,7 +403,7 @@ def create_escalate_tool(handoff_service: Any) -> ToolDefinition:
             context={"source": "agent_tool"},
         )
         # Agent escalations must count toward the handoff funnel layer —
-        # otherwise the handoff share (one-shot inverse) undercounts.
+        # otherwise the handoff share (containment inverse) undercounts.
         record_funnel_layer(LAYER_HANDOFF)
         if result.get("ticket_id") is None:
             return {**result, "message": "转人工请求已提交，请留意后续通知"}

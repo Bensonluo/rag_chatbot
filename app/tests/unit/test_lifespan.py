@@ -3,7 +3,7 @@
 Rolling deploys and scale-in replace replicas constantly at the north
 star's scale, so shutdown must be as wired as startup: every periodic
 task started in lifespan teardown order — background refreshers first,
-then the connection pools they use. ``stop_one_shot_refresher`` was
+then the connection pools they use. ``stop_containment_refresher`` was
 defined for exactly this and never called: on graceful shutdown the
 refresher could still be mid-query against a closing pool.
 
@@ -20,7 +20,7 @@ from fastapi import FastAPI
 import app.api.v1.chat as chat_api
 import app.middleware.rate_limiter_redis as rate_limiter_module
 import app.services.dialogue.checkpointer as checkpointer_module
-import app.services.handoff.one_shot_metrics as one_shot_module
+import app.services.handoff.containment_metrics as containment_module
 import app.services.retrieval.keyword_refresh as keyword_refresh_module
 from app.main import lifespan
 
@@ -47,19 +47,19 @@ def seams(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     manager = _FakeCheckpointerManager()
     keyword_stop = Mock()
     redis_close = AsyncMock()
-    oneshot_stop = Mock()
+    containment_stop = Mock()
     monkeypatch.setattr(
         checkpointer_module, "create_checkpointer_manager_from_settings", lambda: manager
     )
     monkeypatch.setattr(chat_api, "initialize_chat_service", AsyncMock())
     monkeypatch.setattr(keyword_refresh_module, "stop_keyword_index_refresher", keyword_stop)
     monkeypatch.setattr(rate_limiter_module, "close_rate_limit_redis", redis_close)
-    monkeypatch.setattr(one_shot_module, "stop_one_shot_refresher", oneshot_stop)
+    monkeypatch.setattr(containment_module, "stop_containment_refresher", containment_stop)
     return SimpleNamespace(
         manager=manager,
         keyword_stop=keyword_stop,
         redis_close=redis_close,
-        oneshot_stop=oneshot_stop,
+        containment_stop=containment_stop,
     )
 
 
@@ -70,7 +70,7 @@ class TestLifespanShutdown:
 
         assert seams.keyword_stop.called, "BM25 keyword refresher must stop"
         assert seams.redis_close.await_count == 1, "rate-limit Redis must close"
-        assert seams.oneshot_stop.called, "one-shot KPI refresher must stop too"
+        assert seams.containment_stop.called, "containment KPI refresher must stop too"
 
     async def test_refreshers_stop_before_the_checkpointer_pool_closes(self, seams):
         """Teardown order: background tasks first, then the pools they
@@ -78,7 +78,7 @@ class TestLifespanShutdown:
         the shutdown-window noise this contract exists to prevent."""
         order: list[str] = []
         seams.keyword_stop.side_effect = lambda: order.append("keyword")
-        seams.oneshot_stop.side_effect = lambda: order.append("oneshot")
+        seams.containment_stop.side_effect = lambda: order.append("oneshot")
         seams.manager.stop = AsyncMock(side_effect=lambda: order.append("checkpointer"))
 
         async with lifespan(FastAPI()):

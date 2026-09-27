@@ -23,8 +23,8 @@ import app.services.chat.metrics  # noqa: F401
 import app.services.dialogue.funnel_metrics  # noqa: F401
 import app.services.embeddings.metrics  # noqa: F401
 import app.services.facts.metrics  # noqa: F401
+import app.services.handoff.containment_metrics  # noqa: F401
 import app.services.handoff.metrics  # noqa: F401
-import app.services.handoff.one_shot_metrics  # noqa: F401
 import app.services.retrieval.metrics  # noqa: F401
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -35,7 +35,7 @@ _COMPOSE_PATH = _REPO_ROOT / "docker-compose.yml"
 _PINNED_DASHBOARD_TITLE = "CS 漏斗北极星"
 _PINNED_PANEL_TITLES = {
     "漏斗分层流量（turns/s）",
-    "Handoff 占比（一次解决率反量）",
+    "Handoff 占比（自动处理率反量）",
     "塔顶吸收率（缓存+FAQ）",
     "Agent 终局分布（runs/s）",
     "Agent 回退占比（深层降级）",
@@ -45,11 +45,11 @@ _PINNED_PANEL_TITLES = {
 }
 _FUNNEL_METRIC = "chat_funnel_layers_total"
 
-# DB-bridged replica-invariant gauges (handoff/one_shot_metrics.py,
+# DB-bridged replica-invariant gauges (handoff/containment_metrics.py,
 # handoff/metrics.py): every replica's refresher sets its own copy and
 # dns_sd scrapes them all — a raw expr renders one series per replica.
 _DB_BRIDGED_GAUGES = (
-    "chat_one_shot_rate",
+    "chat_containment_rate",
     "chat_sessions_served",
     "chat_sessions_escalated",
     "handoff_pickup_avg_seconds",
@@ -164,16 +164,16 @@ class TestGrafanaDashboardContract:
                             "series per replica"
                         )
 
-    def test_funnel_dashboard_shows_the_real_one_shot_metric(self):
-        """The session-level one-shot rate (chat_one_shot_rate, DB-bridged
+    def test_funnel_dashboard_shows_the_real_containment_metric(self):
+        """The session-level containment rate (chat_containment_rate, DB-bridged
         Gauge) is the north star's honest metric — the dashboard must
         carry it next to the turn-level handoff-share proxy panel."""
         doc = next(d for d in _dashboards() if d["title"] == _PINNED_DASHBOARD_TITLE)
         exprs = [
             str(target["expr"]) for panel in _panels(doc) for target in panel.get("targets") or []
         ]
-        assert any("chat_one_shot_rate" in expr for expr in exprs), (
-            "funnel dashboard has no expression using chat_one_shot_rate"
+        assert any("chat_containment_rate" in expr for expr in exprs), (
+            "funnel dashboard has no expression using chat_containment_rate"
         )
 
     def test_pyramid_panel_covers_every_cache_layer(self):

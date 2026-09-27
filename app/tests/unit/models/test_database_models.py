@@ -269,7 +269,7 @@ class TestDocumentModel:
 class TestMessageKpiIndex:
     """The north-star KPI query's supporting index.
 
-    ``TicketRepository.get_one_shot_stats`` filters
+    ``TicketRepository.get_containment_stats`` filters
     ``role == ASSISTANT AND created_at >= since`` over the messages
     table — the biggest table in the system (two rows per turn at
     50-60M daily visits) — on a repeating timer (the Prometheus
@@ -291,7 +291,7 @@ class TestMessageKpiIndex:
         ]
         assert matches, (
             "messages needs a composite index on (role, created_at): the "
-            "one-shot KPI query filters exactly this predicate on a timer"
+            "containment KPI query filters exactly this predicate on a timer"
         )
 
     def test_migration_chain_creates_the_kpi_index(self) -> None:

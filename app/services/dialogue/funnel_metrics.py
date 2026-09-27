@@ -5,7 +5,7 @@ served each turn: the L0 exact-answer cache and FAQ absorb the hot
 top, RAG grounds policy answers, the agent tool loop serves the deep
 "real need" traffic, and handoff is the deliberate exit to humans.
 One labeled counter per layer makes the funnel distribution — and
-the one-shot-resolution proxy (served turns vs handoff turns) —
+the containment proxy (served turns vs handoff turns) —
 computable in a single PromQL query. Layer touches are counted, not
 exclusive: an agent turn that also retrieves touches both, which is
 the honest measure of layer pressure.

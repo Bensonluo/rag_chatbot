@@ -33,7 +33,7 @@ class Message(Base, TimestampMixin):
 
     __tablename__ = "messages"
     __table_args__ = (
-        # Serves the one-shot KPI aggregate (role == ASSISTANT AND
+        # Serves the containment KPI aggregate (role == ASSISTANT AND
         # created_at >= since): the Prometheus bridge reruns it on a
         # timer per replica, so without this index the KPI observability
         # itself seq-scans the biggest table in the system.

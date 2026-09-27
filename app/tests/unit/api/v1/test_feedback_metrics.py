@@ -1,7 +1,7 @@
 """Feedback counter wiring: every submitted rating becomes measurable.
 
 The feedback endpoint is the user-verified quality signal — the closest
-operational proxy to the one-shot-resolution north star (an answer the
+operational proxy to the containment north star (an answer the
 user downvoted was not a resolution). These tests pin that a successful
 submission increments the labeled counter and a 404 (rating a message
 that does not exist) does not pollute it.

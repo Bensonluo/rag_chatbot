@@ -23,8 +23,8 @@ import app.services.chat.metrics  # noqa: F401
 import app.services.dialogue.funnel_metrics  # noqa: F401
 import app.services.embeddings.metrics  # noqa: F401
 import app.services.facts.metrics  # noqa: F401
+import app.services.handoff.containment_metrics  # noqa: F401
 import app.services.handoff.metrics  # noqa: F401
-import app.services.handoff.one_shot_metrics  # noqa: F401
 import app.services.retrieval.metrics  # noqa: F401
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -40,19 +40,19 @@ _PINNED_ALERTS = {
     "KBEpochFailuresRising",
     "EmbeddingCacheFailuresRising",
     "FeedbackNegativeShareHigh",
-    "OneShotRateLow",
+    "ContainmentRateLow",
     "ChatTTFTSlow",
     "ChatStreamErrorRateHigh",
     "ClaimGateViolationsRising",
 }
 
 # DB-bridged replica-invariant gauges (handoff/metrics.py +
-# handoff/one_shot_metrics.py): every replica's refresher sets its own
+# handoff/containment_metrics.py): every replica's refresher sets its own
 # copy from the same DB aggregate, and dns_sd scrapes them all
 # (test_scale_readiness) — a raw reference evaluates once per replica
 # (duplicate alert instances) instead of once for the truth.
 _DB_BRIDGED_GAUGES = (
-    "chat_one_shot_rate",
+    "chat_containment_rate",
     "chat_sessions_served",
     "chat_sessions_escalated",
     "handoff_queue_sla_breaches",

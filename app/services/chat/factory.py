@@ -213,7 +213,7 @@ class ChatServiceFactory:
                     tool_registry.register(create_knowledge_tool(hybrid_search))
             # Agent escalate tool: routes unresolvable cases into the
             # SLA queue mid-run instead of "answering" them — the
-            # one-shot-resolution complement for the funnel's deepest
+            # containment complement for the funnel's deepest
             # layer. Inert unless agent mode itself is enabled.
             if settings.AGENT_ESCALATE_TOOL_ENABLED:
                 tool_registry.register(create_escalate_tool(handoff_service))

@@ -67,9 +67,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Stop the periodic tasks first — each polls the databases whose
     # pools close right after (a refresher mid-query against a closing
     # pool is shutdown-window noise at best).
-    from app.services.handoff.one_shot_metrics import stop_one_shot_refresher
+    from app.services.handoff.containment_metrics import stop_containment_refresher
 
-    stop_one_shot_refresher()
+    stop_containment_refresher()
 
     from app.services.retrieval.keyword_refresh import stop_keyword_index_refresher
 

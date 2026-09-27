@@ -1,6 +1,6 @@
 """Downvote → cache-pyramid eviction contract.
 
-The feedback loop is the user-verified quality signal (the one-shot
+The feedback loop is the user-verified quality signal (the containment
 north-star proxy): an answer a user downvoted was NOT a resolution —
 and without this contract the pyramid kept replaying it from L0/L1 in
 ~5ms until TTL/epoch rotation, at storm scale re-serving the failure
