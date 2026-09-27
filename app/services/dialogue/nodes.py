@@ -1491,20 +1491,36 @@ class NodeFactory:
             if pending:
                 # Execute the staged irreversible action with the
                 # caller's identity so ownership checks apply.
+                pending_args = dict(pending.get("args") or {})
                 result = await self._tool_registry.execute(
                     pending.get("intent", ""),
-                    pending.get("args") or {},
+                    pending_args,
                     user_id=state.get("user_id"),
                 )
                 tool_result = result.data if result.success else {"error": result.message}
+                # Same audit-trail shape the agent path records
+                # (_execute_one in agent/service.py): the deterministic
+                # confirm branch executes the most irreversible tools
+                # in the product — an unrecorded refund execution is an
+                # unauditable one (review 2026-09-26, #9). Summary cap
+                # matches the agent path's _TRACE_SUMMARY_MAX.
+                tool = self._tool_registry.get_tool_for_intent(pending.get("intent", ""))
                 updates: dict[str, Any] = {
                     "pending_confirmation": None,
                     "intent": pending.get("intent", ""),
-                    "filled_slots": dict(pending.get("args") or {}),
+                    "filled_slots": pending_args,
                     "tool_result": tool_result,
                     # The staged action ran — the task is terminal now,
                     # success or failure (see task_executed in state.py).
                     "task_executed": True,
+                    "executed_tools": [
+                        {
+                            "tool": tool.name if tool else pending.get("intent", ""),
+                            "ok": result.success,
+                            "args": pending_args,
+                            "summary": _safe_json(tool_result)[:200],
+                        }
+                    ],
                 }
                 generated = await self._generate_with_tool(
                     pending.get("intent", ""),
