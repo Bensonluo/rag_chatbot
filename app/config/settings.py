@@ -378,6 +378,17 @@ class Settings(BaseSettings):
     )
 
     # Security
+    DEMO_MODE: bool = Field(
+        default=True,
+        description=(
+            "Public-demo posture (review 2026-09-26, #1): anonymous visitors "
+            "may chat under a body-supplied user_id and read/clear history by "
+            "bare session id, so the seeded demo traffic keeps working. Set "
+            "false for real deployments — identity then comes only from the "
+            "token, chat/history enforce session ownership, and knowledge-base "
+            "writes require admin."
+        ),
+    )
     SECRET_KEY: str = Field(
         default_factory=lambda: secrets.token_urlsafe(32), description="Secret key for JWT signing"
     )

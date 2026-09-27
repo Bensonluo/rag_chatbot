@@ -345,6 +345,12 @@ GRAPH_RAG_FUSION_WEIGHT=0.3   # only if GraphRAG enabled
 # Guardrails
 GUARDRAILS_ENABLED=true
 GUARDRAILS_HARDENING_ENABLED=true
+
+# Authorization posture (review 2026-09-26, #1): DEMO_MODE=true keeps the
+# public demo open (anonymous chat under a body user_id, history by bare
+# session id); false enforces token-only identity, session ownership on
+# history read/clear, and admin-only knowledge-base writes.
+DEMO_MODE=true
 ```
 
 See [.env.example](.env.example) for the full list.

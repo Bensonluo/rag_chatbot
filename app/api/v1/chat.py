@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.api.deps.authorization import ensure_session_access, resolve_chat_identity
+from app.api.v1.sessions import get_session_service
 from app.config.settings import settings
 from app.middleware.rate_limiter_redis import EndpointRateLimiter, client_ip_from_request
 from app.models.database.user import User
@@ -38,6 +40,7 @@ from app.services.retrieval.keyword_refresh import (
     register_keyword_index,
     start_keyword_index_refresher,
 )
+from app.services.session_service import SessionService
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -364,10 +367,13 @@ async def chat(
 ) -> ChatResponse:
     """Process a chat message and generate response."""
     await _enforce_chat_rate_limit(http_req)
+    # Identity comes from the auth context; the body user_id only
+    # matters in DEMO_MODE. Before the try block on purpose — the
+    # 401/403 must not be swallowed into a 500 by the handler below
+    # (review 2026-09-26, #1).
+    user_id = resolve_chat_identity(current_user, request.user_id)
 
     try:
-        user_id = current_user.id if current_user else request.user_id
-
         response = await chat_service.process_message(
             session_id=request.session_id,
             message=request.message,
@@ -435,9 +441,11 @@ async def chat_stream(
 ) -> StreamingResponse:
     """Process a chat message with a true token-streaming SSE response."""
     await _enforce_chat_rate_limit(http_req)
+    # Same identity rule as the non-streaming entry (review 2026-09-26, #1):
+    # token identity in strict mode, body id only under DEMO_MODE.
+    user_id = resolve_chat_identity(current_user, request.user_id)
 
     try:
-        user_id = current_user.id if current_user else request.user_id
 
         async def generate() -> AsyncIterator[str]:
             async for chunk in chat_service.process_message_stream(
@@ -479,12 +487,17 @@ async def chat_stream(
 async def get_chat_history(
     session_id: int = Query(..., gt=0, description="Session ID"),
     limit: int = Query(50, gt=0, le=100, description="Max messages to return"),
-    # Ownership check lands with real auth wiring; DI kept so the
-    # signature does not change twice.
-    current_user: User | None = Depends(get_current_user),  # noqa: ARG001
+    current_user: User | None = Depends(get_current_user),
+    session_service: SessionService = Depends(get_session_service),
     chat_service: ChatService = Depends(get_chat_service),
 ) -> ChatHistoryResponse:
-    """Get chat history for a session."""
+    """Get chat history for a session.
+
+    Strict mode (DEMO_MODE=false) verifies the caller owns the
+    session first — foreign and missing sessions both read as 404
+    (review 2026-09-26, #1).
+    """
+    await ensure_session_access(session_id, current_user, session_service)
     try:
         messages = await chat_service.get_chat_history(
             session_id=session_id,
@@ -514,12 +527,17 @@ async def get_chat_history(
 @router.delete("/history", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_chat_history(
     session_id: int = Query(..., gt=0, description="Session ID"),
-    # Ownership check lands with real auth wiring; DI kept so the
-    # signature does not change twice.
-    current_user: User | None = Depends(get_current_user),  # noqa: ARG001
+    current_user: User | None = Depends(get_current_user),
+    session_service: SessionService = Depends(get_session_service),
     chat_service: ChatService = Depends(get_chat_service),
 ) -> None:
-    """Clear chat history for a session."""
+    """Clear chat history for a session.
+
+    Same ownership rule as the history read (review 2026-09-26, #1):
+    wiping another visitor's dialogue must not be a bare
+    ``DELETE ?session_id=`` away.
+    """
+    await ensure_session_access(session_id, current_user, session_service)
     try:
         await chat_service.clear_chat_history(session_id=session_id)
     except Exception as e:

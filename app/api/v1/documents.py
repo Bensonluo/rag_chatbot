@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_active_user, get_current_user
+from app.api.deps.authorization import require_kb_writer
 from app.config.settings import get_settings
 from app.models.database.user import User
 from app.services.documents.ingestion import DocumentIngestionService
@@ -170,6 +171,7 @@ async def upload_document_text(
 
     Returns document ID and processing statistics.
     """
+    require_kb_writer(current_user)
     try:
         # Add user info to metadata — copy first: mutating request.metadata
         # in place would leak the upload stamps into the request model.
@@ -215,6 +217,7 @@ async def upload_document_file(
 
     File is processed, chunked, and stored in vector database.
     """
+    require_kb_writer(current_user)
     try:
         # Validate file type
         if not file.filename:
@@ -323,7 +326,7 @@ async def search_documents(
 @router.delete("/{document_id}", response_model=DeleteResponse, summary="Delete document")
 async def delete_document(
     document_id: str,
-    current_user: User = Depends(get_current_active_user),  # noqa: ARG001 (auth gate)
+    current_user: User = Depends(get_current_active_user),
     ingestion_service: DocumentIngestionService = Depends(get_ingestion_service),
 ) -> DeleteResponse:
     """
@@ -331,6 +334,7 @@ async def delete_document(
 
     This will remove all chunks associated with the document.
     """
+    require_kb_writer(current_user)
     try:
         result = await ingestion_service.delete_document(document_id)
 
