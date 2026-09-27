@@ -61,6 +61,8 @@ from app.services.dialogue.funnel_metrics import (
 )
 from app.services.dialogue.state import DialogueState
 from app.services.facts.metrics import CLAIM_CHECKS, CLAIM_VIOLATIONS
+from app.services.guardrails.base import GuardrailService
+from app.services.guardrails.stream_redactor import PIIStreamRedactor
 from app.services.handoff.service import (
     REASON_EMOTION,
     REASON_EXPLICIT,
@@ -1001,6 +1003,17 @@ class NodeFactory:
 
         record_funnel_layer(LAYER_DIRECT)
         response = await self._generate_direct(message, config, state)
+        # Output guardrail (review 2026-09-26, #4): the direct tier's
+        # fresh generations pass the same output check as every other
+        # LLM branch — PII is redacted before the answer leaves the
+        # node and before L1 stores a copy of the body.
+        if self._guardrail_service is not None:
+            raw = response.get("response", "")
+            check = self._guardrail_service.check_output(raw)
+            if check.was_blocked:
+                response["response"] = "抱歉，该回复未能通过安全检查，请重新提问。"
+            elif check.sanitized_content and check.sanitized_content != raw:
+                response["response"] = check.sanitized_content
         # Cache the clean body; the resume hint is per-turn state.
         await self._maybe_put_semantic(
             state, message, response.get("response", ""), used_history=_used_history(config)
@@ -1614,14 +1627,35 @@ class NodeFactory:
             # Sentence-buffered claim gating (A2 streaming close-out):
             # armed exactly when the turn is checkable, so violating
             # policy numbers can never reach the consumer ungated while
-            # chitchat keeps raw per-token emission. Everything put on
-            # the queue is already gated, and the returned text is the
-            # emitted text — stream and persistence cannot diverge.
+            # chitchat keeps raw per-token claim behavior. On top of it,
+            # sentence-buffered PII redaction (review 2026-09-26, #4)
+            # runs on every guarded turn — including chitchat — because
+            # PII must never reach the consumer ahead of the finalize
+            # pass. Everything put on the queue is already gated and
+            # redacted, and the returned text is the emitted text —
+            # stream and persistence cannot diverge.
             gate = None
             if state is not None and not state.get("blocked") and not state.get("tool_result"):
                 from app.services.facts.stream_gate import make_stream_gate
 
                 gate = make_stream_gate(state.get("message", ""))
+            pii_redactor = (
+                PIIStreamRedactor(self._guardrail_service)
+                if self._guardrail_service is not None
+                else None
+            )
+
+            def _release(text: str) -> None:
+                # Single emission choke point: claim-gated text flows
+                # through the PII redactor before it reaches the queue.
+                if not text:
+                    return
+                if pii_redactor is not None:
+                    text = pii_redactor.feed(text)
+                if text:
+                    emitted.append(text)
+                    queue.put_nowait(text)
+
             try:
                 async for chunk in self._llm_service.generate_stream(messages):
                     if not chunk:
@@ -1630,30 +1664,32 @@ class NodeFactory:
                     if not clean:
                         continue
                     chunks.append(clean)
-                    ready = gate.feed(clean) if gate is not None else clean
-                    if ready:
-                        emitted.append(ready)
-                        queue.put_nowait(ready)
+                    _release(gate.feed(clean) if gate is not None else clean)
                 rf_tail = rf.flush()
                 if rf_tail:
-                    ready = gate.feed(rf_tail) if gate is not None else rf_tail
-                    if ready:
-                        emitted.append(ready)
-                        queue.put_nowait(ready)
-                tail = gate.flush() if gate is not None else ""
-                if tail:
-                    emitted.append(tail)
-                    queue.put_nowait(tail)
+                    _release(gate.feed(rf_tail) if gate is not None else rf_tail)
+                if gate is not None:
+                    _release(gate.flush())
+                if pii_redactor is not None:
+                    _release(pii_redactor.flush())
             except Exception:
                 logger.exception("LLM streaming generation failed")
                 fallback = "抱歉，生成回复时出现错误，请稍后重试。"
-                # Text may still be held mid-sentence in the gate; flush it
-                # through the gate so ungated remains never reach the queue.
+                # Text may still be held mid-sentence in the gates; flush
+                # both through so ungated, un-redacted remains never reach
+                # the queue.
                 held = gate.flush() if gate is not None else ""
+                if pii_redactor is not None and held:
+                    held = pii_redactor.feed(held)
                 if emitted or held:
                     if held:
                         emitted.append(held)
                         queue.put_nowait(held)
+                    if pii_redactor is not None:
+                        pii_tail = pii_redactor.flush()
+                        if pii_tail:
+                            emitted.append(pii_tail)
+                            queue.put_nowait(pii_tail)
                     # Partial tokens already reached the consumer; append a
                     # visible apology rather than silently truncating. The
                     # consumer has now seen the entire response (tokens +
