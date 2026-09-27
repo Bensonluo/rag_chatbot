@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from app.config.settings import settings
+from app.models.enums.message import MessageStatus
 from app.services.chat.metrics import (
     CHAT_FIRST_TOKEN_SECONDS,
     CHAT_STREAM_DURATION_SECONDS,
@@ -55,6 +57,9 @@ class GraphUnavailableError(RuntimeError):
     error so the API can answer 503 instead of letting
     ``NoneType.ainvoke`` surface as a 500 (review 2026-09-26, #12).
     """
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -366,11 +371,27 @@ class ChatService:
                 }
                 if result.get("turn_id"):
                     metadata["turn_id"] = result["turn_id"]
+                # Durable audit trail of agent tool executions — parity
+                # with the non-stream path (review 2026-09-26, #8).
+                executed_tools = result.get("executed_tools") or []
+                if executed_tools:
+                    metadata["executed_tools"] = executed_tools
                 await self.persister.persist_turn(
                     session_id=session_id,
                     user_id=user_id,
                     user_message=message,
                     response="".join(streamed_content),
+                    intent=result.get("intent"),
+                    sources=result.get("sources"),
+                    # Abnormal exits (disconnect / graph error / budget
+                    # exhaustion) never reach the result assignment, so
+                    # intent and sources stay None and the status below
+                    # marks them FAILED — a cut-off turn must remain
+                    # distinguishable from a finished one in the audit
+                    # trail (review 2026-09-26, #8).
+                    status=(
+                        MessageStatus.COMPLETED if outcome == "completed" else MessageStatus.FAILED
+                    ),
                     metadata=metadata,
                 )
 
@@ -439,8 +460,26 @@ class ChatService:
         """
         Clear chat history for a session.
 
+        Resetting the conversation must reset the whole dialogue, not
+        just the legacy memory strategy: a staged irreversible action
+        (``pending_confirmation``) lives in the checkpoint thread and
+        would otherwise survive the clear — a later bare "确认" would
+        execute a refund the user believed they had discarded (review
+        2026-09-26, #8). Checkpoint deletion is fail-open: a failing
+        clear must never 500 the history endpoint.
+
         Args:
             session_id: Session identifier
         """
         if self.memory_strategy:
             await self.memory_strategy.clear_session(session_id=session_id)
+        checkpointer = getattr(self.graph, "checkpointer", None)
+        if checkpointer is not None:
+            try:
+                await checkpointer.adelete_thread(str(session_id))
+            except Exception:  # noqa: BLE001 - clear must never fail the API
+                logger.warning(
+                    "Failed to clear dialogue checkpoint for session %s",
+                    session_id,
+                    exc_info=True,
+                )
