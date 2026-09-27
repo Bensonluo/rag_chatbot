@@ -137,12 +137,23 @@ def build_dialogue_graph(
     graph.add_edge(START, "begin_turn")
     graph.add_edge("begin_turn", "guardrail")
 
+    # A blocked input ends the turn at the gate: nothing downstream may
+    # run — not the cache, not intent detection, not tools, not LLM
+    # generation. The refusal is emitted by the guardrail node itself.
+    graph.add_conditional_edges(
+        "guardrail",
+        factory.route_after_guardrail,
+        {
+            "blocked": END,
+            "continue": "answer_cache",
+        },
+    )
+
     # After guardrail: the L0 answer-cache lookup. A hit ends the turn
     # with the replayed (and re-gated) answer; a miss runs the intent
     # pipeline, including the slot-prompt skip branch. When no cache is
     # wired the lookup node is a pure pass-through, so topology and
     # behavior are identical to running should_skip_intent directly.
-    graph.add_edge("guardrail", "answer_cache")
     graph.add_conditional_edges(
         "answer_cache",
         factory.route_after_cache,

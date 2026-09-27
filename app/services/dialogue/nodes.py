@@ -171,12 +171,18 @@ class NodeFactory:
     # ── Nodes ────────────────────────────────────────────────────────────────
 
     @traced_stage("cs.guardrail_input")
-    async def guardrail_node(self, state: DialogueState) -> dict[str, Any]:
+    async def guardrail_node(
+        self, state: DialogueState, config: Optional[RunnableConfig] = None
+    ) -> dict[str, Any]:
         """Check input message against guardrail rules.
 
         Passes through if no guardrail service is configured, the message
         is already blocked, or the check passes.  Otherwise blocks the
         conversation and returns a safe response.
+
+        A block ends the turn here (see route_after_guardrail) — this
+        node is the last stop, so it emits the refusal to the stream
+        queue itself instead of relying on a generator node downstream.
         """
         if state.get("blocked"):
             return {}
@@ -188,13 +194,15 @@ class NodeFactory:
         result = self._guardrail_service.check_input(message)
 
         if result.was_blocked:
+            response = "抱歉，您的消息未通过安全检查，请重新描述您的问题。"
             emit_trace("cs.guardrail_input", blocked=True, violations=result.violations[:3])
+            _emit_response(response, config)
             return {
                 "blocked": True,
                 "blocked_reason": ", ".join(result.violations)
                 if result.violations
                 else "内容安全检查未通过",
-                "response": "抱歉，您的消息未通过安全检查，请重新描述您的问题。",
+                "response": response,
             }
 
         # Propagate sanitized content (PII redaction) into the dialogue state
@@ -567,6 +575,11 @@ class NodeFactory:
         only executes when the user's next turn resolves to the
         ``confirm`` meta intent (see ``_handle_meta_intent``).
         """
+        # Defense in depth: a blocked turn must never execute a tool,
+        # even if a routing change lets it reach this node.
+        if state.get("blocked"):
+            return {}
+
         intent = state.get("intent", "")
         filled_slots = state.get("filled_slots") or {}
         user_id = state.get("user_id")
@@ -1086,6 +1099,12 @@ class NodeFactory:
         invariant), and a successful non-staging run clears any stale
         pending confirmation (same semantics as execute_tool_node).
         """
+        # Defense in depth: a blocked turn must not run the agent loop
+        # (same invariant as execute_tool_node). Ending the turn here
+        # keeps the refusal the user already received.
+        if state.get("blocked"):
+            return {"route_after_agent": "agent_done"}
+
         if self._agent_service is None:
             AGENT_LOOP_OUTCOMES.labels(outcome=OUTCOME_FALLBACK).inc()
             return {"route_after_agent": "agent_fallback"}
@@ -1181,6 +1200,16 @@ class NodeFactory:
     def route_after_faq(state: DialogueState) -> str:
         """End the turn on a curated FAQ hit; continue into RAG on miss."""
         return state.get("route_after_faq", "miss")
+
+    @staticmethod
+    def route_after_guardrail(state: DialogueState) -> str:
+        """End the turn immediately when input was blocked.
+
+        A blocked turn must not reach the cache, intent detection, any
+        tool, or LLM generation — the visible refusal has to equal the
+        actual backend behavior (review 2026-09-26, finding #2).
+        """
+        return "blocked" if state.get("blocked") else "continue"
 
     @staticmethod
     def route_after_cache(state: DialogueState) -> str:
@@ -1416,6 +1445,10 @@ class NodeFactory:
 
         if intent == "confirm":
             pending = state.get("pending_confirmation")
+            if pending and state.get("blocked"):
+                # A blocked turn must not execute a staged irreversible
+                # action; the staging stays intact for a clean retry.
+                return {"response": "抱歉，您的消息未通过安全检查，请重新描述您的问题。"}
             if pending:
                 # Execute the staged irreversible action with the
                 # caller's identity so ownership checks apply.
