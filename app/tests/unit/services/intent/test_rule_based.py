@@ -204,6 +204,31 @@ class TestRuleBasedIntentDetector:
         # Assert
         assert intent == Intent.GREETING
 
+    async def test_reversed_howto_phrasing_is_faq_not_action(self):
+        """Action-then-question phrasing ("退货怎么算") is a knowledge
+        question, not a request to execute the action.
+
+        Observed live (2026-09-30): "7天无理由退货怎么算" classified as
+        RETURN (keyword 退货 + pattern 退[换货] = 2.7 → 0.9) and the
+        bot demanded an order number instead of explaining the policy —
+        the zh mirror of the EN "return policy" bug. The FAQ patterns
+        only looked for the question word BEFORE the action noun."""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act
+        result = await detector.detect_with_confidence("7天无理由退货怎么算")
+
+        # Assert — FAQ (怎么 keyword 0.5 + reversed pattern 2.4 = 2.9 →
+        # 0.97) must outrank RETURN (2.7 → 0.9) and cross the 0.7
+        # short-circuit so no LLM call is needed.
+        assert result.intent is Intent.FAQ
+        assert result.confidence >= 0.7
+        # The direct action phrasing must stay an action request.
+        assert await detector.detect("我要退货") is Intent.RETURN
+
     async def test_english_word_interior_never_matches_keywords(self):
         """ASCII keywords match whole words, not word interiors.
 

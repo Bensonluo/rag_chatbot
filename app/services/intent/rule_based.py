@@ -87,6 +87,12 @@ class RuleBasedIntentDetector(IntentDetector):
                         # keywords ("我要退货") — a how-to is a knowledge
                         # question, not a request to execute the action.
                         r"(怎么|如何).{0,10}(退|退款|退货|换货)",
+                        # Reversed order ("退货怎么算", observed live
+                        # 2026-09-30: classified RETURN and the bot demanded
+                        # an order number instead of explaining the policy)
+                        # — same rule: question word attached to the action
+                        # noun is knowledge-seeking, not execution-seeking.
+                        r"(退|退款|退货|换货).{0,10}(怎么|如何|怎样|多久|几天|什么条件|怎么算)",
                         r"(运费|邮费|配送费).{0,4}(多少|怎么算|免)",
                     ],
                     "weight": 2.4,
