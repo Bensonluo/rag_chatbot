@@ -274,12 +274,13 @@ class Settings(BaseSettings):
     GLM_API_KEY: str | None = Field(default=None, description="Zhipu AI GLM API key")
     GLM_MODEL: str = Field(default="glm-5.3-flash", description="GLM model name")
     GLM_BASE_URL: str = Field(
-        default="https://open.bigmodel.cn/api/paas/v4/",
+        default="https://open.bigmodel.cn/api/coding/paas/v4/",
         description=(
-            "Zhipu GLM OpenAI-compatible endpoint. Default is the standard "
-            "PAAS API; a Coding Plan key overrides this to "
-            "https://open.bigmodel.cn/api/coding/paas/v4/ — a standard key "
-            "has no quota on the coding endpoint and 429s every call."
+            "Zhipu GLM OpenAI-compatible endpoint. Default is the Coding "
+            "Plan endpoint — a deliberate choice: the Coding Plan is the "
+            "free package this deployment's key subscribes to. Standard "
+            "PAAS keys override this to https://open.bigmodel.cn/api/paas/v4/ "
+            "via env."
         ),
     )
 
