@@ -71,9 +71,30 @@ async def seed(corpus_path: Path, dry_run: bool) -> None:
         return
 
     # Imported lazily so --dry-run never touches app settings/services.
-    from app.api.v1.documents import get_ingestion_service
+    # Wired directly (mirroring get_ingestion_service) but WITHOUT the
+    # per-chunk LLM entity extractor: ~50 sequential GLM extraction
+    # calls against the Coding Plan's low concurrency ceiling would be
+    # slow and rate-limit-prone; this seeder fills the vector leg only.
+    from app.config.settings import get_settings
+    from app.services.documents.ingestion import DocumentIngestionService
+    from app.services.embeddings import EmbeddingFactory
+    from app.services.retrieval.factory import RetrievalFactory
 
-    service = await get_ingestion_service()
+    settings = get_settings()
+    embedding_service = EmbeddingFactory.create_from_settings()
+    qdrant_client = RetrievalFactory.create_vector_client(
+        client_type="qdrant",
+        url=settings.VECTOR_DB_URL,
+        collection_name=settings.VECTOR_COLLECTION_NAME,
+        api_key=settings.VECTOR_API_KEY,
+        embedding_service=embedding_service,
+    )
+    service = DocumentIngestionService(
+        qdrant_client=qdrant_client,
+        embedding_provider=settings.EMBEDDING_PROVIDER,
+        chunking_strategy="semantic",
+        embedding_service=embedding_service,
+    )
     total_chunks = 0
     for doc in docs:
         # Idempotency: drop any previous version of this doc first.
