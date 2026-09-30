@@ -74,8 +74,37 @@ class RuleBasedIntentDetector(IntentDetector):
             ],
             Intent.COMPLAINT: [
                 {
-                    "keywords": ["投诉", "差评", "不满", "complaint", "举报", "投诉客服", "不满意"],
+                    # "complain" mirrors the zh verb 投诉 (verb+noun in one
+                    # word): the EN noun alone left "I want to complain"
+                    # scoreless against a competing order/shipping keyword.
+                    "keywords": [
+                        "投诉",
+                        "差评",
+                        "不满",
+                        "complaint",
+                        "complain",
+                        "举报",
+                        "投诉客服",
+                        "不满意",
+                    ],
                     "weight": 1.5,
+                },
+                {
+                    "patterns": [
+                        # Explicit-verb complaint phrasing ("我要投诉物流配送…",
+                        # observed live 2026-09-30 under an intent-LLM outage):
+                        # keyword hits alone tie COMPLAINT with QUERY_ORDER
+                        # and TRACK_SHIPPING at 1.5, and Intent-enum order
+                        # crowns the wrong winner. An explicit intent verb
+                        # outranks generic keyword ties — same shape as the
+                        # peers' pattern arms.
+                        r"(我要|我想|打算|准备)(投诉|举报)",
+                        r"^(投诉|举报)",
+                        r"(?:want\s+to|would\s+like\s+to|like\s+to|going\s+to)\s+"
+                        r"(?:file|make|lodge|register)?\s*a?\s*complain",
+                        r"\b(?:file|lodge|raise|register)\s+a\s+complaint",
+                    ],
+                    "weight": 1.3,
                 },
             ],
             # Knowledge intents

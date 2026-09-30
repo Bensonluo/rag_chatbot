@@ -1,5 +1,7 @@
 """Tests for rule-based intent detector"""
 
+import pytest
+
 from app.models.enums.intent import Intent
 
 
@@ -466,3 +468,93 @@ class TestRuleBasedIntentDetector:
 
         # Assert
         assert intent == Intent.TRACK_SHIPPING
+
+
+# The exact message the zh live mirror sent while the intent LLM leg was
+# down (GLM 429 storm, 2026-09-30): keyword hits tied COMPLAINT with
+# QUERY_ORDER and TRACK_SHIPPING at 1.5 each, and dict-iteration order
+# crowned query_order — the complaint never reached the slot pipeline.
+LIVE_ZH_COMPLAINT = "我要投诉物流配送，ORD1001订单的包裹三天了还没送到"
+
+
+class TestComplaintExplicitVerbArbitration:
+    """Finding ④ (2026-09-30): an explicit intent verb (我要投诉) must
+    outrank generic keyword ties. COMPLAINT was the only task intent
+    without a pattern arm; peers get +1.3 from theirs and ties break by
+    enum order, so a complaint that also mentions 订单/物流 routed to
+    query_order/track_shipping instead."""
+
+    async def test_live_message_routes_to_complaint(self):
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        result = await detector.detect_with_confidence(LIVE_ZH_COMPLAINT)
+
+        assert result.intent == Intent.COMPLAINT
+        # ≥ hybrid threshold 0.7: the rule layer settles it without the
+        # LLM leg, so the verdict survives a provider outage.
+        assert result.confidence >= 0.7
+
+    async def test_plain_explicit_complaint_short_circuits(self):
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        result = await detector.detect_with_confidence("我要投诉")
+
+        assert result.intent == Intent.COMPLAINT
+        assert result.confidence >= 0.7
+
+    async def test_english_explicit_complaint_arbitrates(self):
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        result = await detector.detect_with_confidence(
+            "I want to file a complaint about the delivery of order ORD1001"
+        )
+
+        assert result.intent == Intent.COMPLAINT
+
+    async def test_message_leading_complaint_verb_wins(self):
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        result = await detector.detect_with_confidence("投诉物流配送太慢")
+
+        assert result.intent == Intent.COMPLAINT
+
+    @pytest.mark.parametrize(
+        "message,expected",
+        [
+            ("我的订单到哪了", Intent.QUERY_ORDER),
+            ("物流查询", Intent.TRACK_SHIPPING),
+            ("我要退货", Intent.RETURN),
+            ("再不退款我就投诉", Intent.REFUND),
+            ("查一下订单状态", Intent.QUERY_ORDER),
+        ],
+    )
+    async def test_non_complaint_verbs_unchanged(self, message, expected):
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        result = await detector.detect_with_confidence(message)
+
+        assert result.intent == expected, message
+
+    async def test_english_verb_form_complain_arbitrates(self):
+        """EN verb form ("complain", not the noun "complaint") must win
+        the same arbitration — zh got verb coverage free because 投诉 is
+        both verb and noun."""
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        result = await detector.detect_with_confidence(
+            "I want to complain about the delivery of order ORD1001"
+        )
+
+        assert result.intent == Intent.COMPLAINT
