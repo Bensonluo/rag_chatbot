@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 import jwt
 
+from app.config.settings import settings
 from app.core.exceptions import ExternalServiceError
 from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
 from app.services.llm.token_counter import TokenCounter
@@ -91,15 +92,13 @@ class GLMClient(LLMServiceBase):
         "glm-4",
     ]
 
-    # GLM API base URL
-    API_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4/"
-
     def __init__(
         self,
         api_key: str,
         model: str = "glm-5.3-flash",
         max_tokens: int | None = None,
         temperature: float | None = None,
+        base_url: str | None = None,
     ) -> None:
         """
         Initialize GLM client.
@@ -109,11 +108,14 @@ class GLMClient(LLMServiceBase):
             model: Model name (default: glm-5.3-flash)
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
+            base_url: Override the API endpoint (defaults to GLM_BASE_URL —
+                the standard PAAS API; Coding Plan keys point it at the
+                coding endpoint instead)
         """
         super().__init__(api_key, model, max_tokens, temperature)
 
         self.client = httpx.AsyncClient(
-            base_url=self.API_BASE_URL,
+            base_url=base_url or settings.GLM_BASE_URL,
             headers={"Content-Type": "application/json"},
             timeout=120.0,
             limits=_STREAM_POOL_LIMITS,

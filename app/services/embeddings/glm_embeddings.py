@@ -10,6 +10,7 @@ from types import TracebackType
 import httpx
 import jwt
 
+from app.config.settings import settings
 from app.core.exceptions import ExternalServiceError
 from app.services.embeddings.base import EmbeddingResult, EmbeddingServiceBase
 
@@ -56,14 +57,12 @@ class GLMEmbeddingService(EmbeddingServiceBase):
         "embedding-3": 2048,  # GLM embedding v3 — live-verified 2048 dims
     }
 
-    # GLM API base URL
-    API_BASE_URL = "https://open.bigmodel.cn/api/coding/paas/v4/"
-
     def __init__(
         self,
         api_key: str,
         model: str = "embedding-2",
         dimensions: int | None = None,
+        base_url: str | None = None,
     ) -> None:
         """
         Initialize GLM embedding client.
@@ -72,6 +71,9 @@ class GLMEmbeddingService(EmbeddingServiceBase):
             api_key: Zhipu AI API key (format: {id}.{secret})
             model: Model name (default: embedding-2)
             dimensions: Override dimensions (auto-detected if not provided)
+            base_url: Override the API endpoint (defaults to GLM_BASE_URL —
+                the standard PAAS API; Coding Plan keys point it at the
+                coding endpoint instead)
         """
         if dimensions is None:
             dimensions = self.MODELS.get(model, 1024)
@@ -81,7 +83,7 @@ class GLMEmbeddingService(EmbeddingServiceBase):
         self.api_key = api_key
 
         self.client = httpx.AsyncClient(
-            base_url=self.API_BASE_URL,
+            base_url=base_url or settings.GLM_BASE_URL,
             headers={"Content-Type": "application/json"},
             timeout=60.0,
             limits=_EMBED_POOL_LIMITS,
