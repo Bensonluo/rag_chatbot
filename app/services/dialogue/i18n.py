@@ -17,9 +17,10 @@ Korean, Cyrillic...), digits-only, emoji-only, empty — selects
 English, the international fallback, since zh/en are the only copy
 pairs that exist today.
 
-Known limitation: slot-collection prompts and the irreversible-action
-confirmation gate remain Chinese-only; they are money-moving copy and
-stay single-language until reviewed for translation.
+Known limitation: slot-collection prompts gained EN templates via
+``prompt_en`` in slot_types.py; the meta-intent replies (resume hints,
+cancel/confirm/deny acknowledgements) remain Chinese-only — they are
+money-moving copy and stay single-language until reviewed.
 """
 
 import re
@@ -105,4 +106,41 @@ HANDOFF_ALREADY_QUEUED: dict[str, str] = {
 HANDOFF_CONTEXT_NOTE: dict[str, str] = {
     LANG_ZH: "人工客服可查看本次会话的完整上下文，请稍候",
     LANG_EN: "the human agent can see this conversation's full context, one moment",
+}
+
+# Irreversible-action confirmation gate (fixed template, never
+# LLM-generated): the ask that protects a money-moving action must be
+# deterministic AND intelligible to the user it addresses — an English
+# speaker who cannot read the gate copy cannot meaningfully confirm.
+CONFIRMATION_ACTION_NAMES: dict[str, dict[str, str]] = {
+    "refund": {LANG_ZH: "退款", LANG_EN: "Refund"},
+    "return": {LANG_ZH: "退货", LANG_EN: "Return"},
+    "query_order": {LANG_ZH: "查订单", LANG_EN: "Order lookup"},
+    "track_shipping": {LANG_ZH: "查物流", LANG_EN: "Shipping tracking"},
+    "complaint": {LANG_ZH: "投诉", LANG_EN: "Complaint"},
+    "faq": {LANG_ZH: "常见问题", LANG_EN: "FAQ"},
+    "policy": {LANG_ZH: "政策查询", LANG_EN: "Policy lookup"},
+    "handoff": {LANG_ZH: "转人工", LANG_EN: "Human agent"},
+}
+
+CONFIRMATION_ASK: dict[str, str] = {
+    LANG_ZH: (
+        "⚠️ 即将为您执行「{action}」：{detail}。\n"
+        "该操作不可自动撤销。请回复「确认」执行，或回复「取消」放弃。"
+    ),
+    LANG_EN: (
+        '⚠️ About to execute "{action}": {detail}.\n'
+        'This action cannot be undone automatically. Reply "confirm" to '
+        'proceed, or "cancel" to abandon.'
+    ),
+}
+
+CONFIRMATION_DETAIL_JOIN: dict[str, str] = {
+    LANG_ZH: "，",
+    LANG_EN: ", ",
+}
+
+CONFIRMATION_DETAIL_EMPTY: dict[str, str] = {
+    LANG_ZH: "（无附加信息）",
+    LANG_EN: "(no additional details)",
 }

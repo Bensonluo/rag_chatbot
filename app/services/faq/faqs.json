@@ -165,5 +165,166 @@
       "满减券门槛是多少"
     ],
     "answer": "满减券需订单满 300 元可用，最高可抵扣 50 元；优惠券领取后 30 天内有效，过期作废。订单取消或全额退款后优惠券会自动退回（已过期的不补发）。"
+  },
+  {
+    "id": "returns_policy_en",
+    "question": "What is your return policy",
+    "variants": [
+      "how do I return an item",
+      "how do I return something",
+      "can I return an item I don't want",
+      "who pays for return shipping",
+      "do you support 7-day no-reason returns"
+    ],
+    "answer": "You may request a no-reason return within 7 days of delivery (items must be intact and resaleable; we also support exchanges within 15 days of delivery). To apply: My Orders → select the order → After-sales → Return & Refund. Return shipping: covered by the platform for quality issues; covered by you for no-reason returns (shipping insurance can offset it). Special categories (fresh food, customized items, intimate apparel) do not support no-reason returns."
+  },
+  {
+    "id": "refund_timeline_en",
+    "question": "How long do refunds take",
+    "variants": [
+      "when will I get my money back",
+      "when is my refund coming",
+      "how do I check my refund status",
+      "where does a cancelled order refund go"
+    ],
+    "answer": "Once approved, refunds are returned via your original payment method: Alipay/WeChat within 1-3 business days, bank cards within 3-7 business days, credit cards within 7-15 business days (depending on the issuing bank). You can track real-time refund progress under My Orders → Refund Details."
+  },
+  {
+    "id": "track_shipping_en",
+    "question": "How do I track my package",
+    "variants": [
+      "where is my parcel",
+      "when will my order ship",
+      "why hasn't my order shipped yet",
+      "how long does shipping take during big sales",
+      "what's my tracking number",
+      "track my shipment"
+    ],
+    "answer": "To track a package: My Orders → open the order → Shipping Info, showing the carrier, tracking number, and real-time route. Standard orders ship within 48 hours of payment; during major sales this may extend to 72 hours. Once shipped, you'll be notified by SMS and app push."
+  },
+  {
+    "id": "modify_address_en",
+    "question": "How do I change my delivery address",
+    "variants": [
+      "I entered the wrong address",
+      "can I change the address after ordering",
+      "change shipping address",
+      "update my delivery address"
+    ],
+    "answer": "Address changes depend on the order state: ① Not yet shipped — My Orders → Order Details → Change Address (allowed twice per order); ② Already shipped — the address can no longer be changed directly; contact online customer support and we will coordinate a redirect with the carrier (success not guaranteed). Please double-check your address before ordering."
+  },
+  {
+    "id": "cancel_order_en",
+    "question": "How do I cancel my order",
+    "variants": [
+      "how to cancel an unshipped order",
+      "can I cancel my order",
+      "request order cancellation",
+      "how long does a cancellation refund take",
+      "will my cancellation refund go back to WeChat"
+    ],
+    "answer": "To cancel: My Orders → select the order → Cancel Order → choose a reason and submit. Unshipped orders are refunded immediately after cancellation, via the original payment method: Alipay/WeChat within 1-3 business days, bank cards within 3-7 business days. Shipped orders cannot be cancelled — please request a return after delivery. Flash-sale/pre-sale orders follow their event rules."
+  },
+  {
+    "id": "invoice_en",
+    "question": "How do I get an invoice",
+    "variants": [
+      "can I get an invoice",
+      "where do I request an invoice",
+      "how to get an e-invoice",
+      "I need an invoice for reimbursement",
+      "special VAT invoice"
+    ],
+    "answer": "The platform issues electronic general invoices by default, available within 90 days of order completion: My Orders → Order Details → Request Invoice, fill in the title details, and it will be sent to your email. Enterprise special VAT invoices require a qualification review first. Paper invoices are not currently mailed."
+  },
+  {
+    "id": "coupon_rules_en",
+    "question": "How do I use coupons",
+    "variants": [
+      "where are my coupons",
+      "why won't my coupon work",
+      "how long are coupons valid",
+      "how do I get coupons",
+      "can coupons be stacked"
+    ],
+    "answer": "To use a coupon: on the order confirmation page, tap Coupons and pick an eligible one; the discount is applied automatically. Common reasons a coupon can't be used: the spend threshold isn't met, the item isn't in scope, the coupon expired, or it can't be combined with other promotional prices. Claimed coupons are added to your account automatically; see My Account → Coupons for validity and rules."
+  },
+  {
+    "id": "payment_failed_en",
+    "question": "What if my payment failed",
+    "variants": [
+      "payment won't go through",
+      "I was charged but the order didn't go through",
+      "money deducted but payment failed",
+      "double charged"
+    ],
+    "answer": "If payment fails: ① Insufficient balance/limit — switch payment methods or adjust the limit; ② Failure shown but money deducted — some banks report with a delay; wait 10-30 minutes and refresh the order status. If it hasn't recovered after 2 hours, the deduction will be returned via the original payment method within 1-7 business days. If it still hasn't arrived, contact human support to investigate."
+  },
+  {
+    "id": "delivery_scope_en",
+    "question": "Where do you deliver and what are the shipping fees",
+    "variants": [
+      "where do you deliver",
+      "do you offer free shipping",
+      "how much is shipping",
+      "do you ship to Hong Kong, Macau or Taiwan",
+      "international delivery"
+    ],
+    "answer": "We deliver across mainland China (remote areas included, with longer transit times). Shipping rules: orders of 99 CNY or more ship free (special categories like fresh food and large appliances excepted); below that, a base shipping fee of 6-12 CNY applies. Hong Kong, Macau, Taiwan, and overseas destinations are not served at this time."
+  },
+  {
+    "id": "authenticity_en",
+    "question": "Are your products authentic",
+    "variants": [
+      "is this genuine",
+      "how can you prove it's real",
+      "what's the compensation for fakes",
+      "is the quality guaranteed"
+    ],
+    "answer": "All products on the platform come from brand owners or authorized distributors, with full-chain traceability. If you dispute authenticity, you may request a third-party authentication within 15 days of delivery; a confirmed fake is compensated tenfold, with the authentication fee covered by us. Quality issues support returns within 7 days and exchanges within 15 days."
+  },
+  {
+    "id": "account_password_en",
+    "question": "What if I forgot my password",
+    "variants": [
+      "forgot my password",
+      "I can't log in",
+      "how do I reset my password",
+      "my account is locked"
+    ],
+    "answer": "To recover a password: on the login page, tap Forgot Password → receive a verification code via your bound phone/email → set a new password. Accounts locked after repeated wrong attempts unlock automatically after 15 minutes. If your phone number is no longer in use, contact human support for identity verification and a reset."
+  },
+  {
+    "id": "complaint_channel_en",
+    "question": "How do I file a complaint",
+    "variants": [
+      "I want to file a complaint",
+      "how to complain about a merchant",
+      "complain about customer service",
+      "poor after-sales service"
+    ],
+    "answer": "Complaint channels: ① Online — tell customer support about the problem and a complaint ticket will be created, with a specialist following up within 24 hours; ② Phone — hotline 400-XXX-XXXX (9:00-21:00). Every complaint's progress is recorded and trackable, and the outcome is sent to you by SMS."
+  },
+  {
+    "id": "shipping_insurance_en",
+    "question": "How does shipping insurance pay out",
+    "variants": [
+      "how much does shipping insurance cover",
+      "shipping insurance payout amount",
+      "is return shipping insurance worth it",
+      "what if the insurance doesn't cover the full shipping fee"
+    ],
+    "answer": "Shipping insurance purchased at checkout settles automatically on return: it pays up to 25 CNY, and any excess shipping fee is yours to cover. The payout arrives in your payment account within 1-7 business days after the merchant confirms receipt."
+  },
+  {
+    "id": "coupon_usage_en",
+    "question": "How do I use threshold coupons",
+    "variants": [
+      "minimum spend for threshold coupons",
+      "how much can a threshold coupon save",
+      "how long are coupons valid",
+      "what's the threshold coupon minimum"
+    ],
+    "answer": "Threshold coupons require a minimum order of 300 CNY and deduct up to 50 CNY; coupons are valid for 30 days after being claimed and expire after that. Coupons are automatically returned if the order is cancelled or fully refunded (expired ones are not reissued)."
   }
 ]

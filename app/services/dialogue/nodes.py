@@ -61,6 +61,10 @@ from app.services.dialogue.funnel_metrics import (
     record_funnel_layer,
 )
 from app.services.dialogue.i18n import (
+    CONFIRMATION_ACTION_NAMES,
+    CONFIRMATION_ASK,
+    CONFIRMATION_DETAIL_EMPTY,
+    CONFIRMATION_DETAIL_JOIN,
     GENERATION_FAILED,
     GUARDRAIL_INPUT_BLOCKED,
     GUARDRAIL_OUTPUT_BLOCKED,
@@ -613,7 +617,7 @@ class NodeFactory:
                     break
 
         pending = get_missing_slots(intent, merged)
-        next_prompt = get_next_prompt(intent, merged)
+        next_prompt = get_next_prompt(intent, merged, lang=_turn_lang(state))
 
         emit_trace("cs.slots", filled_slots=merged, pending_slots=pending)
         return {
@@ -648,7 +652,7 @@ class NodeFactory:
         if tool is not None and tool.requires_confirmation:
             # Gate every prepared irreversible action, overwriting any
             # stale pending confirmation from an earlier turn.
-            summary = _build_confirmation_summary(tool, filled_slots)
+            summary = _build_confirmation_summary(tool, filled_slots, lang=_turn_lang(state))
             record_funnel_layer(LAYER_AGENT_TOOL)
             _emit_response(summary, config)
             return {
@@ -1858,19 +1862,24 @@ class NodeFactory:
 # ── Module-level helpers ─────────────────────────────────────────────────────
 
 
-def _build_confirmation_summary(tool: ToolDefinition, filled_slots: dict[str, Any]) -> str:
+def _build_confirmation_summary(
+    tool: ToolDefinition, filled_slots: dict[str, Any], lang: str = LANG_ZH
+) -> str:
     """Fixed-template confirmation question for a staged irreversible action.
 
     Deliberately not LLM-generated: the wording of a gate that protects a
-    money-moving action must be deterministic.
+    money-moving action must be deterministic. The template follows the
+    user's language (English fallback) — a confirmation the user cannot
+    read is not a confirmation.
     """
-    display = INTENT_DISPLAY_NAMES.get(tool.intent, tool.description)
-    parts = [f"{slot}={value}" for slot, value in filled_slots.items()]
-    detail = "，".join(parts) if parts else "（无附加信息）"
-    return (
-        f"⚠️ 即将为您执行「{display}」：{detail}。\n"
-        "该操作不可自动撤销。请回复「确认」执行，或回复「取消」放弃。"
+    display = CONFIRMATION_ACTION_NAMES.get(tool.intent, {}).get(
+        lang, INTENT_DISPLAY_NAMES.get(tool.intent, tool.description)
     )
+    parts = [f"{slot}={value}" for slot, value in filled_slots.items()]
+    detail = (
+        CONFIRMATION_DETAIL_JOIN[lang].join(parts) if parts else CONFIRMATION_DETAIL_EMPTY[lang]
+    )
+    return CONFIRMATION_ASK[lang].format(action=display, detail=detail)
 
 
 def _build_handoff_response(reason: str, ticket: dict[str, Any], lang: str = LANG_ZH) -> str:

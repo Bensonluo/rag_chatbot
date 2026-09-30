@@ -147,6 +147,24 @@ class TestRuleBasedIntentDetector:
         # Assert
         assert intent == Intent.POLICY
 
+    async def test_detect_policy_english(self):
+        """English policy questions must hit POLICY from rules alone —
+        the live deployment must not depend on an LLM fallback (which
+        the free GLM tier serves intermittently) to route them."""
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        intent = await detector.detect("What is your return policy")
+        assert intent == Intent.POLICY
+
+        intent = await detector.detect("how does your refund policy work")
+        assert intent == Intent.POLICY
+
+        result = await detector.detect_with_confidence("What is your return policy")
+        assert result.intent == Intent.POLICY
+        assert result.confidence >= 0.7  # rule short-circuit threshold
+
     async def test_detect_faq_keyword(self):
         """Test detecting FAQ intent from general question keywords"""
         # Arrange

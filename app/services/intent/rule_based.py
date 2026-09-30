@@ -93,13 +93,31 @@ class RuleBasedIntentDetector(IntentDetector):
                 },
             ],
             Intent.POLICY: [
-                {"keywords": ["政策", "规定", "规则", "条款", "保障", "协议"], "weight": 1.0},
+                {
+                    "keywords": [
+                        "政策",
+                        "规定",
+                        "规则",
+                        "条款",
+                        "保障",
+                        "协议",
+                        "policy",
+                        "policies",
+                    ],
+                    "weight": 1.0,
+                },
                 {
                     "patterns": [
                         r"(退换|退货|退款|售后).{0,6}(政策|规定|规则|条件|是什么|怎么算)",
                         r"(政策|规定|规则|条件).{0,4}(退|换|退款)",
                         r".{0,4}(政策|规定|规则).{0,6}(是什么|有哪些|怎么样)",
                         r"(保修|质保|售后).{0,4}(期|政策|规定)",
+                        # English how-to/what-is phrasing outranks the raw
+                        # action keywords ("return policy" is a knowledge
+                        # question, not a request to execute a return).
+                        r"\b(return|refund|exchange|cancellation?|shipping|delivery|privacy|warranty)s?\b.{0,20}\bpolic(?:y|ies)\b",
+                        r"\bpolic(?:y|ies)\b.{0,20}\b(return|refund|exchange|cancel|ship|deliver|warrant)\w*",
+                        r"\bhow.{0,30}\bpolic(?:y|ies)\b.{0,20}\bwork\b",
                     ],
                     "weight": 2.0,
                 },

@@ -65,6 +65,7 @@ class TestConfirmationGate:
             "filled_slots": {"order_id": "ORD1001", "reason": "质量问题"},
             "pending_slots": [],
             "user_id": 1,
+            "message": "订单 ORD1001 有质量问题，我要退款",
         }
         updates = await factory.execute_tool_node(state)
 
@@ -73,6 +74,33 @@ class TestConfirmationGate:
         assert updates["pending_confirmation"]["args"]["order_id"] == "ORD1001"
         assert "确认" in updates["response"]
         assert "取消" in updates["response"]
+
+    async def test_english_turn_gets_english_confirmation(self):
+        """The gate's language follows the turn: an English user must be
+        asked to confirm in English, never handed Chinese copy for a
+        money-moving decision."""
+        registry = create_default_tool_registry()
+        registry.execute = AsyncMock()  # type: ignore[method-assign]
+        factory = _make_factory(tool_registry=registry)
+
+        state: DialogueState = {
+            "intent": "refund",
+            "filled_slots": {"order_id": "ORD1001", "reason": "arrived damaged"},
+            "pending_slots": [],
+            "user_id": 1,
+            "message": "I want a refund for order ORD1001, it arrived damaged",
+        }
+        updates = await factory.execute_tool_node(state)
+
+        registry.execute.assert_not_awaited()
+        assert updates["pending_confirmation"]["intent"] == "refund"
+        response = updates["response"]
+        assert "confirm" in response.lower()
+        assert "cancel" in response.lower()
+        assert "Refund" in response
+        # English copy means English: no zh-only ask left over.
+        assert "确认" not in response
+        assert "取消" not in response
 
     async def test_gate_overwrites_stale_pending_confirmation(self):
         """A leftover staged action must not bypass the gate for a new one."""

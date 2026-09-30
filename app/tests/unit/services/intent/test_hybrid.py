@@ -190,10 +190,10 @@ class TestHybridIntentDetector:
             rule_based=rule_based, llm_based=llm_based, confidence_threshold=0.7
         )
 
-        # Act — "return" keyword scores RETURN 1.5 → 0.5 confidence
-        result = await detector.detect_with_confidence(
-            "What is your return policy? How many days do I have?"
-        )
+        # Act — bare "return" keyword scores RETURN 1.5 → 0.5 confidence.
+        # (Not a "...policy" phrasing: those now hit the EN POLICY pattern
+        # at ≥0.7 and short-circuit before the LLM is ever consulted.)
+        result = await detector.detect_with_confidence("I want to return this item")
 
         # Assert
         assert result.intent == Intent.RETURN

@@ -16,6 +16,7 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
             "order_id": {
                 "type": "string",
                 "prompt": "请提供您的订单号",
+                "prompt_en": "Please provide your order number",
                 "patterns": [
                     r"订单号[：:]?\s*([A-Za-z0-9]+)",
                     r"(?:order|订单)\s*([A-Za-z0-9]{3,})",
@@ -24,6 +25,7 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
             "reason": {
                 "type": "string",
                 "prompt": "请问退款原因是什么？",
+                "prompt_en": "May I ask the reason for the refund?",
                 "patterns": [
                     r"原因[是为：:\s]+(.{2,20})",
                     r"因为\s*(.{2,20})",
@@ -34,6 +36,7 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
             "amount": {
                 "type": "number",
                 "prompt": "请问退款金额是多少？",
+                "prompt_en": "What is the refund amount?",
             },
         },
     },
@@ -44,6 +47,7 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
             "order_id": {
                 "type": "string",
                 "prompt": "请提供您的订单号",
+                "prompt_en": "Please provide your order number",
                 "patterns": [
                     r"订单号[：:]?\s*([A-Za-z0-9]+)",
                     r"(?:order|订单)\s*([A-Za-z0-9]{3,})",
@@ -52,6 +56,7 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
             "reason": {
                 "type": "string",
                 "prompt": "请问退货原因是什么？",
+                "prompt_en": "May I ask the reason for the return?",
                 "patterns": [
                     r"原因[是为：:\s]+(.{2,20})",
                     r"因为\s*(.{2,20})",
@@ -68,6 +73,7 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
             "order_id": {
                 "type": "string",
                 "prompt": "请提供您的订单号",
+                "prompt_en": "Please provide your order number",
                 "patterns": [
                     r"订单号[：:]?\s*([A-Za-z0-9]+)",
                     r"(?:order|订单)\s*([A-Za-z0-9]{3,})",
@@ -82,6 +88,7 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
             "order_id": {
                 "type": "string",
                 "prompt": "请提供您的订单号",
+                "prompt_en": "Please provide your order number",
                 "patterns": [
                     r"订单号[：:]?\s*([A-Za-z0-9]+)",
                     r"(?:order|订单)\s*([A-Za-z0-9]{3,})",
@@ -96,14 +103,17 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
             "category": {
                 "type": "string",
                 "prompt": "请问您要投诉哪个方面？（如：商品质量、服务态度、物流配送等）",
+                "prompt_en": "What would you like to complain about? (e.g. product quality, service attitude, delivery)",
             },
             "description": {
                 "type": "string",
                 "prompt": "请详细描述您的问题",
+                "prompt_en": "Please describe the problem in detail",
             },
             "order_id": {
                 "type": "string",
                 "prompt": "请提供相关订单号（如有）",
+                "prompt_en": "Please provide the relevant order number, if any",
                 "patterns": [r"订单号[：:]?\s*(\d+)", r"(?:order|订单)\s*(\d{5,})"],
             },
         },
@@ -118,14 +128,22 @@ def get_missing_slots(intent: str, filled: dict[str, Any]) -> list[str]:
     return [s for s in required if s not in filled]
 
 
-def get_next_prompt(intent: str, filled: dict[str, Any]) -> str | None:
-    """Get the prompt for the next missing required slot."""
+def get_next_prompt(intent: str, filled: dict[str, Any], lang: str = "zh") -> str | None:
+    """Get the prompt for the next missing required slot.
+
+    ``lang`` selects the asking language ("en" picks ``prompt_en``;
+    everything else falls back to the zh template — a zh ask beats no
+    ask for a slot definition shipped without an EN prompt).
+    """
     schema = INTENT_SLOT_SCHEMAS.get(intent, {})
     missing = get_missing_slots(intent, filled)
     if not missing:
         return None
     slots = schema.get("slots", {})
-    prompt = slots.get(missing[0], {}).get("prompt", f"请提供{missing[0]}")
+    slot_def = slots.get(missing[0], {})
+    prompt = slot_def.get("prompt", f"请提供{missing[0]}")
+    if lang == "en":
+        prompt = slot_def.get("prompt_en") or prompt
     return str(prompt)
 
 
