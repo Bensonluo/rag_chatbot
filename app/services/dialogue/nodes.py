@@ -60,6 +60,21 @@ from app.services.dialogue.funnel_metrics import (
     LAYER_RAG,
     record_funnel_layer,
 )
+from app.services.dialogue.i18n import (
+    GENERATION_FAILED,
+    GUARDRAIL_INPUT_BLOCKED,
+    GUARDRAIL_OUTPUT_BLOCKED,
+    HANDOFF_ACK,
+    HANDOFF_ALREADY_QUEUED,
+    HANDOFF_CONTEXT_NOTE,
+    HANDOFF_EMOTION_PREFIX,
+    HANDOFF_NO_TICKET,
+    HANDOFF_QUEUE,
+    LANG_ZH,
+    NO_EVIDENCE,
+    RETRIEVAL_DEGRADED,
+    detect_language,
+)
 from app.services.dialogue.query_rewriter import condense_for_retrieval
 from app.services.dialogue.state import DialogueState
 from app.services.facts.metrics import CLAIM_CHECKS, CLAIM_VIOLATIONS
@@ -88,10 +103,22 @@ logger = logging.getLogger(__name__)
 # generation — the model would invent policy. Two distinct sentences,
 # because the correct next move differs: rephrase/handoff when the KB
 # simply lacks the answer, retry/handoff when retrieval itself failed.
-NO_EVIDENCE_RESPONSE = (
-    "抱歉，暂未在知识库中找到与您问题相关的信息。您可以换个说法再试，或输入「转人工」联系人工客服。"
-)
-RETRIEVAL_DEGRADED_RESPONSE = "检索服务暂时不可用，请稍后再试，或输入「转人工」联系人工客服。"
+# Bilingual pairs live in i18n; these aliases keep the Chinese copy as
+# the import anchor for existing pinned tests (language selection now
+# happens at each branch, keyed by the turn's message).
+NO_EVIDENCE_RESPONSE = NO_EVIDENCE[LANG_ZH]
+RETRIEVAL_DEGRADED_RESPONSE = RETRIEVAL_DEGRADED[LANG_ZH]
+
+
+def _turn_lang(state: DialogueState | None, fallback_text: str = "") -> str:
+    """Language of the current turn, for canned-copy selection.
+
+    Prefers the turn's user message; nodes without state (rare) fall
+    back to whatever text they hold (e.g. the LLM prompt).
+    """
+    if state is not None and state.get("message"):
+        return detect_language(state["message"])
+    return detect_language(fallback_text)
 
 
 def _stream_queue(config: Optional[RunnableConfig]) -> asyncio.Queue[Any] | None:
@@ -226,7 +253,7 @@ class NodeFactory:
         result = self._guardrail_service.check_input(message)
 
         if result.was_blocked:
-            response = "抱歉，您的消息未通过安全检查，请重新描述您的问题。"
+            response = GUARDRAIL_INPUT_BLOCKED[_turn_lang(state)]
             emit_trace("cs.guardrail_input", blocked=True, violations=result.violations[:3])
             _emit_response(response, config)
             return {
@@ -287,7 +314,7 @@ class NodeFactory:
         if self._guardrail_service is not None:
             check = self._guardrail_service.check_output(response)
             if check.was_blocked:
-                response = "抱歉，该回复未能通过安全检查，请重新提问。"
+                response = GUARDRAIL_OUTPUT_BLOCKED[_turn_lang(state)]
             elif check.sanitized_content and check.sanitized_content != response:
                 response = check.sanitized_content
         updates["response"] = response
@@ -679,7 +706,7 @@ class NodeFactory:
         if self._guardrail_service is not None:
             check = self._guardrail_service.check_output(response)
             if check.was_blocked:
-                response = "抱歉，该回复未能通过安全检查，请重新提问。"
+                response = GUARDRAIL_OUTPUT_BLOCKED[_turn_lang(state)]
             elif check.sanitized_content and check.sanitized_content != response:
                 response = check.sanitized_content
 
@@ -988,7 +1015,7 @@ class NodeFactory:
 
         result = self._guardrail_service.check_output(response)
         if result.was_blocked:
-            updates["response"] = "抱歉，该回复未能通过安全检查，请重新提问。"
+            updates["response"] = GUARDRAIL_OUTPUT_BLOCKED[_turn_lang(state)]
         elif result.sanitized_content and result.sanitized_content != response:
             updates["response"] = result.sanitized_content
         _emit_response(updates.get("response", ""), config)
@@ -1039,9 +1066,10 @@ class NodeFactory:
         # is a service outage and must not read as "no knowledge"
         # (review 2026-09-26, #6).
         if state.get("retrieval_ran") and not retrieved_docs:
+            lang = detect_language(message)
             if state.get("retrieval_degraded"):
-                return {"response": RETRIEVAL_DEGRADED_RESPONSE}
-            return {"response": NO_EVIDENCE_RESPONSE}
+                return {"response": RETRIEVAL_DEGRADED[lang]}
+            return {"response": NO_EVIDENCE[lang]}
 
         # Case 5: direct LLM call.
         return await self._generate_direct(message, config, state)
@@ -1084,7 +1112,7 @@ class NodeFactory:
                 if self._guardrail_service is not None:
                     check = self._guardrail_service.check_output(response)
                     if check.was_blocked:
-                        response = "抱歉，该回复未能通过安全检查，请重新提问。"
+                        response = GUARDRAIL_OUTPUT_BLOCKED[_turn_lang(state)]
                     elif check.sanitized_content and check.sanitized_content != response:
                         response = check.sanitized_content
                 updates["response"] = response
@@ -1106,7 +1134,7 @@ class NodeFactory:
             raw = response.get("response", "")
             check = self._guardrail_service.check_output(raw)
             if check.was_blocked:
-                response["response"] = "抱歉，该回复未能通过安全检查，请重新提问。"
+                response["response"] = GUARDRAIL_OUTPUT_BLOCKED[_turn_lang(state)]
             elif check.sanitized_content and check.sanitized_content != raw:
                 response["response"] = check.sanitized_content
         # Cache the clean body; the resume hint is per-turn state.
@@ -1193,7 +1221,7 @@ class NodeFactory:
                 context=context,
             )
 
-        response = _build_handoff_response(reason, ticket)
+        response = _build_handoff_response(reason, ticket, lang=_turn_lang(state))
 
         record_funnel_layer(LAYER_HANDOFF)
         emit_trace(
@@ -1317,7 +1345,7 @@ class NodeFactory:
         if self._guardrail_service is not None and response:
             check = self._guardrail_service.check_output(response)
             if check.was_blocked:
-                updates["response"] = "抱歉，该回复未能通过安全检查，请重新提问。"
+                updates["response"] = GUARDRAIL_OUTPUT_BLOCKED[_turn_lang(state)]
             elif check.sanitized_content and check.sanitized_content != response:
                 updates["response"] = check.sanitized_content
 
@@ -1582,7 +1610,7 @@ class NodeFactory:
             if pending and state.get("blocked"):
                 # A blocked turn must not execute a staged irreversible
                 # action; the staging stays intact for a clean retry.
-                return {"response": "抱歉，您的消息未通过安全检查，请重新描述您的问题。"}
+                return {"response": GUARDRAIL_INPUT_BLOCKED[_turn_lang(state)]}
             if pending:
                 # Execute the staged irreversible action with the
                 # caller's identity so ownership checks apply.
@@ -1785,7 +1813,7 @@ class NodeFactory:
                     _release(pii_redactor.flush())
             except Exception:
                 logger.exception("LLM streaming generation failed")
-                fallback = "抱歉，生成回复时出现错误，请稍后重试。"
+                fallback = GENERATION_FAILED[_turn_lang(state, user_content)]
                 # Text may still be held mid-sentence in the gates; flush
                 # both through so ungated, un-redacted remains never reach
                 # the queue.
@@ -1824,7 +1852,7 @@ class NodeFactory:
             return strip_reasoning(response.content)
         except Exception:
             logger.exception("LLM generation failed")
-            return "抱歉，生成回复时出现错误，请稍后重试。"
+            return GENERATION_FAILED[_turn_lang(state, user_content)]
 
 
 # ── Module-level helpers ─────────────────────────────────────────────────────
@@ -1845,28 +1873,31 @@ def _build_confirmation_summary(tool: ToolDefinition, filled_slots: dict[str, An
     )
 
 
-def _build_handoff_response(reason: str, ticket: dict[str, Any]) -> str:
+def _build_handoff_response(reason: str, ticket: dict[str, Any], lang: str = LANG_ZH) -> str:
     """Fixed-template handoff acknowledgement.
 
     Like the confirmation gate, the handoff path never touches the LLM:
-    reaching a human must not depend on model availability.
+    reaching a human must not depend on model availability. The
+    acknowledgement follows the user's language (English fallback).
     """
     prefix = ""
     if reason == REASON_EMOTION:
-        prefix = "非常抱歉给您带来了不好的体验，"
+        prefix = HANDOFF_EMOTION_PREFIX[lang]
 
     ticket_id = ticket.get("ticket_id")
     if ticket_id is None:
-        return f"{prefix}正在为您转接人工客服，请稍候。"
+        return f"{prefix}{HANDOFF_NO_TICKET[lang]}"
 
-    parts = [f"{prefix}已为您转接人工客服（工单号 #{ticket_id}）"]
+    parts = [f"{prefix}{HANDOFF_ACK[lang].format(ticket_id=ticket_id)}"]
     queue_position = ticket.get("queue_position")
     if queue_position:
-        parts.append(f"当前排队人数：{queue_position} 人")
+        parts.append(HANDOFF_QUEUE[lang].format(queue_position=queue_position))
     if ticket.get("reused"):
-        parts.append("您已在排队中，请耐心等待")
-    parts.append("人工客服可查看本次会话的完整上下文，请稍候")
-    return "，".join(parts) + "。"
+        parts.append(HANDOFF_ALREADY_QUEUED[lang])
+    parts.append(HANDOFF_CONTEXT_NOTE[lang])
+    if lang == LANG_ZH:
+        return "，".join(parts) + "。"
+    return ", ".join(parts) + "."
 
 
 def _enriched_query(message: str, fill_result: SlotFillingResult | None) -> str:
