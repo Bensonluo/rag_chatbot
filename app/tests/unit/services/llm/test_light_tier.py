@@ -69,7 +69,13 @@ class TestCreateLightFromSettings:
         from app.services.llm.factory import LLMFactory
 
         primary = _RecordingLLM("glm-5.3-flash")
-        with patch.object(settings, "CHAT_LLM_LIGHT_MODEL", None):
+        with (
+            patch.object(settings, "CHAT_LLM_LIGHT_MODEL", None),
+            # A configured MiniMax key would take the light tier before
+            # this branch (see test_minimax_tier.py) — mask it so this
+            # test pins the no-light-model behavior in isolation.
+            patch.object(settings, "MINIMAX_API_KEY", None),
+        ):
             assert LLMFactory.create_light_from_settings(primary) is primary
 
     def test_light_model_builds_distinct_glm_service(self):
@@ -81,6 +87,7 @@ class TestCreateLightFromSettings:
         with (
             patch.object(settings, "CHAT_LLM_LIGHT_MODEL", "glm-4-flash"),
             patch.object(settings, "GLM_API_KEY", "k"),
+            patch.object(settings, "MINIMAX_API_KEY", None),
         ):
             light = LLMFactory.create_light_from_settings(primary)
 
@@ -99,6 +106,7 @@ class TestCreateLightFromSettings:
             patch.object(settings, "CHAT_LLM_LIGHT_MODEL", "gpt-5-mini"),
             patch.object(settings, "GLM_API_KEY", None),
             patch.object(settings, "OPENAI_API_KEY", "k"),
+            patch.object(settings, "MINIMAX_API_KEY", None),
         ):
             light = LLMFactory.create_light_from_settings(primary)
 

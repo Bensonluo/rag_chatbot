@@ -70,7 +70,13 @@ class LLMIntentDetector(IntentDetector):
                 max_tokens=_INTENT_MAX_TOKENS,
                 temperature=0.0,
             )
-            return self._parse_response(response.content, query)
+            # Reasoning providers (GLM 5.x, MiniMax M-series — both observed
+            # live) inline <think>…</think> before the verdict; word-matching
+            # the raw stream would read the deliberation ("return policy"
+            # inside the think block) as the intent itself.
+            from app.services.llm.reasoning_filter import strip_reasoning
+
+            return self._parse_response(strip_reasoning(response.content), query)
 
         except ExternalServiceError:
             raise

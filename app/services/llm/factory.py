@@ -40,10 +40,10 @@ class LLMFactory:
     """
     Factory for creating LLM service instances.
 
-    Supports multiple LLM providers (OpenAI, Anthropic, GLM) with unified interface.
+    Supports multiple LLM providers (OpenAI, Anthropic, GLM, MiniMax) with unified interface.
     """
 
-    SUPPORTED_PROVIDERS = ["openai", "anthropic", "glm"]
+    SUPPORTED_PROVIDERS = ["openai", "anthropic", "glm", "minimax"]
 
     @staticmethod
     def create(
@@ -134,6 +134,23 @@ class LLMFactory:
                 temperature=temperature,
             )
 
+        elif provider == "minimax":
+            api_key = api_key or settings.MINIMAX_API_KEY
+            if not api_key:
+                raise ValidationError("MiniMax API key not configured")
+
+            model = model or settings.MINIMAX_MODEL
+            # MiniMax speaks the OpenAI Chat Completions protocol
+            # (platform.minimax.io/docs/api-reference/text-chat-openai);
+            # reuse the OpenAI client against its endpoint.
+            return OpenAIClient(
+                api_key=api_key,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                base_url=settings.MINIMAX_BASE_URL,
+            )
+
         else:
             raise ValidationError(f"Provider {provider} not implemented")
 
@@ -149,8 +166,19 @@ class LLMFactory:
         today's behavior. Deliberately not wrapped in resilience —
         light-tier consumers (hybrid intent, rule-based slots, score
         fallback rerankers) degrade on their own when the model fails.
+
+        A configured MiniMax key takes the light tier even when
+        ``CHAT_LLM_LIGHT_MODEL`` names another provider's model: the
+        highspeed variants exist exactly for this latency-sensitive,
+        quality-tolerant traffic (user directive 2026-09-30).
         """
         settings = get_settings()
+        if settings.MINIMAX_API_KEY:
+            return LLMFactory.create(
+                provider="minimax",
+                api_key=settings.MINIMAX_API_KEY,
+                model=settings.MINIMAX_LIGHT_MODEL,
+            )
         light_model = settings.CHAT_LLM_LIGHT_MODEL
         if not light_model:
             return primary
@@ -182,7 +210,8 @@ class LLMFactory:
         settings = get_settings()
 
         # Build the full configured chain in priority order: a hard
-        # failure on the primary serves from the next provider.
+        # failure on the primary serves from the next provider. MiniMax
+        # sits right after GLM as the domestic backup.
         providers: list[tuple[str, LLMServiceBase]] = []
         if settings.GLM_API_KEY:
             providers.append(
@@ -192,6 +221,17 @@ class LLMFactory:
                         provider="glm",
                         api_key=settings.GLM_API_KEY,
                         model=settings.GLM_MODEL,
+                    ),
+                )
+            )
+        if settings.MINIMAX_API_KEY:
+            providers.append(
+                (
+                    "minimax",
+                    LLMFactory.create(
+                        provider="minimax",
+                        api_key=settings.MINIMAX_API_KEY,
+                        model=settings.MINIMAX_MODEL,
                     ),
                 )
             )
@@ -221,7 +261,7 @@ class LLMFactory:
         if not providers:
             raise ValidationError(
                 "No LLM provider configured. Please set at least one of: "
-                "GLM_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY"
+                "GLM_API_KEY, MINIMAX_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY"
             )
 
         if not settings.LLM_RESILIENCE_ENABLED:

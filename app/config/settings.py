@@ -284,6 +284,24 @@ class Settings(BaseSettings):
         ),
     )
 
+    # MiniMax: OpenAI-compatible domestic provider serving two roles —
+    # resilience backup right after GLM, and the speed (light) tier for
+    # latency-sensitive quality-tolerant call sites. CN endpoint by
+    # default; global deployments override to https://api.minimax.io/v1.
+    MINIMAX_API_KEY: str | None = Field(default=None, description="MiniMax API key")
+    MINIMAX_MODEL: str = Field(default="MiniMax-M3", description="MiniMax model name")
+    MINIMAX_LIGHT_MODEL: str = Field(
+        default="MiniMax-M2.7-highspeed",
+        description=(
+            "MiniMax model for the light (classification) tier — "
+            "highspeed variants trade answer polish for latency."
+        ),
+    )
+    MINIMAX_BASE_URL: str = Field(
+        default="https://api.minimaxi.com/v1",
+        description="MiniMax OpenAI-compatible endpoint (CN default)",
+    )
+
     # LLM Resilience (retry + circuit breaker + provider failover)
     LLM_RESILIENCE_ENABLED: bool = Field(
         default=True,

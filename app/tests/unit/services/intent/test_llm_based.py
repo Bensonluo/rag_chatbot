@@ -250,3 +250,24 @@ class TestLLMIntentDetector:
 
         assert result.intent == Intent.UNKNOWN
         assert result.confidence == 0.0
+
+    async def test_think_prefixed_content_strips_before_parsing(self):
+        """Reasoning providers (MiniMax M-series, observed live 2026-09-30)
+        inline <think>…</think> before the answer. The verdict word must
+        be read from AFTER the block — parsing the raw stream yields
+        unknown for every MiniMax-served classification."""
+        from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.llm.base import LLMResponse, LLMServiceBase
+
+        mock_llm = Mock(spec=LLMServiceBase)
+        mock_llm.generate = AsyncMock(
+            return_value=LLMResponse(
+                content="<think>\nThe user asks about return policy.\n</think>\n\npolicy",
+                model="MiniMax-M2.7-highspeed",
+            )
+        )
+        detector = LLMIntentDetector(llm_service=mock_llm)
+
+        result = await detector.detect_with_confidence("What is your return policy")
+
+        assert result.intent == Intent.POLICY
