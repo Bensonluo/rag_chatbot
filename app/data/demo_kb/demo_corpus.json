@@ -1,0 +1,173 @@
+{
+  "_comment": "Synthetic demo knowledge base for the public rag_chatbot demo. Fictional e-commerce customer-service policies; numbers are pinned to app/services/facts/policy_facts.json (see app/tests/unit/data/test_demo_corpus.py for the no-drift guard). Every topic ships as a zh/en pair with identical facts.",
+  "docs": [
+    {
+      "doc_id": "demo_returns_policy_zh",
+      "lang": "zh",
+      "topic": "returns_policy",
+      "title": "退货政策（7 天无理由退货）",
+      "content": "本平台支持商品签收后 7 天内无理由退货，商品需保持完好、不影响二次销售（吊牌完整、配件齐全、未洗未损）。\n\n退货流程：进入「我的订单」→ 选择对应订单 → 点击「申请售后」→ 选择「退货退款」→ 填写退货原因并提交。审核通过后按照页面提供的退货地址寄回商品。\n\n退货寄回后，退款将原路返回您的支付账户。如商品存在质量问题，运费由平台承担；无理由退货的寄回运费按平台运费规则处理，投保运费险的用户可自动理赔。\n\n另外，商品签收后 15 天内可申请换货，换货商品需同样保持完好。退货与换货均以「签收时间」起算，请在时效内提交申请。"
+    },
+    {
+      "doc_id": "demo_returns_policy_en",
+      "lang": "en",
+      "topic": "returns_policy",
+      "title": "Return Policy (7-Day No-Reason Returns)",
+      "content": "You may return any item within 7 days of delivery for any reason, provided the item is in resalable condition (tags intact, accessories complete, unworn and undamaged).\n\nHow to return: open \"My Orders\" → select the order → tap \"After-Sales Service\" → choose \"Return & Refund\" → submit the reason. Once approved, ship the item back using the return address shown on the page.\n\nAfter your return is received, your refund is issued back to the original payment method. If the item was defective, return shipping is covered by the platform; for no-reason returns, shipping follows the standard freight rules — customers who bought shipping insurance are compensated automatically.\n\nYou may also request an exchange within 15 days of delivery, subject to the same condition requirements. Both the return and exchange windows start from the delivery date, so please submit your request within the deadline."
+    },
+    {
+      "doc_id": "demo_refunds_zh",
+      "lang": "zh",
+      "topic": "refunds",
+      "title": "退款时效说明",
+      "content": "退款申请受理后 3-5 个工作日内完成处理。处理完成后，退款将原路返回您的支付账户，各渠道到账时间如下：\n\n支付宝 / 微信：1-3 个工作日到账。\n银行卡：3-7 个工作日到账。\n信用卡：7-15 个工作日到账（具体以发卡银行为准）。\n\n金额在 1000 元以内的退款可自动处理、无需人工审核；超过 1000 元的退款将转入人工审核，审核通过后同样原路退回。\n\n如超过上述时效仍未到账，请提供订单号联系在线客服查询退款进度。"
+    },
+    {
+      "doc_id": "demo_refunds_en",
+      "lang": "en",
+      "topic": "refunds",
+      "title": "Refund Timelines",
+      "content": "Refund requests are processed within 3-5 business days of acceptance. Once processed, the refund is returned to your original payment method. Arrival times by channel:\n\nAlipay / WeChat Pay: 1-3 business days.\nBank card: 3-7 business days.\nCredit card: 7-15 business days (subject to your issuing bank).\n\nRefunds of 1000 CNY or less are handled automatically with no manual review; refunds above 1000 CNY go through manual review and are returned the same way once approved.\n\nIf a refund has not arrived after these windows, contact online customer service with your order number to check the refund status."
+    },
+    {
+      "doc_id": "demo_shipping_delivery_zh",
+      "lang": "zh",
+      "topic": "shipping_delivery",
+      "title": "配送范围与运费规则",
+      "content": "本平台配送范围覆盖中国大陆地区（含偏远地区，配送时效相应加长，偏远地区以商品页面提示为准）。\n\n运费规则：订单满 99 元包邮（特殊类目除外）；订单未满 99 元收取 6-12 元基础运费，具体金额以下单页面的运费展示为准。\n\n发货时效：普通订单付款后 48 小时内发货；大促期间（如 618、双十一）订单量激增，可能延迟至 72 小时内发货，请以订单详情页展示的预计发货时间为准。\n\n发货后可在订单详情页查看快递单号与实时物流轨迹。"
+    },
+    {
+      "doc_id": "demo_shipping_delivery_en",
+      "lang": "en",
+      "topic": "shipping_delivery",
+      "title": "Delivery Coverage and Shipping Fees",
+      "content": "We deliver across mainland China, including remote regions (delivery times are longer for remote areas; see the product page for details).\n\nShipping fees: orders of 99 CNY or more ship free (certain categories excluded); orders under 99 CNY are charged a base shipping fee of 6-12 CNY, with the exact amount shown at checkout.\n\nDispatch time: standard orders ship within 48 hours of payment; during major sales events (e.g., 618, Double 11), dispatch may take up to 72 hours due to volume. The estimated dispatch time shown on the order details page prevails.\n\nOnce dispatched, you can view the tracking number and real-time logistics status on the order details page."
+    },
+    {
+      "doc_id": "demo_order_tracking_zh",
+      "lang": "zh",
+      "topic": "order_tracking",
+      "title": "物流查询与发货时效",
+      "content": "查询物流：进入「我的订单」→ 点击对应订单 → 在订单详情页查看「物流信息」，包含快递公司、运单号和实时轨迹。\n\n发货时效：普通订单付款后 48 小时内发货；大促订单可能延迟至 72 小时内发货。发货后系统会推送发货通知，含快递单号。\n\n如长时间显示「待发货」：①确认订单是否支付成功；②预售/定制类商品按页面标注的发货时间执行；③超过时效仍未发货，可联系在线客服催促或申请退款。\n\n如物流信息长时间不更新，可能是快递揽收或中转延迟，可凭运单号联系快递公司，或由客服协助查询。"
+    },
+    {
+      "doc_id": "demo_order_tracking_en",
+      "lang": "en",
+      "topic": "order_tracking",
+      "title": "Order Tracking and Dispatch Times",
+      "content": "To track a package: open \"My Orders\" → tap the order → view \"Logistics\" on the order details page, which shows the courier, tracking number, and real-time status.\n\nDispatch time: standard orders ship within 48 hours of payment; during major sales, dispatch may take up to 72 hours. You will receive a shipping notification with the tracking number once dispatched.\n\nIf your order shows \"Pending Shipment\" for a long time: (1) confirm the payment went through; (2) pre-sale and made-to-order items follow the dispatch time stated on the product page; (3) if the deadline has passed, contact online customer service to expedite or request a refund.\n\nIf tracking has not updated for a while, it is usually a courier pickup or transit delay — contact the courier with your tracking number, or ask customer service to help check."
+    },
+    {
+      "doc_id": "demo_order_changes_zh",
+      "lang": "zh",
+      "topic": "order_changes",
+      "title": "修改收货地址与取消订单",
+      "content": "修改收货地址分两种情况：\n\n① 订单还未发货——进入「我的订单」→ 订单详情 → 「修改地址」，保存后立即生效；\n② 订单已发货——无法再修改地址，可尝试联系快递公司拦截，或选择拒收，商品退回后系统自动发起退款。\n\n取消订单：进入「我的订单」→ 选择订单 → 「取消订单」→ 选择原因并确认。未发货订单取消成功后，已支付款项原路退回；已发货订单无法直接取消，请通过拒收或收货后退货的方式处理。\n\n参与秒杀/预售等特殊活动的订单，取消规则以活动页面说明为准。"
+    },
+    {
+      "doc_id": "demo_order_changes_en",
+      "lang": "en",
+      "topic": "order_changes",
+      "title": "Changing the Delivery Address and Cancelling Orders",
+      "content": "Changing your delivery address depends on the order state:\n\n(1) Not yet dispatched — open \"My Orders\" → order details → \"Edit Address\"; the change takes effect immediately after saving.\n(2) Already dispatched — the address can no longer be changed. You may ask the courier to intercept the package, or refuse delivery; once the item is returned, a refund is issued automatically.\n\nCancelling an order: open \"My Orders\" → select the order → \"Cancel Order\" → pick a reason and confirm. For orders not yet dispatched, payments are refunded to the original method after cancellation. Dispatched orders cannot be cancelled directly — refuse delivery or return the item after receipt instead.\n\nFor flash-sale and pre-sale orders, cancellation rules on the event page prevail."
+    },
+    {
+      "doc_id": "demo_invoices_zh",
+      "lang": "zh",
+      "topic": "invoices",
+      "title": "发票开具说明",
+      "content": "本平台默认提供电子普通发票，支持在订单完成后 90 天内申请开具。\n\n开票方式：①下单时在订单确认页填写发票抬头；②订单完成后进入「我的订单」→ 订单详情 → 「开具发票」补充或修改抬头信息。\n\n抬头与税号可在开具前随时修改；发票开具后将发送至您的邮箱或可在订单详情页下载。如需增值税专用发票，请联系在线客服并提供企业开票资料。\n\n退货退款的订单，已开具的电子发票将自动冲红作废。"
+    },
+    {
+      "doc_id": "demo_invoices_en",
+      "lang": "en",
+      "topic": "invoices",
+      "title": "Invoice Guide",
+      "content": "Electronic general invoices are provided by default and can be requested within 90 days after an order is completed.\n\nHow to request: (1) fill in the invoice title at checkout; or (2) after completion, open \"My Orders\" → order details → \"Request Invoice\" to add or edit the title.\n\nThe title and tax number can be edited any time before the invoice is issued. Once issued, the e-invoice is sent to your email and downloadable from the order details page. For a special VAT invoice, contact online customer service with your company billing information.\n\nIf an order is returned and refunded, the issued e-invoice is automatically reversed and voided."
+    },
+    {
+      "doc_id": "demo_payments_zh",
+      "lang": "zh",
+      "topic": "payments",
+      "title": "支付方式与支付失败处理",
+      "content": "本平台支持支付宝、微信支付和银行卡（含信用卡）支付。\n\n支付失败的常见原因与处理：\n① 余额不足或超出限额——更换支付方式或调整支付额度；\n② 页面超时未完成支付——订单会保留一段时间，可重新进入订单继续支付；\n③ 系统繁忙——建议等待 10-30 分钟后重新支付。\n\n异常扣款（显示支付失败但资金被扣）：款项将在 1-7 个工作日内原路退回，无需重复支付；如超过时效未退回，请提供订单号和扣款截图联系客服核实。\n\n请勿通过任何非平台渠道向个人转账，平台客服不会索取您的支付密码或验证码。"
+    },
+    {
+      "doc_id": "demo_payments_en",
+      "lang": "en",
+      "topic": "payments",
+      "title": "Payment Methods and Failed Payments",
+      "content": "We support Alipay, WeChat Pay, and bank cards (including credit cards).\n\nCommon payment failures and fixes:\n(1) Insufficient balance or over the limit — switch payment methods or adjust the limit;\n(2) Page timed out before payment completed — the order is held for a while; reopen the order to continue payment;\n(3) System busy — wait 10-30 minutes and try again.\n\nAbnormal deduction (payment shows failed but funds were taken): the amount will be returned to the original payment method within 1-7 business days — do not pay again. If it has not arrived by then, contact customer service with your order number and a screenshot of the deduction.\n\nNever transfer money to any personal account outside the platform; customer service will never ask for your payment password or verification codes."
+    },
+    {
+      "doc_id": "demo_coupons_zh",
+      "lang": "zh",
+      "topic": "coupons",
+      "title": "优惠券与满减券使用规则",
+      "content": "优惠券在下单确认页点击「优惠券」选择可用券，系统自动抵扣。\n\n使用规则：\n满减券需订单满 300 元可用，最高可抵扣 50 元；未满 300 元的订单无法使用满减券。\n优惠券领取后 30 天内有效，过期自动作废。\n每笔订单限使用一张优惠券，不与部分限时活动的折扣叠加，具体以订单确认页展示为准。\n\n退款时优惠券的处理：订单整单退款，未过期的优惠券会自动返还；已过期或部分退款的情况，以退款页面的券返还规则为准。"
+    },
+    {
+      "doc_id": "demo_coupons_en",
+      "lang": "en",
+      "topic": "coupons",
+      "title": "Coupon and Spend-Threshold Voucher Rules",
+      "content": "Apply a coupon at checkout: on the order confirmation page, tap \"Coupon\" and pick an eligible one — the discount is applied automatically.\n\nRules:\nSpend-threshold vouchers require a minimum order of 300 CNY and deduct at most 50 CNY; orders under 300 CNY cannot use them.\nCoupons are valid for 30 days after claiming and expire automatically afterwards.\nEach order can use one coupon only, and coupons may not stack with some flash-sale discounts — the order confirmation page always shows the final applicable set.\n\nCoupons on refunds: if the entire order is refunded, unexpired coupons are returned automatically; for expired coupons or partial refunds, the voucher return rules on the refund page prevail."
+    },
+    {
+      "doc_id": "demo_freight_insurance_zh",
+      "lang": "zh",
+      "topic": "freight_insurance",
+      "title": "运费险理赔说明",
+      "content": "您在下单时投保的退货运费险，在发生退货时自动理赔，无需单独申请。\n\n理赔规则：运费险最高赔付 25 元，超出部分的运费需您自行承担；理赔金额在退货完成后原路返回您的支付账户。\n\n常见问题：\n① 未投保的订单退货，寄回运费按退货原因划分——质量问题由平台承担，无理由退货由买家承担；\n② 理赔金额与实际寄回运费不一致属正常现象，运费险按平台与保险公司约定的费率表理赔；\n③ 对理赔结果有异议，可凭订单号联系在线客服复核。"
+    },
+    {
+      "doc_id": "demo_freight_insurance_en",
+      "lang": "en",
+      "topic": "freight_insurance",
+      "title": "Shipping Insurance Claims",
+      "content": "Return shipping insurance purchased at checkout settles automatically when a return happens — no separate claim is needed.\n\nClaim rules: shipping insurance pays at most 25 CNY; any freight above that is borne by you. The payout is returned to your original payment method after the return is completed.\n\nCommon questions:\n(1) For uninsured returns, return shipping depends on the reason — covered by the platform for quality issues, borne by the buyer for no-reason returns;\n(2) The payout may differ from the actual postage you paid; claims follow the rate table agreed between the platform and the insurer;\n(3) If you disagree with the payout, contact online customer service with your order number for a review."
+    },
+    {
+      "doc_id": "demo_authenticity_zh",
+      "lang": "zh",
+      "topic": "authenticity",
+      "title": "正品保障与鉴定服务",
+      "content": "平台所售商品均来自品牌方或授权经销商，全链路溯源可查，支持在商品详情页查看授权与采购链路信息。\n\n正品保障：如对商品真伪有异议，可在签收后 15 天内申请第三方权威机构鉴定；经鉴定为假货的，平台实行「假一赔十」。\n\n换货服务：商品签收后 15 天内可申请换货，商品需保持完好、不影响二次销售；质量问题优先换货或退货退款，运费由平台承担。\n\n提醒：请勿撕毁防伪标签后再申请鉴定；鉴定期间请保留商品原包装与凭证。"
+    },
+    {
+      "doc_id": "demo_authenticity_en",
+      "lang": "en",
+      "topic": "authenticity",
+      "title": "Authenticity Guarantee and Authentication",
+      "content": "All products sold on the platform come from brand owners or authorized distributors, with a fully traceable supply chain — authorization and sourcing details are shown on the product page.\n\nAuthenticity guarantee: if you question an item's authenticity, you may request authentication by an authoritative third-party agency within 15 days of delivery. Items verified as counterfeit are compensated tenfold (\"fake one, pay ten\").\n\nExchanges: you may request an exchange within 15 days of delivery, provided the item is in resalable condition. Quality issues are handled first as an exchange or return-and-refund, with shipping covered by the platform.\n\nNote: do not remove the anti-counterfeit label before requesting authentication, and keep the original packaging and receipts during the process."
+    },
+    {
+      "doc_id": "demo_account_security_zh",
+      "lang": "zh",
+      "topic": "account_security",
+      "title": "账号安全与密码找回",
+      "content": "找回密码：在登录页点击「忘记密码」→ 通过绑定的手机号或邮箱接收验证码 → 验证后设置新密码。\n\n账号安全建议：同时绑定手机号与邮箱，便于交叉验证与找回；开启登录提醒后，异地登录会收到通知。\n\n常见问题：\n① 收不到验证码——检查手机拦截设置或邮箱垃圾箱，仍无法收取可联系客服人工核身；\n② 怀疑账号被盗——立即修改密码并联系客服冻结账号；\n③ 平台客服绝不会向您索要支付密码、短信验证码，任何此类要求均为诈骗。\n\n注销账号可在「设置」→「账号管理」发起，注销前需处理完进行中的订单与退款。"
+    },
+    {
+      "doc_id": "demo_account_security_en",
+      "lang": "en",
+      "topic": "account_security",
+      "title": "Account Security and Password Recovery",
+      "content": "Password recovery: on the login page, tap \"Forgot Password\" → receive a verification code via your bound phone number or email → set a new password after verification.\n\nSecurity tips: bind both a phone number and an email so they can cross-verify; with login alerts enabled, you will be notified of sign-ins from new locations.\n\nCommon issues:\n(1) Not receiving the code — check SMS blocking or the email spam folder; if it still fails, contact customer service for manual identity verification;\n(2) Suspected account theft — change your password immediately and ask customer service to freeze the account;\n(3) Customer service will never ask for your payment password or SMS verification codes — any such request is a scam.\n\nAccount deletion can be initiated under \"Settings\" → \"Account Management\"; complete all in-progress orders and refunds before deletion."
+    },
+    {
+      "doc_id": "demo_complaints_zh",
+      "lang": "zh",
+      "topic": "complaints",
+      "title": "投诉与售后工单",
+      "content": "投诉渠道：联系在线客服说明问题后，客服将为您生成投诉工单（含工单号），您可凭工单号随时查询处理进度。\n\n投诉范围：商品质量、物流服务、客服服务及其他购物体验问题均可投诉。\n\n处理流程：工单生成后由对应责任团队跟进，处理结果将通过站内消息与短信通知您；如对处理结果不满意，可要求工单升级，由资深团队复核。\n\n涉及退换货、退款的操作类诉求，客服会在受理时同步发起对应售后流程；涉及外部快递公司的投诉，平台会代您向快递公司反馈并同步处理结果。"
+    },
+    {
+      "doc_id": "demo_complaints_en",
+      "lang": "en",
+      "topic": "complaints",
+      "title": "Complaints and After-Sales Tickets",
+      "content": "How to complain: describe the issue to online customer service and a complaint ticket (with a ticket number) will be created; you can check its progress anytime with the ticket number.\n\nScope: product quality, delivery service, customer service conduct, and any other shopping-experience issue.\n\nProcess: each ticket is followed up by the responsible team, and the outcome is sent to you via in-app messages and SMS. If you are unsatisfied with the result, you can ask for the ticket to be escalated for a senior-team review.\n\nFor operational requests such as returns and refunds, customer service will start the after-sales process at the same time the ticket is filed; complaints involving external couriers are forwarded to the courier on your behalf, with the outcome relayed back to you."
+    }
+  ]
+}

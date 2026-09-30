@@ -1,9 +1,9 @@
 """No-drift guard for the synthetic demo knowledge base.
 
-The demo corpus (data/demo_kb/demo_corpus.json) is fictional, but its
-hard policy numbers are the ones generation quotes in the live demo —
-and they are verified against app/services/facts/policy_facts.json by
-the claim gate. If the corpus and the fact table diverge, generated
+The demo corpus (app/data/demo_kb/demo_corpus.json) is fictional, but
+its hard policy numbers are the ones generation quotes in the live
+demo — and they are verified against app/services/facts/policy_facts.json
+by the claim gate. If the corpus and the fact table diverge, generated
 answers get corrected mid-sentence or flagged as violations. These
 tests pin the corpus to the fact table so the two cannot silently
 diverge (same pattern as the FAQ no-drift pin).
@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-CORPUS_PATH = REPO_ROOT / "data" / "demo_kb" / "demo_corpus.json"
+CORPUS_PATH = REPO_ROOT / "app" / "data" / "demo_kb" / "demo_corpus.json"
 FACTS_PATH = REPO_ROOT / "app" / "services" / "facts" / "policy_facts.json"
 
 

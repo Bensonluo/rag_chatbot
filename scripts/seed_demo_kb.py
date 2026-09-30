@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Seed the synthetic demo knowledge base into Qdrant via the app pipeline.
 
-The corpus is ``data/demo_kb/demo_corpus.json`` — fictional e-commerce
-customer-service policies whose numbers are pinned to
+The corpus is ``app/data/demo_kb/demo_corpus.json`` — fictional
+e-commerce customer-service policies whose numbers are pinned to
 ``app/services/facts/policy_facts.json`` (no-drift guard:
 ``app/tests/unit/data/test_demo_corpus.py``). Synthetic data only; it
 mirrors the FAQ/fact-table structure and never represents real business
@@ -13,11 +13,11 @@ never duplicates chunks.
 
 Usage (wherever settings can reach Qdrant + the embedding provider):
 
-    python scripts/seed_demo_kb.py --corpus data/demo_kb/demo_corpus.json
+    python scripts/seed_demo_kb.py
 
-In the deployed container (no rebuild needed):
+In the deployed container (no rebuild needed — copy both files in):
 
-    docker cp data/demo_kb <container>:/tmp/
+    docker cp app/data/demo_kb <container>:/tmp/
     docker cp scripts/seed_demo_kb.py <container>:/tmp/
     docker exec <container> python /tmp/seed_demo_kb.py \
         --corpus /tmp/demo_kb/demo_corpus.json
@@ -32,7 +32,9 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-DEFAULT_CORPUS = Path(__file__).resolve().parent.parent / "data" / "demo_kb" / "demo_corpus.json"
+DEFAULT_CORPUS = (
+    Path(__file__).resolve().parent.parent / "app" / "data" / "demo_kb" / "demo_corpus.json"
+)
 
 
 def load_corpus(path: Path) -> list[dict[str, Any]]:
