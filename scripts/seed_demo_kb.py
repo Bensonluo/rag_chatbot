@@ -98,7 +98,15 @@ async def seed(corpus_path: Path, dry_run: bool) -> None:
     total_chunks = 0
     for doc in docs:
         # Idempotency: drop any previous version of this doc first.
-        deleted = await service.delete_document(doc["doc_id"])
+        # Best-effort: the first seed has nothing to delete, and a
+        # deployed container may predate the FilterSelector fix in
+        # delete_by_filter — a failed delete must not abort the seed.
+        try:
+            deleted = await service.delete_document(doc["doc_id"])
+            deleted_chunks = deleted["deleted_chunks"]
+        except Exception as exc:
+            deleted_chunks = 0
+            print(f"  warn: pre-ingest delete failed for {doc['doc_id']}: {exc}")
         result = await service.ingest_text(
             text=doc["content"],
             title=doc["title"],
@@ -113,7 +121,7 @@ async def seed(corpus_path: Path, dry_run: bool) -> None:
         total_chunks += result["chunks_count"]
         print(
             f"  ingested {doc['doc_id']}: {result['chunks_count']} chunks"
-            f" (replaced {deleted['deleted_chunks']})"
+            f" (replaced {deleted_chunks})"
         )
 
     print(f"done: {len(docs)} docs, {total_chunks} chunks in Qdrant")

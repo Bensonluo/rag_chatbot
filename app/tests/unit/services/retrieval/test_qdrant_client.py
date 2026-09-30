@@ -256,7 +256,10 @@ class TestQdrantClient:
 
     @pytest.mark.asyncio
     async def test_delete_by_filter_keeps_root_payload_keys(self):
-        """Document deletion filters target root payload fields."""
+        """Document deletion filters target root payload fields and the
+        qdrant-client 1.9 delete() signature (points_selector)."""
+        from qdrant_client.models import Filter
+
         from app.services.retrieval.qdrant_client import QdrantClient
 
         mock_client = Mock()
@@ -269,16 +272,23 @@ class TestQdrantClient:
             client=mock_client,
         )
 
+        real_filter = Filter(must=[])
         with patch.object(
             client,
             "_build_filter",
-            return_value=Mock(name="qdrant_filter"),
+            return_value=real_filter,
         ) as build_filter:
             deleted = await client.delete_by_filter({"document_id": "doc-demo"})
 
         build_filter.assert_called_once_with({"document_id": "doc-demo"})
         mock_client.count.assert_awaited_once()
         mock_client.delete.assert_awaited_once()
+        # qdrant-client 1.9: delete() takes points_selector, not query_filter —
+        # the old kwarg name TypeError'd at runtime (mocks hid it).
+        kwargs = mock_client.delete.await_args.kwargs
+        assert "query_filter" not in kwargs
+        assert kwargs["collection_name"] == "test_collection"
+        assert kwargs["points_selector"].filter == real_filter
         assert deleted == 3
 
     @pytest.mark.asyncio

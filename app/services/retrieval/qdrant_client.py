@@ -297,9 +297,13 @@ class QdrantClient(VectorClient):
                 exact=True,
             )
 
-            # Delete with filter
+            # Delete with filter. qdrant-client 1.x's delete() takes the
+            # filter wrapped in points_selector (FilterSelector) — passing
+            # a query_filter kwarg raises TypeError at runtime.
+            FilterSelector = self._qdrant_model("FilterSelector")
             await self.client.delete(
-                collection_name=self.collection_name, query_filter=qdrant_filter
+                collection_name=self.collection_name,
+                points_selector=FilterSelector(filter=qdrant_filter),
             )
 
             return int(count_result.count)
