@@ -4,6 +4,8 @@ from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import Mock, patch
 
+import pytest
+
 from app.services.dialogue.nodes import NodeFactory
 from app.services.dialogue.slot_extraction import (
     _build_prompt,
@@ -229,3 +231,135 @@ class TestCollectSlotsNodeLLMPass:
         await factory.collect_slots_node(state)
 
         assert llm.calls == []
+
+
+# ── Finding ① (2026-09-30): rule-path resilience under extractor outage ───
+
+
+# The exact message a live demo visitor sent while the extractor LLM leg
+# was down (GLM 429 storm): the complaint flow re-prompted "What would
+# you like to complain about?" forever because no rule path could fill
+# the pattern-less category slot.
+LIVE_EN_COMPLAINT = (
+    "I want to file a complaint: product quality, the screen of my ORD1001 order arrived cracked"
+)
+
+
+class TestComplaintCategoryRulePatterns:
+    """category must be regex-extractable from both languages."""
+
+    def test_live_english_message_fills_category(self) -> None:
+        from app.services.slot_filling.slot_types import extract_slots_from_message
+
+        result = extract_slots_from_message("complaint", LIVE_EN_COMPLAINT, {})
+
+        assert result.get("category")
+        assert "quality" in result["category"].lower()
+
+    def test_category_value_is_the_keyword_not_the_message(self) -> None:
+        from app.services.slot_filling.slot_types import extract_slots_from_message
+
+        result = extract_slots_from_message("complaint", LIVE_EN_COMPLAINT, {})
+
+        # The slot value must stay a bounded keyword — the ticket needs
+        # a category, not the 90-character message.
+        assert len(result["category"]) <= 40
+
+    @pytest.mark.parametrize(
+        "message",
+        ["我要投诉商品质量", "物流配送太慢了我要投诉", "服务态度太差了"],
+    )
+    def test_chinese_category_keywords_fill(self, message: str) -> None:
+        from app.services.slot_filling.slot_types import extract_slots_from_message
+
+        result = extract_slots_from_message("complaint", message, {})
+
+        assert result.get("category")
+
+    def test_complaint_order_id_requires_digits(self) -> None:
+        from app.services.slot_filling.slot_types import extract_slots_from_message
+
+        result = extract_slots_from_message("complaint", LIVE_EN_COMPLAINT, {})
+
+        # A "(?:order)\s*([A-Za-z0-9]{3,})"-style pattern would capture
+        # the word after "order" ("arrived") as the order id.
+        assert result.get("order_id") in (None, "ORD1001")
+
+
+class TestRefundReasonEnglishPatterns:
+    """refund/return reason patterns were zh-only — under the same
+    extractor outage an English "because it arrived broken" could never
+    fill reason, looping the refund flow the same way."""
+
+    def test_because_phrase(self) -> None:
+        from app.services.slot_filling.slot_types import extract_slots_from_message
+
+        result = extract_slots_from_message("refund", "because it arrived broken", {})
+
+        assert result.get("reason") == "it arrived broken"
+
+    def test_damage_keyword(self) -> None:
+        from app.services.slot_filling.slot_types import extract_slots_from_message
+
+        result = extract_slots_from_message("return", "item arrived damaged", {})
+
+        assert result.get("reason")
+
+    def test_chinese_reason_patterns_unchanged(self) -> None:
+        from app.services.slot_filling.slot_types import extract_slots_from_message
+
+        result = extract_slots_from_message("refund", "因为质量问题", {})
+
+        assert result.get("reason") == "质量问题"
+
+
+class TestComplaintDescriptionOutageTerminator:
+    """With the LLM extractor unavailable, complaint collection must
+    still terminate — the live loop re-prompted forever on messages the
+    whole-message heuristic rejects (≥30 chars or task keywords)."""
+
+    async def test_live_message_completes_both_slots_without_llm(self) -> None:
+        factory = _factory(_StubLLM("{}"))
+        state = DialogueState(
+            message=LIVE_EN_COMPLAINT,
+            intent="complaint",
+            filled_slots={},
+            pending_slots=["category", "description"],
+        )
+
+        result = await factory.collect_slots_node(state)
+
+        assert result["pending_slots"] == []
+        assert "quality" in result["filled_slots"]["category"].lower()
+        assert "cracked" in result["filled_slots"]["description"]
+
+    async def test_long_description_answer_under_llm_outage(self) -> None:
+        """Turn 2 of the loop: category already filled, extractor LLM
+        raising, answer longer than the heuristic's 30-char ceiling."""
+        factory = _factory(_RaisingLLM())
+        state = DialogueState(
+            message="the screen is cracked and it arrived that way",
+            intent="complaint",
+            filled_slots={"category": "product quality"},
+            pending_slots=["description"],
+        )
+
+        result = await factory.collect_slots_node(state)
+
+        assert result["pending_slots"] == []
+        assert "cracked" in result["filled_slots"]["description"]
+
+    async def test_pure_order_id_turn_is_not_the_description(self) -> None:
+        """A structured answer (order number) must not be swallowed as
+        the free-form description."""
+        factory = _factory(_StubLLM("{}"))
+        state = DialogueState(
+            message="my order is ORD1001",
+            intent="complaint",
+            filled_slots={"category": "product quality"},
+            pending_slots=["description"],
+        )
+
+        result = await factory.collect_slots_node(state)
+
+        assert "description" not in result["filled_slots"]

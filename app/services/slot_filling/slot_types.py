@@ -5,6 +5,7 @@ Defines required/optional slots for each task-oriented intent,
 with extraction prompts for missing slot values.
 """
 
+import re
 from typing import Any
 
 # Per-intent slot definitions for task-oriented flows
@@ -31,6 +32,13 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
                     r"因为\s*(.{2,20})",
                     r"由于\s*(.{2,20})",
                     r"(质量(?:问题|缺陷|有瑕疵)?)",
+                    # English reason phrasings — without these, an English
+                    # "because it arrived broken" could only be filled by
+                    # the LLM extractor (same outage loop as complaint
+                    # category, 2026-09-30).
+                    r"(?:because|since)\s+(.{2,40})",
+                    r"reason(?:\s+is)?[：:]?\s*(.{2,40})",
+                    r"(?:damaged|broken|defective|faulty|wrong\s+item|never\s+arrived|didn'?t\s+arrive)",
                 ],
             },
             "amount": {
@@ -62,6 +70,13 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
                     r"因为\s*(.{2,20})",
                     r"由于\s*(.{2,20})",
                     r"(质量(?:问题|缺陷|有瑕疵)?)",
+                    # English reason phrasings — without these, an English
+                    # "because it arrived broken" could only be filled by
+                    # the LLM extractor (same outage loop as complaint
+                    # category, 2026-09-30).
+                    r"(?:because|since)\s+(.{2,40})",
+                    r"reason(?:\s+is)?[：:]?\s*(.{2,40})",
+                    r"(?:damaged|broken|defective|faulty|wrong\s+item|never\s+arrived|didn'?t\s+arrive)",
                 ],
             },
         },
@@ -100,21 +115,48 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["category", "description"],
         "optional": ["order_id"],
         "slots": {
+            # Keyword taxonomy, not free-form capture: a pattern-less
+            # category meant the slot could ONLY be filled by the LLM
+            # extractor — during a provider outage (GLM 429 storm,
+            # 2026-09-30) the complaint flow re-prompted forever. The
+            # patterns have no capture group, so the slot value is the
+            # canonical keyword itself (group(0)), not the sentence.
             "category": {
                 "type": "string",
                 "prompt": "请问您要投诉哪个方面？（如：商品质量、服务态度、物流配送等）",
                 "prompt_en": "What would you like to complain about? (e.g. product quality, service attitude, delivery)",
+                "patterns": [
+                    r"(商品质量|质量问题|假冒|假货|虚假宣传|破损|损坏|坏了|有瑕疵)",
+                    r"(服务态度|态度差|客服态度|服务差|客服不专业)",
+                    r"(物流|快递|配送|发货|送货|到货)",
+                    r"(售后|维修|退换|三包)",
+                    r"(价格|收费|乱扣费|虚假发货)",
+                    r"(product\s+quality|quality\s+issue|damaged|broken|defective|faulty|counterfeit|fake)",
+                    r"(service\s+attitude|rude|unhelpful|unprofessional)",
+                    r"(delivery|shipping|logistics|courier|packaging|late\s+arrival)",
+                    r"(after.?sale|customer\s+service|overcharg\w+|pricing|wrong\s+charge)",
+                ],
             },
             "description": {
                 "type": "string",
                 "prompt": "请详细描述您的问题",
                 "prompt_en": "Please describe the problem in detail",
             },
+            # Digit-requiring: the shared "(?:order)\s*([A-Za-z0-9]{3,})"
+            # pattern captures the word after "order" ("...my ORD1001
+            # order arrived..." → "arrived") — an English sentence's
+            # verb must not become an order id.
             "order_id": {
                 "type": "string",
                 "prompt": "请提供相关订单号（如有）",
                 "prompt_en": "Please provide the relevant order number, if any",
-                "patterns": [r"订单号[：:]?\s*(\d+)", r"(?:order|订单)\s*(\d{5,})"],
+                "patterns": [
+                    r"订单号[：:]?\s*([A-Za-z0-9]+)",
+                    r"(?:order|订单)\s*(?:no\.?|number|#)?\s*([A-Za-z0-9]*\d[A-Za-z0-9]*)",
+                    # ASCII-only boundaries: \b counts CJK as word chars,
+                    # so "ORD1001订单" has no \b between them.
+                    r"(?<![A-Za-z0-9])([A-Za-z]*\d{3,}[A-Za-z0-9]*)(?![A-Za-z0-9])",
+                ],
             },
         },
     },
@@ -151,8 +193,6 @@ def extract_slots_from_message(
     intent: str, message: str, existing: dict[str, Any]
 ) -> dict[str, Any]:
     """Extract slot values from user message using regex patterns."""
-    import re
-
     schema = INTENT_SLOT_SCHEMAS.get(intent, {})
     slots = schema.get("slots", {})
     extracted = dict(existing)
@@ -171,6 +211,32 @@ def extract_slots_from_message(
                 break
 
     return extracted
+
+
+# Digit-bearing tokens (ORD1001, 12345) plus the connector words an
+# order-reference answer is made of. Used to tell "my order is ORD1001"
+# (an order_id answer, not a complaint) from "the screen of ORD1001
+# arrived cracked" (a narrative that happens to cite an order).
+_ORDER_TOKEN = re.compile(r"[A-Za-z]*\d[\dA-Za-z]*|\d+")
+_ORDER_WORDS = re.compile(
+    r"order|no\.?|number|#|订单号|订单|单号|号|is|my|the|的|是", re.IGNORECASE
+)
+
+
+def is_order_reference_only(message: str) -> bool:
+    """True when the message carries nothing but an order reference.
+
+    The complaint description terminator (collect_slots_node) consults
+    this: a bare order-number answer must fill ``order_id``, never
+    masquerade as the free-form complaint description. Everything else
+    — a narrative citing an order, a plain description — reads as a
+    description once a category is known.
+    """
+    stripped = _ORDER_TOKEN.sub(" ", message)
+    stripped = _ORDER_WORDS.sub(" ", stripped)
+    words = re.findall(r"[A-Za-z]{2,}", stripped)
+    cjk = re.findall(r"[一-鿿]", stripped)
+    return len(words) + len(cjk) < 2
 
 
 # Legacy slot definitions for backward compatibility with existing slot fillers.

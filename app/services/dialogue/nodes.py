@@ -99,6 +99,7 @@ from app.services.slot_filling.slot_types import (
     extract_slots_from_message,
     get_missing_slots,
     get_next_prompt,
+    is_order_reference_only,
 )
 
 logger = logging.getLogger(__name__)
@@ -616,6 +617,24 @@ class NodeFactory:
                 if slot_name not in merged:
                     merged[slot_name] = message.strip()
                     break
+
+        # Outage terminator for the free-form complaint description
+        # (finding ①, 2026-09-30): description carries no regex patterns
+        # by nature, and the whole-message heuristic rejects long or
+        # keyword-bearing messages — with the extractor LLM down (GLM
+        # 429 storm) the complaint flow re-prompted "what would you like
+        # to complain about?" forever. Once a category is known, any
+        # message that is not merely an order reference IS the
+        # description: the 10-char floor keeps one-word answers out and
+        # is_order_reference_only keeps bare order numbers out.
+        if (
+            intent == "complaint"
+            and "category" in merged
+            and "description" not in merged
+            and len(message.strip()) >= 10
+            and not is_order_reference_only(message)
+        ):
+            merged["description"] = message.strip()[:200]
 
         pending = get_missing_slots(intent, merged)
         next_prompt = get_next_prompt(intent, merged, lang=_turn_lang(state))
