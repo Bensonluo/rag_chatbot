@@ -67,7 +67,7 @@ class TestHappyPath:
         tool_msgs = [m for m in second_request["messages"] if m.role == "tool"]
         assert len(tool_msgs) == 1
         payload = json.loads(tool_msgs[0].content)
-        assert payload["status"] == "已发货"
+        assert payload["status"] == "shipped"
         assert tool_msgs[0].tool_call_id == "c1"
 
         # The assistant's tool request is echoed before the result.
@@ -183,7 +183,7 @@ class TestOrderContextResolution:
             [m for m in llm.requests[1]["messages"] if m.role == "tool"][0].content
         )
         assert listing["orders"] == []
-        assert "未登录" in listing["message"]
+        assert "sign" in listing["message"]
         assert result.executed_tools == ["get_recent_orders"]
 
 
@@ -300,7 +300,7 @@ class TestToolTrace:
         assert len(result.tool_trace) == 1
         entry = result.tool_trace[0]
         assert entry["ok"] is False
-        assert "不存在" in entry["summary"]
+        assert "not found" in entry["summary"]
 
     async def test_unknown_tool_recorded_as_failed_trace(self):
         llm = ScriptedLLM(
@@ -393,3 +393,29 @@ class TestConversationHistory:
         assert [m.role for m in messages] == ["system", "system", "user", "user"]
         assert "order_id=1" in messages[1].content
         assert messages[2].content == "查订单"
+
+
+class TestLanguageDirective:
+    """The agent loop must pin the reply language per run.
+
+    Observed live (2026-09-30): English turns in an English
+    conversation got Chinese replies — the persona's one-line language
+    rule loses to the Chinese persona + Chinese tool JSON once tool
+    rounds stack up. The directive rides the system prompt so it is
+    re-read on every step of the loop.
+    """
+
+    async def test_english_run_pins_english_directive(self):
+        llm = ScriptedLLM([_final_response("Your order has shipped.")])
+        await _make_service(llm).run("where is my order ORD1001?", user_id=1)
+
+        system = llm.requests[0]["messages"][0].content
+        assert "Reply in English only" in system
+
+    async def test_chinese_run_pins_chinese_directive(self):
+        llm = ScriptedLLM([_final_response("您的订单已发货。")])
+        await _make_service(llm).run("ORD1001 发货了吗", user_id=1)
+
+        system = llm.requests[0]["messages"][0].content
+        assert "请只用中文回答" in system
+        assert "Reply in English only" not in system

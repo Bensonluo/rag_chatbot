@@ -97,7 +97,7 @@ class TestKnowledgeTool:
         # set and a model-actionable message — the loop keeps serving.
         assert outcome["success"] is True
         assert outcome["data"]["results"] == []
-        assert "不可用" in outcome["data"]["message"]
+        assert "temporarily unavailable" in outcome["data"]["message"]
 
     def test_default_registry_stays_transactional_until_wired(self) -> None:
         """The knowledge tool is a factory-wired upgrade, not part of the

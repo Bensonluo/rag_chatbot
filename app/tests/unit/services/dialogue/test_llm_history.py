@@ -9,6 +9,7 @@ history provider.
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
+from app.services.dialogue.i18n import GENERATION_LANG_DIRECTIVE, LANG_ZH
 from app.services.dialogue.state import DialogueState
 
 
@@ -66,7 +67,7 @@ class TestDirectPathHistory:
         assert [(m.role, m.content) for m in messages[1:]] == [
             ("user", "昨天买的手机想退货"),
             ("assistant", "好的，已受理退货"),
-            ("user", "那运费谁出？"),
+            ("user", "那运费谁出？\n\n" + GENERATION_LANG_DIRECTIVE[LANG_ZH]),
         ]
 
 
@@ -124,7 +125,9 @@ class TestHistoryBoundedAndSafe:
 
         messages = _sent_messages(llm)
         assert messages[0].role == "system"
-        assert [(m.role, m.content) for m in messages[1:]] == [("user", "当前")]
+        assert [(m.role, m.content) for m in messages[1:]] == [
+            ("user", "当前\n\n" + GENERATION_LANG_DIRECTIVE[LANG_ZH])
+        ]
 
     async def test_no_provider_keeps_single_message(self):
         llm = _capturing_llm()
@@ -135,7 +138,9 @@ class TestHistoryBoundedAndSafe:
 
         messages = _sent_messages(llm)
         assert messages[0].role == "system"
-        assert [(m.role, m.content) for m in messages[1:]] == [("user", "你好")]
+        assert [(m.role, m.content) for m in messages[1:]] == [
+            ("user", "你好\n\n" + GENERATION_LANG_DIRECTIVE[LANG_ZH])
+        ]
 
 
 class TestSystemPersona:

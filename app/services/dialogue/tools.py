@@ -144,35 +144,35 @@ class ToolRegistry:
 MOCK_ORDERS: dict[str, dict[str, Any]] = {
     "ORD1001": {
         "user_id": 1,
-        "status": "已发货",
-        "items": ["商品A x1", "商品B x2"],
+        "status": "shipped",
+        "items": ["Item A x1", "Item B x2"],
         "total_amount": 598.00,
         "created_at": "2024-12-15 10:30:00",
         "estimated_delivery": "2024-12-20",
     },
     "ORD1002": {
         "user_id": 1,
-        "status": "已完成",
-        "items": ["商品C x1"],
+        "status": "completed",
+        "items": ["Item C x1"],
         "total_amount": 199.00,
         "created_at": "2024-12-10 09:00:00",
-        "estimated_delivery": "已送达",
+        "estimated_delivery": "delivered",
     },
     "ORD2001": {
         "user_id": 2,
-        "status": "已发货",
-        "items": ["商品D x1"],
+        "status": "shipped",
+        "items": ["Item D x1"],
         "total_amount": 899.00,
         "created_at": "2024-12-16 14:20:00",
         "estimated_delivery": "2024-12-21",
     },
     "ORD3001": {
         "user_id": 3,
-        "status": "已签收",
-        "items": ["商品E x1 (高价值)"],
+        "status": "delivered",
+        "items": ["Item E x1 (high value)"],
         "total_amount": 1299.00,
         "created_at": "2024-12-12 11:00:00",
-        "estimated_delivery": "已送达",
+        "estimated_delivery": "delivered",
     },
 }
 
@@ -188,10 +188,10 @@ def _owned_order(args: dict[str, Any]) -> dict[str, Any]:
     order_id = str(args.get("order_id", ""))
     order = MOCK_ORDERS.get(order_id)
     if order is None:
-        raise LookupError(f"订单 {order_id} 不存在，请确认订单号是否正确")
+        raise LookupError(f"Order {order_id} not found — double-check the order number")
     caller_id = args.get("user_id")
     if caller_id and order["user_id"] and caller_id != order["user_id"]:
-        raise PermissionError("订单不存在或无权访问")
+        raise PermissionError("Order not found or not accessible")
     return order
 
 
@@ -206,7 +206,7 @@ def mock_refund(args: dict[str, Any]) -> dict[str, Any]:
             "status": "escalated",
             "order_id": order.get("order_id", args.get("order_id", "")),
             "amount": amount,
-            "message": "退款金额超过自动处理阈值（¥1000），已为您转人工客服审核处理。",
+            "message": "Refund above the auto-processing limit (¥1000); escalated to a human agent for review.",
         }
     return {
         "status": "success",
@@ -214,7 +214,7 @@ def mock_refund(args: dict[str, Any]) -> dict[str, Any]:
         "order_id": args.get("order_id", ""),
         "reason": args.get("reason", ""),
         "amount": amount,
-        "estimated_days": "3-5个工作日",
+        "estimated_days": "3-5 business days",
     }
 
 
@@ -226,8 +226,8 @@ def mock_return(args: dict[str, Any]) -> dict[str, Any]:
         "order_id": args.get("order_id", ""),
         "reason": args.get("reason", ""),
         "amount": order["total_amount"],
-        "return_method": "快递上门取件",
-        "estimated_days": "5-7个工作日",
+        "return_method": "courier pickup",
+        "estimated_days": "5-7 business days",
     }
 
 
@@ -247,14 +247,14 @@ def mock_track_shipping(args: dict[str, Any]) -> dict[str, Any]:
     order = _owned_order(args)
     return {
         "order_id": args.get("order_id", ""),
-        "carrier": "顺丰快递",
+        "carrier": "SF Express",
         "tracking_number": f"SF{random.randint(1000000000, 9999999999)}",
-        "status": "运输中",
-        "current_location": "北京分拨中心",
+        "status": "in_transit",
+        "current_location": "Beijing sorting center",
         "estimated_delivery": order["estimated_delivery"],
         "updates": [
-            {"time": "12-18 08:00", "desc": "已从上海发出"},
-            {"time": "12-18 14:30", "desc": "到达北京分拨中心"},
+            {"time": "12-18 08:00", "desc": "Departed Shanghai facility"},
+            {"time": "12-18 14:30", "desc": "Arrived at Beijing sorting center"},
         ],
     }
 
@@ -266,8 +266,8 @@ def mock_complaint(args: dict[str, Any]) -> dict[str, Any]:
         "category": args.get("category", ""),
         "description": args.get("description", ""),
         "order_id": args.get("order_id", ""),
-        "assigned_to": "客服专员-小李",
-        "estimated_response": "24小时内",
+        "assigned_to": "Agent Li",
+        "estimated_response": "24h",
     }
 
 
@@ -282,7 +282,7 @@ def mock_get_recent_orders(args: dict[str, Any]) -> dict[str, Any]:
     """
     user_id = args.get("user_id")
     if not user_id:
-        return {"orders": [], "count": 0, "message": "当前未登录，无法查询订单列表"}
+        return {"orders": [], "count": 0, "message": "Not signed in — cannot list your orders."}
     orders = [
         {
             "order_id": order_id,
@@ -324,7 +324,7 @@ def create_knowledge_tool(hybrid_search: Any) -> ToolDefinition:
 
         query = str(args.get("query", "")).strip()
         if not query:
-            return {"results": [], "count": 0, "message": "缺少检索关键词"}
+            return {"results": [], "count": 0, "message": "missing search keywords"}
         try:
             hits = await hybrid_search.search(VectorSearchRequest(query=query, top_k=3))
         except Exception:  # noqa: BLE001 - fail-open, agent keeps serving
@@ -332,7 +332,7 @@ def create_knowledge_tool(hybrid_search: Any) -> ToolDefinition:
             return {
                 "results": [],
                 "count": 0,
-                "message": "知识检索暂时不可用，请基于已确认的信息回答或建议转人工",
+                "message": "knowledge search temporarily unavailable; answer from confirmed information or offer human handoff",
             }
         results = [
             {

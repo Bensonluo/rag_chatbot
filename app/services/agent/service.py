@@ -35,6 +35,7 @@ from app.services.agent.metrics import (
     OUTCOME_STEPS_EXHAUSTED,
     record_agent_outcome,
 )
+from app.services.dialogue.i18n import GENERATION_LANG_DIRECTIVE, detect_language
 from app.services.llm.base import LLMMessage
 from app.services.llm.budget import LLMBudgetExceeded
 
@@ -167,7 +168,12 @@ class AgentService:
             AgentResult: Final response plus any staged action.
         """
         tools = self._tools.to_function_schemas()
-        messages: list[LLMMessage] = [LLMMessage(role="system", content=SYSTEM_PROMPT)]
+        # Reply-language pin rides the system prompt (not the user turn)
+        # so it is re-read on every step of the tool loop — after tool
+        # rounds stack Chinese JSON results, the last-message position
+        # would no longer hold. See GENERATION_LANG_DIRECTIVE.
+        persona = SYSTEM_PROMPT + "\n\n" + GENERATION_LANG_DIRECTIVE[detect_language(user_message)]
+        messages: list[LLMMessage] = [LLMMessage(role="system", content=persona)]
         if context_note:
             messages.append(LLMMessage(role="system", content=context_note))
         # Prior turns sit between the policy blocks and the current ask,

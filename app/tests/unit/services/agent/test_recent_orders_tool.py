@@ -32,7 +32,7 @@ class TestHandler:
         assert [o["order_id"] for o in result["orders"]] == ["ORD1001", "ORD1002"]
         assert result["count"] == 2
         first = result["orders"][0]
-        assert first["status"] == "已发货"
+        assert first["status"] == "shipped"
         assert first["total_amount"] == 598.00
         assert "created_at" in first and "items" in first
 
@@ -48,7 +48,7 @@ class TestHandler:
         result = mock_get_recent_orders({})
         assert result["orders"] == []
         assert result["count"] == 0
-        assert "未登录" in result["message"]
+        assert "sign" in result["message"]
 
     async def test_registry_executes_with_injected_identity(self, registry):
         result = await registry.execute("recent_orders", {}, user_id=1)
@@ -71,7 +71,7 @@ class TestHandler:
             "query_order", {"order_id": "ORD2001", "user_id": 2}, user_id=1
         )
         assert result.success is False
-        assert "无权" in result.message
+        assert "not accessible" in result.message
 
     async def test_anonymous_args_identity_is_stripped(self):
         seen: list[dict[str, Any]] = []

@@ -38,6 +38,22 @@ def detect_language(text: str) -> str:
     return LANG_EN
 
 
+# Reply-language pin for LLM generation (global-audience doctrine).
+# The personas' one-line rule「用与用户当前消息相同的语言回答」loses to
+# zh-dominant context — a Chinese persona, Chinese tool JSON, Chinese
+# prompt scaffolding (observed live 2026-09-30: an English conversation
+# got full-Chinese replies on both a tool turn and a direct turn).
+# Generators append this directive keyed off the RAW user turn so the
+# reply language is pinned regardless of what the context drags toward.
+GENERATION_LANG_DIRECTIVE: dict[str, str] = {
+    LANG_EN: (
+        "[Language requirement: Reply in English only — every sentence "
+        "addressed to the user must be in English.]"
+    ),
+    LANG_ZH: "[语言要求：请只用中文回答用户。]",
+}
+
+
 # Deterministic evidence-gap copy (review 2026-09-26, #6): a knowledge
 # question with an empty KB slice must not fall through to free LLM
 # generation. Two sentences, because the correct next move differs:

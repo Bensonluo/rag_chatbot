@@ -66,6 +66,7 @@ from app.services.dialogue.i18n import (
     CONFIRMATION_DETAIL_EMPTY,
     CONFIRMATION_DETAIL_JOIN,
     GENERATION_FAILED,
+    GENERATION_LANG_DIRECTIVE,
     GUARDRAIL_INPUT_BLOCKED,
     GUARDRAIL_OUTPUT_BLOCKED,
     HANDOFF_ACK,
@@ -1755,7 +1756,18 @@ class NodeFactory:
             configurable = config.get("configurable")
             if isinstance(configurable, dict):
                 configurable["generation_used_history"] = True
-        messages.append(LLMMessage(role="user", content=user_content))
+        # Reply-language pin, final position (see GENERATION_LANG_DIRECTIVE):
+        # keyed off the RAW user turn — the composed prompt for tool/RAG
+        # turns is zh-scaffolded (用户意图/工具执行结果) and would detect
+        # zh for an English user. Suffixing the user message keeps the
+        # directive the last thing the model reads.
+        lang = _turn_lang(state, fallback_text=user_content)
+        messages.append(
+            LLMMessage(
+                role="user",
+                content=user_content + "\n\n" + GENERATION_LANG_DIRECTIVE[lang],
+            )
+        )
         queue = _stream_queue(config)
 
         if queue is not None:

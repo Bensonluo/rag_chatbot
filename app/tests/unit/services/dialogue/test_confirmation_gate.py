@@ -132,7 +132,7 @@ class TestConfirmationGate:
         }
         updates = await factory.execute_tool_node(state)
 
-        assert updates["tool_result"]["status"] == "已发货"
+        assert updates["tool_result"]["status"] == "shipped"
         assert updates["pending_confirmation"] is None
 
     def test_after_execute_tool_routes_to_end_when_staged(self):
@@ -183,7 +183,7 @@ class TestMetaIntentResolution:
         }
         updates = await factory._handle_meta_intent(state)
 
-        assert "无权" in updates["tool_result"]["error"]
+        assert "not accessible" in updates["tool_result"]["error"]
 
     async def test_deny_discards_staged_action(self):
         registry = create_default_tool_registry()
@@ -234,7 +234,7 @@ class TestOrderOwnership:
             user_id=1,  # owner is user 2
         )
         assert result.success is False
-        assert "无权" in result.message
+        assert "not accessible" in result.message
 
     async def test_refund_on_foreign_order_is_denied(self):
         result = await self.registry.execute(
@@ -245,7 +245,7 @@ class TestOrderOwnership:
     async def test_unknown_order_reports_not_found(self):
         result = await self.registry.execute("query_order", {"order_id": "ORD9999"}, user_id=1)
         assert result.success is False
-        assert "不存在" in result.message
+        assert "not found" in result.message
 
     async def test_anonymous_caller_passes_in_demo_mode(self):
         result = await self.registry.execute("query_order", {"order_id": "ORD1001"})

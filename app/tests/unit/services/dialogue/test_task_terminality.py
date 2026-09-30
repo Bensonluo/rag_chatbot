@@ -101,7 +101,7 @@ class TestExecutedFlagProducers:
         }
         updates = await factory.execute_tool_node(state)
 
-        assert updates["tool_result"]["status"] == "已发货"
+        assert updates["tool_result"]["status"] == "shipped"
         assert updates["task_executed"] is True
 
     async def test_agent_tool_run_marks_task_executed(self):
