@@ -304,4 +304,26 @@ class RuleBasedIntentDetector(IntentDetector):
 
     @staticmethod
     def _contains_any(text: str, keywords: list[str]) -> bool:
-        return any(kw.lower() in text for kw in keywords)
+        # ASCII keywords match on word boundaries: bare substring
+        # matching reads "hi" out of "thing" and "no" out of
+        # "know"/"nothing" (observed live 2026-09-30 — a broken-item
+        # complaint classified as GREETING, and hybrid arbitration kept
+        # the rule result over an honest unknown/0.0 LLM verdict).
+        # Short keywords (≤4 chars) bound both sides so "hi"/"hey"/"no"
+        # hit only standalone words; longer ones match as prefixes so
+        # refund→refunded, cancel→cancelled keep working. CJK keywords
+        # keep substring matching — \b treats CJK chars as word chars,
+        # so a boundary requirement would break "对的"-style hits.
+        for kw in keywords:
+            kw_lower = kw.lower()
+            if kw_lower.isascii() and kw_lower.isalpha():
+                pattern = (
+                    rf"\b{re.escape(kw_lower)}\b"
+                    if len(kw_lower) <= 4
+                    else rf"\b{re.escape(kw_lower)}"
+                )
+                if re.search(pattern, text):
+                    return True
+            elif kw_lower in text:
+                return True
+        return False

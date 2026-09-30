@@ -204,6 +204,53 @@ class TestRuleBasedIntentDetector:
         # Assert
         assert intent == Intent.GREETING
 
+    async def test_english_word_interior_never_matches_keywords(self):
+        """ASCII keywords match whole words, not word interiors.
+
+        Observed live (2026-09-30): "the thing I bought last week
+        arrived broken, what are my options" classified as GREETING
+        because the keyword "hi" substring-matches inside "thing";
+        the same flaw reads "no" out of "know"/"nothing" as DENY."""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act
+        broken_item = await detector.detect_with_confidence(
+            "the thing I bought last week arrived broken, what are my options"
+        )
+        know_nothing = await detector.detect_with_confidence(
+            "I don't know my order number, can you help"
+        )
+
+        # Assert — no GREETING/DENY rule fires on word interiors; the
+        # second query keeps its legitimate QUERY_ORDER signal.
+        assert broken_item.intent is not Intent.GREETING
+        assert "greeting" not in [
+            r["intent"] for r in (broken_item.metadata or {}).get("matched_rules", [])
+        ]
+        assert know_nothing.intent is Intent.QUERY_ORDER
+        assert "deny" not in [
+            r["intent"] for r in (know_nothing.metadata or {}).get("matched_rules", [])
+        ]
+
+    async def test_english_standalone_short_keyword_still_matches(self):
+        """Word-boundary matching must not break real "hi"/"no" hits or
+        morphological variants (refunded, cancelled)."""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act / Assert
+        assert await detector.detect("hi there!") is Intent.GREETING
+        assert await detector.detect("no, that's wrong") is Intent.DENY
+        assert await detector.detect("I want to be refunded for order A100") is Intent.REFUND
+        assert await detector.detect("the subscription was cancelled without telling me") is (
+            Intent.CANCEL
+        )
+
     async def test_detect_chitchat_keyword(self):
         """Test detecting chitchat intent from keyword"""
         # Arrange
