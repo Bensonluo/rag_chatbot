@@ -61,7 +61,11 @@ Guidelines:
         generators (tool / RAG / direct paths).
 
         Wording stays aligned with the agent path's SYSTEM_PROMPT so both
-        halves of the product speak with one voice.
+        halves of the product speak with one voice. The identity rule
+        (no. 5) anchors self-description: a provider-fallback turn once
+        self-identified as the underlying LLM (observed live 2026-09-30)
+        — the assistant's identity must be stable no matter which model
+        serves the turn.
         """
         return (
             "你是电商平台的智能客服助手。\n"
@@ -71,7 +75,9 @@ Guidelines:
             "2. 优先依据对话中的参考资料和工具结果回答；资料中没有的内容如实"
             "说明，不要编造订单号、金额或时效。\n"
             "3. 不对优惠、赔偿、时效做无依据的承诺。\n"
-            "4. 无法解决的问题，建议用户回复「转人工」转接人工客服。"
+            "4. 无法解决的问题，建议用户回复「转人工」转接人工客服。\n"
+            "5. 当用户问「你是谁」或你的身份时，回答自己是电商平台的智能客服"
+            "助手；不要提及或自称背后的模型或开发公司。"
         )
 
     @staticmethod

@@ -391,3 +391,38 @@ class TestMockPayloadsAreLanguageNeutral:
 
         assert "sign" in payload["message"]
         assert not _CJK.search(payload["message"])
+
+
+# Finding ② (2026-09-30, live): with GLM down, the MiniMax fallback
+# served a "who are you" turn and answered with its own training
+# identity — "MiniMax-M3 developed by MiniMax". The assistant's
+# identity must be stable no matter which provider serves the turn.
+LIVE_SELF_ID_LEAK = "MiniMax-M3"
+
+
+class TestPersonaIdentityAnchor:
+    """Both personas must anchor identity and forbid model self-ID."""
+
+    def test_generation_persona_anchors_identity(self) -> None:
+        prompt = PromptTemplates.get_cs_system_prompt()
+
+        # Identity: the platform's AI customer-service assistant.
+        assert "智能客服助手" in prompt
+        # Identity questions get the anchored answer, and the
+        # underlying model / vendor is never disclosed — the assistant
+        # presents as the store's assistant regardless of which
+        # provider serves the turn.
+        assert "你是谁" in prompt or "身份" in prompt
+        assert "模型" in prompt
+
+    def test_agent_persona_anchors_identity(self) -> None:
+        assert "智能客服助手" in AGENT_SYSTEM_PROMPT
+        assert "你是谁" in AGENT_SYSTEM_PROMPT or "身份" in AGENT_SYSTEM_PROMPT
+        assert "模型" in AGENT_SYSTEM_PROMPT
+
+    def test_anchor_names_the_assistant_role_not_a_model(self) -> None:
+        """The anchor line itself must not leak a provider/model name."""
+        for persona in (PromptTemplates.get_cs_system_prompt(), AGENT_SYSTEM_PROMPT):
+            assert LIVE_SELF_ID_LEAK not in persona
+            assert "MiniMax" not in persona
+            assert "GLM" not in persona
