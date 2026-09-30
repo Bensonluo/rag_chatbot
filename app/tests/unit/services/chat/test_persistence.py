@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from typing import Any
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from sqlalchemy import select
@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.models.database.base import Base
 from app.models.database.message import Message
 from app.models.database.session import ChatSession  # noqa: F401 (registers table)
+from app.models.database.user import User  # noqa: F401 (registers table)
 from app.models.enums.message import MessageRole
 from app.services.chat.chat_service import ChatService
 from app.services.chat.persistence import ChatMessagePersister
@@ -387,3 +388,87 @@ class TestUserFactsRead:
 
         persister = ChatMessagePersister(session_maker=broken_maker)
         assert await persister.get_user_facts(user_id=7) == []
+
+
+# Finding ③ (live, 2026-10-01): POST /sessions requires auth, so
+# anonymous demo visitors arrive with client-invented session ids —
+# every demo turn failed the messages FK ("messages_session_id_fkey")
+# and history was silently lost. The suite never saw it because the
+# sqlite harness doesn't enforce FKs.
+class TestDemoSessionAutoCreate:
+    """DEMO_MODE must get-or-create the session row so demo turns persist."""
+
+    async def test_demo_mode_creates_missing_session_row(self, session_maker):
+
+        from app.config.settings import get_settings
+
+        persister = ChatMessagePersister(session_maker=session_maker)
+
+        with patch.object(get_settings(), "DEMO_MODE", True):
+            await persister.persist_turn(
+                session_id=98, user_id=None, user_message="hi", response="hello"
+            )
+
+        async with session_maker() as session:
+            rows = (await session.execute(select(ChatSession))).scalars().all()
+        assert [r.id for r in rows] == [98]
+        async with session_maker() as session:
+            msgs = (await session.execute(select(Message))).scalars().all()
+        assert len(msgs) == 2  # the turn actually persisted
+
+    async def test_existing_session_row_never_reassigned(self, session_maker):
+
+        from app.config.settings import get_settings
+
+        async with session_maker() as session:
+            owner = User(email="u@x", hashed_password="x")
+            session.add(owner)
+            await session.flush()
+            session.add(ChatSession(id=98, user_id=owner.id, title="Mine"))
+            await session.commit()
+
+        persister = ChatMessagePersister(session_maker=session_maker)
+        with patch.object(get_settings(), "DEMO_MODE", True):
+            await persister.persist_turn(
+                session_id=98, user_id=None, user_message="hi", response="hello"
+            )
+
+        async with session_maker() as session:
+            rows = (await session.execute(select(ChatSession))).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].title == "Mine"  # untouched, not reassigned to demo user
+
+    async def test_strict_mode_does_not_auto_create(self, session_maker):
+
+        from app.config.settings import get_settings
+
+        persister = ChatMessagePersister(session_maker=session_maker)
+
+        with patch.object(get_settings(), "DEMO_MODE", False):
+            await persister.persist_turn(
+                session_id=98, user_id=None, user_message="hi", response="hello"
+            )
+
+        async with session_maker() as session:
+            rows = (await session.execute(select(ChatSession))).scalars().all()
+        assert rows == []  # strict deployments 404 unknown ids upfront
+
+    async def test_demo_user_created_once_across_sessions(self, session_maker):
+
+        from app.config.settings import get_settings
+
+        persister = ChatMessagePersister(session_maker=session_maker)
+
+        with patch.object(get_settings(), "DEMO_MODE", True):
+            await persister.persist_turn(
+                session_id=90, user_id=None, user_message="a", response="b"
+            )
+            await persister.persist_turn(
+                session_id=91, user_id=None, user_message="c", response="d"
+            )
+
+        async with session_maker() as session:
+            users = (await session.execute(select(User))).scalars().all()
+            sessions = (await session.execute(select(ChatSession))).scalars().all()
+        assert len(users) == 1
+        assert sorted(s.id for s in sessions) == [90, 91]
