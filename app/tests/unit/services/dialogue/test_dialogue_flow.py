@@ -187,3 +187,50 @@ class TestNonsenseFallback:
 
         merged = extract_slots_from_message("refund", message, {})
         assert "order_id" in merged
+
+
+class TestOrderIdExtractionRobustness:
+    """Finding ① audit (2026-09-30): the shared order-id pattern
+    "(?:order|订单)\\s*([A-Za-z0-9]{3,})" is the REQUIRED order_id slot
+    on refund/return/query_order/track_shipping — under an extractor
+    outage it both misses real codes and invents fake ones.
+
+    - "…my ORD1001 order arrived cracked" captures the word after
+      "order" ("arrived") as the order id;
+    - "ORD1001订单…" (code directly glued to CJK) extracts nothing,
+      because the value charset stops at the first CJK char.
+    """
+
+    @pytest.mark.parametrize(
+        "intent", ["refund", "return", "query_order", "track_shipping", "complaint"]
+    )
+    def test_english_narrative_extracts_the_code_not_the_verb(self, intent: str):
+        from app.services.slot_filling.slot_types import extract_slots_from_message
+
+        merged = extract_slots_from_message(
+            intent,
+            "the screen of my ORD1001 order arrived cracked",
+            {},
+        )
+
+        assert merged.get("order_id") == "ORD1001"
+
+    @pytest.mark.parametrize(
+        "intent", ["refund", "return", "query_order", "track_shipping", "complaint"]
+    )
+    def test_cjk_adjacent_code_extracts(self, intent: str):
+        from app.services.slot_filling.slot_types import extract_slots_from_message
+
+        merged = extract_slots_from_message(intent, "ORD1001订单的包裹还没到", {})
+
+        assert merged.get("order_id") == "ORD1001"
+
+    def test_bare_digit_run_still_rejected(self):
+        """A letterless digit run is typed garbage, not an order code
+        (order codes carry letters; digit-only ids come with the
+        订单号/order prefix)."""
+        from app.services.slot_filling.slot_types import extract_slots_from_message
+
+        for intent in ("refund", "complaint"):
+            merged = extract_slots_from_message(intent, "123456789012345678901", {})
+            assert "order_id" not in merged, intent

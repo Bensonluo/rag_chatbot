@@ -20,7 +20,12 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
                 "prompt_en": "Please provide your order number",
                 "patterns": [
                     r"订单号[：:]?\s*([A-Za-z0-9]+)",
-                    r"(?:order|订单)\s*([A-Za-z0-9]{3,})",
+                    r"(?:order|订单)\s*(?:no\.?|number|#)?\s*([A-Za-z0-9]*\d[A-Za-z0-9]*)",
+                    # Bare order code (ORD1001): digit-requiring with a
+                    # letter floor, ASCII-lookaround boundaries so CJK
+                    # adjacency ("ORD1001订单") still extracts and a
+                    # letterless digit run never qualifies.
+                    r"(?<![A-Za-z0-9])([A-Za-z]+\d{3,}[A-Za-z0-9]*)(?![A-Za-z0-9])",
                 ],
             },
             "reason": {
@@ -58,7 +63,12 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
                 "prompt_en": "Please provide your order number",
                 "patterns": [
                     r"订单号[：:]?\s*([A-Za-z0-9]+)",
-                    r"(?:order|订单)\s*([A-Za-z0-9]{3,})",
+                    r"(?:order|订单)\s*(?:no\.?|number|#)?\s*([A-Za-z0-9]*\d[A-Za-z0-9]*)",
+                    # Bare order code (ORD1001): digit-requiring with a
+                    # letter floor, ASCII-lookaround boundaries so CJK
+                    # adjacency ("ORD1001订单") still extracts and a
+                    # letterless digit run never qualifies.
+                    r"(?<![A-Za-z0-9])([A-Za-z]+\d{3,}[A-Za-z0-9]*)(?![A-Za-z0-9])",
                 ],
             },
             "reason": {
@@ -91,7 +101,12 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
                 "prompt_en": "Please provide your order number",
                 "patterns": [
                     r"订单号[：:]?\s*([A-Za-z0-9]+)",
-                    r"(?:order|订单)\s*([A-Za-z0-9]{3,})",
+                    r"(?:order|订单)\s*(?:no\.?|number|#)?\s*([A-Za-z0-9]*\d[A-Za-z0-9]*)",
+                    # Bare order code (ORD1001): digit-requiring with a
+                    # letter floor, ASCII-lookaround boundaries so CJK
+                    # adjacency ("ORD1001订单") still extracts and a
+                    # letterless digit run never qualifies.
+                    r"(?<![A-Za-z0-9])([A-Za-z]+\d{3,}[A-Za-z0-9]*)(?![A-Za-z0-9])",
                 ],
             },
         },
@@ -106,7 +121,12 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
                 "prompt_en": "Please provide your order number",
                 "patterns": [
                     r"订单号[：:]?\s*([A-Za-z0-9]+)",
-                    r"(?:order|订单)\s*([A-Za-z0-9]{3,})",
+                    r"(?:order|订单)\s*(?:no\.?|number|#)?\s*([A-Za-z0-9]*\d[A-Za-z0-9]*)",
+                    # Bare order code (ORD1001): digit-requiring with a
+                    # letter floor, ASCII-lookaround boundaries so CJK
+                    # adjacency ("ORD1001订单") still extracts and a
+                    # letterless digit run never qualifies.
+                    r"(?<![A-Za-z0-9])([A-Za-z]+\d{3,}[A-Za-z0-9]*)(?![A-Za-z0-9])",
                 ],
             },
         },
@@ -155,7 +175,7 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
                     r"(?:order|订单)\s*(?:no\.?|number|#)?\s*([A-Za-z0-9]*\d[A-Za-z0-9]*)",
                     # ASCII-only boundaries: \b counts CJK as word chars,
                     # so "ORD1001订单" has no \b between them.
-                    r"(?<![A-Za-z0-9])([A-Za-z]*\d{3,}[A-Za-z0-9]*)(?![A-Za-z0-9])",
+                    r"(?<![A-Za-z0-9])([A-Za-z]+\d{3,}[A-Za-z0-9]*)(?![A-Za-z0-9])",
                 ],
             },
         },
