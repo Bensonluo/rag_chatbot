@@ -22,6 +22,13 @@ _EMBED_POOL_LIMITS = httpx.Limits(
     max_keepalive_connections=32,
 )
 
+# GLM rejects embedding input arrays larger than 64 items (platform
+# error 1214: "input数组最大不得超过64条"). The Coding Plan package
+# also enforces a low concurrent-request ceiling, so oversize inputs
+# are chunked at the cap and the chunks are sent sequentially —
+# never fanned out concurrently.
+_MAX_BATCH_ITEMS = 64
+
 
 def _generate_token(api_key: str, exp_seconds: int = 3600) -> str:
     """Generate JWT token for Zhipu AI API authentication."""
@@ -111,30 +118,43 @@ class GLMEmbeddingService(EmbeddingServiceBase):
                     embeddings=[], model=self.model, dimensions=self.dimensions, tokens_used=0
                 )
 
-            # Prepare request payload
-            payload = {"model": self.model, "input": texts}
+            embeddings: list[list[float]] = []
+            tokens_used = 0
 
-            # Call GLM embedding API
-            response = await self.client.post(
-                "embeddings", json=payload, headers=self._auth_headers()
-            )
-            response.raise_for_status()
+            # Sequential chunks: order-preserving and within the
+            # concurrency ceiling of the Coding Plan package.
+            for start in range(0, len(texts), _MAX_BATCH_ITEMS):
+                batch = texts[start : start + _MAX_BATCH_ITEMS]
 
-            data = response.json()
+                response = await self.client.post(
+                    "embeddings",
+                    json={"model": self.model, "input": batch},
+                    headers=self._auth_headers(),
+                )
+                response.raise_for_status()
 
-            # Extract embeddings from response
-            # GLM API format: {"object": "list", "data": [{"embedding": [...], "index": 0}, ...], ...}
-            embeddings_data = data.get("data", [])
+                data = response.json()
 
-            # Sort by index to ensure correct order
-            embeddings_data.sort(key=lambda x: x.get("index", 0))
+                # Extract embeddings from response
+                # GLM API format: {"object": "list", "data": [{"embedding": [...], "index": 0}, ...], ...}
+                embeddings_data = data.get("data", [])
 
-            # Extract embedding vectors
-            embeddings = [item["embedding"] for item in embeddings_data]
+                # Sort by index to ensure correct order
+                embeddings_data.sort(key=lambda x: x.get("index", 0))
 
-            # Get token usage
-            usage = data.get("usage", {})
-            tokens_used = usage.get("total_tokens", 0)
+                if len(embeddings_data) != len(batch):
+                    # A short batch would silently misalign
+                    # callers' owners<->vectors pairing downstream.
+                    raise ExternalServiceError(
+                        service="GLM Embeddings",
+                        message=(
+                            f"Batch mismatch: sent {len(batch)} inputs, "
+                            f"received {len(embeddings_data)} embeddings"
+                        ),
+                    )
+
+                embeddings.extend(item["embedding"] for item in embeddings_data)
+                tokens_used += data.get("usage", {}).get("total_tokens", 0)
 
             return EmbeddingResult(
                 embeddings=embeddings,
