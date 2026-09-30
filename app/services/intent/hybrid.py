@@ -91,6 +91,25 @@ class HybridIntentDetector(IntentDetector):
         # Fall back to LLM for low confidence
         llm_result = await self.llm_based.detect_with_confidence(query, context)
 
+        # The LLM fallback is an upgrade attempt, not a blind override.
+        # When it comes back weaker than the rule layer (e.g. a reasoning
+        # model truncated its content to '' → unknown/0.0), keep the rule
+        # result rather than discarding the rule signal entirely.
+        if llm_result.confidence < rule_result.confidence:
+            return IntentResult(
+                intent=rule_result.intent,
+                confidence=rule_result.confidence,
+                metadata={
+                    "method": "rule_based",
+                    "fallback": "llm_below_rule_confidence",
+                    "threshold": self.confidence_threshold,
+                    "rule_intent": rule_result.intent.value,
+                    "llm_intent": llm_result.intent.value,
+                    "llm_confidence": llm_result.confidence,
+                    **(rule_result.metadata or {}),
+                },
+            )
+
         return IntentResult(
             intent=llm_result.intent,
             confidence=llm_result.confidence,

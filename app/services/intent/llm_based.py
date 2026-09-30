@@ -14,6 +14,14 @@ from app.models.enums.intent import Intent
 from app.services.intent.base import IntentDetector, IntentResult
 from app.services.llm.base import LLMMessage, LLMServiceBase
 
+# Reasoning-capable GLM models (the deployment serves glm-5.3-flash)
+# spend internal chain-of-thought tokens before emitting content: at a
+# 50-token budget the same classification prompt at temperature 0
+# intermittently returned EMPTY content (observed live 2026-09-30),
+# degrading every low-rule-confidence query to unknown/0.0. The answer
+# is one word, but the budget must cover the reasoning preamble.
+_INTENT_MAX_TOKENS = 200
+
 
 class LLMIntentDetector(IntentDetector):
     """
@@ -59,7 +67,7 @@ class LLMIntentDetector(IntentDetector):
         try:
             response = await self.llm_service.generate(
                 messages=messages,
-                max_tokens=50,
+                max_tokens=_INTENT_MAX_TOKENS,
                 temperature=0.0,
             )
             return self._parse_response(response.content, query)

@@ -164,6 +164,45 @@ class TestHybridIntentDetector:
         # Should have metadata about which method was used
 
     @pytest.mark.asyncio
+    async def test_llm_fallback_weaker_than_rules_keeps_rule_result(self):
+        """The LLM fallback is an upgrade attempt, not a blind override.
+
+        Observed live (2026-09-30): English "return policy" scored
+        RETURN/0.5 in the rule layer, fell below the 0.7 threshold, and
+        the LLM call — whose content a reasoning model had truncated to
+        '' — returned unknown/0.0, which then DISCARDED the rule signal
+        and the whole knowledge path. A weaker fallback must defer to
+        the rule result."""
+        # Arrange
+        from app.services.intent.hybrid import HybridIntentDetector
+        from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+        from app.services.llm.base import LLMServiceBase
+
+        mock_llm = Mock(spec=LLMServiceBase)
+        rule_based = RuleBasedIntentDetector()
+        llm_based = LLMIntentDetector(llm_service=mock_llm)
+        llm_based.detect_with_confidence = AsyncMock(  # type: ignore[method-assign]
+            return_value=IntentResult(intent=Intent.UNKNOWN, confidence=0.0)
+        )
+
+        detector = HybridIntentDetector(
+            rule_based=rule_based, llm_based=llm_based, confidence_threshold=0.7
+        )
+
+        # Act — "return" keyword scores RETURN 1.5 → 0.5 confidence
+        result = await detector.detect_with_confidence(
+            "What is your return policy? How many days do I have?"
+        )
+
+        # Assert
+        assert result.intent == Intent.RETURN
+        assert result.confidence == pytest.approx(0.5)
+        assert result.metadata is not None
+        assert result.metadata.get("rule_intent") == "return"
+        assert result.metadata.get("llm_intent") == "unknown"
+
+    @pytest.mark.asyncio
     async def test_detect_with_context(self):
         """Test detection with conversation context"""
         # Arrange

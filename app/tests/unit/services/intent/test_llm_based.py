@@ -214,3 +214,39 @@ class TestLLMIntentDetector:
         # Assert
         assert "我要退款" in prompt
         assert "Intent:" in prompt
+
+    @pytest.mark.asyncio
+    async def test_generate_budget_leaves_room_for_reasoning_models(self):
+        """The classifier answer is one word, but reasoning-capable GLM
+        models (the deployment serves glm-5.3-flash) spend internal
+        chain-of-thought tokens before content: at max_tokens=50 the same
+        prompt at temperature 0 intermittently returned EMPTY content
+        (observed live 2026-09-30), silently degrading every English
+        query to unknown/0.0. The budget must stay generous."""
+        from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.llm.base import LLMResponse, LLMServiceBase
+
+        mock_llm = Mock(spec=LLMServiceBase)
+        mock_llm.generate = AsyncMock(return_value=LLMResponse(content="policy", model="m"))
+        detector = LLMIntentDetector(llm_service=mock_llm)
+
+        await detector.detect_with_confidence("What is your return policy?")
+
+        kwargs = mock_llm.generate.await_args.kwargs
+        assert kwargs["max_tokens"] >= 200
+
+    @pytest.mark.asyncio
+    async def test_empty_content_yields_unknown_not_error(self):
+        """A reasoning model truncating content to '' must parse to
+        unknown (the failure mode observed live), never raise."""
+        from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.llm.base import LLMResponse, LLMServiceBase
+
+        mock_llm = Mock(spec=LLMServiceBase)
+        mock_llm.generate = AsyncMock(return_value=LLMResponse(content="", model="m"))
+        detector = LLMIntentDetector(llm_service=mock_llm)
+
+        result = await detector.detect_with_confidence("how do I track my order")
+
+        assert result.intent == Intent.UNKNOWN
+        assert result.confidence == 0.0
