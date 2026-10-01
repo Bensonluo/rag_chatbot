@@ -43,7 +43,11 @@ dependencies = [
     "hiredis>=2.3.2",
 
     # Authentication & Security
-    "python-jose[cryptography]>=3.3.0",
+    # JWT uses PyJWT: python-jose dragged the `ecdsa` package, which
+    # carries an unfixable timing-attack CVE (PYSEC-2026-1325 /
+    # CVE-2024-23342, no fixed release). HS256 tokens are RFC-identical
+    # between the libraries — pre-migration tokens still verify (pinned
+    # by TestJWTLibraryContract.test_legacy_jose_encoded_token_still_verifies).
     "bcrypt>=4.0.0,<6.0.0",
     "PyJWT>=2.8.0",
     "python-multipart>=0.0.6",
@@ -115,7 +119,6 @@ dev = [
     # Type Stubs
     "types-redis>=4.6.0",
     "types-networkx>=3.0",
-    "types-python-jose>=3.3.4",
     "types-PyYAML>=6.0",
 
     # Load testing (deploy/loadtest/locustfile.py)
@@ -238,6 +241,7 @@ testpaths = [
     "app/tests/unit/test_logging.py",
     "app/tests/unit/test_readiness_honesty.py",
     "app/tests/unit/test_pyproject_deps.py",
+    "app/tests/unit/test_dependency_lock.py",
     "app/tests/unit/services/llm/test_anthropic_client.py",
     "app/tests/unit/services/llm/test_openai_client.py",
     "app/tests/unit/services/llm/test_resilience.py",

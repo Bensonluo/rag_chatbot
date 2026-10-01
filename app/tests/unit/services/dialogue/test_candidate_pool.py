@@ -120,6 +120,7 @@ class TestCandidatePool:
 
         response = await chat.process_message(1, "What is the return window?", 0)
 
+        assert response.sources is not None
         assert RESCUE_ID in response.sources
         assert response.sources[0] == RESCUE_ID
         # Delivery stays capped: the pool widens recall, not context.
@@ -156,5 +157,6 @@ class TestCandidatePool:
 
         response = await chat.process_message(1, "What is the return window?", 0)
 
+        assert response.sources is not None
         assert len(response.sources) == 3
         assert RESCUE_ID not in response.sources

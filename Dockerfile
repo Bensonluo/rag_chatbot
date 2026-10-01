@@ -42,8 +42,13 @@ RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
 # pyproject.toml is the dependency source of truth. Copy only package metadata
 # and source first so dependency installation remains a cacheable layer.
 COPY pyproject.toml README.md LICENSE ./
+COPY requirements-lock.txt ./
 COPY app ./app
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ .
+# The lock (fresh python-3.11 resolve, see its header) is applied as
+# constraints so image builds are reproducible: the same lock ⇒ the
+# same versions, and pip-audit has a stable input in CI.
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
+    -c requirements-lock.txt .
 
 # Stage 2: Runtime
 FROM python:3.11-slim as runtime

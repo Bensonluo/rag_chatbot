@@ -263,3 +263,106 @@ class TestPasswordValidation:
         # Assert
         assert result["is_valid"] is False
         assert len(result["errors"]) >= 2
+
+
+class TestJWTLibraryContract:
+    """Pins from the python-jose → PyJWT migration (2026-10-01).
+
+    python-jose drags the `ecdsa` package, which carries an unfixable
+    timing-attack CVE (PYSEC-2026-1325 / CVE-2024-23342 — no fixed
+    release upstream). The swap must be invisible on the wire: same
+    HS256 tokens, same claims, tokens minted by pre-migration deploys
+    still verify.
+    """
+
+    # Minted with python-jose before it left the dependency tree
+    # (HS256 is RFC-identical between the libraries, so the static
+    # token keeps proving compat in CI without jose installed).
+    LEGACY_TOKEN = (
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+        "eyJzdWIiOiJsZWdhY3ktdXNlckBleGFtcGxlLmNvbSIsInVzZXJfaWQiOjQyLC"
+        "J0eXBlIjoiYWNjZXNzIiwiZXhwIjoyMTA2MjMwNzI2fQ."
+        "tUy1EEKf2pwbej0X2Yp24t30UWFI_Q9zQRs6_j0fDjo"
+    )
+    LEGACY_KEY = "legacy-compat-test-key-0123456789abcdef"
+
+    def test_legacy_jose_encoded_token_still_verifies(self):
+        """Tokens issued by pre-migration deployments (python-jose)
+        must verify under PyJWT — live sessions must not be invalidated
+        by the library swap."""
+        # Arrange
+        from unittest.mock import patch
+
+        from app.config.settings import settings
+        from app.core.security import decode_access_token
+
+        with patch.object(settings, "SECRET_KEY", self.LEGACY_KEY):
+            # Act
+            decoded = decode_access_token(self.LEGACY_TOKEN)
+
+        # Assert
+        assert decoded["sub"] == "legacy-user@example.com"
+        assert decoded["user_id"] == 42
+
+    def test_wire_exp_claim_is_integer(self):
+        """The exp claim must be an integer on the wire. Neither jose
+        nor PyJWT may leak a datetime/float through — a datetime exp is
+        exactly the kind of input a future PyJWT release could stop
+        accepting, so the encoder pins the wire format itself."""
+        # Arrange
+        import base64
+        import json
+
+        from app.core.security import create_access_token
+
+        token = create_access_token({"sub": "wire-format@example.com"})
+
+        # Act
+        payload_b64 = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload_b64 + "=" * (-len(payload_b64) % 4)))
+
+        # Assert
+        assert isinstance(claims["exp"], int)
+
+    def test_decode_failures_raise_invalid_token_error(self):
+        """Public contract: every decode failure raises PyJWT's
+        InvalidTokenError (supertype of ExpiredSignatureError,
+        DecodeError, ...)."""
+        # Arrange
+        from jwt.exceptions import InvalidTokenError
+
+        from app.core.security import create_access_token, decode_access_token
+
+        expired = create_access_token({"sub": "x"}, timedelta(seconds=-60))
+
+        # Act & Assert
+        with pytest.raises(InvalidTokenError):
+            decode_access_token("not-a-jwt")
+        with pytest.raises(InvalidTokenError):
+            decode_access_token(expired)
+
+    def test_alg_none_token_rejected(self):
+        """A forged alg=none token must never decode — the verifier
+        pins the algorithm instead of trusting the header."""
+        # Arrange
+        import base64
+        import json
+
+        from jwt.exceptions import InvalidTokenError
+
+        from app.core.security import decode_access_token
+
+        def _b64(obj: dict[str, object]) -> str:
+            raw = json.dumps(obj).encode()
+            return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+        forged = (
+            _b64({"alg": "none", "typ": "JWT"})
+            + "."
+            + _b64({"sub": "attacker", "exp": 4102444800})
+            + "."
+        )
+
+        # Act & Assert
+        with pytest.raises(InvalidTokenError):
+            decode_access_token(forged)

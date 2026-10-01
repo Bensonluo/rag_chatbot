@@ -10,7 +10,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import bcrypt
-from jose import JWTError, jwt
+import jwt
+from jwt.exceptions import InvalidTokenError
 
 from app.config.settings import settings
 
@@ -72,7 +73,10 @@ def create_access_token(
     else:
         expire = datetime.now(UTC) + timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    to_encode.update({"exp": expire, "type": "access"})
+    # int on the wire: both python-jose (pre-migration) and PyJWT emit
+    # integer exp; encoding the timestamp explicitly keeps the format
+    # independent of either library's datetime coercion.
+    to_encode.update({"exp": int(expire.timestamp()), "type": "access"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
     return encoded_jwt
@@ -99,7 +103,7 @@ def create_refresh_token(
     else:
         expire = datetime.now(UTC) + timedelta(days=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS)
 
-    to_encode.update({"exp": expire, "type": "refresh"})
+    to_encode.update({"exp": int(expire.timestamp()), "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
     return encoded_jwt
@@ -116,13 +120,13 @@ def decode_access_token(token: str) -> dict[str, Any]:
         dict: Decoded token data
 
     Raises:
-        JWTError: If token is invalid or expired
+        InvalidTokenError: If token is invalid or expired
     """
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         return payload
-    except JWTError as e:
-        raise JWTError(f"Invalid token: {str(e)}") from e
+    except InvalidTokenError as e:
+        raise InvalidTokenError(f"Invalid token: {str(e)}") from e
 
 
 def validate_password(password: str) -> dict[str, Any]:
