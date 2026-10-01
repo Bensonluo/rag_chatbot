@@ -805,6 +805,7 @@ class NodeFactory:
                     VectorClientError,
                     VectorSearchRequest,
                     intersect_metadata_filters,
+                    retrieval_acl_scope,
                 )
 
                 # Counted per _search_once call: a swallowed
@@ -830,32 +831,49 @@ class NodeFactory:
                 filters = (
                     intersect_metadata_filters(fill_result.to_filters()) if fill_result else {}
                 )
+                # Server-side retrieval ACL (review 2026-09-26 #1, design
+                # D5): the caller's scope is injected from server context
+                # on its own request channel — it never passes through
+                # slot extraction or the business-filter whitelist, so no
+                # user-influenced condition can loosen it. Today the KB is
+                # entirely public and the scope is the empty constraint;
+                # private documents (design P2) swap in a per-caller
+                # expression.
+                acl_scope = retrieval_acl_scope()
+                # Ask for the candidate pool, not the delivery count:
+                # a reranker that only sees the top 3 can reorder them
+                # but never rescue a doc the fusion stage ranked
+                # 4th-Nth — recall is capped by the request width.
+                pool = settings.RETRIEVAL_CANDIDATE_POOL
+                search_req = VectorSearchRequest(
+                    query=query, top_k=pool, filters=filters or None, acl_filters=acl_scope
+                )
+                # The L2 key folds the ACL in: entries are post-ACL doc
+                # sets, so a scope-ineligible hit must never replay to a
+                # caller. The identity merge keeps today's no-scope key
+                # byte-identical to the pre-seam one.
+                cache_key_filters = search_req.with_merged_filters().filters or {}
                 # L2 retrieval cache: repeated identical (query, filters)
                 # within this KB epoch replay without touching Qdrant —
                 # the layer exists to protect it. Fail-open inside the
                 # service, so an outage just means "search as usual".
                 if self._retrieval_cache is not None:
-                    cached_docs = await self._retrieval_cache.get(query, filters)
+                    cached_docs = await self._retrieval_cache.get(query, cache_key_filters)
                     if cached_docs is not None:
                         retrieved_docs = cached_docs
                         sources = _extract_sources(retrieved_docs)
                 if not retrieved_docs:
                     if filters:
                         RETRIEVAL_FILTERED_SEARCHES.inc()
-                    # Ask for the candidate pool, not the delivery count:
-                    # a reranker that only sees the top 3 can reorder them
-                    # but never rescue a doc the fusion stage ranked
-                    # 4th-Nth — recall is capped by the request width.
-                    pool = settings.RETRIEVAL_CANDIDATE_POOL
-                    search_req = VectorSearchRequest(
-                        query=query, top_k=pool, filters=filters or None
-                    )
                     search_results = await _search_once(search_req)
                     if not search_results and filters:
                         RETRIEVAL_FILTER_FALLBACKS.inc()
-                        # A metadata miss must not zero out recall: retry unfiltered.
+                        # A metadata miss must not zero out recall: retry
+                        # without the BUSINESS filters. The ACL channel is
+                        # not a cancellable business condition — it
+                        # survives the fallback (review #1).
                         search_results = await _search_once(
-                            VectorSearchRequest(query=query, top_k=pool)
+                            VectorSearchRequest(query=query, top_k=pool, acl_filters=acl_scope)
                         )
                     # Rerank before conversion and caching: the stored L2
                     # order IS the reranked order, so cache hits replay it
@@ -868,7 +886,7 @@ class NodeFactory:
                     retrieved_docs = [_search_result_to_dict(r) for r in search_results]
                     sources = _extract_sources(retrieved_docs)
                     if retrieved_docs and self._retrieval_cache is not None:
-                        await self._retrieval_cache.put(query, filters, retrieved_docs)
+                        await self._retrieval_cache.put(query, cache_key_filters, retrieved_docs)
                     if not retrieved_docs and leg_failures:
                         retrieval_degraded = True
             except Exception:

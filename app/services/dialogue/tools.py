@@ -320,13 +320,18 @@ def create_knowledge_tool(hybrid_search: Any) -> ToolDefinition:
     """
 
     async def _search_kb(args: dict[str, Any]) -> dict[str, Any]:
-        from app.services.retrieval.vector_base import VectorSearchRequest
+        from app.services.retrieval.vector_base import VectorSearchRequest, retrieval_acl_scope
 
         query = str(args.get("query", "")).strip()
         if not query:
             return {"results": [], "count": 0, "message": "missing search keywords"}
         try:
-            hits = await hybrid_search.search(VectorSearchRequest(query=query, top_k=3))
+            # Same server-injected ACL scope as the main retrieval path
+            # (review 2026-09-26 #1): the agent's search must not become
+            # the one route into the KB that bypasses the caller's scope.
+            hits = await hybrid_search.search(
+                VectorSearchRequest(query=query, top_k=3, acl_filters=retrieval_acl_scope())
+            )
         except Exception:  # noqa: BLE001 - fail-open, agent keeps serving
             logger.warning("Knowledge tool search failed", exc_info=True)
             return {

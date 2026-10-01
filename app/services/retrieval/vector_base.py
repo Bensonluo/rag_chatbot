@@ -4,8 +4,10 @@ Vector service base interface and data models.
 Provides abstract interface for vector database operations and common data models.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 
@@ -54,11 +56,37 @@ class VectorSearchRequest:
         query: Search query text
         top_k: Number of results to return (default: 5)
         filters: Optional metadata filters
+        acl_filters: Server-injected retrieval ACL scope (review
+            2026-09-26 #1; docs/design/per-user-architecture.md D5).
+            A separate channel from business ``filters``: built only
+            from server-side context by ``retrieval_acl_scope()``,
+            never from the request body or slot extraction, and never
+            narrowed by the FILTERABLE_METADATA_KEYS whitelist (that
+            whitelist is the business-filter contract).
     """
 
     query: str
     top_k: int = 5
     filters: dict[str, Any] | None = None
+    acl_filters: dict[str, Any] | None = None
+
+    def with_merged_filters(self) -> VectorSearchRequest:
+        """Copy with the ACL scope folded into ``filters`` (ACL wins).
+
+        The single enforcement point: HybridSearchService.search calls
+        this before dispatching to the vector and keyword legs, so no
+        leg can be asked to search without the caller's scope applied —
+        a colliding business key (even a forged one) cannot loosen it.
+        Identity when there is no scope, so today's all-public KB
+        produces byte-identical requests.
+        """
+        if not self.acl_filters:
+            return self
+        return replace(
+            self,
+            filters={**(self.filters or {}), **self.acl_filters},
+            acl_filters=None,
+        )
 
 
 # Chunk-metadata filter contract: payload keys under "metadata." that
@@ -73,6 +101,26 @@ FILTERABLE_METADATA_KEYS = frozenset(
 def intersect_metadata_filters(filters: dict[str, Any] | None) -> dict[str, Any]:
     """Keep only filters whose keys are part of the chunk-metadata contract."""
     return {k: v for k, v in (filters or {}).items() if k in FILTERABLE_METADATA_KEYS}
+
+
+def retrieval_acl_scope() -> dict[str, Any] | None:
+    """The calling user's retrieval ACL scope, server-side only (review
+    2026-09-26 #1; docs/design/per-user-architecture.md D5).
+
+    The return value must be constructed exclusively from server-side
+    identity context — never from the request body or slot extraction —
+    and travels on ``VectorSearchRequest.acl_filters``, a channel the
+    business-filter machinery (whitelist, filter-miss fallback) cannot
+    strip: the fallback drops business filters but carries this channel
+    unchanged, and both hybrid legs enforce the merged scope.
+
+    Today every KB document is public (no ownership columns exist), so
+    every caller's scope is the empty constraint. Private documents
+    (design P2) replace this constant with a per-caller expression
+    (visible = public OR owned-by-caller); the invariants pinned in
+    app/tests/unit/services/dialogue/test_acl_seam.py do not change.
+    """
+    return None
 
 
 class VectorClient(ABC):

@@ -334,6 +334,13 @@ class HybridSearchService:
         Raises:
             VectorClientError: If both search methods fail
         """
+        # Server-side ACL enforcement point (review 2026-09-26 #1): the
+        # caller's scope is folded into the filters once, here, so every
+        # leg dispatched below searches under it — no leg can be asked
+        # without the scope applied, and a business filter key can never
+        # override it (ACL wins on collision).
+        request = request.with_merged_filters()
+
         vector_results = []
         keyword_results = []
 
