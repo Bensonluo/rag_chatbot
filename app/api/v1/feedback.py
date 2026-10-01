@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user
+from app.config.settings import settings
 from app.models.database.user import User
 from app.models.schemas.feedback import FeedbackCreate, FeedbackResponse
 from app.repositories.feedback_repository import FeedbackRepository
@@ -28,10 +29,23 @@ async def _get_db() -> AsyncGenerator[AsyncSession, None]:
 async def submit_feedback(
     feedback: FeedbackCreate,
     db: AsyncSession = Depends(_get_db),
-    current_user: User = Depends(get_current_active_user),  # noqa: ARG001  # FastAPI DI: enforces auth; value unused
+    current_user: User = Depends(get_current_active_user),
 ) -> FeedbackResponse:
     """Submit feedback (thumbs up/down) for an assistant message."""
     repo = FeedbackRepository(db)
+    # Object-level check in strict posture (review #1): the rating —
+    # and a downvote's cache eviction — must only ever touch the
+    # caller's own message; a foreign id reads exactly like a missing
+    # one so existence is not leaked. Demo posture keeps the
+    # existence-only check (the demo DB's messages belong to seeded
+    # users; strict ownership would break the public demo).
+    if not settings.DEMO_MODE:
+        owned = await repo.get_owned_message(feedback.message_id, current_user.id)
+        if owned is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Message {feedback.message_id} not found",
+            )
     message = await repo.submit_feedback(
         message_id=feedback.message_id,
         rating=feedback.rating,
