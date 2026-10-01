@@ -523,6 +523,14 @@ class Settings(BaseSettings):
         default="cross_encoder",
         description="Reranker type: cross_encoder, llm, chained, noop",
     )
+    RETRIEVAL_CANDIDATE_POOL: int = Field(
+        default=10,
+        description="Hybrid search candidate pool size before reranking",
+    )
+    RETRIEVAL_TOP_K: int = Field(
+        default=3,
+        description="Documents delivered to generation after reranking",
+    )
     RERANKER_MODEL: str = Field(
         default="cross-encoder/ms-marco-MiniLM-L-6-v2",
         description="Cross-encoder model for reranking",

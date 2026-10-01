@@ -842,18 +842,29 @@ class NodeFactory:
                 if not retrieved_docs:
                     if filters:
                         RETRIEVAL_FILTERED_SEARCHES.inc()
-                    search_req = VectorSearchRequest(query=query, top_k=3, filters=filters or None)
+                    # Ask for the candidate pool, not the delivery count:
+                    # a reranker that only sees the top 3 can reorder them
+                    # but never rescue a doc the fusion stage ranked
+                    # 4th-Nth — recall is capped by the request width.
+                    pool = settings.RETRIEVAL_CANDIDATE_POOL
+                    search_req = VectorSearchRequest(
+                        query=query, top_k=pool, filters=filters or None
+                    )
                     search_results = await _search_once(search_req)
                     if not search_results and filters:
                         RETRIEVAL_FILTER_FALLBACKS.inc()
                         # A metadata miss must not zero out recall: retry unfiltered.
                         search_results = await _search_once(
-                            VectorSearchRequest(query=query, top_k=3)
+                            VectorSearchRequest(query=query, top_k=pool)
                         )
                     # Rerank before conversion and caching: the stored L2
                     # order IS the reranked order, so cache hits replay it
                     # without paying the rerank again.
                     search_results = await self._rerank_results(search_results, search_req)
+                    # The pool exists to feed the reranker; delivery stays
+                    # capped so a NoOp/absent reranker never dumps the
+                    # whole pool into the generation context.
+                    search_results = search_results[: settings.RETRIEVAL_TOP_K]
                     retrieved_docs = [_search_result_to_dict(r) for r in search_results]
                     sources = _extract_sources(retrieved_docs)
                     if retrieved_docs and self._retrieval_cache is not None:
