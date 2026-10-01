@@ -82,7 +82,7 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 
 | 📈 Stats | | |
 |:---:|:---:|:---:|
-| **1572** maintained tests | **3** LLM providers | **86.85%** core coverage |
+| **1785** maintained tests | **3** LLM providers | **89.25%** core coverage |
 | **12** dialogue nodes | **5** data stores | **4** memory strategies |
 
 </div>
@@ -384,8 +384,8 @@ mypy app/core/security.py app/services/documents/base.py \
 
 | Metric | Value |
 |--------|-------|
-| Maintained test cases | **1572** |
-| Maintained core coverage | **86.85%** (70% minimum enforced locally) |
+| Maintained test cases | **1785** |
+| Maintained core coverage | **89.25%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
 | Python files | ~345 |
 | Test files | ~145 |
 
@@ -399,7 +399,7 @@ mypy app/core/security.py app/services/documents/base.py \
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 1572 maintained core tests, 86.85% coverage
+- [x] 1785 maintained core tests, 89.25% coverage
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)
