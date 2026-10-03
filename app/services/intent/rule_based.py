@@ -110,13 +110,14 @@ class RuleBasedIntentDetector(IntentDetector):
             # Knowledge intents
             Intent.FAQ: [
                 {
-                    # 多久/几天 are timeline questions ("退款多久到账") —
-                    # same informational class as 怎么/如何. Without them
-                    # the task keywords double-fire (1.5 + 1.2) and outrank
-                    # the reversed how-to pattern (2.4), sending an exact
-                    # FAQ-table question into the money-moving task flow
-                    # (found by the routing eval, 2026-10-03 — 20201e9
-                    # family).
+                    # 多久/几天/什么时候/何时 are timeline questions
+                    # ("退款多久到账", "退款什么时候到账") — same informational
+                    # class as 怎么/如何. Without them the task keywords
+                    # double-fire (1.5 + 1.2) and outrank the reversed
+                    # how-to pattern (2.4), sending an exact FAQ-table
+                    # question into the money-moving task flow (found by
+                    # the routing eval 2026-10-03 and the offline detector
+                    # probe 2026-10-03 — 20201e9 family).
                     "keywords": [
                         "怎么",
                         "如何",
@@ -126,22 +127,34 @@ class RuleBasedIntentDetector(IntentDetector):
                         "是否",
                         "多久",
                         "几天",
+                        "什么时候",
+                        "何时",
                     ],
                     "weight": 0.5,
                 },
                 {
                     "patterns": [
-                        # How-to phrasing ("怎么退货") outranks the raw action
-                        # keywords ("我要退货") — a how-to is a knowledge
-                        # question, not a request to execute the action.
-                        r"(怎么|如何).{0,10}(退|退款|退货|换货)",
+                        # How-to phrasing ("怎么退货", "怎么取消订单") outranks
+                        # the raw action keywords ("我要退货", "取消订单") —
+                        # a how-to is a knowledge question, not a request
+                        # to execute the action. 取消 joins the action
+                        # nouns because cancel-priority routing makes the
+                        # misroute destructive: a mid-refund "how do I
+                        # cancel an order" discarded the staged refund
+                        # (detector probe, 2026-10-03).
+                        r"(怎么|如何|什么时候|何时).{0,10}(退|退款|退货|换货|取消)",
                         # Reversed order ("退货怎么算", observed live
                         # 2026-09-30: classified RETURN and the bot demanded
                         # an order number instead of explaining the policy)
                         # — same rule: question word attached to the action
                         # noun is knowledge-seeking, not execution-seeking.
-                        r"(退|退款|退货|换货).{0,10}(怎么|如何|怎样|多久|几天|什么条件|怎么算)",
+                        r"(退|退款|退货|换货|取消).{0,10}(怎么|如何|怎样|多久|几天|什么时候|何时|什么条件|怎么算)",
                         r"(运费|邮费|配送费).{0,4}(多少|怎么算|免)",
+                        # EN how-to mirror ("How do I cancel my order" is a
+                        # shipped FAQ entry) — the "order" keyword otherwise
+                        # ties CANCEL's "cancel" and enum order crowns
+                        # query_order (detector probe, 2026-10-03).
+                        r"\bhow\b.{0,24}\bcancel",
                     ],
                     "weight": 2.4,
                 },
@@ -259,6 +272,14 @@ class RuleBasedIntentDetector(IntentDetector):
                         # "取消订单" is cancellation, not order query — the
                         # bare 订单 keyword would otherwise tie/win.
                         r"取消.{0,4}订单",
+                        # EN explicit-verb arm (f723874 tie family): "I
+                        # want to cancel my order" — the "cancel" keyword
+                        # (1.5) ties query_order's "order" (1.5) and
+                        # Intent-enum order crowns the wrong winner, so an
+                        # explicit cancel request produced an order-status
+                        # query instead (detector probe, 2026-10-03).
+                        r"(?:want\s+to|would\s+like\s+to|like\s+to|going\s+to)\s+cancel",
+                        r"^cancel\b",
                     ],
                     "weight": 1.3,
                 },

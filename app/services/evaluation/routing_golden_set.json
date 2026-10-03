@@ -379,5 +379,55 @@
         }
       }
     ]
+  },
+  {
+    "id": "cancel-howto-and-when-timeline",
+    "category": "faq_fastpath",
+    "turns": [
+      {
+        "utterance": "怎么取消订单",
+        "expect": {
+          "intent": "faq",
+          "llm_calls": 0,
+          "executed_tools": [],
+          "content_contain": [
+            "已发货订单无法取消"
+          ]
+        }
+      },
+      {
+        "utterance": "退款什么时候到账",
+        "expect": {
+          "intent": "faq",
+          "llm_calls": 0,
+          "executed_tools": [],
+          "content_contain": [
+            "1-3 个工作日到账"
+          ]
+        }
+      },
+      {
+        "utterance": "How do I cancel my order",
+        "expect": {
+          "intent": "faq",
+          "llm_calls": 0,
+          "executed_tools": [],
+          "content_contain": [
+            "To cancel: My Orders"
+          ]
+        }
+      },
+      {
+        "utterance": "取消订单",
+        "expect": {
+          "intent": "cancel",
+          "llm_calls": 0,
+          "executed_tools": [],
+          "content_contain": [
+            "已取消当前操作"
+          ]
+        }
+      }
+    ]
   }
 ]

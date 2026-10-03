@@ -259,6 +259,95 @@ class TestRuleBasedIntentDetector:
         assert await detector.detect("我要退款") is Intent.REFUND
         assert await detector.detect("退款进度") is Intent.REFUND
 
+    async def test_cancel_howto_phrasing_is_faq_not_meta_cancel(self):
+        """How-to-cancel phrasing ("怎么取消订单") is a knowledge question,
+        not a request to cancel whatever is currently staged.
+
+        Found by the offline detector probe (2026-10-03, evidence
+        generation follow-up to the routing eval): CANCEL's keyword
+        (取消@1.5) and the 取消.{0,4}订单 pattern (1.3) double-fire to
+        2.8 (→0.93) and detect_intent gives cancel priority over
+        everything — so a user mid-refund asking HOW to cancel an order
+        destroyed their staged refund (meta-cancel clears
+        pending_confirmation) instead of getting the answer. The shipped
+        FAQ table carries this exact question (怎么取消订单 + variants);
+        the forward how-to pattern just never listed 取消 as an action
+        noun. Same mechanics as the 怎么退货 fix."""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act / Assert — FAQ (怎么 0.5 + forward pattern 2.4 = 2.9 → 0.97)
+        # must outrank CANCEL (2.8 → 0.93) and cross the 0.7
+        # short-circuit so no LLM call is needed.
+        for utterance in ("怎么取消订单", "如何取消订单", "怎么才能取消"):
+            result = await detector.detect_with_confidence(utterance)
+            assert result.intent is Intent.FAQ, utterance
+            assert result.confidence >= 0.7, utterance
+        # The imperative phrasings must stay cancel requests.
+        assert await detector.detect("取消订单") is Intent.CANCEL
+        assert await detector.detect("我要取消订单") is Intent.CANCEL
+        assert await detector.detect("帮我取消") is Intent.CANCEL
+
+    async def test_when_timeline_phrasing_is_faq_not_action(self):
+        """什么时候-timeline phrasing ("退款什么时候到账") is a knowledge
+        question — the shipped FAQ table carries the 退款什么时候到 variant.
+
+        Found by the offline detector probe (2026-10-03): 多久/几天 joined
+        the FAQ keyword support (routing-eval fix) but 什么时候 never did,
+        so REFUND's keyword+regex double-fire (2.7 → 0.9) kept swallowing
+        the when-will-my-money-arrive question — the exact 20201e9
+        failure family with a different timeline word. 什么时候/何时 join
+        the keyword support and both how-to pattern question sets."""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act / Assert — FAQ (什么时候 0.5 + pattern 2.4 = 2.9 → 0.97)
+        # must outrank REFUND/RETURN (2.7 → 0.9) and cross the 0.7
+        # short-circuit.
+        for utterance in (
+            "退款什么时候到账",
+            "退货什么时候到账",
+            "什么时候退款",
+        ):
+            result = await detector.detect_with_confidence(utterance)
+            assert result.intent is Intent.FAQ, utterance
+            assert result.confidence >= 0.7, utterance
+        # Per-order tracking questions keep their task routing — the
+        # answer is the order's live status, not a policy doc.
+        assert await detector.detect("我的订单什么时候到") is Intent.QUERY_ORDER
+        assert await detector.detect("我要退款") is Intent.REFUND
+
+    async def test_english_cancel_howto_and_imperative(self):
+        """EN cancel phrasings: how-to reaches FAQ, imperative breaks the
+        query_order tie.
+
+        Found by the offline detector probe (2026-10-03): "How do I
+        cancel my order" (a shipped FAQ-table entry) landed query_order
+        because the "order" keyword (1.5) ties CANCEL's "cancel" keyword
+        (1.5) and Intent-enum order crowns query_order — the f723874 tie
+        family; the imperative "I want to cancel my order" had the same
+        hijack, so an explicit cancel request produced an order-status
+        query instead of cancelling. The how-to mirror of the zh forward
+        pattern + a COMPLAINT-style explicit-verb arm fix both."""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act / Assert — how-to: FAQ pattern (2.4 → 0.8) crosses the 0.7
+        # short-circuit and serves the curated EN entry.
+        result = await detector.detect_with_confidence("How do I cancel my order")
+        assert result.intent is Intent.FAQ
+        assert result.confidence >= 0.7
+        # Imperative: explicit verb (1.5 + 1.3 = 2.8 → 0.93) outranks the
+        # query_order keyword tie (1.5).
+        assert await detector.detect("I want to cancel my order") is Intent.CANCEL
+        assert await detector.detect("cancel my order please") is Intent.CANCEL
+
     async def test_english_word_interior_never_matches_keywords(self):
         """ASCII keywords match whole words, not word interiors.
 
