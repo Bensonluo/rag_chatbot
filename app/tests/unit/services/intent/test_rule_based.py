@@ -348,6 +348,105 @@ class TestRuleBasedIntentDetector:
         assert await detector.detect("I want to cancel my order") is Intent.CANCEL
         assert await detector.detect("cancel my order please") is Intent.CANCEL
 
+    async def test_english_handoff_phrasings_reach_handoff(self):
+        """EN human-request phrasings reach HANDOFF at outage-immune strength.
+
+        Found by the offline detector probe (2026-10-03): every probed EN
+        handoff phrasing ("how do I talk to a human", "I want to speak to
+        a human", "please connect me to an agent", "human please", ...)
+        scored unknown@0.00 — the HANDOFF arm was zh keywords plus two EN
+        noun phrases only, so a global audience's explicit escalation
+        request reached neither the deterministic leg nor a ticket. The
+        pattern arm mirrors the zh keywords' 3.0 weight: it always wins
+        over co-occurring task intents (peak 2.8) and crosses the 0.7
+        short-circuit, so the ticket is created without the LLM leg."""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act / Assert — every probed phrasing, rule short-circuit (3.0 → 1.0).
+        for utterance in [
+            "how do I talk to a human",
+            "I want to speak to a human",
+            "can I talk to a real person",
+            "please connect me to an agent",
+            "human please",
+            "let me talk to customer service",
+        ]:
+            result = await detector.detect_with_confidence(utterance)
+            assert result.intent is Intent.HANDOFF, utterance
+            assert result.confidence >= 0.7, utterance
+        # Guard: an explicit complaint stays a complaint — "talk to" here
+        # names customer service but the utterance never asks for a human.
+        assert await detector.detect("I want to file a complaint") is Intent.COMPLAINT
+
+    async def test_english_tracking_phrasings_reach_track_shipping(self):
+        """EN package-tracking phrasings reach TRACK_SHIPPING, not unknown.
+
+        Found by the offline detector probe (2026-10-03): "where is my
+        package" / "track my package" / "has my shipment arrived" scored
+        unknown@0.00 — the TRACK_SHIPPING pattern arm was zh-only and the
+        lone "shipping" keyword does not prefix-match "shipment". The EN
+        pattern arm mirrors the zh pattern weight (1.3). Bare "order"
+        phrasings stay QUERY_ORDER on purpose: the zh doctrine pins
+        我的订单什么时候到 → query_order (per-order tracking is an order
+        query), and "do you ship internationally" must stay unknown so
+        the knowledge-question fallback owns it."""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act / Assert — package/parcel/shipment nouns track.
+        for utterance in [
+            "where is my package",
+            "where is my parcel",
+            "track my package",
+            "has my shipment arrived",
+        ]:
+            assert await detector.detect(utterance) is Intent.TRACK_SHIPPING, utterance
+        # Guards: order-noun phrasings keep the per-order query semantics
+        # and the capability question stays unclassified.
+        assert await detector.detect("where is my order") is Intent.QUERY_ORDER
+        assert await detector.detect("do you ship internationally") is Intent.UNKNOWN
+        assert await detector.detect("物流查询") is Intent.TRACK_SHIPPING
+
+    async def test_english_faq_cost_and_refund_howto(self):
+        """EN cost questions and refund how-tos reach FAQ, not the task flow.
+
+        Found by the offline detector probe (2026-10-03): "how much is
+        shipping" was stolen by the TRACK_SHIPPING "shipping" keyword
+        (1.5 → 0.50) although delivery_scope_en curates the exact variant
+        — the zh FAQ table has a 运费…多少 cost guard but EN had none;
+        "How long do refunds take" scored refund@0.50 (keyword only)
+        although refund_timeline_en answers it. The EN cost patterns
+        mirror the zh 运费 guard and the how-to arm mirrors the zh
+        怎么…退 family (2.4 > 1.5 keyword), so the curated answers are
+        served with zero LLM calls."""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act / Assert — curated-entry questions cross the 0.7 short-circuit.
+        for utterance in [
+            "how much is shipping",
+            "how much does shipping cost",
+            "How long do refunds take",
+            "how do I get a refund",
+            "how do I return an item",
+        ]:
+            result = await detector.detect_with_confidence(utterance)
+            assert result.intent is Intent.FAQ, utterance
+            assert result.confidence >= 0.7, utterance
+        # Guards: imperative refund requests stay money-moving tasks and
+        # policy phrasings keep POLICY (keyword 1.0 + pattern 2.0 = 3.0
+        # outranks the FAQ how-to arm).
+        assert await detector.detect("I want a refund") is Intent.REFUND
+        result = await detector.detect_with_confidence("how does the refund policy work")
+        assert result.intent is Intent.POLICY
+
     async def test_english_word_interior_never_matches_keywords(self):
         """ASCII keywords match whole words, not word interiors.
 

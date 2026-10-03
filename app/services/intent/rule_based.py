@@ -71,6 +71,23 @@ class RuleBasedIntentDetector(IntentDetector):
                     "weight": 1.5,
                 },
                 {"patterns": [r"(物流|快递|包裹).{0,4}(到|在|哪|状态|查询)"], "weight": 1.3},
+                {
+                    # EN package-tracking phrasings ("where is my package",
+                    # "has my shipment arrived" — unknown@0.00 in the detector
+                    # probe 2026-10-03): the zh pattern arm covered CJK nouns
+                    # only and the "shipping" keyword does not prefix-match
+                    # "shipment". Bare "order" is deliberately excluded —
+                    # 我的订单什么时候到 is pinned query_order (per-order
+                    # tracking is an order query), so "where is my order"
+                    # keeps that semantics.
+                    "patterns": [
+                        r"\bwhere\s+is\s+my\s+(?:package|parcel|shipment|delivery)\b",
+                        r"\btrack\s+(?:my\s+|the\s+)?(?:package|parcel|shipment)\b",
+                        r"\b(?:has|did)\s+(?:my\s+)?(?:package|parcel|shipment)\s+"
+                        r"(?:arrived|been\s+delivered|shipped|come\s+yet)\b",
+                    ],
+                    "weight": 1.3,
+                },
             ],
             Intent.COMPLAINT: [
                 {
@@ -155,6 +172,18 @@ class RuleBasedIntentDetector(IntentDetector):
                         # ties CANCEL's "cancel" and enum order crowns
                         # query_order (detector probe, 2026-10-03).
                         r"\bhow\b.{0,24}\bcancel",
+                        # EN how-to family for refund/return ("How long do
+                        # refunds take" is refund_timeline_en; "how do I get
+                        # a refund" scored refund@0.50 keyword-only in the
+                        # detector probe 2026-10-03) — mirror of the zh
+                        # 怎么…退 family: 2.4 outranks the 1.5 task keyword.
+                        r"\bhow\b.{0,24}\b(?:refunds?|returns?)\b",
+                        # EN shipping-cost questions ("how much is shipping"
+                        # is an exact delivery_scope_en variant but was
+                        # stolen by the TRACK_SHIPPING "shipping" keyword at
+                        # 0.50) — mirror of the zh 运费…多少 guard.
+                        r"\bhow\s+much\b.{0,16}\b(?:shipping|delivery|postage)\b",
+                        r"\b(?:shipping|delivery|postage)\s+(?:cost|fee)s?\b",
                     ],
                     "weight": 2.4,
                 },
@@ -299,6 +328,28 @@ class RuleBasedIntentDetector(IntentDetector):
                         "真人来",
                         "human agent",
                         "human support",
+                    ],
+                    "weight": 3.0,
+                },
+                {
+                    # EN explicit-human-request verbs ("how do I talk to a
+                    # human", "please connect me to an agent", "human please"
+                    # — all unknown@0.00 in the detector probe 2026-10-03):
+                    # a global audience escalates with verb phrasings, not
+                    # the two curated EN noun phrases. Same 3.0 weight as the
+                    # keywords — explicit escalation always outranks a
+                    # co-occurring task intent (peak 2.8) and crosses the 0.7
+                    # short-circuit, so the ticket is created without the
+                    # LLM leg.
+                    "patterns": [
+                        r"\b(?:talk|speak)\s+(?:to|with)\s+(?:a\s+|an\s+|the\s+)?"
+                        r"(?:human|person|real\s+person|someone|agent|"
+                        r"representative|customer\s+service)\b",
+                        r"\b(?:connect|transfer|pass|route)\s+me\s+to\s+"
+                        r"(?:a\s+|an\s+|the\s+)?(?:human|person|agent|"
+                        r"representative|customer\s+service|support)\b",
+                        r"^(?:human|agent|real\s+person|representative)"
+                        r"[,\s]*(?:please)?[.!]*$",
                     ],
                     "weight": 3.0,
                 },

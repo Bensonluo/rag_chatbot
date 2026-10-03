@@ -429,5 +429,61 @@
         }
       }
     ]
+  },
+  {
+    "id": "en-global-audience-coverage",
+    "category": "routing_guard",
+    "turns": [
+      {
+        "utterance": "I want to talk to a human",
+        "expect": {
+          "intent": "handoff",
+          "llm_calls": 0,
+          "tickets_created": 1,
+          "content_contain": [
+            "CP-EVAL"
+          ]
+        }
+      },
+      {
+        "utterance": "how much is shipping",
+        "expect": {
+          "intent": "faq",
+          "llm_calls": 0,
+          "executed_tools": [],
+          "sources_contain": [
+            "faq:delivery_scope_en"
+          ],
+          "content_contain": [
+            "99 CNY"
+          ]
+        }
+      },
+      {
+        "utterance": "How long do refunds take",
+        "expect": {
+          "intent": "faq",
+          "llm_calls": 0,
+          "executed_tools": [],
+          "sources_contain": [
+            "faq:refund_timeline_en"
+          ],
+          "content_contain": [
+            "original payment method"
+          ]
+        }
+      },
+      {
+        "utterance": "where is my package",
+        "expect": {
+          "intent": "track_shipping",
+          "llm_calls": 0,
+          "executed_tools": [],
+          "content_contain": [
+            "order number"
+          ]
+        }
+      }
+    ]
   }
 ]
