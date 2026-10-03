@@ -173,6 +173,8 @@ class TestKnowledgeGapWiring:
             retrieved_docs=[],
             session_id=3,
             user_id=9,
+            retrieval_ran=False,
+            retrieval_degraded=False,
         )
 
     @pytest.mark.asyncio
@@ -188,6 +190,8 @@ class TestKnowledgeGapWiring:
             retrieved_docs=None,
             session_id=1,
             user_id=1,
+            retrieval_ran=False,
+            retrieval_degraded=False,
         )
 
     @pytest.mark.asyncio
@@ -214,6 +218,8 @@ class TestKnowledgeGapWiring:
             retrieved_docs=[],
             session_id=5,
             user_id=2,
+            retrieval_ran=False,
+            retrieval_degraded=False,
         )
 
     @pytest.mark.asyncio

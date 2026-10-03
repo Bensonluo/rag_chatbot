@@ -57,16 +57,23 @@ class KnowledgeGapRecorder:
         retrieved_docs: list[Any] | None,
         session_id: str | int | None = None,
         user_id: int = 0,
+        retrieval_ran: bool = False,
+        retrieval_degraded: bool = False,
     ) -> bool:
         """Record a gap when the turn qualifies; returns whether it wrote.
 
-        A gap is: a knowledge-intent turn whose retrieval produced no
-        usable documents. Failures are logged and swallowed — telemetry
-        must never fail a chat response.
+        A gap is: a turn that went through the knowledge path (a
+        knowledge intent, or retrieval actually ran — the
+        unknown-question fallback) whose retrieval produced no usable
+        documents. A degraded leg is an outage, not missing knowledge,
+        so it never counts. Failures are logged and swallowed —
+        telemetry must never fail a chat response.
         """
-        if not query or intent not in GAP_INTENTS:
+        if not query or retrieved_docs:
             return False
-        if retrieved_docs:
+        if retrieval_degraded:
+            return False
+        if intent not in GAP_INTENTS and not retrieval_ran:
             return False
         # Metric first, sampling second: the counter is the unsampled
         # truth (dashboards divide it by RAG traffic; a sampled
@@ -83,7 +90,9 @@ class KnowledgeGapRecorder:
                 repo = KnowledgeGapRepository(session)
                 await repo.record(
                     query=query,
-                    intent=intent,
+                    # retrieval_ran gaps may carry a None intent (e.g. a
+                    # detector outage); the honest bucket is "unknown".
+                    intent=intent if intent is not None else "unknown",
                     session_id=session_id,
                     user_id=user_id,
                     top_score=None,

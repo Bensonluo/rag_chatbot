@@ -84,6 +84,34 @@ class TestGapGating:
         recorded = await recorder.record_if_gap(query="你好", intent=None, retrieved_docs=[])
         assert recorded is False
 
+    async def test_unknown_intent_records_when_retrieval_ran(self, session_maker):
+        """The unknown-question retrieval fallback (routing-eval deferred
+        finding): retrieval ran and found nothing — that IS a knowledge
+        gap even though the classifier said unknown."""
+        recorder = _recorder(session_maker)
+        recorded = await recorder.record_if_gap(
+            query="量子纠缠是什么",
+            intent="unknown",
+            retrieved_docs=[],
+            session_id=9,
+            retrieval_ran=True,
+        )
+        assert recorded is True
+        async with session_maker() as session:
+            rows = (await session.execute(select(KnowledgeGapRecord))).fetchall()
+        assert len(rows) == 1
+        assert rows[0][0].query == "量子纠缠是什么"
+        assert rows[0][0].intent == "unknown"
+
+    async def test_plain_unknown_without_retrieval_is_not_a_gap(self, session_maker):
+        """UNKNOWN alone is not knowledge-seeking: without retrieval
+        having run, the turn keeps the legacy no-gap behavior."""
+        recorder = _recorder(session_maker)
+        recorded = await recorder.record_if_gap(
+            query="今天心情不太好", intent="unknown", retrieved_docs=[]
+        )
+        assert recorded is False
+
 
 class TestSampling:
     async def test_sample_rate_zero_never_records(self, session_maker):
@@ -137,4 +165,20 @@ class TestGapMetric:
         before = self._gaps()
         await recorder.record_if_gap(query="退货政策", intent="faq", retrieved_docs=[{"id": "d1"}])
         await recorder.record_if_gap(query="你好", intent="chitchat", retrieved_docs=[])
+        assert self._gaps() == before
+
+    async def test_degraded_retrieval_is_outage_not_gap(self, session_maker):
+        """Both legs down is an outage, not missing knowledge — the gap
+        counter feeds KB-coverage dashboards (gaps / RAG traffic) and
+        outages would pollute that ratio."""
+        recorder = _recorder(session_maker)
+        before = self._gaps()
+        recorded = await recorder.record_if_gap(
+            query="退货政策",
+            intent="policy",
+            retrieved_docs=[],
+            retrieval_ran=True,
+            retrieval_degraded=True,
+        )
+        assert recorded is False
         assert self._gaps() == before

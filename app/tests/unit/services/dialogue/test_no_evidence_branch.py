@@ -197,3 +197,67 @@ class TestBranchScoping:
         assert NO_EVIDENCE_MARKER in first.content
         assert NO_EVIDENCE_MARKER not in second.content
         assert llm.calls == 1  # only the chitchat turn reached the model
+
+
+class TestUnknownQuestionFallback:
+    """Question-shaped UNKNOWN turns (routing-eval deferred finding,
+    862a777) reach retrieval instead of the chitchat LLM leg; the
+    honest miss lands the same deterministic no-evidence copy."""
+
+    async def test_unknown_knowledge_question_gets_no_evidence(self) -> None:
+        llm = _CountingLLM(["不应该是自由发挥的答案。"])
+        chat = _chat(llm, _hybrid(AsyncMock(return_value=[])), intent=Intent.UNKNOWN)
+
+        response = await chat.process_message(1, "量子纠缠是什么", 0)
+
+        assert NO_EVIDENCE_MARKER in response.content
+        assert response.sources == []
+        assert response.intent == "unknown"
+        assert llm.calls == 0
+
+    async def test_unknown_statement_keeps_direct_generation(self) -> None:
+        """Non-question UNKNOWN keeps the legacy direct path — the
+        retrieval fallback must not swallow smalltalk residue."""
+        llm = _CountingLLM(["听起来还好，还有什么想聊的吗。"])
+        chat = _chat(llm, _hybrid(AsyncMock(return_value=[])), intent=Intent.UNKNOWN)
+
+        response = await chat.process_message(1, "今天心情不太好", 0)
+
+        assert NO_EVIDENCE_MARKER not in response.content
+        assert llm.calls == 1
+
+    async def test_unknown_miss_reaches_gap_recorder_with_retrieval_ran(self) -> None:
+        """The wiring, not just the recorder: an unknown-intent retrieval
+        miss must reach record_if_gap with retrieval_ran set — the
+        recorder's GAP_INTENTS gate alone would drop the turn."""
+        calls: list[dict[str, Any]] = []
+
+        class _RecordingRecorder:
+            async def record_if_gap(self, **kwargs: Any) -> bool:
+                calls.append(kwargs)
+                return True
+
+        chat = ChatService(
+            graph=build_dialogue_graph(
+                intent_detector=_detector_returning(Intent.UNKNOWN),
+                slot_filler=None,
+                tool_registry=Mock(),
+                retrieval_pipeline={"hybrid_search": _hybrid(AsyncMock(return_value=[]))},
+                llm_service=_CountingLLM([]),
+            ),
+            gap_recorder=cast(Any, _RecordingRecorder()),
+        )
+
+        await chat.process_message(1, "量子纠缠是什么", 0)
+
+        assert calls == [
+            {
+                "query": "量子纠缠是什么",
+                "intent": "unknown",
+                "retrieved_docs": [],
+                "session_id": 1,
+                "user_id": 0,
+                "retrieval_ran": True,
+                "retrieval_degraded": False,
+            }
+        ]

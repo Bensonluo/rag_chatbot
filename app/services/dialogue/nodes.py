@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Optional
@@ -127,6 +128,51 @@ def _turn_lang(state: DialogueState | None, fallback_text: str = "") -> str:
     if state is not None and state.get("message"):
         return detect_language(state["message"])
     return detect_language(fallback_text)
+
+
+# Question-shape detection for the UNKNOWN-intent retrieval fallback
+# (routing-eval deferred finding, 862a777): only text that matched NO
+# rule keyword reaches it, so keyword-bearing smalltalk has already
+# classified itself and cannot be stolen. ASCII interrogatives are
+# word-bounded — "what" inside "whatever" is not a question (283064d).
+_KNOWLEDGE_QUESTION_TOKENS_ZH = (
+    "怎么",
+    "如何",
+    "为什么",
+    "是什么",
+    "什么是",
+    "什么意思",
+    "哪些",
+    "哪个",
+    "哪里",
+    "多少",
+    "多久",
+    "介绍",
+    "解释",
+    "区别",
+)
+_KNOWLEDGE_QUESTION_EN = re.compile(
+    r"\b(how|what|why|where|which|who|when|explain)\b", re.IGNORECASE
+)
+
+
+def _looks_like_knowledge_question(text: str) -> bool:
+    """Deterministic question-shape check for UNKNOWN-intent turns.
+
+    ``量子纠缠是什么`` used to fall through to the chitchat LLM leg —
+    an ungrounded free answer where the honest outcome is retrieval,
+    and on a miss the no-evidence copy plus a recorded knowledge gap.
+    Deliberately conservative on tokens; the trailing ？/? carries
+    everything else ("Do you offer gift wrapping?").
+    """
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if stripped.endswith(("？", "?")):
+        return True
+    if any(token in stripped for token in _KNOWLEDGE_QUESTION_TOKENS_ZH):
+        return True
+    return bool(_KNOWLEDGE_QUESTION_EN.search(stripped))
 
 
 def _stream_queue(config: Optional[RunnableConfig]) -> asyncio.Queue[Any] | None:
@@ -550,6 +596,13 @@ class NodeFactory:
         if intent in HANDOFF_INTENTS:
             return {"route": "handoff"}
         if intent in GRAPH_INTENTS:
+            return {"route": "rag"}
+        # UNKNOWN + question shape is a knowledge question the rules
+        # missed, not smalltalk: route it into retrieval so an honest
+        # KB miss lands the no-evidence copy and the gap recorder
+        # sees the turn (862a777 deferred finding). Deterministic by
+        # construction — no LLM in the decision.
+        if intent == "unknown" and _looks_like_knowledge_question(state.get("message", "")):
             return {"route": "rag"}
 
         return {"route": "direct"}

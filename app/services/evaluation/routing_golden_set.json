@@ -351,5 +351,33 @@
         }
       }
     ]
+  },
+  {
+    "id": "unknown-knowledge-question",
+    "category": "no_evidence",
+    "turns": [
+      {
+        "utterance": "量子纠缠是什么",
+        "expect": {
+          "intent": "unknown",
+          "llm_calls": 0,
+          "executed_tools": [],
+          "content_contain": [
+            "暂未在知识库中找到"
+          ]
+        }
+      },
+      {
+        "utterance": "What is quantum entanglement",
+        "expect": {
+          "intent": "unknown",
+          "llm_calls": 0,
+          "executed_tools": [],
+          "content_contain": [
+            "couldn't find anything"
+          ]
+        }
+      }
+    ]
   }
 ]

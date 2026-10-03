@@ -193,6 +193,8 @@ class ChatService:
                 retrieved_docs=result.get("retrieved_docs"),
                 session_id=session_id,
                 user_id=user_id,
+                retrieval_ran=bool(result.get("retrieval_ran", False)),
+                retrieval_degraded=bool(result.get("retrieval_degraded", False)),
             )
         await self._maybe_cache_answer(message, result, user_id)
 
@@ -341,6 +343,8 @@ class ChatService:
                     retrieved_docs=result.get("retrieved_docs"),
                     session_id=session_id,
                     user_id=user_id,
+                    retrieval_ran=bool(result.get("retrieval_ran", False)),
+                    retrieval_degraded=bool(result.get("retrieval_degraded", False)),
                 )
             # Only completed streams cache: budget-exhausted / errored /
             # disconnected turns return before this point, so partial
