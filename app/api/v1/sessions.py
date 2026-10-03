@@ -16,12 +16,14 @@ from app.api.deps import (
     get_db,
     get_session_repository,
 )
+from app.api.deps.authorization import require_qa_reviewer
 from app.models.database.session import ChatSession
 from app.models.database.user import User
 from app.models.schemas.session import (
     SessionCreate,
     SessionListResponse,
     SessionResponse,
+    SessionReviewVerdict,
     SessionUpdate,
 )
 from app.repositories.session_repository import SessionRepository
@@ -53,6 +55,84 @@ async def get_containment_stats(
     since = datetime.now(UTC) - timedelta(days=window_days)
     repo = TicketRepository(db)
     return await repo.get_containment_stats(since=since)
+
+
+@router.get("/review-queue")
+async def get_review_queue(
+    window_days: Annotated[int, Query(ge=1, le=90)] = 7,
+    limit: Annotated[int, Query(ge=1, le=20)] = 10,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> dict[str, Any]:
+    """QA review sample: contained sessions with no resolution evidence.
+
+    Containment counts "no ticket, no downvote" as success, but a user
+    who gave up silently also has neither (review 2026-09-26, #11). The
+    queue samples that inflation-risk population — served in window,
+    contained, resolved_at IS NULL, not yet reviewed — with a preview
+    of the last user message so a reviewer can triage before opening
+    the transcript. Registered before ``/{session_id}`` like
+    containment-stats: the path-param route would swallow this literal.
+    """
+    require_qa_reviewer(current_user)
+    since = datetime.now(UTC) - timedelta(days=window_days)
+    repo = SessionRepository(db)
+    sampled = await repo.sample_review_queue(since=since, limit=limit)
+    items = []
+    for chat in sampled:
+        preview = await repo.last_user_message(chat.id)
+        items.append(
+            {
+                "session_id": chat.id,
+                "title": chat.title,
+                "updated_at": chat.updated_at.isoformat(),
+                "reopened_count": chat.reopened_count,
+                "last_user_message": preview[:200] if preview else None,
+            }
+        )
+    return {"window_start": since.isoformat(), "items": items}
+
+
+@router.post("/{session_id}/review")
+async def review_session(
+    session_id: int,
+    verdict: SessionReviewVerdict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> dict[str, Any]:
+    """Record a QA verdict on a sampled session.
+
+    Any verdict removes the session from the review queue; a resolved
+    verdict additionally stamps resolved_at (same positive-evidence
+    semantics as the user-confirmation path, feeding sessions_resolved
+    in the containment cross-tab).
+    """
+    require_qa_reviewer(current_user)
+    repo = SessionRepository(db)
+    try:
+        row = await repo.record_review_verdict(
+            session_id,
+            resolved=verdict.resolved,
+            note=verdict.note,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to record review verdict: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to record verdict",
+        ) from e
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found",
+        )
+    return {
+        "session_id": row.id,
+        "resolved": verdict.resolved,
+        "resolved_at": row.resolved_at.isoformat() if row.resolved_at else None,
+    }
 
 
 async def get_session_service(

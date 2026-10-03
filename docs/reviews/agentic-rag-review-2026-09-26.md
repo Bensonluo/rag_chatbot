@@ -226,6 +226,8 @@ has_tool_result = true
 
 > **修复更新（2026-10-03，session resolution 状态闭环）：** 上条剩余中的三个数据半边已落地——**resolved 状态字段**（`chat_sessions.resolved_at` + `reopened_count`，迁移 c5f2a8e3d17b）、**用户确认信号**（`app/services/chat/resolution.py`：确定性「解决了/搞定了/solved/all set」短语判定，精度优先——裸「谢谢」是礼貌不是解决，不触发；「还没解决」被负向后行排除）、**同一问题短期重开检测**（已解决会话的任意非确认后续消息 → 重开：`resolved_at` 置空 + `reopened_count`+1；确认分支先判，重复「解决了」只刷新时间戳永不误重开）。挂载点在 `ChatMessagePersister.persist_turn` 的事务内、fail-open 与持久化其余部分同 doctrine。`get_containment_stats` 增 `sessions_resolved`/`sessions_reopened` 交叉表（与服务过会话交叉，独立于失败信号——resolved+escalated 双计，供人工抽检定位）。**#11 剩余**：业务动作成功凭证（接真实售后系统时）与人工抽检流程（运营侧），均非纯代码项。+28 tests，全套 1837 通过，cov 89.26%。
 
+> **修复更新（2026-10-03，人工抽检队列闭环）：** 「人工抽检估计解决率」半边的可代码化核心已落地——`GET /api/v1/sessions/review-queue` 采样 **containment 分子中无正面证据的人群**（窗口内服务过 ∧ 无工单 ∧ 无差评 ∧ `resolved_at` IS NULL ∧ 未抽检过）：正是评审点名的「用户没解决就离开也可能被算作成功」的膨胀风险人群；随机抽样（非普查，limit×3 候选封顶）+ 末条用户消息 200 字预览供分诊。`POST /api/v1/sessions/{id}/review` 记录质检判定：任何判定使会话离开队列（`session_metadata.qa_verdict`，覆盖式单判定非审计日志）；「已解决」判定同时落 `resolved_at`——与用户确认路径同语义、汇入 `sessions_resolved` 交叉表，「抽检确认解决率」由此可算。严格模式下两端点 admin-only（质检读他人会话+影响 KPI，属运营面，同 KB 写 doctrine）。**#11 剩余**：仅业务动作成功凭证（接真实售后系统时）。+18 tests，全套 1855 通过，cov 89.26%。
+
 ### 12. [P1/P2] 启动降级与就绪检查可能报告虚假的可服务状态
 
 > **修复更新（2026-09-27，commit 097e69e）：** 四条静默降级路径全部闭环。(1) API 装配层拒绝 graph=None 的服务（initialize_chat_service 抛 RuntimeError → lifespan 保持 not_ready）；(2) 两种传输先行快速失败：POST /chat 映射为 503（GraphUnavailableError），/stream 按既有约定输出 STREAM_ERROR 帧，不再以 AttributeError 500 暴露；(3) checkpointer 新增 degraded 标志，Postgres 模式被替换为 MemorySaver 时 lifespan 扣留就绪，编排器看到的是 not-ready 副本而不是悄悄遗忘会话状态的副本；(4) backup.sh 的 pg_dump 失败分支改为 exit 1（并跳过保留期清理，保住最近一次好备份），退出码可被监控捕获。+8 测试（app/tests/unit/test_readiness_honesty.py），全套 1604 通过。

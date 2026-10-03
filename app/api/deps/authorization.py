@@ -109,3 +109,21 @@ def require_kb_writer(current_user: User | None) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Administrator role required",
         )
+
+
+def require_qa_reviewer(current_user: User | None) -> None:
+    """Gate for QA review endpoints (review queue sampling + verdicts).
+
+    The review queue and verdicts read other users' transcripts and
+    shape the resolution KPI — an ops surface, not a customer one.
+    Demo posture: any authenticated user (the endpoint's auth
+    dependency already rejected anonymous; the demo DB has no secrets
+    worth gatekeeping from its own users). Strict: admin only.
+    """
+    if settings.DEMO_MODE:
+        return
+    if current_user is None or not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator role required",
+        )

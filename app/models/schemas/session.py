@@ -46,3 +46,15 @@ class SessionListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class SessionReviewVerdict(BaseModel):
+    """QA reviewer's verdict on a sampled session (review 2026-09-26, #11).
+
+    ``resolved`` closes the resolution loop the user-confirmation path
+    opened: confirmed resolutions stamp resolved_at and join
+    sessions_resolved in the containment cross-tab.
+    """
+
+    resolved: bool
+    note: str | None = Field(None, max_length=500)
