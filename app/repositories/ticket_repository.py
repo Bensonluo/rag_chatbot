@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database.message import Message
+from app.models.database.session import ChatSession
 from app.models.database.ticket import HandoffTicket
 from app.models.enums.message import MessageRole
 from app.repositories.base import BaseRepository
@@ -245,6 +246,12 @@ class TicketRepository(BaseRepository[HandoffTicket]):
 
         Contained is not resolved: this is the absence of failure
         signals, not a verified resolution (review 2026-09-26, #11).
+        sessions_resolved/sessions_reopened are the positive half's
+        cross-tab — the user confirmed the problem solved / a resolved
+        session came back open — counted among served sessions and
+        independent of the failure signals (a session can be both
+        resolved and escalated; each signal answers a different
+        question).
         """
         in_window = (
             Message.role == MessageRole.ASSISTANT,
@@ -259,6 +266,22 @@ class TicketRepository(BaseRepository[HandoffTicket]):
             Message.user_rating < 0,
         )
         failed = ticketed.union(downvoted).subquery()
+        resolved = select(func.count()).select_from(
+            select(func.distinct(ChatSession.id))
+            .where(
+                ChatSession.id.in_(served_sessions),
+                ChatSession.resolved_at.is_not(None),
+            )
+            .subquery()
+        )
+        reopened = select(func.count()).select_from(
+            select(func.distinct(ChatSession.id))
+            .where(
+                ChatSession.id.in_(served_sessions),
+                ChatSession.reopened_count > 0,
+            )
+            .subquery()
+        )
 
         served = select(func.count()).select_from(served_sessions.subquery())
         escalated = select(func.count()).select_from(ticketed.subquery())
@@ -273,11 +296,17 @@ class TicketRepository(BaseRepository[HandoffTicket]):
         rejected_n = result.scalar() or 0
         result = await self.session.execute(failed_count)
         failed_n = result.scalar() or 0
+        result = await self.session.execute(resolved)
+        resolved_n = result.scalar() or 0
+        result = await self.session.execute(reopened)
+        reopened_n = result.scalar() or 0
         return {
             "window_start": since.isoformat(),
             "sessions_served": total,
             "sessions_escalated": handed_off,
             "sessions_downvoted": rejected_n,
+            "sessions_resolved": resolved_n,
+            "sessions_reopened": reopened_n,
             "containment_rate": round((total - failed_n) / total, 4) if total else None,
         }
 

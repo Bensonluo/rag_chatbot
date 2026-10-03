@@ -55,16 +55,28 @@ async def _seed(
     old_sessions: set[int] | frozenset[int] = frozenset(),
     downvoted_sessions: set[int] | frozenset[int] = frozenset(),
     upvoted_sessions: set[int] | frozenset[int] = frozenset(),
+    resolved_sessions: set[int] | frozenset[int] = frozenset(),
+    reopened_counts: dict[int, int] | None = None,
 ) -> None:
     """Seed chat sessions, assistant turns, and handoff tickets.
 
     ``old_sessions`` shifts that session's assistant turns before the
     stats window so window filtering is exercised. Rating params set
     ``user_rating`` on every assistant turn of that session.
+    ``resolved_sessions`` pins resolved_at to now (review #11); a
+    reopened session is the CURRENT state — resolved_at=None with
+    reopened_count>0 — so seed it via ``reopened_counts`` only.
     """
     async with session_maker() as session:
         for sid in sessions:
-            session.add(ChatSession(id=sid, user_id=1))
+            session.add(
+                ChatSession(
+                    id=sid,
+                    user_id=1,
+                    resolved_at=_NOW if sid in resolved_sessions else None,
+                    reopened_count=(reopened_counts or {}).get(sid, 0),
+                )
+            )
         await session.flush()
         for sid, turns in assistant_turns.items():
             for n in range(turns):
@@ -224,3 +236,80 @@ class TestContainmentStats:
         assert stats["sessions_escalated"] == 1
         assert stats["sessions_downvoted"] == 1
         assert stats["containment_rate"] == 0.0
+
+
+class TestResolutionCrossTab:
+    """User-confirmed resolution among served sessions (review #11).
+
+    Containment is the absence of failure signals; sessions_resolved is
+    the presence of a positive one (the user said it's solved). Both are
+    reported side by side — resolved stays visible even for sessions
+    that later escalated, because "user said solved then came back with
+    a ticket" is exactly the case human review should see.
+    """
+
+    async def test_resolved_and_reopened_sessions_cross_tab(self, session_maker):
+        await _seed(
+            session_maker,
+            sessions=[1, 2, 3],
+            assistant_turns={1: 1, 2: 1, 3: 1},
+            ticket_sessions=[],
+            resolved_sessions={1},
+            reopened_counts={2: 2},
+        )
+
+        stats = await _stats(session_maker)
+
+        assert stats["sessions_served"] == 3
+        assert stats["sessions_resolved"] == 1
+        assert stats["sessions_reopened"] == 1
+        assert stats["containment_rate"] == 1.0  # cross-tab is independent
+
+    async def test_resolved_session_that_escalated_is_counted_in_both(self, session_maker):
+        """Escalation after a user confirmation does not erase the
+        confirmation — the two signals answer different questions."""
+        await _seed(
+            session_maker,
+            sessions=[1],
+            assistant_turns={1: 1},
+            ticket_sessions=[1],
+            resolved_sessions={1},
+        )
+
+        stats = await _stats(session_maker)
+
+        assert stats["sessions_resolved"] == 1
+        assert stats["sessions_escalated"] == 1
+
+    async def test_resolution_fields_present_and_zero_without_any(self, session_maker):
+        await _seed(
+            session_maker,
+            sessions=[1],
+            assistant_turns={1: 1},
+            ticket_sessions=[],
+        )
+
+        stats = await _stats(session_maker)
+
+        assert stats["sessions_resolved"] == 0
+        assert stats["sessions_reopened"] == 0
+
+    async def test_resolution_ignores_never_served_and_stale_sessions(self, session_maker):
+        """Same denominator discipline as the rest of the stats: only
+        sessions actually served in-window count."""
+        await _seed(
+            session_maker,
+            sessions=[1, 2, 3],
+            assistant_turns={1: 1},
+            ticket_sessions=[],
+            old_sessions={1},
+            resolved_sessions={1, 2},
+            reopened_counts={3: 5},
+        )
+
+        stats = await _stats(session_maker)
+
+        assert stats["sessions_served"] == 0
+        assert stats["sessions_resolved"] == 0
+        assert stats["sessions_reopened"] == 0
+        assert stats["containment_rate"] is None

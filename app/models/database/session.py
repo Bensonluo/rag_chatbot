@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import JSON, ForeignKey, Integer, String
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.database.base import Base, TimestampMixin
@@ -53,6 +54,19 @@ class ChatSession(Base, TimestampMixin):
         nullable=False,
     )
     session_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, default=None)
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        default=None,
+        nullable=True,
+        comment="Last user-confirmed resolution (review #11); None = open/reopened",
+    )
+    reopened_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+        comment="Times a resolved session was reopened by a follow-up message",
+    )
 
     # Relationships
     user: Mapped[User] = relationship(
