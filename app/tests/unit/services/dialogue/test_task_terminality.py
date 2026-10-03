@@ -104,6 +104,49 @@ class TestExecutedFlagProducers:
         assert updates["tool_result"]["status"] == "shipped"
         assert updates["task_executed"] is True
 
+    async def test_direct_tool_run_records_executed_tools_audit(self):
+        """A directly-run reversible tool must leave the same audit shape
+        the meta-confirm branch (1525b69) and the agent path record —
+        an executed query_order/complaint invisible to the per-turn
+        audit is unauditable (review 2026-09-26 #9, same class). Found
+        by the routing eval: task turns grounded answers in tool
+        results while executed_tools stayed empty."""
+        factory = _make_factory()
+
+        state: DialogueState = {
+            "intent": "query_order",
+            "filled_slots": {"order_id": "ORD1001"},
+            "pending_slots": [],
+            "user_id": 1,
+        }
+        updates = await factory.execute_tool_node(state)
+
+        audit = updates.get("executed_tools")
+        assert isinstance(audit, list) and len(audit) == 1
+        assert audit[0]["tool"] == "query_order_status"
+        assert audit[0]["ok"] is True
+        assert audit[0]["args"] == {"order_id": "ORD1001"}
+        assert "shipped" in audit[0]["summary"]
+
+    async def test_failed_direct_tool_run_records_failed_audit_entry(self):
+        """A refused tool run is still an execution attempt — recorded
+        with ok=False, mirroring the meta-confirm failure branch."""
+        factory = _make_factory()
+
+        state: DialogueState = {
+            "intent": "query_order",
+            # Wrong-owner order: the demo registry refuses the lookup.
+            "filled_slots": {"order_id": "ORD9999"},
+            "pending_slots": [],
+            "user_id": 1,
+        }
+        updates = await factory.execute_tool_node(state)
+
+        audit = updates.get("executed_tools")
+        assert isinstance(audit, list) and len(audit) == 1
+        assert audit[0]["ok"] is False
+        assert updates["task_executed"] is True
+
     async def test_agent_tool_run_marks_task_executed(self):
         agent = Mock()
         agent.run = AsyncMock(

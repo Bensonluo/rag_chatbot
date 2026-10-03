@@ -109,7 +109,26 @@ class RuleBasedIntentDetector(IntentDetector):
             ],
             # Knowledge intents
             Intent.FAQ: [
-                {"keywords": ["怎么", "如何", "为什么", "能不能", "可以", "是否"], "weight": 0.5},
+                {
+                    # 多久/几天 are timeline questions ("退款多久到账") —
+                    # same informational class as 怎么/如何. Without them
+                    # the task keywords double-fire (1.5 + 1.2) and outrank
+                    # the reversed how-to pattern (2.4), sending an exact
+                    # FAQ-table question into the money-moving task flow
+                    # (found by the routing eval, 2026-10-03 — 20201e9
+                    # family).
+                    "keywords": [
+                        "怎么",
+                        "如何",
+                        "为什么",
+                        "能不能",
+                        "可以",
+                        "是否",
+                        "多久",
+                        "几天",
+                    ],
+                    "weight": 0.5,
+                },
                 {
                     "patterns": [
                         # How-to phrasing ("怎么退货") outranks the raw action

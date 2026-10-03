@@ -693,9 +693,28 @@ class NodeFactory:
         # confirmation so it cannot gate a later action.
         result = await self._tool_registry.execute(intent, filled_slots, user_id=user_id)
 
+        # Same audit-trail shape the meta-confirm branch (1525b69) and
+        # the agent path record: a directly-run order query or complaint
+        # submission invisible to the per-turn audit is unauditable
+        # (review 2026-09-26 #9, same class — found by the routing eval:
+        # task turns grounded answers in tool results while
+        # executed_tools stayed empty). Failed attempts record ok=False.
+        audit_entry = {
+            "tool": tool.name if tool else intent,
+            "ok": result.success,
+            "args": dict(filled_slots),
+            "summary": _safe_json(result.data if result.success else {"error": result.message})[
+                :200
+            ],
+        }
         if result.success:
             record_funnel_layer(LAYER_AGENT_TOOL)
-            return {"tool_result": result.data, "pending_confirmation": None, "task_executed": True}
+            return {
+                "tool_result": result.data,
+                "pending_confirmation": None,
+                "task_executed": True,
+                "executed_tools": [audit_entry],
+            }
 
         logger.warning("Tool execution failed for intent %s: %s", intent, result.message)
         return {
@@ -704,6 +723,7 @@ class NodeFactory:
             # The tool ran and was refused — the task is terminal either
             # way; re-running it can only repeat the failure.
             "task_executed": True,
+            "executed_tools": [audit_entry],
         }
 
     @traced_stage("cs.faq")

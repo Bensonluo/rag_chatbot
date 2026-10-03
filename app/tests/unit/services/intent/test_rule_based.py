@@ -231,6 +231,34 @@ class TestRuleBasedIntentDetector:
         # The direct action phrasing must stay an action request.
         assert await detector.detect("我要退货") is Intent.RETURN
 
+    async def test_reversed_timeline_phrasing_is_faq_not_action(self):
+        """Timeline phrasing ("退款多久到账") is a knowledge question —
+        the shipped FAQ table even carries this exact question with the
+        timeline answer.
+
+        Found by the routing golden-set eval (2026-10-03): REFUND's
+        keyword (1.5) and regex (1.2) double-fire on the same 退款 token
+        (2.7) and outrank the FAQ reversed pattern (2.4) because 多久,
+        unlike 怎么, carried no FAQ keyword support — the bot demanded an
+        order number for a when-will-my-money-arrive question, the exact
+        20201e9 failure family. Timeline keywords join the question-word
+        support so informational phrasing keeps winning arbitration."""
+        # Arrange
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        # Act
+        result = await detector.detect_with_confidence("退款多久到账")
+
+        # Assert — FAQ (reversed 2.4 + 多久 0.5 = 2.9 → 0.97) must outrank
+        # REFUND (2.7 → 0.9) and cross the 0.7 short-circuit.
+        assert result.intent is Intent.FAQ
+        assert result.confidence >= 0.7
+        # The action phrasings must stay action requests.
+        assert await detector.detect("我要退款") is Intent.REFUND
+        assert await detector.detect("退款进度") is Intent.REFUND
+
     async def test_english_word_interior_never_matches_keywords(self):
         """ASCII keywords match whole words, not word interiors.
 
