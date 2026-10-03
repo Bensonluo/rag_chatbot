@@ -207,6 +207,16 @@ class Settings(BaseSettings):
             "rebuild cadence so staleness is bounded by index freshness"
         ),
     )
+    CONFIRMATION_TTL_SECONDS: int = Field(
+        default=900,
+        ge=0,
+        description=(
+            "Expiry for staged irreversible-action confirmations: a staged "
+            "refund/return older than this is discarded when the user "
+            "confirms instead of executing. 0 disables expiry (legacy "
+            "behavior)"
+        ),
+    )
     RETRIEVAL_CACHE_MAX_ENTRIES: int = Field(
         default=512,
         ge=1,

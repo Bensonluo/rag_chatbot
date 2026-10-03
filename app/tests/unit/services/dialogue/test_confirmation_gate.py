@@ -5,9 +5,11 @@ money-moving or otherwise irreversible action without an explicit user
 confirmation, and tool calls must be scoped to the caller's own data.
 """
 
+import time
 from typing import Any
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
+from app.config.settings import settings
 from app.services.dialogue.nodes import NodeFactory
 from app.services.dialogue.state import DialogueState
 from app.services.dialogue.tools import (
@@ -362,3 +364,88 @@ class TestGraphConfirmationFlow:
         turn2 = await graph.ainvoke({"message": "取消"}, config)
         assert turn2["pending_confirmation"] is None
         assert "取消" in turn2["response"]
+
+
+# ── Confirmation expiry: a staged action must not live forever ───────────
+
+
+class TestConfirmationExpiry:
+    """Review 2026-09-26 #9: staged irreversible actions had no expiry —
+    a refund staged on Monday would still execute on a bare 确认 on
+    Thursday. Staged actions now carry ``staged_at``; confirming after
+    CONFIRMATION_TTL_SECONDS discards the action instead of executing.
+    Legacy checkpoints without the field keep executing (compat), and
+    TTL=0 restores the never-expire behavior."""
+
+    def _confirm_state(self, staged_at: float | None, message: str = "确认") -> DialogueState:
+        pending: dict[str, Any] = {
+            "intent": "refund",
+            "args": {"order_id": "ORD1001", "reason": "质量问题"},
+        }
+        if staged_at is not None:
+            pending["staged_at"] = staged_at
+        return {
+            "intent": "confirm",
+            "message": message,
+            "user_id": 1,
+            "pending_confirmation": pending,
+        }
+
+    async def test_expired_staged_action_is_discarded_not_executed(self):
+        """The acceptance the review demanded: tool executions must be
+        zero when the staged action has gone stale."""
+        registry = create_default_tool_registry()
+        registry.execute = AsyncMock()  # type: ignore[method-assign]
+        factory = _make_factory(tool_registry=registry)
+
+        ancient = time.time() - settings.CONFIRMATION_TTL_SECONDS - 60
+        updates = await factory._handle_meta_intent(self._confirm_state(ancient))
+
+        registry.execute.assert_not_awaited()
+        assert updates["pending_confirmation"] is None
+        assert "超时" in updates["response"]
+        assert "未执行" in updates["response"]
+
+    async def test_fresh_staged_action_still_executes(self):
+        registry = create_default_tool_registry()
+        factory = _make_factory(tool_registry=registry)
+
+        updates = await factory._handle_meta_intent(self._confirm_state(time.time()))
+
+        assert updates["pending_confirmation"] is None
+        assert updates["tool_result"]["status"] == "success"
+
+    async def test_legacy_staged_action_without_timestamp_still_executes(self):
+        """Checkpoints written before this change have no staged_at —
+        they must not become permanently un-executable."""
+        registry = create_default_tool_registry()
+        factory = _make_factory(tool_registry=registry)
+
+        updates = await factory._handle_meta_intent(self._confirm_state(None))
+
+        assert updates["pending_confirmation"] is None
+        assert updates["tool_result"]["status"] == "success"
+
+    async def test_ttl_zero_disables_expiry(self):
+        registry = create_default_tool_registry()
+        factory = _make_factory(tool_registry=registry)
+
+        ancient = time.time() - 86_400
+        with patch.object(settings, "CONFIRMATION_TTL_SECONDS", 0):
+            updates = await factory._handle_meta_intent(self._confirm_state(ancient))
+
+        assert updates["pending_confirmation"] is None
+        assert updates["tool_result"]["status"] == "success"
+
+    async def test_expiry_copy_follows_turn_language(self):
+        registry = create_default_tool_registry()
+        registry.execute = AsyncMock()  # type: ignore[method-assign]
+        factory = _make_factory(tool_registry=registry)
+
+        ancient = time.time() - settings.CONFIRMATION_TTL_SECONDS - 60
+        updates = await factory._handle_meta_intent(
+            self._confirm_state(ancient, message="Yes, confirm it please")
+        )
+
+        registry.execute.assert_not_awaited()
+        assert "expired" in updates["response"]

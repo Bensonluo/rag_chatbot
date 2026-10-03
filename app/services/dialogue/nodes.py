@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Optional
 
@@ -65,6 +66,7 @@ from app.services.dialogue.i18n import (
     CONFIRMATION_ASK,
     CONFIRMATION_DETAIL_EMPTY,
     CONFIRMATION_DETAIL_JOIN,
+    CONFIRMATION_EXPIRED,
     GENERATION_FAILED,
     GENERATION_LANG_DIRECTIVE,
     GUARDRAIL_INPUT_BLOCKED,
@@ -676,7 +678,11 @@ class NodeFactory:
             record_funnel_layer(LAYER_AGENT_TOOL)
             _emit_response(summary, config)
             return {
-                "pending_confirmation": {"intent": intent, "args": dict(filled_slots)},
+                "pending_confirmation": {
+                    "intent": intent,
+                    "args": dict(filled_slots),
+                    "staged_at": time.time(),
+                },
                 "response": summary,
                 # Staging re-opens the task: it is in flight again and
                 # may be suspended/resumed until the action executes.
@@ -1665,6 +1671,20 @@ class NodeFactory:
                 # action; the staging stays intact for a clean retry.
                 return {"response": GUARDRAIL_INPUT_BLOCKED[_turn_lang(state)]}
             if pending:
+                # Review 2026-09-26 #9: a staged irreversible action must
+                # not live forever — a refund staged yesterday must not
+                # execute on a bare 确认 today. Discard stale actions and
+                # ask the user to restage; TTL=0 disables (legacy).
+                staged_at = float(pending.get("staged_at") or 0.0)
+                if (
+                    staged_at
+                    and settings.CONFIRMATION_TTL_SECONDS > 0
+                    and time.time() - staged_at > settings.CONFIRMATION_TTL_SECONDS
+                ):
+                    return {
+                        "pending_confirmation": None,
+                        "response": CONFIRMATION_EXPIRED[_turn_lang(state)],
+                    }
                 # Execute the staged irreversible action with the
                 # caller's identity so ownership checks apply.
                 pending_args = dict(pending.get("args") or {})

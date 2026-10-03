@@ -24,6 +24,7 @@ relaxed here:
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -271,7 +272,11 @@ class AgentService:
         args = _parse_arguments(call)
         return AgentResult(
             response=_build_confirmation_summary(tool, args),
-            pending_confirmation={"intent": tool.intent, "args": args},
+            pending_confirmation={
+                "intent": tool.intent,
+                "args": args,
+                "staged_at": time.time(),
+            },
             outcome=OUTCOME_STAGED,
         )
 

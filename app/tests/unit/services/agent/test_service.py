@@ -103,10 +103,11 @@ class TestConfirmationGate:
         )
         result = await _make_service(llm).run("ORD1001 有质量问题，退款", user_id=1)
 
-        assert result.pending_confirmation == {
-            "intent": "refund",
-            "args": {"order_id": "ORD1001", "reason": "质量问题"},
-        }
+        pending = result.pending_confirmation
+        assert pending is not None
+        assert pending["intent"] == "refund"
+        assert pending["args"] == {"order_id": "ORD1001", "reason": "质量问题"}
+        assert pending["staged_at"] > 0  # expiry anchor (review #9)
         # The handler must not have run — only one model round happened.
         assert result.executed_tools == []
         assert "确认" in result.response

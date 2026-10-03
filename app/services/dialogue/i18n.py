@@ -160,3 +160,11 @@ CONFIRMATION_DETAIL_EMPTY: dict[str, str] = {
     LANG_ZH: "（无附加信息）",
     LANG_EN: "(no additional details)",
 }
+
+CONFIRMATION_EXPIRED: dict[str, str] = {
+    LANG_ZH: "您此前提交的操作已超时失效，为保障安全未执行。如仍需办理，请重新发起。",
+    LANG_EN: (
+        "The action you started earlier has expired. For your safety it "
+        "was not executed — please start again if you still need it."
+    ),
+}

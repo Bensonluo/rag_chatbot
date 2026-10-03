@@ -225,10 +225,11 @@ class TestNodeStreaming:
         assert len(pushed) == 1
         assert "A1" in pushed[0]
         assert "确认" in pushed[0]
-        assert updates["pending_confirmation"] == {
-            "intent": "refund",
-            "args": {"order_id": "A1"},
-        }
+        staged = updates["pending_confirmation"]
+        assert staged is not None
+        assert staged["intent"] == "refund"
+        assert staged["args"] == {"order_id": "A1"}
+        assert staged["staged_at"] > 0  # expiry anchor (review #9)
 
     async def test_midstream_failure_appends_fallback_without_duplication(self):
         config, queue = _config_with_queue()
