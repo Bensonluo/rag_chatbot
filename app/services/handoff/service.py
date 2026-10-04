@@ -138,6 +138,16 @@ class HandoffService:
                 if summary:
                     context = {**context, "conversation_summary": summary}
         try:
+            # A first-turn escalation on a fresh demo session arrives
+            # here before any persist_turn, so the parent chat_sessions
+            # row may not exist yet — the insert would die on
+            # handoff_tickets_session_id_fkey and fail-open would
+            # swallow the loss (observed live 2026-10-03). Lazy import:
+            # persistence pulls in ChatService, which reaches this
+            # module again via the graph wiring.
+            from app.services.chat.persistence import ensure_demo_session_row
+
+            await ensure_demo_session_row(self._session_maker, session_id)
             async with self._session_maker() as session:
                 repo = TicketRepository(session)
                 existing = await repo.get_open_ticket_for_session(session_id)

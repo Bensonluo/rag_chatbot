@@ -32,6 +32,64 @@ from app.services.chat.user_fact_extractor import UserFactExtractor
 
 logger = logging.getLogger(__name__)
 
+# Dedicated owner for auto-created demo sessions (finding ③): demo
+# traffic is anonymous, but chat_sessions.user_id is NOT NULL.
+_DEMO_USER_EMAIL = "demo-visitor@local.invalid"
+
+
+async def ensure_demo_session_row(session_maker: Callable[[], Any], session_id: int) -> None:
+    """DEMO_MODE: get-or-create the chat_sessions row for this id.
+
+    Shared by the persister (messages FK, d0d2b2a) and handoff ticket
+    creation (handoff_tickets FK, live 2026-10-03): both run before the
+    turn is persisted, and a first-turn escalation on a fresh demo
+    session would otherwise insert into a missing parent. Strict
+    deployments 404 unknown ids upfront and never reach here; this runs
+    in its own transaction so a lost insert race collapses to
+    IntegrityError → the row exists, which is the goal either way.
+    """
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+
+    from app.config.settings import get_settings
+    from app.models.database.session import ChatSession
+    from app.models.database.user import User
+
+    if not get_settings().DEMO_MODE:
+        return
+    try:
+        async with session_maker() as session:
+            if await session.get(ChatSession, session_id) is not None:
+                return
+            demo_user = (
+                await session.execute(select(User).where(User.email == _DEMO_USER_EMAIL))
+            ).scalar_one_or_none()
+            if demo_user is None:
+                demo_user = User(
+                    email=_DEMO_USER_EMAIL,
+                    hashed_password="!",  # unusable: sign-in is never the point
+                    full_name="Demo Visitor",
+                )
+                session.add(demo_user)
+                await session.flush()
+            session.add(
+                ChatSession(
+                    id=session_id,
+                    user_id=demo_user.id,
+                    title="Demo Chat",
+                )
+            )
+            await session.commit()
+    except IntegrityError:
+        # Parallel first-turn on the same id: the row exists now.
+        pass
+    except Exception:  # noqa: BLE001 - availability over durability
+        logger.warning(
+            "Demo session row ensure failed (session=%s); turn may not persist",
+            session_id,
+            exc_info=True,
+        )
+
 
 class ChatMessagePersister:
     """Persists chat turns with request-scoped database sessions."""
@@ -76,7 +134,7 @@ class ChatMessagePersister:
         if not user_message and not response:
             return
         try:
-            await self._ensure_demo_session_row(session_id)
+            await ensure_demo_session_row(self._session_maker, session_id)
             async with self._session_maker() as session:
                 repo = MessageRepository(session)
                 await self._apply_resolution_transition(session, session_id, user_message)
@@ -153,64 +211,6 @@ class ChatMessagePersister:
             )
             .values(resolved_at=None, reopened_count=ChatSession.reopened_count + 1)
         )
-
-    # Dedicated owner for auto-created demo sessions (finding ③): demo
-    # traffic is anonymous, but chat_sessions.user_id is NOT NULL.
-    _DEMO_USER_EMAIL = "demo-visitor@local.invalid"
-
-    async def _ensure_demo_session_row(self, session_id: int) -> None:
-        """DEMO_MODE: get-or-create the chat_sessions row for this id.
-
-        POST /sessions requires auth, so anonymous demo visitors arrive
-        with client-invented session ids — without this, every demo
-        turn failed the ``messages_session_id_fkey`` constraint and the
-        conversation history was silently lost (observed live
-        2026-10-01). Strict deployments 404 unknown ids upfront and
-        never reach here; this runs in its own transaction so a lost
-        insert race collapses to IntegrityError → the row exists, which
-        is the goal either way.
-        """
-        from sqlalchemy import select
-        from sqlalchemy.exc import IntegrityError
-
-        from app.config.settings import get_settings
-        from app.models.database.session import ChatSession
-        from app.models.database.user import User
-
-        if not get_settings().DEMO_MODE:
-            return
-        try:
-            async with self._session_maker() as session:
-                if await session.get(ChatSession, session_id) is not None:
-                    return
-                demo_user = (
-                    await session.execute(select(User).where(User.email == self._DEMO_USER_EMAIL))
-                ).scalar_one_or_none()
-                if demo_user is None:
-                    demo_user = User(
-                        email=self._DEMO_USER_EMAIL,
-                        hashed_password="!",  # unusable: sign-in is never the point
-                        full_name="Demo Visitor",
-                    )
-                    session.add(demo_user)
-                    await session.flush()
-                session.add(
-                    ChatSession(
-                        id=session_id,
-                        user_id=demo_user.id,
-                        title="Demo Chat",
-                    )
-                )
-                await session.commit()
-        except IntegrityError:
-            # Parallel first-turn on the same id: the row exists now.
-            pass
-        except Exception:  # noqa: BLE001 - availability over durability
-            logger.warning(
-                "Demo session row ensure failed (session=%s); turn may not persist",
-                session_id,
-                exc_info=True,
-            )
 
     async def get_history(
         self,

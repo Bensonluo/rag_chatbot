@@ -445,6 +445,75 @@ class TestTicketSummary:
         assert llm.prompt.index("第二条") < llm.prompt.index("第三条")
 
 
+# Live deploy verification (2026-10-03, deploy #12): a fresh demo
+# session's FIRST turn said 转人工 / "I want to talk to a human" → the
+# handoff node ran before any persist, chat_sessions had no row yet,
+# and the ticket insert died on handoff_tickets_session_id_fkey —
+# fail-open swallowed it, the user saw the handoff copy and support
+# never received a ticket. Same shape as the messages-FK finding
+# (d0d2b2a): the sqlite harness cannot enforce FKs, so the contract
+# under test is that ticket creation ensures the parent session row
+# exists first (the exact precondition for the Postgres insert).
+class TestDemoSessionParent:
+    """Ticket creation must get-or-create the demo session row."""
+
+    async def test_first_turn_ticket_creates_missing_session_row(self, session_maker):
+        from unittest.mock import patch
+
+        from app.config.settings import get_settings
+        from app.models.database.user import User
+
+        service = HandoffService(session_maker=session_maker)
+
+        with patch.object(get_settings(), "DEMO_MODE", True):
+            result = await service.create_ticket_for_session(
+                session_id=98, user_id=7, reason="explicit", context={}
+            )
+
+        assert result["ticket_id"] is not None
+        async with session_maker() as session:
+            rows = (await session.execute(select(ChatSession))).scalars().all()
+            users = (await session.execute(select(User))).scalars().all()
+        assert [r.id for r in rows] == [98]  # parent row now exists
+        assert users and users[0].email == "demo-visitor@local.invalid"
+
+    async def test_existing_session_row_never_reassigned_for_ticket(self, session_maker):
+        from unittest.mock import patch
+
+        from app.config.settings import get_settings
+        from app.models.database.user import User
+
+        async with session_maker() as session:
+            owner = User(email="u@x", hashed_password="x")
+            session.add(owner)
+            await session.flush()
+            session.add(ChatSession(id=98, user_id=owner.id, title="Mine"))
+            await session.commit()
+
+        service = HandoffService(session_maker=session_maker)
+        with patch.object(get_settings(), "DEMO_MODE", True):
+            result = await service.create_ticket_for_session(98, 7, "explicit", {})
+
+        assert result["ticket_id"] is not None
+        async with session_maker() as session:
+            row = (await session.execute(select(ChatSession))).scalar_one()
+        assert row.title == "Mine"  # untouched, not reassigned to demo user
+
+    async def test_strict_mode_does_not_auto_create_for_ticket(self, session_maker):
+        from unittest.mock import patch
+
+        from app.config.settings import get_settings
+
+        service = HandoffService(session_maker=session_maker)
+
+        with patch.object(get_settings(), "DEMO_MODE", False):
+            await service.create_ticket_for_session(98, 7, "explicit", {})
+
+        async with session_maker() as session:
+            rows = (await session.execute(select(ChatSession))).scalars().all()
+        assert rows == []  # strict deployments pre-create sessions upfront
+
+
 class _SummaryLLM:
     """Fake LLM for service-level tests (Protocol-compatible)."""
 
