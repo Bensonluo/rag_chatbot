@@ -134,7 +134,7 @@ class RetrievalFactory:
     async def warm_keyword_index(
         hybrid_search: HybridSearchService,
         vector_client: QdrantClient,
-        max_chunks: int = 50_000,
+        max_chunks: int | None = None,
     ) -> int:
         """
         Feed the BM25 leg from the vector store corpus.

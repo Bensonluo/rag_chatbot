@@ -211,6 +211,7 @@ async def test_suspended_task_survives_policy_and_smalltalk(
 
 async def test_cache_hit_also_starts_with_clean_turn(llm: _PromptLLM, streaming: bool) -> None:
     cache = Mock()
+    cache.capture_epoch = AsyncMock(return_value="epoch-test")
     cache.get = AsyncMock(
         side_effect=[
             None,

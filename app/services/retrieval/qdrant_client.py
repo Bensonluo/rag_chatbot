@@ -7,7 +7,7 @@ Provides async client for Qdrant vector database operations.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from app.services.retrieval.vector_base import (
     Document,
@@ -181,7 +181,7 @@ class QdrantClient(VectorClient):
                     document_id=str(payload.get("document_id", hit.id)),
                     content=payload.get("content", ""),
                     score=float(hit.score),
-                    metadata=payload.get("metadata"),
+                    metadata={**(payload.get("metadata") or {}), "chunk_id": str(hit.id)},
                 )
                 results.append(result)
 
@@ -265,11 +265,50 @@ class QdrantClient(VectorClient):
             await self.client.upsert(
                 collection_name=self.collection_name,
                 points=points,
+                wait=True,
             )
 
         except Exception as e:
             raise VectorClientError(
                 f"Failed to add points: {str(e)}", details={"point_count": len(ids)}
+            ) from e
+
+    async def replace_document(
+        self,
+        document_id: str,
+        ids: list[str],
+        vectors: list[list[float]],
+        payloads: list[dict[str, Any]],
+    ) -> None:
+        """Publish new chunks before removing previous chunks of a document.
+
+        This is not a cross-request transaction: callers must serialize
+        concurrent replacements of the same document. An embedding/upsert
+        failure leaves the old version intact. Retrying with the same chunk
+        IDs is safe, including after a cleanup failure.
+        """
+        if not ids or any(payload.get("document_id") != document_id for payload in payloads):
+            raise VectorClientError("Replacement requires chunks belonging to the document")
+        await self.add(ids=ids, vectors=vectors, payloads=payloads)
+        Filter = self._qdrant_model("Filter")
+        HasIdCondition = self._qdrant_model("HasIdCondition")
+        FilterSelector = self._qdrant_model("FilterSelector")
+        document_filter = cast("Any", self._build_filter({"document_id": document_id}))
+        try:
+            await self.client.delete(
+                collection_name=self.collection_name,
+                points_selector=FilterSelector(
+                    filter=Filter(
+                        must=document_filter.must,
+                        must_not=[HasIdCondition(has_id=ids)],
+                    )
+                ),
+                wait=True,
+            )
+        except Exception as e:
+            raise VectorClientError(
+                "New document chunks were stored but old chunk cleanup failed",
+                details={"document_id": document_id},
             ) from e
 
     async def delete_by_filter(self, filter: dict[str, Any]) -> int:
@@ -304,6 +343,7 @@ class QdrantClient(VectorClient):
             await self.client.delete(
                 collection_name=self.collection_name,
                 points_selector=FilterSelector(filter=qdrant_filter),
+                wait=True,
             )
 
             return int(count_result.count)
@@ -392,7 +432,7 @@ class QdrantClient(VectorClient):
                 f"Failed to get document: {str(e)}", details={"document_id": document_id}
             ) from e
 
-    async def list_chunks(self, max_chunks: int = 50_000) -> list[dict[str, Any]]:
+    async def list_chunks(self, max_chunks: int | None = None) -> list[dict[str, Any]]:
         """
         Scroll the whole collection and return raw chunk payloads.
 
@@ -401,17 +441,20 @@ class QdrantClient(VectorClient):
         propagate to the caller, which decides how to degrade.
 
         Args:
-            max_chunks: Upper bound on points pulled (memory guard)
+            max_chunks: Optional memory guard; exceeding it raises instead
+                of silently publishing an incomplete keyword index.
 
         Returns:
             list[dict[str, Any]]: Chunk dicts with id/content/metadata
         """
         chunks: list[dict[str, Any]] = []
         offset: Any = None
-        while len(chunks) < max_chunks:
+        if max_chunks is not None and max_chunks < 1:
+            raise ValueError("max_chunks must be positive")
+        while True:
             points, offset = await self.client.scroll(
                 collection_name=self.collection_name,
-                limit=min(256, max_chunks - len(chunks)),
+                limit=256 if max_chunks is None else min(256, max_chunks - len(chunks)),
                 offset=offset,
                 with_payload=True,
             )
@@ -421,11 +464,19 @@ class QdrantClient(VectorClient):
                     {
                         "id": str(point.id),
                         "content": payload.get("content", ""),
-                        "metadata": payload.get("metadata") or {},
+                        "metadata": {
+                            **(payload.get("metadata") or {}),
+                            "chunk_id": str(point.id),
+                            "document_id": str(payload.get("document_id", point.id)),
+                        },
                     }
                 )
-            if not offset:
+            if offset is None:
                 break
+            if max_chunks is not None and len(chunks) >= max_chunks:
+                raise VectorClientError(
+                    "Keyword snapshot exceeds max_chunks; refusing an incomplete index"
+                )
         return chunks
 
     async def _generate_embedding(self, text: str) -> list[float]:

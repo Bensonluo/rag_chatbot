@@ -5,10 +5,12 @@ Implements Reciprocal Rank Fusion (RRF) to combine results from
 vector similarity search and keyword-based search.
 """
 
+import asyncio
 import logging
 import math
 import re
 from collections import Counter, defaultdict
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.core.exceptions import ValidationError
@@ -131,6 +133,16 @@ class KeywordSearch:
             self.document_terms.pop(chunk_id, None)
         return len(doomed)
 
+    def _result(self, chunk_id: str, score: float) -> SearchResult:
+        chunk = self.documents[chunk_id]
+        metadata = {**(chunk.get("metadata") or {}), "chunk_id": chunk_id}
+        return SearchResult(
+            document_id=str(metadata.get("document_id") or chunk_id),
+            content=chunk["content"],
+            score=score,
+            metadata=metadata,
+        )
+
     async def search(
         self,
         request: VectorSearchRequest,
@@ -156,14 +168,7 @@ class KeywordSearch:
 
         if not request.query.strip():
             # Return all (filtered) documents with zero score for empty query
-            return [
-                SearchResult(
-                    document_id=doc_id,
-                    content=self.documents[doc_id]["content"],
-                    score=0.0,
-                )
-                for doc_id in doc_ids
-            ]
+            return [self._result(doc_id, 0.0) for doc_id in doc_ids]
 
         # Extract query terms
         query_terms = self._extract_terms(request.query)
@@ -192,13 +197,7 @@ class KeywordSearch:
                 avg_doc_len,
             )
             if score > 0:
-                scores.append(
-                    SearchResult(
-                        document_id=doc_id,
-                        content=self.documents[doc_id]["content"],
-                        score=score,
-                    )
-                )
+                scores.append(self._result(doc_id, score))
 
         # Sort by score (descending)
         scores.sort(key=lambda x: x.score, reverse=True)
@@ -317,6 +316,9 @@ class HybridSearchService:
         self.keyword_search = keyword_search
         self.vector_weight = vector_weight
         self.keyword_weight = keyword_weight
+        self.keyword_index_lock = asyncio.Lock()
+        self.keyword_epoch: str | None = None
+        self.ensure_keyword_fresh: Callable[[], Awaitable[bool]] | None = None
 
     async def search(
         self,
@@ -353,7 +355,8 @@ class HybridSearchService:
 
         # Try keyword search; log and continue with vector-only
         try:
-            keyword_results = await self.keyword_search.search(request)
+            if self.ensure_keyword_fresh is None or await self.ensure_keyword_fresh():
+                keyword_results = await self.keyword_search.search(request)
         except Exception:
             logger.warning("Keyword search leg failed", exc_info=True)
             keyword_results = []
@@ -396,13 +399,14 @@ class HybridSearchService:
 
         # Process vector results
         for rank, result in enumerate(vector_results, start=1):
-            doc_id = result.document_id
+            doc_id = str((result.metadata or {}).get("chunk_id") or result.document_id)
             rrf_score = 1.0 / (k + rank)
             scores[doc_id] += self.vector_weight * rrf_score
 
             # Store document data
             if doc_id not in doc_data:
                 doc_data[doc_id] = {
+                    "document_id": result.document_id,
                     "content": result.content,
                     "metadata": result.metadata or {},
                     "vector_score": result.score,
@@ -411,13 +415,14 @@ class HybridSearchService:
 
         # Process keyword results
         for rank, result in enumerate(keyword_results, start=1):
-            doc_id = result.document_id
+            doc_id = str((result.metadata or {}).get("chunk_id") or result.document_id)
             rrf_score = 1.0 / (k + rank)
             scores[doc_id] += self.keyword_weight * rrf_score
 
             # Store or update document data
             if doc_id not in doc_data:
                 doc_data[doc_id] = {
+                    "document_id": result.document_id,
                     "content": result.content,
                     "metadata": result.metadata or {},
                     "vector_score": 0.0,
@@ -438,7 +443,7 @@ class HybridSearchService:
             metadata["rrf_score"] = score
 
             result = SearchResult(
-                document_id=doc_id,
+                document_id=data["document_id"],
                 content=data["content"],
                 score=score,
                 metadata=metadata,

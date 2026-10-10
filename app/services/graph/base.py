@@ -82,6 +82,27 @@ class GraphClient(ABC):
     async def add_relations(self, relations: list[GraphRelation]) -> list[str]:
         pass
 
+    async def replace_document_graph(
+        self,
+        document_id: str,
+        version_id: str,
+        entities: list[GraphEntity],
+        relations: list[GraphRelation],
+    ) -> dict[str, int]:
+        """Atomically replace a document's graph and retain shared entities.
+
+        Relation endpoints refer to IDs in ``entities``. Entity embeddings
+        are supplied by the caller. ``properties['source_chunk_ids']``
+        identifies supporting chunks; document and version provenance is
+        taken from the explicit arguments, never from custom properties.
+        Implementations must raise on incomplete writes, not report success.
+        """
+        raise NotImplementedError("Document-scoped graph writes are not supported")
+
+    async def delete_document_graph(self, document_id: str) -> dict[str, int]:
+        """Delete this document's assertions, preserving other sources."""
+        raise NotImplementedError("Document-scoped graph deletion is not supported")
+
     @abstractmethod
     async def execute_cypher(
         self, query: str, params: dict[str, Any] | None = None

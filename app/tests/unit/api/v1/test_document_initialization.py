@@ -14,6 +14,10 @@ async def test_ingestion_dependency_wires_connected_graphrag_services() -> None:
         VECTOR_COLLECTION_NAME="documents",
         VECTOR_API_KEY=None,
         EMBEDDING_PROVIDER="local",
+        EMBEDDING_MODEL="bge-m3",
+        DOCUMENT_CHUNK_SIZE=512,
+        DOCUMENT_CHUNK_OVERLAP=50,
+        DOCUMENT_OCR_LANGUAGES="eng+chi_sim",
         GRAPH_RAG_ENABLED=True,
         GRAPH_RAG_EXTRACTION_ENABLED=True,
     )
@@ -26,7 +30,7 @@ async def test_ingestion_dependency_wires_connected_graphrag_services() -> None:
     with (
         patch("app.api.v1.documents.get_settings", return_value=settings),
         patch(
-            "app.api.v1.documents.EmbeddingFactory.create_from_settings",
+            "app.api.v1.documents.EmbeddingFactory.create",
             return_value=embedding_service,
         ),
         patch(

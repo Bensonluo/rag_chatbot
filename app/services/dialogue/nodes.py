@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from app.services.chat.semantic_cache import SemanticCacheService
     from app.services.dialogue.tools import ToolDefinition, ToolRegistry
     from app.services.faq.store import FAQService
+    from app.services.graph.base import GraphSearchResult
     from app.services.graph.retrieval.graph_retrieval_service import (
         GraphRetrievalService,
     )
@@ -936,7 +937,9 @@ class NodeFactory:
                 # within this KB epoch replay without touching Qdrant —
                 # the layer exists to protect it. Fail-open inside the
                 # service, so an outage just means "search as usual".
+                cache_epoch = None
                 if self._retrieval_cache is not None:
+                    cache_epoch = await self._retrieval_cache.capture_epoch()
                     cached_docs = await self._retrieval_cache.get(query, cache_key_filters)
                     if cached_docs is not None:
                         retrieved_docs = cached_docs
@@ -965,7 +968,9 @@ class NodeFactory:
                     retrieved_docs = [_search_result_to_dict(r) for r in search_results]
                     sources = _extract_sources(retrieved_docs)
                     if retrieved_docs and self._retrieval_cache is not None:
-                        await self._retrieval_cache.put(query, cache_key_filters, retrieved_docs)
+                        await self._retrieval_cache.put(
+                            query, cache_key_filters, retrieved_docs, expected_epoch=cache_epoch
+                        )
                     if not retrieved_docs and leg_failures:
                         retrieval_degraded = True
             except Exception:
@@ -1231,7 +1236,9 @@ class NodeFactory:
         write/read so cached bodies stay state-free.
         """
         message = state.get("message", "")
+        cache_epoch = None
         if self._semantic_cache is not None:
+            cache_epoch = await self._semantic_cache.capture_epoch()
             cached = await self._semantic_cache.get(message)
             if cached is not None:
                 updates: dict[str, Any] = {
@@ -1271,13 +1278,23 @@ class NodeFactory:
                 response["response"] = check.sanitized_content
         # Cache the clean body; the resume hint is per-turn state.
         await self._maybe_put_semantic(
-            state, message, response.get("response", ""), used_history=_used_history(config)
+            state,
+            message,
+            response.get("response", ""),
+            used_history=_used_history(config),
+            expected_epoch=cache_epoch,
         )
         response["response"] = _maybe_append_resume_hint(response.get("response", ""), state)
         return response
 
     async def _maybe_put_semantic(
-        self, state: DialogueState, message: str, response: str, *, used_history: bool = False
+        self,
+        state: DialogueState,
+        message: str,
+        response: str,
+        *,
+        used_history: bool = False,
+        expected_epoch: str | None = None,
     ) -> None:
         """L1 write gate: only anonymous, stateless, context-free turns.
 
@@ -1297,6 +1314,7 @@ class NodeFactory:
         await self._semantic_cache.put(
             message,
             CachedAnswer(response=response, sources=[], intent=state.get("intent", "")),
+            expected_epoch=expected_epoch,
         )
 
     @traced_stage("cs.handoff")
@@ -2081,13 +2099,27 @@ def _enriched_query(message: str, fill_result: SlotFillingResult | None) -> str:
     return f"{message} {' '.join(extras[:4])}"
 
 
-def _search_result_to_dict(result: SearchResult) -> dict[str, Any]:
-    """Convert a SearchResult dataclass to a plain dict."""
+def _source_document_ids(metadata: dict[str, Any]) -> list[str]:
+    """Normalize graph provenance without treating a single ID as characters."""
+    values = metadata.get("source_document_ids") or []
+    if isinstance(values, str):
+        values = [values]
+    singular = metadata.get("source_document_id")
+    return [value for value in [singular, *values] if isinstance(value, str) and value]
+
+
+def _search_result_to_dict(result: SearchResult | GraphSearchResult) -> dict[str, Any]:
+    """Convert retrieved evidence while retaining source documents behind graph results."""
+    metadata = dict(getattr(result, "metadata", None) or {})
+    source_type = getattr(result, "source_type", None)
+    if source_type:
+        metadata["source_type"] = source_type
+    sources = _source_document_ids(metadata)
     return {
-        "document_id": getattr(result, "document_id", ""),
+        "document_id": getattr(result, "document_id", "") or (sources[0] if sources else ""),
         "content": getattr(result, "content", ""),
         "score": getattr(result, "score", 0.0),
-        "metadata": getattr(result, "metadata", None),
+        "metadata": metadata or None,
     }
 
 
@@ -2105,9 +2137,19 @@ def _extract_sources(docs: list[dict[str, Any]]) -> list[str]:
     """Extract unique source identifiers from retrieved documents."""
     sources: list[str] = []
     for doc in docs:
+        metadata = doc.get("metadata") or {}
+        graph_sources = _source_document_ids(metadata)
         doc_id = doc.get("document_id")
-        if doc_id and doc_id not in sources:
-            sources.append(doc_id)
+        candidates = graph_sources
+        if not graph_sources or metadata.get("source_type") not in {
+            "graph_embedding",
+            "text_to_cypher",
+            "community_summary",
+        }:
+            candidates = [doc_id, *graph_sources] if isinstance(doc_id, str) else graph_sources
+        for source in candidates:
+            if isinstance(source, str) and source and source not in sources:
+                sources.append(source)
     return sources
 
 

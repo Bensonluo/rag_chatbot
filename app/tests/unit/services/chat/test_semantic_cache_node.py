@@ -33,7 +33,13 @@ class StubSemanticCache:
         self.gets.append(message)
         return self.hit
 
-    async def put(self, message: str, answer: CachedAnswer) -> None:
+    async def capture_epoch(self) -> str:
+        return "epoch-test"
+
+    async def put(
+        self, message: str, answer: CachedAnswer, *, expected_epoch: str | None = None
+    ) -> None:
+        assert expected_epoch == "epoch-test"
         self.puts.append((message, answer))
 
 

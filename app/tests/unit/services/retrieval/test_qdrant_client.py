@@ -9,6 +9,47 @@ import pytest
 class TestQdrantClient:
     """Test Qdrant client implementation"""
 
+    async def test_replace_removes_old_chunks_and_retry_keeps_new_version(self):
+        import uuid
+
+        sdk = pytest.importorskip("qdrant_client")
+        from qdrant_client import models
+
+        from app.services.retrieval.qdrant_client import QdrantClient
+
+        raw = sdk.AsyncQdrantClient(location=":memory:")
+        await raw.create_collection(
+            "test", vectors_config=models.VectorParams(size=2, distance=models.Distance.COSINE)
+        )
+        client = QdrantClient(url="unused", collection_name="test", client=raw)
+        old_ids, new_ids = [str(uuid.uuid4()), str(uuid.uuid4())], [str(uuid.uuid4())]
+
+        def payloads(ids):
+            return [
+                {"document_id": "doc", "chunk_id": chunk_id, "content": chunk_id}
+                for chunk_id in ids
+            ]
+
+        try:
+            await client.add(old_ids, [[1.0, 0.0]] * 2, payloads(old_ids))
+            await client.replace_document("doc", new_ids, [[0.0, 1.0]], payloads(new_ids))
+            await client.replace_document("doc", new_ids, [[0.0, 1.0]], payloads(new_ids))
+            assert [chunk["id"] for chunk in await client.list_chunks()] == new_ids
+        finally:
+            await raw.close()
+
+    async def test_failed_replacement_upsert_never_deletes_previous_version(self):
+        from app.services.retrieval.qdrant_client import QdrantClient
+        from app.services.retrieval.vector_base import VectorClientError
+
+        raw = Mock(upsert=AsyncMock(side_effect=RuntimeError("offline")), delete=AsyncMock())
+        client = QdrantClient(url="unused", collection_name="test", client=raw)
+        with pytest.raises(VectorClientError, match="Failed to add points"):
+            await client.replace_document(
+                "doc", ["chunk"], [[1.0]], [{"document_id": "doc", "content": "new"}]
+            )
+        raw.delete.assert_not_awaited()
+
     @pytest.mark.asyncio
     async def test_ensure_collection_creates_it_for_first_use(self):
         """A fresh Compose Qdrant instance should work without manual setup."""
@@ -445,9 +486,32 @@ class TestListChunks:
         chunks = await client.list_chunks()
 
         assert chunks == [
-            {"id": "c1", "content": "iPhone 退款 政策", "metadata": {"product": "iPhone 13"}},
-            {"id": "c2", "content": "MacBook 退货 政策", "metadata": {"product": "MacBook"}},
-            {"id": "c3", "content": "保修 条款", "metadata": {}},
+            {
+                "id": "c1",
+                "content": "iPhone 退款 政策",
+                "metadata": {
+                    "product": "iPhone 13",
+                    "chunk_id": "c1",
+                    "document_id": "c1",
+                },
+            },
+            {
+                "id": "c2",
+                "content": "MacBook 退货 政策",
+                "metadata": {
+                    "product": "MacBook",
+                    "chunk_id": "c2",
+                    "document_id": "c2",
+                },
+            },
+            {
+                "id": "c3",
+                "content": "保修 条款",
+                "metadata": {
+                    "chunk_id": "c3",
+                    "document_id": "c3",
+                },
+            },
         ]
         assert mock_client.scroll.await_count == 2
         second_call = mock_client.scroll.await_args_list[1]
@@ -469,8 +533,9 @@ class TestListChunks:
         assert await client.list_chunks() == []
 
     @pytest.mark.asyncio
-    async def test_stops_at_max_chunks(self):
+    async def test_rejects_truncated_snapshot_at_max_chunks(self):
         from app.services.retrieval.qdrant_client import QdrantClient
+        from app.services.retrieval.vector_base import VectorClientError
 
         class _Point:
             def __init__(self, point_id: str, payload: dict[str, Any]) -> None:
@@ -488,6 +553,5 @@ class TestListChunks:
             embedding_service=Mock(dimensions=1024),
         )
 
-        chunks = await client.list_chunks(max_chunks=3)
-
-        assert len(chunks) == 3
+        with pytest.raises(VectorClientError, match="incomplete index"):
+            await client.list_chunks(max_chunks=3)

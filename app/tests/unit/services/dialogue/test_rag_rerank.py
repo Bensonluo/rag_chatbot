@@ -37,7 +37,18 @@ class StubRetrievalCache:
     async def get(self, query: str, filters: dict[str, Any]) -> list[dict[str, Any]] | None:
         return self.cached_docs
 
-    async def put(self, query: str, filters: dict[str, Any], docs: list[dict[str, Any]]) -> None:
+    async def capture_epoch(self) -> str:
+        return "epoch-test"
+
+    async def put(
+        self,
+        query: str,
+        filters: dict[str, Any],
+        docs: list[dict[str, Any]],
+        *,
+        expected_epoch: str | None = None,
+    ) -> None:
+        assert expected_epoch == "epoch-test"
         self.puts.append((query, docs))
 
 

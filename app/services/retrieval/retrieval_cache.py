@@ -87,7 +87,11 @@ class RetrievalCacheService:
                 RETRIEVAL_CACHE_MISSES.inc()
                 return None
             docs = json.loads(raw)
-            if not isinstance(docs, list) or not docs:
+            if (
+                not isinstance(docs, list)
+                or not docs
+                or key[0] != f"{_NAMESPACE}:{await self.capture_epoch()}"
+            ):
                 # Empty or corrupt payload: treat as a miss; the
                 # caller re-runs retrieval and the write path repairs.
                 RETRIEVAL_CACHE_MISSES.inc()
@@ -104,12 +108,14 @@ class RetrievalCacheService:
         query: str,
         filters: dict[str, Any],
         docs: list[dict[str, Any]],
+        *,
+        expected_epoch: str | None = None,
     ) -> None:
         """Cache one retrieval result. Fail-open: errors skip the write."""
         if not self._enabled() or not docs:
             return
         try:
-            key = await self._key(query, filters)
+            key = await self._key(query, filters, expected_epoch=expected_epoch)
             if key is None:
                 return
             if await self._redis.hlen(key[0]) >= self._settings.RETRIEVAL_CACHE_MAX_ENTRIES:
@@ -120,15 +126,29 @@ class RetrievalCacheService:
         except Exception:  # noqa: BLE001 - fail-open iron law
             logger.warning("Retrieval cache write failed; result not cached", exc_info=True)
 
-    async def _key(self, query: str, filters: dict[str, Any]) -> tuple[str, str] | None:
+    async def capture_epoch(self) -> str:
+        """Capture the source version before retrieval; provider failure disables caching."""
+        try:
+            return await self._epoch_provider()
+        except Exception:
+            logger.warning("Retrieval cache epoch unavailable", exc_info=True)
+            return EPOCH_UNAVAILABLE
+
+    async def _key(
+        self, query: str, filters: dict[str, Any], *, expected_epoch: str | None = None
+    ) -> tuple[str, str] | None:
         """(namespace, entry) key; None when the epoch is unavailable.
 
         The epoch scopes the whole hash (one DEL-equivalent flip on KB
         mutation); the entry digest folds the normalized query and the
         filter signature so different filters never collide.
         """
-        epoch = await self._epoch_provider()
-        if not epoch or epoch == EPOCH_UNAVAILABLE:
+        epoch = await self.capture_epoch()
+        if (
+            not epoch
+            or epoch == EPOCH_UNAVAILABLE
+            or (expected_epoch is not None and epoch != expected_epoch)
+        ):
             return None
         filter_sig = json.dumps(filters, sort_keys=True, ensure_ascii=False)
         digest = hashlib.sha256(

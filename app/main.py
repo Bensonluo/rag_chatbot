@@ -5,8 +5,9 @@ This is the main application file that sets up the FastAPI app,
 configures middleware, and includes all routers.
 """
 
+import asyncio
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,9 +61,29 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.warning("Failed to initialize chat service: %s", e)
 
+    app.state.document_worker = None
+    if settings.DOCUMENT_WORKER_ENABLED:
+        from app.api.database import async_session_maker
+        from app.api.v1.documents import build_ingestion_service
+        from app.services.documents.jobs import DocumentJobService, run_document_worker
+
+        app.state.document_worker = asyncio.create_task(
+            run_document_worker(
+                DocumentJobService(async_session_maker),
+                build_ingestion_service,
+                settings.DOCUMENT_WORKER_POLL_SECONDS,
+            ),
+            name="document-ingestion",
+        )
+
     yield
     # Shutdown
     logger.info("Shutting down RAG Chatbot")
+
+    if app.state.document_worker is not None:
+        app.state.document_worker.cancel()
+        with suppress(asyncio.CancelledError):
+            await app.state.document_worker
 
     # Stop the periodic tasks first — each polls the databases whose
     # pools close right after (a refresher mid-query against a closing

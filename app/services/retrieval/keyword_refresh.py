@@ -1,24 +1,14 @@
-"""Periodic BM25 index refresh.
-
-The in-memory keyword leg goes stale after the boot-time warmup:
-documents ingested later never reach it, and deleted documents never
-leave it — a stale hit returns deleted content, which is a
-correctness bug, not just a recall gap. A periodic full rebuild from
-the vector store fixes both sides and needs no add/delete hooks on
-the ingestion path.
-
-Multi-replica note: every process refreshes its own copy, so replicas
-converge within one interval. A shared external index remains the
-long-term answer for large corpora.
-"""
+"""Keep each process's BM25 snapshot synchronized with document mutations."""
 
 import asyncio
 import logging
 import time
+from typing import Any, cast
 
 from prometheus_client import REGISTRY, Gauge, Histogram
 
 from app.services.retrieval.hybrid_search import HybridSearchService
+from app.services.retrieval.kb_epoch import EPOCH_UNAVAILABLE, get_kb_epoch
 from app.services.retrieval.qdrant_client import QdrantClient
 
 logger = logging.getLogger(__name__)
@@ -49,9 +39,40 @@ _keyword_hybrid: HybridSearchService | None = None
 
 
 def register_keyword_index(hybrid_search: HybridSearchService) -> None:
-    """Make ``hybrid_search``'s keyword leg the purge target."""
+    """Register local mutations and check remote mutations before keyword search."""
     global _keyword_hybrid
     _keyword_hybrid = hybrid_search
+    hybrid_search.ensure_keyword_fresh = lambda: ensure_keyword_index_current(hybrid_search)
+
+
+async def publish_keyword_document(document_id: str, payloads: list[dict[str, Any]]) -> int:
+    """Replace one document in the local index before publishing the KB epoch."""
+    hybrid = _keyword_hybrid
+    if hybrid is None:
+        return 0
+    chunks = [
+        {
+            "id": payload["chunk_id"],
+            "content": payload["content"],
+            "metadata": {
+                **(payload.get("metadata") or {}),
+                "document_id": document_id,
+                "chunk_id": payload["chunk_id"],
+            },
+        }
+        for payload in payloads
+    ]
+    try:
+        async with hybrid.keyword_index_lock:
+            hybrid.keyword_epoch = None
+            await hybrid.keyword_search.remove_document(document_id)
+            await hybrid.keyword_search.add_documents(chunks)
+            KEYWORD_INDEX_CHUNKS.set(len(hybrid.keyword_search.documents))
+        return len(chunks)
+    except Exception:
+        hybrid.keyword_epoch = None
+        logger.warning("Keyword publication failed; next search will refresh", exc_info=True)
+        return 0
 
 
 async def purge_keyword_document(document_id: str) -> int:
@@ -72,10 +93,12 @@ async def purge_keyword_document(document_id: str) -> int:
     if _keyword_hybrid is None:
         return 0
     try:
-        removed = await _keyword_hybrid.keyword_search.remove_document(document_id)
-        if removed:
-            KEYWORD_INDEX_CHUNKS.set(max(0, len(_keyword_hybrid.keyword_search.documents)))
-            logger.info("Purged %d keyword chunks of document %s", removed, document_id)
+        async with _keyword_hybrid.keyword_index_lock:
+            _keyword_hybrid.keyword_epoch = None
+            removed = await _keyword_hybrid.keyword_search.remove_document(document_id)
+            if removed:
+                KEYWORD_INDEX_CHUNKS.set(len(_keyword_hybrid.keyword_search.documents))
+                logger.info("Purged %d keyword chunks of document %s", removed, document_id)
         return removed
     except Exception:  # noqa: BLE001 - fail-open; rebuild is the backstop
         logger.warning(
@@ -89,7 +112,7 @@ async def purge_keyword_document(document_id: str) -> int:
 async def refresh_keyword_index(
     hybrid_search: HybridSearchService,
     vector_client: QdrantClient,
-    max_chunks: int = 50_000,
+    max_chunks: int | None = None,
 ) -> int:
     """
     Rebuild the BM25 leg from a fresh vector-store snapshot.
@@ -102,17 +125,59 @@ async def refresh_keyword_index(
     Returns:
         int: Number of chunks now in the keyword index
     """
-    chunks = await vector_client.list_chunks(max_chunks=max_chunks)
-    await hybrid_search.keyword_search.rebuild(chunks)
-    KEYWORD_INDEX_CHUNKS.set(len(chunks))
-    return len(chunks)
+    async with hybrid_search.keyword_index_lock:
+        return await _refresh_locked(hybrid_search, vector_client, max_chunks)
+
+
+async def _refresh_locked(
+    hybrid_search: HybridSearchService,
+    vector_client: QdrantClient,
+    max_chunks: int | None = None,
+) -> int:
+    # A scroll can span a mutation in another process. Never mark that
+    # mixed snapshot current: retry against a stable epoch first.
+    tracked = hybrid_search.ensure_keyword_fresh is not None
+    for _ in range(3):
+        epoch = await get_kb_epoch() if tracked else None
+        chunks = await vector_client.list_chunks(max_chunks=max_chunks)
+        if tracked and epoch != await get_kb_epoch():
+            continue
+        await hybrid_search.keyword_search.rebuild(chunks)
+        hybrid_search.keyword_epoch = epoch
+        KEYWORD_INDEX_CHUNKS.set(len(chunks))
+        return len(chunks)
+    hybrid_search.keyword_epoch = None
+    raise RuntimeError("Knowledge base changed throughout keyword refresh")
+
+
+async def ensure_keyword_index_current(hybrid_search: HybridSearchService) -> bool:
+    """Refresh before serving another process's mutation; skip stale BM25 on failure."""
+    try:
+        epoch = await get_kb_epoch()
+        if epoch == EPOCH_UNAVAILABLE:
+            return False
+        if hybrid_search.keyword_epoch == epoch:
+            return True
+        async with hybrid_search.keyword_index_lock:
+            # Another request may have refreshed while this one waited.
+            epoch = await get_kb_epoch()
+            if epoch == EPOCH_UNAVAILABLE:
+                return False
+            if hybrid_search.keyword_epoch != epoch:
+                await _refresh_locked(
+                    hybrid_search, cast("QdrantClient", hybrid_search.vector_client)
+                )
+            return hybrid_search.keyword_epoch not in (None, EPOCH_UNAVAILABLE)
+    except Exception:
+        logger.warning("Keyword snapshot is stale; using vector search only", exc_info=True)
+        return False
 
 
 async def run_keyword_index_refresher(
     hybrid_search: HybridSearchService,
     vector_client: QdrantClient,
     interval_seconds: float,
-    max_chunks: int = 50_000,
+    max_chunks: int | None = None,
 ) -> None:
     """
     Refresh loop: sleep one interval, rebuild, repeat until cancelled.
@@ -138,7 +203,7 @@ def start_keyword_index_refresher(
     hybrid_search: HybridSearchService,
     vector_client: QdrantClient,
     interval_seconds: float,
-    max_chunks: int = 50_000,
+    max_chunks: int | None = None,
 ) -> asyncio.Task[None] | None:
     """
     Spawn the refresher task (no-op if one is already running).

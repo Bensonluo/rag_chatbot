@@ -5,6 +5,46 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "response",
+    [
+        '{"reranked": ["exception-chunk", "exception-chunk"]}',
+        '{"results": [{"id": "exception-chunk", "score": 0.99}]}',
+    ],
+)
+async def test_reranking_retains_distinct_chunks_from_one_document_without_mutating_metadata(
+    response,
+):
+    from app.services.retrieval.reranking import RerankingService
+    from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
+
+    llm = Mock(generate=AsyncMock(return_value=Mock(content=response)))
+    originals = [
+        SearchResult(
+            "policy", "Refunds allowed.", 0.9, {"chunk_id": "refund-chunk", "source": "policy.pdf"}
+        ),
+        SearchResult(
+            "policy",
+            "Opened items excluded.",
+            0.8,
+            {"chunk_id": "exception-chunk", "source": "policy.pdf"},
+        ),
+    ]
+    metadata = [dict(result.metadata) for result in originals]
+
+    results = await RerankingService(llm, top_n=2).rerank(
+        originals, VectorSearchRequest(query="refund exceptions")
+    )
+
+    assert [result.content for result in results] == ["Opened items excluded.", "Refunds allowed."]
+    assert [result.document_id for result in results] == ["policy", "policy"]
+    assert [result.metadata for result in originals] == metadata
+    assert all(result.metadata["source"] == "policy.pdf" for result in results)
+    prompt = llm.generate.await_args.kwargs["messages"][1].content
+    assert "refund-chunk" in prompt and "exception-chunk" in prompt
+
+
 class TestRerankingService:
     """Test reranking service for improving search results"""
 

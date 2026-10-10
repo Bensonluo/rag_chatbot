@@ -403,6 +403,14 @@ class Settings(BaseSettings):
         description="Verify generated policy claims against the curated fact table before responses leave the graph",
     )
 
+    # Document ingestion: sources/jobs are durable in PostgreSQL.
+    DOCUMENT_MAX_BYTES: int = Field(default=50 * 1024 * 1024, gt=0)
+    DOCUMENT_CHUNK_SIZE: int = Field(default=512, ge=64, le=2048)
+    DOCUMENT_CHUNK_OVERLAP: int = Field(default=50, ge=0)
+    DOCUMENT_WORKER_ENABLED: bool = Field(default=True)
+    DOCUMENT_WORKER_POLL_SECONDS: float = Field(default=2.0, gt=0)
+    DOCUMENT_OCR_LANGUAGES: str = Field(default="eng+chi_sim")
+
     # Embedding Models
     EMBEDDING_PROVIDER: str = Field(
         default="local", description="Embedding provider (local, glm, openai)"
@@ -593,6 +601,13 @@ class Settings(BaseSettings):
         if not v.startswith(("postgresql+asyncpg://", "postgresql://")):
             raise ValueError("Database URL must use postgresql+asyncpg:// scheme")
         return v
+
+    @field_validator("DOCUMENT_CHUNK_OVERLAP")
+    @classmethod
+    def validate_document_overlap(cls, value: int, info: ValidationInfo) -> int:
+        if value >= info.data.get("DOCUMENT_CHUNK_SIZE", 512):
+            raise ValueError("DOCUMENT_CHUNK_OVERLAP must be smaller than DOCUMENT_CHUNK_SIZE")
+        return value
 
     @field_validator("SECRET_KEY")
     @classmethod

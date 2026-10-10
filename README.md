@@ -82,7 +82,7 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 
 | 📈 Stats | | |
 |:---:|:---:|:---:|
-| **1902** maintained tests | **3** LLM providers | **89.35%** core coverage |
+| **2218** maintained tests | **3** LLM providers | **92.80%** core coverage |
 | **12** dialogue nodes | **5** data stores | **4** memory strategies |
 
 </div>
@@ -357,10 +357,133 @@ See [.env.example](.env.example) for the full list.
 
 ---
 
+## Document ingestion for support knowledge
+
+Uploads retain the original source in PostgreSQL and return **HTTP 202** with
+`document_id`, `version_id`, `revision`, and `status`. Existing clients that
+expected a completed upload at HTTP 201 must poll the revision endpoint.
+The application worker processes queued revisions outside the upload request;
+Postgres document locks serialize replacements across replicas. Interrupted
+`processing` jobs resume after restart using the same chunk IDs.
+
+| Operation | Endpoint |
+|---|---|
+| Upload text/Markdown | `POST /api/v1/documents/upload` |
+| Upload PDF/TXT/MD | `POST /api/v1/documents/upload/file` |
+| List documents | `GET /api/v1/documents` |
+| List revisions | `GET /api/v1/documents/{document_id}/versions` |
+| Processing status and warnings | `GET /api/v1/documents/versions/{version_id}` |
+| Retry a failed/partial latest revision | `POST /api/v1/documents/versions/{version_id}/retry` |
+| Download retained original | `GET /api/v1/documents/versions/{version_id}/source` |
+| Read normalized text for source offsets | `GET /api/v1/documents/versions/{version_id}/text` |
+| Delete indexes and retained sources | `DELETE /api/v1/documents/{document_id}` |
+| Check registry, vector store, and worker | `GET /api/v1/documents/health` |
+
+Text upload example (with the normal bearer token):
+
+```json
+{
+  "document_id": "refund-policy-us",
+  "title": "Refund policy",
+  "file_type": "md",
+  "content": "# Refunds\n\n## Exceptions\nOpened products require review.",
+  "metadata": {"lang": "en", "topic": "refunds", "product": "physical-goods", "region": "US"}
+}
+```
+
+Use the same `document_id` for a replacement. Repeated identical submissions
+return the same revision; changes to content, policy scope, or processing
+configuration create another revision. Status transitions are
+`queued → processing → indexed`; failures are explicit `failed` or `partial`
+(the latter means the vector index succeeded but optional graph indexing failed).
+Informational OCR/blank-page warnings do not turn a complete index into a partial job.
+A failed embedding step preserves the previous index. Qdrant replacement writes
+the new points before removing superseded points; it is not a transaction across
+Postgres, Qdrant, and Neo4j. A failure during publication is recorded and invalidates
+caches; retry converges on the retained revision. Do not run another uncoordinated
+writer against the same document IDs.
+
+Each Qdrant point stores `chunk_id`, parent `document_id`, `content`, and metadata:
+
+| Metadata | Contract |
+|---|---|
+| `document_id`, `version_id`, `chunk_id` | Stable policy identity, immutable revision, deterministic passage ID |
+| `index`, `start_pos`, `end_pos` | Chunk order and exact character interval in the retained normalized text |
+| `chunk_size`, `chunking_strategy` | Actual character count and splitter used |
+| `title`, `original_filename`, `file_type`, `source` | Original source identity, never temporary paths |
+| `page_start`, `page_end` | PDF page range; absent for plain text |
+| `section_path` | Markdown heading hierarchy, excluding code blocks |
+| `lang`, `topic`, `product`, `region`, `category` | Validated author-supplied support scope, usable as retrieval filters |
+| `content_hash` | SHA-256 of the uploaded bytes, shared by all chunks in that source revision |
+| `pipeline_version`, `embedding_provider`, `embedding_model` | Processing provenance |
+
+The design has three identity levels. `document_id` means a logical policy and
+survives edits; supply it explicitly for predictable replacements. `version_id`
+identifies one immutable revision of its source, scope, and processing configuration.
+`chunk_id` identifies one passage within that revision. It is generated deterministically
+from the document/revision, splitter, chunk index, start offset, and content. A retry
+therefore overwrites the same points, while a new revision cannot accidentally reuse
+the previous revision's passage IDs. Identical wording in different policies still
+has different IDs because its provenance differs.
+
+Source locations use zero-based Python string positions, with an exclusive `end_pos`:
+`chunk.content == normalized_text[start_pos:end_pos]`. These are character offsets,
+not byte offsets, PDF coordinates, or token counts. Normalized text is retained
+alongside the original bytes so this relationship remains inspectable after newline
+normalization or OCR. PDF pages are one-based; text files have no invented page
+numbers. Markdown `section_path` describes the heading ancestry at the start of the
+passage; an overlapping chunk can also contain material from the adjacent section.
+
+Support scope is copied onto every chunk so the vector and keyword stores can filter
+without a database join. Authors supply `lang`, `topic`, `product`, `region`, and
+`category`; the pipeline does not guess an authoritative policy scope from prose.
+For example, a caller can filter a refund query to the relevant product and region.
+Choose consistent values when uploading; these are exact filter values, and merely
+storing them does not automatically select the customer's region. Scope metadata
+is not an access-control boundary. Tenant isolation, permissions, approval state,
+and effective-date rules would need explicit validation and enforcement in every
+retrieval path before becoming supported policy controls.
+
+Processing provenance answers a different question: how was this evidence built?
+`content_hash` detects identical uploaded bytes; it is not the document's identity.
+`pipeline_version`, the saved chunking configuration, and embedding provider/model
+make rebuilds and debugging traceable. Job state, retries, errors, originals, and
+uploader identity live in the PostgreSQL revision registry instead of being copied
+into every searchable passage. Chunk metadata is intentionally a small retrieval
+and citation record, while the registry owns the ingestion lifecycle.
+
+Reserved system fields cannot be overwritten by upload metadata. Uploader identity
+stays in the registry, outside retrievable chunk payloads. Vector search, keyword
+search, reranking, and graph fusion keep passage identity separate from parent
+document identity. Page references remain in retrieval metadata; answer citations
+retain the parent document IDs, including evidence retrieved through the graph.
+Curated FAQ and fact-check tables are maintained separately; uploading a policy
+does not automatically rewrite those reviewed answers or numeric facts.
+
+PDF extraction preserves page boundaries and layout whitespace. Scanned pages use
+local Poppler + Tesseract OCR with English and Simplified Chinese language packs
+included in the Docker image. A page requiring unavailable/failed OCR fails the
+job with an actionable error, rather than silently omitting its evidence. Blank
+pages are reported; encrypted PDFs require an unlocked source. Complex tables and
+OCR output still need author review against the retained original.
+
+Run `alembic upgrade head` before starting a source checkout; the standard container
+entrypoint runs migrations. Rebuild the image to install the OCR binaries. Local
+hosts also need `pdftoppm`, `tesseract`, and the configured language packs to process
+scans. `DOCUMENT_MAX_BYTES` defaults to 50 MiB, chunk size/overlap to 512/50
+characters; long documents are no longer silently truncated. Configure these via
+`.env.example`. Original bytes are stored in Postgres, so include them in database
+backup/retention sizing. Changing embedding providers/models requires a new vector
+collection and re-ingestion; queued jobs with an outdated model configuration fail
+explicitly. Pre-existing chunks have no recoverable original source: re-upload
+those documents to obtain the new provenance and revision lifecycle.
+
+---
+
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 1902 tests / 89.35%)
+# Maintained core suite (70% minimum; currently 2218 tests / 92.80%)
 pytest
 
 # Targeted runs
@@ -379,13 +502,13 @@ ruff check app --exclude app/tests --select E9,F63,F7,F82
 # Key typed boundaries used by the demo chain
 mypy app/core/security.py app/services/documents/base.py \
   app/services/documents/ingestion.py app/services/graph/base.py \
-  --follow-imports=skip --ignore-missing-imports
+  --follow-imports=silent --ignore-missing-imports
 ```
 
 | Metric | Value |
 |--------|-------|
-| Maintained test cases | **1902** |
-| Maintained core coverage | **89.25%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
+| Maintained test cases | **2218** |
+| Maintained core coverage | **92.80%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
 | Python files | ~345 |
 | Test files | ~145 |
 
@@ -399,7 +522,7 @@ mypy app/core/security.py app/services/documents/base.py \
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 1902 maintained core tests, 89.35% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
+- [x] 2218 maintained core tests, 92.80% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)

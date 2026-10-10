@@ -14,6 +14,11 @@ from app.services.retrieval.vector_base import (
 )
 
 
+def _result_id(result: SearchResult) -> str:
+    """Chunk identity for ranking; the parent document ID remains source provenance."""
+    return str((result.metadata or {}).get("chunk_id") or result.document_id)
+
+
 class NoOpReranker:
     """
     No-op reranker that passes results through unchanged.
@@ -92,7 +97,7 @@ class RerankingService:
                 LLMMessage(
                     role="system",
                     content="You are a search result reranking system. "
-                    "Return JSON with reranked document IDs and optionally scores.",
+                    "Return JSON with reranked result IDs and optionally scores.",
                 ),
                 LLMMessage(role="user", content=prompt),
             ],
@@ -125,7 +130,8 @@ class RerankingService:
         result_docs = []
         for i, result in enumerate(results, start=1):
             result_docs.append(
-                f"{i}. Document ID: {result.document_id}\n"
+                f"{i}. Result ID: {_result_id(result)}\n"
+                f"   Source document ID: {result.document_id}\n"
                 f"   Content: {result.content}\n"
                 f"   Score: {result.score:.3f}\n"
             )
@@ -145,11 +151,11 @@ Please rerank the results based on:
 2. Information quality
 3. Diversity of content
 
-Return a JSON object with this format:
-{{"reranked": ["doc_id1", "doc_id2", "doc_id3", ...]}}
+Use the Result IDs above (each identifies a separate chunk). Return JSON with this format:
+{{"reranked": ["result_id1", "result_id2", "result_id3", ...]}}
 
 Or if you want to provide new relevance scores:
-{{"results": [{{"id": "doc_id1", "score": 0.95}}, {{"id": "doc_id2", "score": 0.85}}, ...]}}
+{{"results": [{{"id": "result_id1", "score": 0.95}}, {{"id": "result_id2", "score": 0.85}}, ...]}}
 
 Only rerank the top {self.top_n} results."""
 
@@ -171,72 +177,52 @@ Only rerank the top {self.top_n} results."""
             List[SearchResult]: Reranked results
         """
         try:
-            # Parse JSON response
             data = json.loads(response.strip())
-
-            # Build lookup map
-            result_map = {r.document_id: r for r in original_results}
-
-            reranked = []
-
-            # Case 1: Simple reranked list
-            if "reranked" in data:
-                doc_ids = data["reranked"]
-
-                for doc_id in doc_ids:
-                    if doc_id in result_map:
-                        result = result_map[doc_id]
-
-                        # Add metadata
-                        metadata = result.metadata or {}
-                        metadata["reranked"] = True
-
-                        reranked.append(
-                            SearchResult(
-                                document_id=result.document_id,
-                                content=result.content,
-                                score=result.score,
-                                metadata=metadata,
-                            )
-                        )
-
-                # Add remaining results that weren't in reranked list
-                for result in original_results:
-                    if result.document_id not in doc_ids:
-                        reranked.append(result)
-
-            # Case 2: Results with new scores
-            elif "results" in data:
-                scored_results = data["results"]
-
-                for item in scored_results:
-                    doc_id = item["id"]
-                    new_score = item.get("score", 0.0)
-
-                    if doc_id in result_map:
-                        result = result_map[doc_id]
-
-                        # Add metadata
-                        metadata = result.metadata or {}
-                        metadata["reranked"] = True
-                        metadata["reranking_score"] = new_score
-
-                        reranked.append(
-                            SearchResult(
-                                document_id=result.document_id,
-                                content=result.content,
-                                score=new_score,
-                                metadata=metadata,
-                            )
-                        )
-
-            else:
-                # Invalid response format, return original
+            if not isinstance(data, dict):
                 return original_results
 
-            # Limit to top_n
-            return reranked[: self.top_n]
+            result_map = {_result_id(result): result for result in original_results}
+            selections: list[tuple[str, float | None]]
+            if "reranked" in data:
+                selections = [(identifier, None) for identifier in data["reranked"]]
+            elif "results" in data:
+                selections = [
+                    (item["id"], float(item["score"]) if "score" in item else None)
+                    for item in data["results"]
+                ]
+            else:
+                return original_results
 
-        except (json.JSONDecodeError, KeyError, ValueError):
-            # Parse error, return original results
+            reranked: list[SearchResult] = []
+            seen: set[str] = set()
+            for identifier, score in selections:
+                if (
+                    not isinstance(identifier, str)
+                    or identifier not in result_map
+                    or identifier in seen
+                ):
+                    continue
+                seen.add(identifier)
+                result = result_map[identifier]
+                metadata = {**(result.metadata or {}), "reranked": True}
+                if score is not None:
+                    metadata["reranking_score"] = score
+                reranked.append(
+                    SearchResult(
+                        document_id=result.document_id,
+                        content=result.content,
+                        score=result.score if score is None else score,
+                        metadata=metadata,
+                    )
+                )
+
+            # Both response formats may return a subset. Keep other evidence in
+            # its original order without collapsing sibling chunks or duplicating IDs.
+            for result in original_results:
+                identifier = _result_id(result)
+                if identifier not in seen:
+                    reranked.append(result)
+                    seen.add(identifier)
+            return reranked[: self.top_n]
+        except (json.JSONDecodeError, KeyError, ValueError, TypeError):
             return original_results

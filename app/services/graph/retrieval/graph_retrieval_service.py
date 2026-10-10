@@ -73,12 +73,12 @@ class GraphRetrievalService:
         content_map: dict[str, GraphSearchResult] = {}
 
         for rank, result in enumerate(cypher_results):
-            key = result.content[:200]
+            key = result.content
             scores[key] = scores.get(key, 0.0) + self._cypher_weight / (k + rank + 1)
             content_map[key] = result
 
         for rank, result in enumerate(embedding_results):
-            key = result.content[:200]
+            key = result.content
             scores[key] = scores.get(key, 0.0) + self._embedding_weight / (k + rank + 1)
             if key not in content_map:
                 content_map[key] = result

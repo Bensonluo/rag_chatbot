@@ -15,6 +15,7 @@ import base64
 import math
 from array import array
 from typing import Any
+from unittest.mock import AsyncMock, Mock
 
 from app.services.chat.answer_cache import CachedAnswer
 from app.services.chat.semantic_cache import SemanticCacheService
@@ -158,6 +159,47 @@ class TestSemanticCacheHits:
 
 
 class TestSemanticCacheBoundaries:
+    async def test_rotation_during_lookup_discards_old_answer(self):
+        service, _ = _make_service()
+        await service.put("q", _answer())
+        service._epoch_provider = AsyncMock(side_effect=["e1", "e2"])
+        assert await service.get("q") is None
+
+    async def test_write_refuses_answer_generated_before_mutation(self):
+        redis = FakeRedis()
+        service, _ = _make_service(redis=redis, epoch="new")
+        await service.put("q", _answer(), expected_epoch="old")
+        assert redis.hashes == {}
+
+    async def test_mutation_during_embedding_skips_write(self):
+        redis = FakeRedis()
+        service, _ = _make_service(redis=redis)
+        service._epoch_provider = AsyncMock(side_effect=["e1", "e2"])
+        await service.put("q", _answer(), expected_epoch="e1")
+        assert redis.hashes == {}
+
+    async def test_direct_node_does_not_cache_answer_when_generation_crosses_mutation(self):
+        from app.services.dialogue.nodes import NodeFactory
+
+        redis = FakeRedis()
+        service, _ = _make_service(redis=redis)
+        factory = NodeFactory(
+            intent_detector=Mock(),
+            slot_filler=None,
+            tool_registry=Mock(),
+            retrieval_pipeline={},
+            semantic_cache=service,
+        )
+
+        async def generate(*args):
+            service._epoch_provider = _epoch_provider("e2")
+            return {"response": "old answer"}
+
+        factory._generate_direct = generate
+        result = await factory.direct_response_node({"message": "q", "intent": "chitchat"})
+        assert result["response"] == "old answer"
+        assert redis.hashes == {}
+
     async def test_below_threshold_misses(self):
         service, _ = _make_service()
         await service.put("七天无理由退货是多久", _answer())

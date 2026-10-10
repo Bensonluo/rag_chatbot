@@ -148,6 +148,7 @@ class ChatService:
         """
         if self.graph is None:
             raise GraphUnavailableError("dialogue graph is not initialized")
+        cache_epoch = await self.answer_cache.capture_epoch() if self.answer_cache else None
         config = {"configurable": {"thread_id": str(session_id)}}
         budget: BudgetState | None = None
         async with enter_llm_budget(settings.CHAT_LLM_CALL_BUDGET) as budget_state:
@@ -196,7 +197,7 @@ class ChatService:
                 retrieval_ran=bool(result.get("retrieval_ran", False)),
                 retrieval_degraded=bool(result.get("retrieval_degraded", False)),
             )
-        await self._maybe_cache_answer(message, result, user_id)
+        await self._maybe_cache_answer(message, result, user_id, expected_epoch=cache_epoch)
 
         return ChatResponse(
             content=result.get("response", ""),
@@ -253,6 +254,7 @@ class ChatService:
             # a dropped connection after SSE headers were already sent.
             yield STREAM_ERROR
             return
+        cache_epoch = await self.answer_cache.capture_epoch() if self.answer_cache else None
         queue: asyncio.Queue[str | TraceEvent | None] = asyncio.Queue()
         config = {"configurable": {"thread_id": str(session_id), "stream_queue": queue}}
         # The sentinel is enqueued only after the graph task settles, so
@@ -349,7 +351,7 @@ class ChatService:
             # Only completed streams cache: budget-exhausted / errored /
             # disconnected turns return before this point, so partial
             # or truncated content is never stored for replay.
-            await self._maybe_cache_answer(message, result, user_id)
+            await self._maybe_cache_answer(message, result, user_id, expected_epoch=cache_epoch)
         except GeneratorExit:
             # Client disconnected mid-stream: record it, let the close
             # proceed (partial-content persistence still runs in finally).
@@ -399,7 +401,14 @@ class ChatService:
                     metadata=metadata,
                 )
 
-    async def _maybe_cache_answer(self, message: str, result: dict[str, Any], user_id: int) -> None:
+    async def _maybe_cache_answer(
+        self,
+        message: str,
+        result: dict[str, Any],
+        user_id: int,
+        *,
+        expected_epoch: str | None = None,
+    ) -> None:
         """Store a completed grounded turn in the L0 answer cache.
 
         Eligibility is deliberately strict — a turn is replayable only
@@ -435,6 +444,7 @@ class ChatService:
             response=response,
             sources=list(sources),
             intent=result.get("intent", "unknown"),
+            expected_epoch=expected_epoch,
         )
 
     async def get_chat_history(

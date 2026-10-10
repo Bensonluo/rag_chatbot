@@ -7,6 +7,8 @@ Handles text cleaning, normalization, and preparation before chunking.
 import re
 from typing import Any
 
+from app.core.exceptions import ValidationError
+
 
 class TextPreprocessor:
     """
@@ -19,7 +21,7 @@ class TextPreprocessor:
     @staticmethod
     def clean(text: str) -> str:
         """
-        Clean text by removing excessive whitespace and special characters.
+        Remove non-text controls while retaining document layout.
 
         Args:
             text: Text to clean
@@ -27,27 +29,15 @@ class TextPreprocessor:
         Returns:
             str: Cleaned text
         """
-        # Remove excessive whitespace
-        text = re.sub(r"\s+", " ", text)
-
-        # Remove control characters but keep newlines
-        text = re.sub(r"[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]", "", text)
-
-        # Normalize quotes
-        text = text.replace('"', '"').replace('"', '"')
-        text = text.replace(""", "'").replace(""", "'")
-
-        return text.strip()
+        # Form feeds carry page boundaries in extracted document text.
+        text = text.removeprefix("\ufeff").replace("\f", "\n\n")
+        # Keep tabs and line endings: indentation and paragraph breaks are evidence.
+        return re.sub(r"[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]", "", text)
 
     @staticmethod
     def normalize_whitespace(text: str) -> str:
         """
-        Normalize whitespace in text.
-
-        - Multiple spaces → single space
-        - Multiple newlines → double newline
-        - Tabs → spaces
-        - Leading/trailing whitespace removed
+        Normalize platform line endings, preserving spacing and indentation.
 
         Args:
             text: Text to normalize
@@ -55,21 +45,7 @@ class TextPreprocessor:
         Returns:
             str: Normalized text
         """
-        # Replace tabs with spaces
-        text = text.replace("\t", " ")
-
-        # Normalize multiple spaces to single space (within paragraphs)
-        text = re.sub(r" +", " ", text)
-
-        # Normalize multiple newlines (but keep paragraph breaks)
-        text = re.sub(r"\n{3,}", "\n\n", text)
-
-        # Remove leading/trailing whitespace from each line
-        lines = text.split("\n")
-        lines = [line.strip() for line in lines]
-        text = "\n".join(lines)
-
-        return text.strip()
+        return text.replace("\r\n", "\n").replace("\r", "\n")
 
     @staticmethod
     def remove_headers_footers(
@@ -157,32 +133,13 @@ class TextPreprocessor:
         return metadata
 
     @staticmethod
-    def truncate(text: str, max_length: int = 100000, add_ellipsis: bool = True) -> str:
-        """
-        Truncate text to maximum length.
-
-        Args:
-            text: Text to truncate
-            max_length: Maximum length
-            add_ellipsis: Whether to add "..." at the end
-
-        Returns:
-            str: Truncated text
-        """
-        if len(text) <= max_length:
-            return text
-
-        truncated = text[:max_length]
-
-        if add_ellipsis:
-            # Try to truncate at word boundary
-            last_space = truncated.rfind(" ")
-            if last_space > max_length * 0.9:  # If within 90% of max
-                truncated = truncated[:last_space]
-
-            truncated += "..."
-
-        return truncated
+    def validate_length(text: str, max_length: int | None = None) -> None:
+        """Reject oversized input explicitly instead of indexing a partial document."""
+        if max_length is not None and len(text) > max_length:
+            raise ValidationError(
+                f"Document contains {len(text)} characters; the configured limit is {max_length}. "
+                "Split the document or increase the limit; no content was truncated."
+            )
 
 
 class DocumentPreprocessor:
@@ -198,8 +155,8 @@ class DocumentPreprocessor:
         normalize_whitespace: bool = True,
         remove_headers_footers: bool = False,
         extract_metadata: bool = True,
-        max_length: int = 100000,
-    ):
+        max_length: int | None = None,
+    ) -> None:
         """
         Initialize preprocessor.
 
@@ -208,8 +165,10 @@ class DocumentPreprocessor:
             normalize_whitespace: Normalize whitespace
             remove_headers_footers: Remove headers/footers
             extract_metadata: Extract metadata
-            max_length: Maximum document length
+            max_length: Optional character limit; oversized documents are rejected.
         """
+        if max_length is not None and (type(max_length) is not int or max_length <= 0):
+            raise ValidationError("Document max_length must be a positive integer or None")
         self.clean = clean
         self.normalize_whitespace = normalize_whitespace
         self.remove_headers_footers = remove_headers_footers
@@ -244,8 +203,7 @@ class DocumentPreprocessor:
         if self.remove_headers_footers:
             result_text = TextPreprocessor.remove_headers_footers(result_text)
 
-        # Truncate if too long
-        result_text = TextPreprocessor.truncate(result_text, max_length=self.max_length)
+        TextPreprocessor.validate_length(result_text, max_length=self.max_length)
 
         # Extract metadata
         if self.extract_metadata:

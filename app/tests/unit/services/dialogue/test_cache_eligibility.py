@@ -114,6 +114,7 @@ class TestSemanticCacheEligibility:
         write L1 — a later visitor would replay this dialogue's context.
         First turn (no history) is the positive control: it must write."""
         semantic_cache = Mock()
+        semantic_cache.capture_epoch = AsyncMock(return_value="epoch-test")
         semantic_cache.get = AsyncMock(return_value=None)
         semantic_cache.put = AsyncMock()
         history = AsyncMock(side_effect=[[], list(PRIOR_TURN)])
@@ -151,6 +152,7 @@ class TestAnswerCacheEligibility:
         prompt is personal to this dialogue — L0 must not store it. The
         no-history first turn is the positive control."""
         answer_cache = Mock()
+        answer_cache.capture_epoch = AsyncMock(return_value="epoch-test")
         answer_cache.get = AsyncMock(return_value=None)
         answer_cache.put = AsyncMock()
         history = AsyncMock(side_effect=[[], list(PRIOR_TURN)])
@@ -185,6 +187,7 @@ class TestAnswerCacheEligibility:
         context-free grounded turn (anonymous, no history) still lands
         in L0 — that replay is the cache's entire purpose."""
         answer_cache = Mock()
+        answer_cache.capture_epoch = AsyncMock(return_value="epoch-test")
         answer_cache.get = AsyncMock(return_value=None)
         answer_cache.put = AsyncMock()
 
@@ -217,6 +220,7 @@ class TestHistoryProviderContract:
         context-free: the direct tier still writes L1 on every such
         turn (regression guard against gating on provider presence)."""
         semantic_cache = Mock()
+        semantic_cache.capture_epoch = AsyncMock(return_value="epoch-test")
         semantic_cache.get = AsyncMock(return_value=None)
         semantic_cache.put = AsyncMock()
 

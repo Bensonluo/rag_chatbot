@@ -127,6 +127,18 @@ class TestRetrievalCacheHits:
 
 
 class TestRetrievalCacheBoundaries:
+    async def test_rotation_during_lookup_discards_old_results(self):
+        service = _make_service()
+        await service.put("q", {}, _docs())
+        service._epoch_provider = AsyncMock(side_effect=["e1", "e2"])
+        assert await service.get("q", {}) is None
+
+    async def test_write_refuses_results_produced_before_mutation(self):
+        redis = FakeRedis()
+        service = _make_service(redis=redis, epoch="new")
+        await service.put("q", {}, _docs(), expected_epoch="old")
+        assert redis.hashes == {}
+
     async def test_filters_participate_in_key(self):
         service = _make_service()
         await service.put("查订单", filters={"order_id": "A"}, docs=_docs())
@@ -215,7 +227,18 @@ class StubRetrievalCache:
         self.gets.append(query)
         return self.cached_docs
 
-    async def put(self, query: str, filters: dict[str, Any], docs: list[dict[str, Any]]) -> None:
+    async def capture_epoch(self) -> str:
+        return "epoch-test"
+
+    async def put(
+        self,
+        query: str,
+        filters: dict[str, Any],
+        docs: list[dict[str, Any]],
+        *,
+        expected_epoch: str | None = None,
+    ) -> None:
+        assert expected_epoch == "epoch-test"
         self.puts.append((query, docs))
 
 
@@ -230,6 +253,25 @@ class _FakeSearchResults:
 
 
 class TestRagNodeWiring:
+    async def test_mutation_during_search_does_not_cache_old_results(self):
+        redis = FakeRedis()
+        cache = _make_service(redis=redis)
+
+        async def search(_request):
+            cache._epoch_provider = _provider("e2")
+            return [_FakeSearchResults("deleted", "old policy", 0.9)]
+
+        factory = NodeFactory(
+            intent_detector=Mock(),
+            slot_filler=None,
+            tool_registry=Mock(),
+            retrieval_pipeline={"hybrid_search": Mock(search=search)},
+            retrieval_cache=cache,
+        )
+        updates = await factory.rag_lookup_node({"message": "q", "intent": "question"})
+        assert updates["retrieved_docs"][0]["document_id"] == "deleted"
+        assert redis.hashes == {}
+
     async def test_cache_hit_skips_hybrid_search(self):
         stub_cache = StubRetrievalCache(cached_docs=_docs())
         hybrid = Mock()

@@ -117,3 +117,116 @@ class TestRefresherLifecycle:
         assert task.cancelled()
 
         stop_keyword_index_refresher()  # no-op when not running
+
+
+class TestMutationConsistency:
+    async def test_publish_replaces_all_old_chunks_immediately(self, monkeypatch):
+        import app.services.retrieval.keyword_refresh as module
+
+        hybrid = _hybrid()
+        await hybrid.keyword_search.add_documents(
+            [
+                {"id": "old", "content": "old", "metadata": {"document_id": "doc"}},
+                {"id": "other", "content": "other", "metadata": {"document_id": "other"}},
+            ]
+        )
+        monkeypatch.setattr(module, "_keyword_hybrid", hybrid)
+        await module.publish_keyword_document(
+            "doc",
+            [
+                {
+                    "chunk_id": "new",
+                    "content": "new",
+                    "metadata": {"title": "Policy"},
+                }
+            ],
+        )
+        assert set(hybrid.keyword_search.documents) == {"new", "other"}
+        assert hybrid.keyword_search.documents["new"]["metadata"]["document_id"] == "doc"
+
+    async def test_publish_waits_for_inflight_snapshot_so_deleted_chunks_stay_deleted(
+        self, monkeypatch
+    ):
+        import app.services.retrieval.keyword_refresh as module
+
+        hybrid = _hybrid()
+        monkeypatch.setattr(module, "_keyword_hybrid", hybrid)
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def old_snapshot(**kwargs):
+            started.set()
+            await release.wait()
+            return [{"id": "old", "content": "old", "metadata": {"document_id": "doc"}}]
+
+        refresh = asyncio.create_task(refresh_keyword_index(hybrid, Mock(list_chunks=old_snapshot)))
+        await started.wait()
+        purge = asyncio.create_task(module.purge_keyword_document("doc"))
+        await asyncio.sleep(0)
+        assert not purge.done()
+        release.set()
+        await asyncio.gather(refresh, purge)
+        assert hybrid.keyword_search.documents == {}
+
+    async def test_other_worker_refreshes_before_serving_deleted_document(self, monkeypatch):
+        import app.services.retrieval.keyword_refresh as module
+        from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
+
+        vector = _client([])
+        vector.search = AsyncMock(return_value=[SearchResult("survivor", "policy", 0.9)])
+        hybrid = HybridSearchService(vector, KeywordSearch())
+        await hybrid.keyword_search.add_documents(
+            [
+                {
+                    "id": "deleted",
+                    "content": "policy",
+                    "metadata": {"document_id": "removed"},
+                }
+            ]
+        )
+        monkeypatch.setattr(module, "_keyword_hybrid", None)
+        monkeypatch.setattr(module, "get_kb_epoch", AsyncMock(return_value="new-epoch"))
+        module.register_keyword_index(hybrid)
+        hybrid.keyword_epoch = "old-epoch"
+
+        results = await hybrid.search(VectorSearchRequest("policy"))
+        assert [result.document_id for result in results] == ["survivor"]
+        assert hybrid.keyword_search.documents == {}
+        assert hybrid.keyword_epoch == "new-epoch"
+        await hybrid.search(VectorSearchRequest("policy"))
+        vector.list_chunks.assert_awaited_once()
+
+    async def test_epoch_change_during_scroll_retries_snapshot(self, monkeypatch):
+        import app.services.retrieval.keyword_refresh as module
+
+        vector = _client([])
+        vector.list_chunks.side_effect = [
+            [{"id": "deleted", "content": "old"}],
+            [{"id": "new", "content": "new"}],
+        ]
+        hybrid = HybridSearchService(vector, KeywordSearch())
+        monkeypatch.setattr(module, "_keyword_hybrid", None)
+        module.register_keyword_index(hybrid)
+        monkeypatch.setattr(
+            module, "get_kb_epoch", AsyncMock(side_effect=["old", "new", "new", "new"])
+        )
+
+        await module.refresh_keyword_index(hybrid, vector)
+        assert set(hybrid.keyword_search.documents) == {"new"}
+        assert hybrid.keyword_epoch == "new"
+
+    async def test_failed_remote_refresh_never_serves_stale_keyword_hits(self, monkeypatch):
+        import app.services.retrieval.keyword_refresh as module
+        from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
+
+        vector = Mock(
+            list_chunks=AsyncMock(side_effect=RuntimeError("scroll unavailable")),
+            search=AsyncMock(return_value=[SearchResult("live", "policy", 0.9)]),
+        )
+        hybrid = HybridSearchService(vector, KeywordSearch())
+        await hybrid.keyword_search.add_documents([{"id": "stale", "content": "policy"}])
+        monkeypatch.setattr(module, "_keyword_hybrid", None)
+        monkeypatch.setattr(module, "get_kb_epoch", AsyncMock(return_value="new"))
+        module.register_keyword_index(hybrid)
+
+        results = await hybrid.search(VectorSearchRequest("policy"))
+        assert [result.document_id for result in results] == ["live"]

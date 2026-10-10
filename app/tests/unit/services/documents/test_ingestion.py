@@ -6,13 +6,14 @@ import pytest
 
 from app.services.documents.ingestion import DocumentIngestionService
 from app.services.embeddings.base import EmbeddingResult
+from app.services.graph.extraction.base import ExtractionResult
 
 
 @pytest.mark.asyncio
 async def test_ingest_text_chunks_embeds_stores_and_returns_summary() -> None:
     """A text upload should complete the full demo ingestion journey."""
     qdrant_client = Mock()
-    qdrant_client.add = AsyncMock()
+    qdrant_client.replace_document = AsyncMock()
 
     embedding_service = Mock()
     embedding_service.embed = AsyncMock(
@@ -43,8 +44,8 @@ async def test_ingest_text_chunks_embeds_stores_and_returns_summary() -> None:
     assert result["document_id"] == "doc-demo"
     assert result["chunks_count"] == 1
     assert result["embedding_model"] == "demo-embedding"
-    qdrant_client.add.assert_awaited_once()
-    payload = qdrant_client.add.await_args.kwargs["payloads"][0]
+    qdrant_client.replace_document.assert_awaited_once()
+    payload = qdrant_client.replace_document.await_args.kwargs["payloads"][0]
     assert payload["document_id"] == "doc-demo"
     assert payload["chunk_id"]
     assert payload["metadata"]["category"] == "policy"
@@ -83,7 +84,7 @@ def test_ingestion_reuses_an_injected_embedding_service() -> None:
 @pytest.mark.asyncio
 async def test_graph_relations_reference_the_entities_written_for_the_chunk() -> None:
     """Extracted relations must point at the entity IDs actually sent to Neo4j."""
-    qdrant_client = Mock(add=AsyncMock())
+    qdrant_client = Mock(replace_document=AsyncMock())
     embedding_service = Mock(
         embed=AsyncMock(
             return_value=EmbeddingResult(
@@ -94,7 +95,7 @@ async def test_graph_relations_reference_the_entities_written_for_the_chunk() ->
             )
         )
     )
-    extraction = Mock(
+    extraction = ExtractionResult(
         entities=[
             {"name": "退款政策", "type": "Policy"},
             {"name": "退款申请", "type": "Process"},
@@ -109,9 +110,15 @@ async def test_graph_relations_reference_the_entities_written_for_the_chunk() ->
     )
     extractor = Mock(extract=AsyncMock(return_value=extraction))
     graph_client = Mock(
-        add_entities=AsyncMock(return_value=["entity-policy", "entity-process"]),
-        add_relations=AsyncMock(),
+        replace_document_graph=AsyncMock(return_value={"entities": 2, "relations": 1}),
     )
+
+    async def embed_all(texts):
+        return EmbeddingResult(
+            embeddings=[[0.1, 0.2] for _ in texts], model="demo", dimensions=2, tokens_used=4
+        )
+
+    embedding_service.embed.side_effect = embed_all
     service = DocumentIngestionService(
         qdrant_client=qdrant_client,
         embedding_service=embedding_service,
@@ -121,9 +128,11 @@ async def test_graph_relations_reference_the_entities_written_for_the_chunk() ->
 
     result = await service.ingest_text("退款政策指导退款申请。", "退款知识")
 
-    relation = graph_client.add_relations.await_args.args[0][0]
-    assert relation.source_entity_id == "entity-policy"
-    assert relation.target_entity_id == "entity-process"
+    _, _, entities, relations = graph_client.replace_document_graph.await_args.args
+    relation = relations[0]
+    assert relation.source_entity_id == entities[0].id
+    assert relation.target_entity_id == entities[1].id
+    assert all(entity.embedding is not None for entity in entities)
     assert result["graph_entities_extracted"] == 2
     assert result["graph_relations_extracted"] == 1
 
@@ -139,7 +148,7 @@ async def test_ingest_text_batches_embedding_calls_at_16() -> None:
     re-concatenated in order.
     """
     qdrant_client = Mock()
-    qdrant_client.add = AsyncMock()
+    qdrant_client.replace_document = AsyncMock()
 
     batch_sizes: list[int] = []
 
@@ -176,7 +185,7 @@ async def test_ingest_text_batches_embedding_calls_at_16() -> None:
     assert all(size <= DocumentIngestionService.EMBEDDING_BATCH_SIZE for size in batch_sizes)
     assert sum(batch_sizes) == chunks_count
     # Vectors re-concatenated in order: qdrant receives one vector per chunk.
-    vectors = qdrant_client.add.await_args.kwargs["vectors"]
+    vectors = qdrant_client.replace_document.await_args.kwargs["vectors"]
     assert len(vectors) == chunks_count
     # Tokens are summed across batches for the ingestion report.
     assert result["total_tokens"] == chunks_count
@@ -192,7 +201,7 @@ async def test_ingest_and_delete_rotate_kb_epoch(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(ingestion_module, "bump_kb_epoch", bump)
 
     qdrant_client = Mock()
-    qdrant_client.add = AsyncMock()
+    qdrant_client.replace_document = AsyncMock()
     embedding_service = Mock()
     embedding_service.embed = AsyncMock(
         return_value=EmbeddingResult(
@@ -206,12 +215,12 @@ async def test_ingest_and_delete_rotate_kb_epoch(monkeypatch: pytest.MonkeyPatch
     await service.ingest_text("退货政策。", "小文档", document_id="doc-a")
     assert bump.await_count == 1
 
-    # An empty delete changed no content — no rotation.
+    # An empty vector delete still repairs stale keyword/graph state.
     qdrant_client.delete_by_filter = AsyncMock(return_value=0)
     await service.delete_document("doc-a")
-    assert bump.await_count == 1
+    assert bump.await_count == 2
 
     # A real delete is a mutation — rotate.
     qdrant_client.delete_by_filter = AsyncMock(return_value=3)
     await service.delete_document("doc-a")
-    assert bump.await_count == 2
+    assert bump.await_count == 3

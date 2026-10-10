@@ -39,6 +39,7 @@ class TestLLMEntityExtractor:
         result = await self.extractor.extract("some text")
         assert result.entities == []
         assert result.relations == []
+        assert result.error
 
     @pytest.mark.asyncio
     async def test_extract_with_markdown_fences(self):
@@ -70,6 +71,7 @@ class TestLLMEntityExtractor:
         result = await self.extractor.extract("test text")
         assert result.entities == []
         assert result.raw_text == "test text"
+        assert result.error
 
     @pytest.mark.asyncio
     async def test_extract_batch(self):
@@ -81,3 +83,30 @@ class TestLLMEntityExtractor:
 
         results = await self.extractor.extract_batch(["text1", "text2"])
         assert len(results) == 2
+
+
+@pytest.mark.asyncio
+async def test_shared_llm_is_not_closed_by_extractor() -> None:
+    llm = MagicMock(close=AsyncMock())
+
+    await LLMEntityExtractor(llm).close()
+
+    llm.close.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_owned_resilient_llm_closes_all_provider_transports_once() -> None:
+    from app.services.llm.resilience import ResilientLLMService
+
+    first = MagicMock(close=AsyncMock(side_effect=RuntimeError("close failed")))
+    second = MagicMock(spec=["client", "model", "max_tokens", "temperature"])
+    second.client = MagicMock(close=AsyncMock())
+    chain = ResilientLLMService([("first", first), ("second", second), ("same", first)])
+    extractor = LLMEntityExtractor(chain, owns_llm=True)
+
+    with pytest.raises(RuntimeError, match="close failed"):
+        await extractor.close()
+    await extractor.close()
+
+    first.close.assert_awaited_once()
+    second.client.close.assert_awaited_once()

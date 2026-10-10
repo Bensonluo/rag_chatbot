@@ -170,6 +170,7 @@ class TestPipelineInjection:
         hybrid = Mock()
         hybrid.search = AsyncMock(return_value=[_FakeHit("doc-1", "policy", 0.9)])
         cache = Mock()
+        cache.capture_epoch = AsyncMock(return_value="epoch-test")
         cache.get = AsyncMock(return_value=None)
         cache.put = AsyncMock()
         chat = _chat(hybrid, slot_filler=_product_filter_filler(), retrieval_cache=cache)

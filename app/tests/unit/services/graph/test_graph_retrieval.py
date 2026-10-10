@@ -12,6 +12,58 @@ from app.services.retrieval.vector_base import SearchResult
 
 class TestGraphRetrievalServiceRRF:
     @pytest.mark.asyncio
+    async def test_keeps_distinct_policies_sharing_a_long_prefix(self):
+        prefix = "Shared policy context. " * 12
+        standard = GraphSearchResult(
+            content=prefix + "Standard products can be refunded within seven days.",
+            entities=[],
+            relations=[],
+            score=1.0,
+            source_type="text_to_cypher",
+            metadata={"source_document_id": "standard-policy"},
+        )
+        exception = GraphSearchResult(
+            content=prefix + "Custom products cannot be refunded after manufacture.",
+            entities=[],
+            relations=[],
+            score=0.9,
+            source_type="graph_embedding",
+            metadata={"source_document_id": "custom-policy"},
+        )
+        service = GraphRetrievalService(
+            text_to_cypher=AsyncMock(query=AsyncMock(return_value=[standard])),
+            graph_embedding_search=AsyncMock(search=AsyncMock(return_value=[exception])),
+        )
+
+        results = await service.search("Can I refund a custom product?", top_k=5)
+
+        assert {result.content for result in results} == {standard.content, exception.content}
+        assert {result.metadata["source_document_id"] for result in results} == {
+            "standard-policy",
+            "custom-policy",
+        }
+
+    @pytest.mark.asyncio
+    async def test_identical_complete_results_still_fuse_across_search_modes(self):
+        content = "Refund policy. " * 30 + "Seven-day refund window."
+        cypher = GraphSearchResult(
+            content=content, entities=[], relations=[], score=1.0, source_type="text_to_cypher"
+        )
+        embedding = GraphSearchResult(
+            content=content, entities=[], relations=[], score=0.9, source_type="graph_embedding"
+        )
+        service = GraphRetrievalService(
+            text_to_cypher=AsyncMock(query=AsyncMock(return_value=[cypher])),
+            graph_embedding_search=AsyncMock(search=AsyncMock(return_value=[embedding])),
+        )
+
+        results = await service.search("How long do I have to request a refund?")
+
+        assert len(results) == 1
+        assert results[0].content == content
+        assert results[0].score == pytest.approx(1 / 61)
+
+    @pytest.mark.asyncio
     async def test_fuses_cypher_and_embedding_results(self):
         cypher_result = GraphSearchResult(
             content="Cypher: 登录失败属于产品A",

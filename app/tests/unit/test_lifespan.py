@@ -11,18 +11,27 @@ Function-local imports inside ``lifespan`` re-resolve the source module
 at call time, so each seam is monkeypatched at its home module.
 """
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
+import app.api.database as database_module
 import app.api.v1.chat as chat_api
+import app.api.v1.documents as documents_api
+import app.main as main_module
 import app.middleware.rate_limiter_redis as rate_limiter_module
 import app.services.dialogue.checkpointer as checkpointer_module
 import app.services.handoff.containment_metrics as containment_module
 import app.services.retrieval.keyword_refresh as keyword_refresh_module
 from app.main import lifespan
+from app.models.database.base import Base
+from app.models.database.document import Document, DocumentVersion
+from app.services.documents.jobs import DocumentJobService
 
 
 class _FakeCheckpointerManager:
@@ -63,7 +72,134 @@ def seams(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     )
 
 
+@pytest.fixture
+async def document_jobs(monkeypatch):
+    """Run the real durable worker against isolated SQL persistence."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
+    async with engine.begin() as connection:
+        await connection.run_sync(
+            lambda sync: Base.metadata.create_all(
+                sync, tables=[Document.__table__, DocumentVersion.__table__]
+            )
+        )
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    monkeypatch.setattr(database_module, "async_session_maker", sessions)
+    yield DocumentJobService(sessions)
+    await engine.dispose()
+
+
+async def _queue_document(jobs, document_id):
+    return await jobs.submit(
+        data=b"Refunds are available within seven days.",
+        title="Refund policy",
+        filename="refunds.txt",
+        file_type="txt",
+        metadata={},
+        pipeline_config={},
+        document_id=document_id,
+    )
+
+
 class TestLifespanShutdown:
+    async def test_worker_executes_jobs_and_drains_cancellation_before_pools_close(
+        self, seams, document_jobs, monkeypatch
+    ):
+        """Exercise actual task scheduling, job commits, and awaited cleanup."""
+        monkeypatch.setattr(main_module.settings, "DOCUMENT_WORKER_ENABLED", True)
+        completed = await _queue_document(document_jobs, "complete-first")
+        interrupted = await _queue_document(document_jobs, "interrupt-second")
+        started = asyncio.Event()
+        begin_shutdown = asyncio.Event()
+        cleanup_started = asyncio.Event()
+        release_cleanup = asyncio.Event()
+        order = []
+
+        async def ingest_inflight(**kwargs):
+            started.set()
+            await asyncio.Event().wait()
+
+        async def close_inflight():
+            order.append("worker-cleanup-start")
+            cleanup_started.set()
+            await release_cleanup.wait()
+            order.append("worker-cleanup-finished")
+
+        complete_service = SimpleNamespace(
+            ingest_bytes=AsyncMock(
+                return_value={"chunks_count": 1, "_normalized_text": "Refund policy."}
+            ),
+            close=AsyncMock(),
+        )
+        inflight_service = SimpleNamespace(
+            ingest_bytes=AsyncMock(side_effect=ingest_inflight),
+            close=AsyncMock(side_effect=close_inflight),
+        )
+        factory = AsyncMock(side_effect=[complete_service, inflight_service])
+        monkeypatch.setattr(documents_api, "build_ingestion_service", factory)
+        seams.keyword_stop.side_effect = lambda: order.append("keyword-stopped")
+        seams.containment_stop.side_effect = lambda: order.append("containment-stopped")
+        seams.manager.stop = AsyncMock(side_effect=lambda: order.append("checkpointer-closed"))
+        seams.redis_close.side_effect = lambda: order.append("redis-closed")
+        app = FastAPI()
+
+        async def serve():
+            async with lifespan(app):
+                await begin_shutdown.wait()
+
+        application = asyncio.create_task(serve())
+        try:
+            await asyncio.wait_for(started.wait(), timeout=2)
+            assert not app.state.document_worker.done()
+            assert factory.await_count == 2
+            assert (await document_jobs.get_version(completed["version_id"]))["status"] == "indexed"
+            assert (await document_jobs.get_version(interrupted["version_id"]))[
+                "status"
+            ] == "processing"
+
+            begin_shutdown.set()
+            await asyncio.wait_for(cleanup_started.wait(), timeout=2)
+            assert not application.done(), "lifespan must await the worker's client cleanup"
+            assert not app.state.document_worker.done()
+            seams.manager.stop.assert_not_awaited()
+            seams.redis_close.assert_not_awaited()
+            seams.keyword_stop.assert_not_called()
+
+            release_cleanup.set()
+            await asyncio.wait_for(application, timeout=2)
+            assert app.state.document_worker.cancelled()
+            assert order.index("worker-cleanup-finished") < order.index("checkpointer-closed")
+            assert order.index("worker-cleanup-finished") < order.index("redis-closed")
+            assert order.index("worker-cleanup-finished") < order.index("keyword-stopped")
+            # Cancellation leaves a persisted processing job for a new worker,
+            # rather than losing the source or falsely marking it indexed.
+            status = await document_jobs.get_version(interrupted["version_id"])
+            assert status["status"] == "processing"
+            assert status["attempts"] == 1
+            assert (await document_jobs.source(interrupted["version_id"]))[0]
+            complete_service.close.assert_awaited_once()
+            inflight_service.close.assert_awaited_once()
+        finally:
+            begin_shutdown.set()
+            release_cleanup.set()
+            if not application.done():
+                await asyncio.wait_for(application, timeout=2)
+
+    async def test_disabled_worker_leaves_queued_jobs_unprocessed(
+        self, seams, document_jobs, monkeypatch
+    ):
+        monkeypatch.setattr(main_module.settings, "DOCUMENT_WORKER_ENABLED", False)
+        uploaded = await _queue_document(document_jobs, "remain-queued")
+        factory = AsyncMock()
+        monkeypatch.setattr(documents_api, "build_ingestion_service", factory)
+        app = FastAPI()
+        async with lifespan(app):
+            await asyncio.sleep(0)
+            assert app.state.document_worker is None
+            assert (await document_jobs.get_version(uploaded["version_id"]))["status"] == "queued"
+        factory.assert_not_awaited()
+        assert seams.manager.stopped
+        seams.redis_close.assert_awaited_once()
+
     async def test_shutdown_stops_every_started_background_task(self, seams):
         async with lifespan(FastAPI()):
             assert seams.manager.started, "startup must have run"

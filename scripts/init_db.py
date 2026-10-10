@@ -6,8 +6,8 @@ so schema changes are versioned, reviewable, and safe to replay across
 deploys and replicas.
 
 Databases created by the legacy ``create_all`` path (tables present but
-no ``alembic_version`` table) are stamped to head once on first boot of
-this version, making the transition non-destructive.
+no ``alembic_version`` table) adopt the pre-ingestion baseline, then run
+the additive ingestion migration. Never stamp new features as already applied.
 
 Demo data seeding is deliberately NOT part of boot: creating
 well-known credentials (demo@ragchatbot.com / demo123) in every
@@ -75,10 +75,10 @@ def _run_migrations() -> None:
 
 
 def _stamp_legacy_schema() -> None:
-    """Mark a legacy create_all database as being at head, without DDL."""
+    """Adopt the historical ORM baseline, before durable document ingestion."""
     alembic_cfg = Config(str(REPO_ROOT / "alembic.ini"))
     alembic_cfg.set_main_option("script_location", str(REPO_ROOT / "migrations"))
-    command.stamp(alembic_cfg, "head")
+    command.stamp(alembic_cfg, "c5f2a8e3d17b")
 
 
 async def main() -> None:
@@ -99,15 +99,14 @@ async def main() -> None:
     state = await _database_state()
     if state == "legacy":
         # Pre-existing create_all deployment: adopting Alembic must not
-        # re-run DDL that already ran. Stamp, then no-op upgrade.
+        # re-run historical DDL. New additive migrations still must run.
         logger.info(
             "Legacy schema detected (tables without alembic_version); "
-            "stamping to head without running DDL"
+            "adopting pre-ingestion baseline, then applying additive migrations"
         )
         _stamp_legacy_schema()
-    else:
-        logger.info("Running migrations to head (%s database)", state)
-        _run_migrations()
+    logger.info("Running migrations to head (%s database)", state)
+    _run_migrations()
 
     logger.info("Database initialization complete")
 

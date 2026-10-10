@@ -8,6 +8,63 @@ import pytest
 class TestHybridSearchService:
     """Test hybrid search service combining vector and keyword search"""
 
+    async def test_fusion_preserves_two_chunks_from_one_document(self):
+        from app.services.retrieval.hybrid_search import HybridSearchService, KeywordSearch
+        from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
+
+        chunks = [
+            {
+                "id": chunk_id,
+                "content": content,
+                "metadata": {"document_id": "policy", "chunk_id": chunk_id, "title": "Returns"},
+            }
+            for chunk_id, content in [("c1", "refund alpha"), ("c2", "refund beta")]
+        ]
+        keyword = KeywordSearch()
+        await keyword.add_documents(chunks)
+        vector = Mock(
+            search=AsyncMock(
+                return_value=[
+                    SearchResult("policy", chunk["content"], 0.9, chunk["metadata"])
+                    for chunk in chunks
+                ]
+            )
+        )
+        results = await HybridSearchService(vector, keyword).search(
+            VectorSearchRequest("refund", top_k=10)
+        )
+
+        assert len(results) == 2
+        assert {result.metadata["chunk_id"] for result in results} == {"c1", "c2"}
+        assert [result.document_id for result in results] == ["policy", "policy"]
+        for result in results:
+            assert result.metadata["vector_score"] > 0
+            assert result.metadata["keyword_score"] > 0
+            assert result.metadata["title"] == "Returns"
+
+    async def test_keyword_only_keeps_parent_id_and_source_metadata(self):
+        from app.services.retrieval.hybrid_search import KeywordSearch
+        from app.services.retrieval.vector_base import VectorSearchRequest
+
+        keyword = KeywordSearch()
+        await keyword.add_documents(
+            [
+                {
+                    "id": "chunk-1",
+                    "content": "refund policy",
+                    "metadata": {"document_id": "doc-1", "source": "policy.pdf", "page": 2},
+                }
+            ]
+        )
+        result = (await keyword.search(VectorSearchRequest("refund")))[0]
+        assert result.document_id == "doc-1"
+        assert result.metadata == {
+            "chunk_id": "chunk-1",
+            "document_id": "doc-1",
+            "source": "policy.pdf",
+            "page": 2,
+        }
+
     def test_service_initialization(self):
         """Test hybrid search service initialization"""
         # Arrange

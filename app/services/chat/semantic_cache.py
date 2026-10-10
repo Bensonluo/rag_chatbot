@@ -120,7 +120,7 @@ class SemanticCacheService:
         if not self._enabled():
             return None
         try:
-            key, _ = await self._key_and_epoch()
+            key, epoch = await self._key_and_epoch()
             if key is None:
                 return None
             query_vec = (await self._embeddings.embed([message])).embeddings[0]
@@ -140,6 +140,7 @@ class SemanticCacheService:
                 best is None
                 or best_score < self._settings.SEMANTIC_CACHE_SIMILARITY_THRESHOLD
                 or best.get("intent") not in served
+                or epoch != await self.capture_epoch()
             ):
                 return None
             return CachedAnswer(
@@ -151,7 +152,9 @@ class SemanticCacheService:
             logger.warning("Semantic cache read failed; degrading to miss", exc_info=True)
             return None
 
-    async def put(self, message: str, answer: CachedAnswer) -> None:
+    async def put(
+        self, message: str, answer: CachedAnswer, *, expected_epoch: str | None = None
+    ) -> None:
         """Cache one grounded answer for near-duplicate replay.
 
         Skips silently when disabled, when the intent is outside the
@@ -163,12 +166,14 @@ class SemanticCacheService:
         if answer.intent not in self._served_intents():
             return
         try:
-            key, epoch = await self._key_and_epoch()
+            key, epoch = await self._key_and_epoch(expected_epoch=expected_epoch)
             if key is None:
                 return
             if await self._redis.hlen(key) >= self._settings.SEMANTIC_CACHE_MAX_ENTRIES:
                 return
             vec = (await self._embeddings.embed([message])).embeddings[0]
+            if epoch != await self.capture_epoch():
+                return
             payload = json.dumps(
                 {
                     "response": answer.response,
@@ -194,10 +199,24 @@ class SemanticCacheService:
         except Exception:  # noqa: BLE001 - fail-open iron law
             logger.warning("Semantic cache write failed; skipping entry", exc_info=True)
 
-    async def _key_and_epoch(self) -> tuple[str | None, str | None]:
+    async def capture_epoch(self) -> str:
+        """Capture the source version before lookup or generation."""
+        try:
+            return await self._epoch_provider()
+        except Exception:
+            logger.warning("Semantic cache epoch unavailable", exc_info=True)
+            return EPOCH_UNAVAILABLE
+
+    async def _key_and_epoch(
+        self, *, expected_epoch: str | None = None
+    ) -> tuple[str | None, str | None]:
         """Epoch-scoped namespace with its epoch; Nones when unavailable."""
-        epoch = await self._epoch_provider()
-        if not epoch or epoch == EPOCH_UNAVAILABLE:
+        epoch = await self.capture_epoch()
+        if (
+            not epoch
+            or epoch == EPOCH_UNAVAILABLE
+            or (expected_epoch is not None and epoch != expected_epoch)
+        ):
             return None, None
         return f"{_NAMESPACE}:{epoch}", epoch
 

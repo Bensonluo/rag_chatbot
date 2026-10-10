@@ -54,8 +54,11 @@ class LLMEntityExtractor(EntityExtractor):
         llm_service: LLMServiceBase,
         entity_types: dict[str, dict[str, Any]] | None = None,
         relation_types: dict[str, dict[str, Any]] | None = None,
+        *,
+        owns_llm: bool = False,
     ) -> None:
         self._llm = llm_service
+        self._owns_llm = owns_llm
         self._entity_types = entity_types or ENTITY_TYPES
         self._relation_types = relation_types or RELATION_TYPES
         self._prompt = self._build_prompt_template()
@@ -99,7 +102,42 @@ class LLMEntityExtractor(EntityExtractor):
             return self._parse_response(response.content, text)
         except Exception as e:
             logger.warning("Entity extraction failed: %s", e)
-            return ExtractionResult(raw_text=text)
+            return ExtractionResult(
+                raw_text=text, error=f"LLM extraction failed: {type(e).__name__}"
+            )
+
+    async def close(self) -> None:
+        """Close per-job provider transports while leaving injected shared LLMs alone."""
+        if not self._owns_llm:
+            return
+        self._owns_llm = False
+        from app.services.llm.resilience import ResilientLLMService
+
+        # The factory returns either a provider or the existing resilience wrapper.
+        # That wrapper has no lifecycle method, so close its owned providers here.
+        providers = (
+            [provider for _, provider in self._llm._providers]
+            if isinstance(self._llm, ResilientLLMService)
+            else [self._llm]
+        )
+        closed: set[int] = set()
+        errors: list[Exception] = []
+        for provider in providers:
+            if id(provider) in closed:
+                continue
+            closed.add(id(provider))
+            close = getattr(provider, "close", None)
+            if close is None:
+                # OpenAI/Anthropic wrappers expose the async SDK transport.
+                client = getattr(provider, "client", None)
+                close = getattr(client, "close", None) or getattr(client, "aclose", None)
+            if close is not None:
+                try:
+                    await close()
+                except Exception as exc:
+                    errors.append(exc)
+        if errors:
+            raise errors[0]
 
     async def extract_batch(
         self, texts: list[str], context: dict[str, Any] | None = None
@@ -124,33 +162,59 @@ class LLMEntityExtractor(EntityExtractor):
             data = json.loads(text)
         except json.JSONDecodeError as e:
             logger.warning("Failed to parse extraction JSON: %s", e)
-            return ExtractionResult(raw_text=raw_text)
+            return ExtractionResult(raw_text=raw_text, error="Invalid extraction JSON")
 
-        entities = data.get("entities", [])
-        relations = data.get("relations", [])
+        if (
+            not isinstance(data, dict)
+            or not isinstance(data.get("entities"), list)
+            or not isinstance(data.get("relations"), list)
+        ):
+            return ExtractionResult(raw_text=raw_text, error="Invalid extraction schema")
+        entities = data["entities"]
+        relations = data["relations"]
+        invalid = False
 
         # Validate entity types against schema
         valid_entities: list[dict[str, Any]] = []
         for ent in entities:
-            if not isinstance(ent, dict) or "name" not in ent or "type" not in ent:
+            if (
+                not isinstance(ent, dict)
+                or not isinstance(ent.get("name"), str)
+                or not ent["name"].strip()
+                or not isinstance(ent.get("type"), str)
+                or not isinstance(ent.get("properties", {}), dict)
+                or not isinstance(ent.get("description", ""), str | type(None))
+            ):
+                invalid = True
                 continue
             if ent["type"] in self._entity_types:
                 valid_entities.append(ent)
             else:
                 logger.debug("Skipping entity with unknown type: %s", ent.get("type"))
+                invalid = True
 
         # Validate relation types against schema
         valid_relations: list[dict[str, Any]] = []
         for rel in relations:
-            if not isinstance(rel, dict) or "source" not in rel or "target" not in rel:
+            if (
+                not isinstance(rel, dict)
+                or any(
+                    not isinstance(rel.get(key), str) or not rel[key].strip()
+                    for key in ("source", "target", "type")
+                )
+                or not isinstance(rel.get("properties", {}), dict)
+            ):
+                invalid = True
                 continue
             if "type" in rel and rel["type"] in self._relation_types:
                 valid_relations.append(rel)
             else:
                 logger.debug("Skipping relation with unknown type: %s", rel.get("type"))
+                invalid = True
 
         return ExtractionResult(
             entities=valid_entities,
             relations=valid_relations,
             raw_text=raw_text,
+            error="Invalid extraction schema entries" if invalid else None,
         )

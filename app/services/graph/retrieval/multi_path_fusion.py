@@ -5,6 +5,7 @@ Fuses results from the vector retrieval path (Qdrant) and the graph
 retrieval path (Neo4j) into a unified result list via RRF.
 """
 
+import hashlib
 import logging
 
 from app.services.graph.base import GraphSearchResult
@@ -35,12 +36,12 @@ class MultiPathRetrievalFusion:
         result_map: dict[str, SearchResult] = {}
 
         for rank, result in enumerate(vector_results):
-            key = result.document_id
+            key = "vector_" + str((result.metadata or {}).get("chunk_id") or result.document_id)
             scores[key] = scores.get(key, 0.0) + self._vector_weight / (60 + rank + 1)
             result_map[key] = result
 
         for rank, graph_result in enumerate(graph_results):
-            key = f"graph_{hash(graph_result.content[:200])}"
+            key = "graph_" + hashlib.sha256(graph_result.content.encode("utf-8")).hexdigest()
             score = self._graph_weight / (60 + rank + 1)
             scores[key] = scores.get(key, 0.0) + score
 
@@ -50,6 +51,7 @@ class MultiPathRetrievalFusion:
                     content=graph_result.content,
                     score=0.0,
                     metadata={
+                        **(graph_result.metadata or {}),
                         "source_type": graph_result.source_type,
                         "entities": [
                             {"name": e.name, "type": e.type} for e in graph_result.entities

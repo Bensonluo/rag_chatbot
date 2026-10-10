@@ -63,7 +63,8 @@ class TestKeywordLegPurge:
         assert hits == []
         # Other documents untouched.
         survivor = await leg.search(VectorSearchRequest(query="yxwbeta", top_k=5))
-        assert [h.document_id for h in survivor] == ["b1"]
+        assert [h.document_id for h in survivor] == ["docB"]
+        assert survivor[0].metadata["chunk_id"] == "b1"
 
     async def test_remove_document_is_noop_for_unknown_id(self) -> None:
         leg = _seeded_leg()
@@ -139,9 +140,8 @@ class TestIngestionWiring:
         hits = await leg.search(VectorSearchRequest(query="zxqalpha", top_k=5))
         assert hits == []
 
-    async def test_delete_document_skips_purge_on_empty_delete(self, monkeypatch) -> None:
-        """An empty delete (unknown id) is not a KB mutation: no epoch
-        bump, no purge."""
+    async def test_empty_vector_delete_still_repairs_stale_keyword_state(self, monkeypatch) -> None:
+        """A retry after vector deletion must still purge other stores and caches."""
         import app.services.documents.ingestion as ingestion_module
         from app.services.documents.ingestion import DocumentIngestionService
 
@@ -161,5 +161,5 @@ class TestIngestionWiring:
 
         await service.delete_document("docA")
 
-        bump_epoch.assert_not_awaited()
-        assert set(leg.documents) == {"a1", "a2", "b1"}
+        bump_epoch.assert_awaited_once()
+        assert set(leg.documents) == {"b1"}

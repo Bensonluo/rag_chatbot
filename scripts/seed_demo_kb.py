@@ -8,19 +8,20 @@ e-commerce customer-service policies whose numbers are pinned to
 mirrors the FAQ/fact-table structure and never represents real business
 content.
 
-Idempotent: every doc_id is deleted before re-ingestion, so re-running
-never duplicates chunks.
+Idempotent: the durable ingestion queue deduplicates identical revisions.
+Replacement publishes new chunks before retiring the previous revision.
 
-Usage (wherever settings can reach Qdrant + the embedding provider):
+Run from a matching application checkout/image after database migrations.
+Settings must reach Postgres, Qdrant, Redis, the configured embedding provider,
+and Neo4j when GRAPH_RAG_ENABLED=true. Extraction is disabled for this synthetic
+corpus; graph storage still connects to clean up replaced document assertions.
 
+    python scripts/seed_demo_kb.py --dry-run
     python scripts/seed_demo_kb.py
 
-In the deployed container (no rebuild needed — copy both files in):
+In a deployed container built from this revision:
 
-    docker cp app/data/demo_kb <container>:/tmp/
-    docker cp scripts/seed_demo_kb.py <container>:/tmp/
-    docker exec <container> python /tmp/seed_demo_kb.py \
-        --corpus /tmp/demo_kb/demo_corpus.json
+    docker exec <container> python scripts/seed_demo_kb.py
 """
 
 import argparse
@@ -31,6 +32,8 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from scripts.document_import import ImportDocument, ingest_documents
 
 DEFAULT_CORPUS = (
     Path(__file__).resolve().parent.parent / "app" / "data" / "demo_kb" / "demo_corpus.json"
@@ -70,61 +73,19 @@ async def seed(corpus_path: Path, dry_run: bool) -> None:
             print(f"  would ingest {doc['doc_id']} ({doc['lang']}, ~{len(doc['content'])} chars)")
         return
 
-    # Imported lazily so --dry-run never touches app settings/services.
-    # Wired directly (mirroring get_ingestion_service) but WITHOUT the
-    # per-chunk LLM entity extractor: ~50 sequential GLM extraction
-    # calls against the Coding Plan's low concurrency ceiling would be
-    # slow and rate-limit-prone; this seeder fills the vector leg only.
-    from app.config.settings import get_settings
-    from app.services.documents.ingestion import DocumentIngestionService
-    from app.services.embeddings import EmbeddingFactory
-    from app.services.retrieval.factory import RetrievalFactory
-
-    settings = get_settings()
-    embedding_service = EmbeddingFactory.create_from_settings()
-    qdrant_client = RetrievalFactory.create_vector_client(
-        client_type="qdrant",
-        url=settings.VECTOR_DB_URL,
-        collection_name=settings.VECTOR_COLLECTION_NAME,
-        api_key=settings.VECTOR_API_KEY,
-        embedding_service=embedding_service,
+    await ingest_documents(
+        [
+            ImportDocument(
+                document_id=doc["doc_id"],
+                title=doc["title"],
+                content=doc["content"],
+                metadata={"lang": doc["lang"], "topic": doc["topic"], "synthetic": True},
+            )
+            for doc in docs
+        ],
+        graph_enabled=False,
     )
-    service = DocumentIngestionService(
-        qdrant_client=qdrant_client,
-        embedding_provider=settings.EMBEDDING_PROVIDER,
-        chunking_strategy="semantic",
-        embedding_service=embedding_service,
-    )
-    total_chunks = 0
-    for doc in docs:
-        # Idempotency: drop any previous version of this doc first.
-        # Best-effort: the first seed has nothing to delete, and a
-        # deployed container may predate the FilterSelector fix in
-        # delete_by_filter — a failed delete must not abort the seed.
-        try:
-            deleted = await service.delete_document(doc["doc_id"])
-            deleted_chunks = deleted["deleted_chunks"]
-        except Exception as exc:
-            deleted_chunks = 0
-            print(f"  warn: pre-ingest delete failed for {doc['doc_id']}: {exc}")
-        result = await service.ingest_text(
-            text=doc["content"],
-            title=doc["title"],
-            document_id=doc["doc_id"],
-            metadata={
-                "lang": doc["lang"],
-                "topic": doc["topic"],
-                "synthetic": True,
-                "source": "demo_kb",
-            },
-        )
-        total_chunks += result["chunks_count"]
-        print(
-            f"  ingested {doc['doc_id']}: {result['chunks_count']} chunks"
-            f" (replaced {deleted_chunks})"
-        )
-
-    print(f"done: {len(docs)} docs, {total_chunks} chunks in Qdrant")
+    print(f"done: {len(docs)} retained document revisions indexed")
 
 
 def main() -> None:

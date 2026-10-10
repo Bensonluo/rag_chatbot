@@ -90,7 +90,7 @@ class AnswerCacheService:
         pipeline. A miss ratio of 100% is the ceiling of safe behavior.
         """
         try:
-            key, _ = await self._key_and_epoch(message)
+            key, epoch = await self._key_and_epoch(message)
             if key is None:
                 ANSWER_CACHE_MISSES.inc()
                 return None
@@ -104,7 +104,7 @@ class AnswerCacheService:
                 sources=[str(s) for s in payload.get("sources", [])],
                 intent=str(payload.get("intent", "")),
             )
-            if not answer.response:
+            if not answer.response or epoch != await self.capture_epoch():
                 ANSWER_CACHE_MISSES.inc()
                 return None
             ANSWER_CACHE_HITS.inc()
@@ -121,12 +121,13 @@ class AnswerCacheService:
         response: str,
         sources: list[str],
         intent: str,
+        expected_epoch: str | None = None,
     ) -> None:
         """Store a grounded answer. Fail-open: errors are logged, never raised."""
         if not response or not sources or len(response) > self._max_response_chars:
             return
         try:
-            key, epoch = await self._key_and_epoch(message)
+            key, epoch = await self._key_and_epoch(message, expected_epoch=expected_epoch)
             if key is None:
                 # Epoch unavailable: refuse to populate a key namespace
                 # that bypasses KB invalidation.
@@ -149,14 +150,28 @@ class AnswerCacheService:
         except Exception:  # noqa: BLE001 - cache is never a dependency
             logger.warning("Answer cache write failed; answer simply not cached", exc_info=True)
 
-    async def _key_and_epoch(self, message: str) -> tuple[str | None, str | None]:
+    async def capture_epoch(self) -> str:
+        """Capture the source version before producing an answer; fail closed for caching."""
+        try:
+            return await get_kb_epoch()
+        except Exception:
+            logger.warning("Answer cache epoch unavailable", exc_info=True)
+            return EPOCH_UNAVAILABLE
+
+    async def _key_and_epoch(
+        self, message: str, *, expected_epoch: str | None = None
+    ) -> tuple[str | None, str | None]:
         """Epoch-scoped digest key with its epoch; Nones when unavailable.
 
         The epoch is returned alongside the key so ``put`` can index
         the entry for downvote eviction without a second epoch read.
         """
-        epoch = await get_kb_epoch()
-        if epoch == EPOCH_UNAVAILABLE:
+        epoch = await self.capture_epoch()
+        if (
+            not epoch
+            or epoch == EPOCH_UNAVAILABLE
+            or (expected_epoch is not None and epoch != expected_epoch)
+        ):
             return None, None
         digest = hashlib.sha256(
             "\x00".join(

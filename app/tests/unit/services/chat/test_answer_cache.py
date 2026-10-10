@@ -68,6 +68,26 @@ class TestNormalizeMessage:
 
 
 class TestAnswerCacheService:
+    async def test_rotation_during_lookup_discards_the_old_hit(self, monkeypatch):
+        svc, _ = _make_service()
+        await svc.put("q", response="old answer", sources=["d"], intent="question")
+        monkeypatch.setattr(
+            "app.services.chat.answer_cache.get_kb_epoch",
+            AsyncMock(side_effect=["epoch-test", "new-epoch"]),
+        )
+        assert await svc.get("q") is None
+
+    async def test_write_refuses_a_result_from_an_older_epoch(self):
+        svc, fake = _make_service()
+        await svc.put(
+            "q",
+            response="old answer",
+            sources=["d"],
+            intent="question",
+            expected_epoch="before-mutation",
+        )
+        assert fake.store == {}
+
     async def test_put_then_get_roundtrip(self):
         svc, _ = _make_service()
         await svc.put(
@@ -129,9 +149,23 @@ class _RecordingCache(AnswerCacheService):
         super().__init__(redis_url="redis://localhost:6379/0", ttl_seconds=60)
         self.puts: list[dict[str, Any]] = []
 
-    async def put(self, message: str, *, response: str, sources: list[str], intent: str) -> None:
+    async def put(
+        self,
+        message: str,
+        *,
+        response: str,
+        sources: list[str],
+        intent: str,
+        expected_epoch: str | None = None,
+    ) -> None:
         self.puts.append(
-            {"message": message, "response": response, "sources": sources, "intent": intent}
+            {
+                "message": message,
+                "response": response,
+                "sources": sources,
+                "intent": intent,
+                "expected_epoch": expected_epoch,
+            }
         )
 
     async def get(self, message: str) -> CachedAnswer | None:  # pragma: no cover
@@ -145,6 +179,34 @@ def _graph_returning(result: dict[str, Any]) -> Mock:
 
 
 class TestChatServiceCacheWritePath:
+    @pytest.mark.parametrize("streaming", [False, True])
+    async def test_mutation_during_generation_does_not_recache_old_answer(
+        self, monkeypatch, streaming
+    ):
+        cache, redis = _make_service()
+
+        async def generate(_state, config):
+            monkeypatch.setattr(
+                "app.services.chat.answer_cache.get_kb_epoch",
+                AsyncMock(return_value="new-epoch"),
+            )
+            queue = config["configurable"].get("stream_queue")
+            if queue is not None:
+                queue.put_nowait("old answer")
+            return {
+                "message": "q",
+                "response": "old answer",
+                "sources": ["deleted"],
+                "intent": "question",
+            }
+
+        service = ChatService(graph=Mock(ainvoke=generate), answer_cache=cache)
+        if streaming:
+            _ = [chunk async for chunk in service.process_message_stream(1, "q", 0)]
+        else:
+            await service.process_message(1, "q", 0)
+        assert redis.store == {}
+
     async def test_eligible_anonymous_grounded_turn_is_cached(self):
         cache = _RecordingCache()
         service = ChatService(
@@ -161,6 +223,7 @@ class TestChatServiceCacheWritePath:
         await service.process_message(session_id=1, message="退货政策是什么", user_id=0)
         assert len(cache.puts) == 1
         assert cache.puts[0]["sources"] == ["doc-1"]
+        assert cache.puts[0]["expected_epoch"] == "epoch-test"
 
     async def test_write_key_uses_sanitized_message(self):
         """The read site looks up with post-guardrail text; writes must match."""

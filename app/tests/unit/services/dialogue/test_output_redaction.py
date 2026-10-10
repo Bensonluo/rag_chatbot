@@ -112,6 +112,7 @@ class TestDirectTierOutputGuardrail:
         an email must come back with ``[REDACTED]``, not the raw PII."""
         llm = _ChunkedLLM([f"联络邮箱：{EMAIL}。"])
         semantic_cache = Mock()
+        semantic_cache.capture_epoch = AsyncMock(return_value="epoch-test")
         semantic_cache.get = AsyncMock(return_value=None)
         semantic_cache.put = AsyncMock()
         chat = ChatService(

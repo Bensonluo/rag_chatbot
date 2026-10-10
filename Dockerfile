@@ -68,6 +68,10 @@ RUN apt-get update && apt-get install -y \
     curl \
     libpq5 \
     netcat-openbsd \
+    poppler-utils \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-chi-sim \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder

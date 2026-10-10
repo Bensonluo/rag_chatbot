@@ -6,9 +6,8 @@ the L1 semantic cache, and the L2 retrieval-result cache — are
 invalidated wholesale by the bump: no per-entry eviction, no
 tombstones, no partial-invalidation bugs.
 
-Why Redis and not the Postgres documents table: the upload path never
-writes that table (it is metadata-only), and more importantly the epoch
-must die together with the caches it guards. A Redis flush takes both
+The epoch lives alongside the caches it guards, independently of the
+Postgres source/revision registry. A Redis flush takes both
 the epoch and every cache entry out at once — a total miss, which is
 the safe direction — and because values are random UUIDs, a flush can
 never resurrect stale entries under a recycled counter.
