@@ -13,7 +13,9 @@ the limiter.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import math
 import time
 from typing import Any
 
@@ -21,12 +23,18 @@ from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from redis import exceptions as redis_exceptions
 from redis.asyncio import Redis
+from redis.asyncio.retry import Retry
+from redis.backoff import NoBackoff
 
 from app.config.settings import settings
 from app.middleware.error_handler import ErrorResponse
 from app.middleware.rate_limiter import TokenBucket
 
 logger = logging.getLogger(__name__)
+
+# A rate-limit check must leave time for the actual request. The overall
+# deadline also covers connection-pool waits and connection handshakes.
+_REDIS_TIMEOUT_SECONDS = 0.25
 
 # Atomic sliding-window check: prune expired entries, then admit or reject.
 # Returns {allowed(0/1), remaining}.
@@ -36,18 +44,20 @@ local now = tonumber(ARGV[1])
 local window = tonumber(ARGV[2])
 local limit = tonumber(ARGV[3])
 local member = ARGV[4]
+local ttl = tonumber(ARGV[5])
 redis.call('ZREMRANGEBYSCORE', key, '-inf', now - window)
 local count = redis.call('ZCARD', key)
 if count < limit then
     redis.call('ZADD', key, now, member)
-    redis.call('EXPIRE', key, window)
+    redis.call('EXPIRE', key, ttl)
     return {1, limit - count - 1}
 end
 return {0, 0}
 """
 
 # Errors meaning "Redis is unreachable / call failed": the caller degrades
-# to its per-process fallback instead of failing the request.
+# to its per-process fallback instead of failing the request. OSError includes
+# the built-in TimeoutError raised by asyncio.timeout; cancellation propagates.
 _REDIS_ERRORS = (redis_exceptions.RedisError, OSError, ValueError)
 
 
@@ -64,6 +74,10 @@ class _RedisClientHolder:
                 settings.RATE_LIMIT_REDIS_URL or settings.REDIS_URL,
                 encoding="utf-8",
                 decode_responses=True,
+                socket_connect_timeout=_REDIS_TIMEOUT_SECONDS,
+                socket_timeout=_REDIS_TIMEOUT_SECONDS,
+                retry=Retry(NoBackoff(), 0),
+                retry_on_timeout=False,
             )
         return cls._client
 
@@ -99,18 +113,20 @@ async def _redis_sliding_window(
     Raises the Redis/unreachable errors upward so each limiter can apply
     its own fallback policy.
     """
-    client = _RedisClientHolder.get()
-    now = time.time()
-    member = f"{now}-{client_ip}"
-    result = await client.eval(  # type: ignore[no-untyped-call]
-        _SLIDING_WINDOW_LUA,
-        1,
-        key,
-        int(now * 1000),
-        int(window_seconds * 1000),
-        limit,
-        member,
-    )
+    async with asyncio.timeout(_REDIS_TIMEOUT_SECONDS):
+        client = _RedisClientHolder.get()
+        now = time.time()
+        member = f"{now}-{client_ip}"
+        result = await client.eval(  # type: ignore[no-untyped-call]
+            _SLIDING_WINDOW_LUA,
+            1,
+            key,
+            int(now * 1000),
+            int(window_seconds * 1000),
+            limit,
+            member,
+            max(1, math.ceil(window_seconds)),
+        )
     return int(result[0]) == 1, int(result[1])
 
 
