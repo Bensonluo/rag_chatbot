@@ -75,6 +75,22 @@ jobs:
 
   migrations:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ci_test
+          POSTGRES_PASSWORD: ci_test_password
+          POSTGRES_DB: ci_migrations
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci_test -d ci_migrations"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CI_MIGRATION_DATABASE_URL: postgresql+asyncpg://ci_test:ci_test_password@localhost:5432/ci_migrations
     steps:
       - uses: actions/checkout@v4
 
@@ -87,35 +103,69 @@ jobs:
             requirements-lock.txt
 
       - name: Install dependencies
-        run: pip install -e . -c requirements-lock.txt
+        run: pip install -e ".[dev]" -c requirements-lock.txt
 
-      # Guards against model/migration drift: applying the full chain to a
-      # fresh database, then autogenerating a diff, must produce no changes.
-      # Settings only accepts postgres+asyncpg URLs, so the scratch DB URL
-      # is injected after import (same approach as local verification).
-      - name: Verify migration chain (upgrade, downgrade, re-upgrade, zero drift)
+      # Both supported databases must round-trip the complete migration chain.
+      # command.check compares the live schema to all models registered by env.py;
+      # it fails on drift without generating or inspecting a revision file.
+      - name: Verify SQLite and PostgreSQL migration chains and model alignment
         run: |
           python - <<'EOF'
-          import os, sys
-          sys.path.insert(0, os.getcwd())
-          from app.config import settings as settings_module
-          settings_module.settings.DATABASE_URL = "sqlite:///./ci_scratch.db"
+          import os
+          from pathlib import Path
+          from tempfile import TemporaryDirectory
+
           from alembic import command
           from alembic.config import Config
-          cfg = Config("alembic.ini")
-          cfg.set_main_option("script_location", "migrations")
-          command.upgrade(cfg, "head")
-          command.downgrade(cfg, "base")
-          command.upgrade(cfg, "head")
-          command.revision(cfg, message="ci drift check", autogenerate=True)
+          from app.config.settings import settings
+
+          with TemporaryDirectory(prefix="rag-ci-migrations-") as scratch:
+              databases = {
+                  "SQLite": f"sqlite:///{Path(scratch) / 'migrations.db'}",
+                  "PostgreSQL 16": os.environ["CI_MIGRATION_DATABASE_URL"],
+              }
+              for label, url in databases.items():
+                  print(f"Verifying {label}", flush=True)
+                  # Override in memory: Settings validates application URLs as
+                  # async PostgreSQL, while Alembic also exercises sync SQLite.
+                  settings.DATABASE_URL = url
+                  config = Config("alembic.ini")
+                  command.upgrade(config, "head")
+                  command.downgrade(config, "base")
+                  command.upgrade(config, "head")
+                  command.check(config)
           EOF
-          # The drift-check revision must be an empty no-op.
-          FILE=$(ls migrations/versions/*ci_drift_check*.py)
-          if grep -A2 "def upgrade" "$FILE" | grep -qv "^def upgrade\|pass\|#"; then
-            echo "::error::Model/migration drift detected — regenerate the migration"
-            exit 1
-          fi
-          echo "No drift: migration chain matches Base.metadata"
+
+      # Keep concurrency fixtures separate from the migrated schema, and scope
+      # the opt-in PostgreSQL URL to this step rather than the default test suite.
+      - name: Verify handoff concurrency on PostgreSQL
+        env:
+          RAG_TEST_DATABASE_URL: postgresql+asyncpg://ci_test:ci_test_password@localhost:5432/ci_handoff_concurrency
+        run: |
+          python - <<'EOF'
+          import os
+          from sqlalchemy import create_engine
+
+          url = os.environ["CI_MIGRATION_DATABASE_URL"].replace(
+              "postgresql+asyncpg://", "postgresql+pg8000://", 1
+          )
+          engine = create_engine(url, isolation_level="AUTOCOMMIT")
+          try:
+              with engine.connect() as connection:
+                  connection.exec_driver_sql("CREATE DATABASE ci_handoff_concurrency")
+          finally:
+              engine.dispose()
+          EOF
+          pytest --no-cov -q \
+            app/tests/unit/repositories/test_ticket_concurrency.py \
+            app/tests/unit/services/handoff/test_creation_concurrency.py
+
+      # Exercise the operator scripts against a separate disposable Compose
+      # project, including a real dump, new-database restore and failure rollback.
+      - name: Verify PostgreSQL backup and recovery
+        env:
+          RAG_RUN_RESTORE_DRILL: "1"
+        run: pytest --no-cov -q app/tests/integration/test_backup_restore_drill.py
 
   audit:
     runs-on: ubuntu-latest

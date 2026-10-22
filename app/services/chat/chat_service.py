@@ -12,11 +12,12 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from app.config.settings import settings
 from app.models.enums.message import MessageStatus
+from app.services.chat.citations import normalize_citations
 from app.services.chat.metrics import (
     CHAT_FIRST_TOKEN_SECONDS,
     CHAT_STREAM_DURATION_SECONDS,
@@ -73,6 +74,7 @@ class ChatResponse:
         intent: Detected intent
         sources: Optional list of source document IDs
         metadata: Optional response metadata
+        citations: Versioned evidence snapshots used to generate this answer
     """
 
     content: str
@@ -80,6 +82,7 @@ class ChatResponse:
     intent: str
     sources: list[str] | None = None
     metadata: dict[str, Any] | None = None
+    citations: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -91,11 +94,22 @@ class ChatMessage:
         role: Message role (user/assistant/system)
         content: Message content
         timestamp: Optional timestamp
+        sources: Legacy source document identifiers
+        citations: Evidence snapshots stored when the answer was generated
     """
 
     role: str
     content: str
     timestamp: str | None = None
+    sources: list[str] | None = None
+    citations: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class CitationEvent:
+    """Final citation snapshot, emitted only for an opted-in completed stream."""
+
+    citations: list[dict[str, Any]]
 
 
 class ChatService:
@@ -171,6 +185,13 @@ class ChatService:
         }
         if result.get("turn_id"):
             metadata["turn_id"] = result["turn_id"]
+        citations = normalize_citations(result.get("citations"))
+        if citations:
+            metadata["citations"] = citations
+        if result.get("handoff_outcome"):
+            metadata["handoff_outcome"] = result["handoff_outcome"]
+            if result.get("handoff_ticket_id"):
+                metadata["handoff_ticket_id"] = result["handoff_ticket_id"]
         # Durable audit trail of agent tool executions (refunds and
         # other irreversible support actions must be traceable).
         executed_tools = result.get("executed_tools") or []
@@ -205,6 +226,7 @@ class ChatService:
             intent=result.get("intent", "unknown"),
             sources=result.get("sources"),
             metadata=metadata,
+            citations=citations,
         )
 
     @traced_stage("cs.pipeline.stream")
@@ -215,7 +237,8 @@ class ChatService:
         user_id: int,
         heartbeat_seconds: float = 15.0,
         stream_max_seconds: float = 120.0,
-    ) -> AsyncGenerator[str | TraceEvent, None]:
+        include_citations: bool = False,
+    ) -> AsyncGenerator[str | TraceEvent | CitationEvent, None]:
         """
         Process a user message with true token streaming.
 
@@ -243,10 +266,11 @@ class ChatService:
             user_id: User identifier
             heartbeat_seconds: Idle window before yielding a heartbeat
             stream_max_seconds: Total budget before the stream is cut off
+            include_citations: Emit a final citation event after a completed turn
 
         Yields:
-            str | TraceEvent: Response text chunks (HEARTBEAT sentinel
-            on idle) interleaved with pipeline trace events
+            Response text, heartbeats and trace events; an opted-in completed
+            stream ends with a CitationEvent after persistence finishes.
         """
         if self.graph is None:
             # STREAM_ERROR frame per the stream failure convention —
@@ -377,6 +401,13 @@ class ChatService:
                 }
                 if result.get("turn_id"):
                     metadata["turn_id"] = result["turn_id"]
+                citations = normalize_citations(result.get("citations"))
+                if citations:
+                    metadata["citations"] = citations
+                if result.get("handoff_outcome"):
+                    metadata["handoff_outcome"] = result["handoff_outcome"]
+                    if result.get("handoff_ticket_id"):
+                        metadata["handoff_ticket_id"] = result["handoff_ticket_id"]
                 # Durable audit trail of agent tool executions — parity
                 # with the non-stream path (review 2026-09-26, #8).
                 executed_tools = result.get("executed_tools") or []
@@ -400,6 +431,9 @@ class ChatService:
                     ),
                     metadata=metadata,
                 )
+
+        if include_citations and outcome == "completed":
+            yield CitationEvent(citations=normalize_citations(result.get("citations")))
 
     async def _maybe_cache_answer(
         self,
@@ -445,6 +479,7 @@ class ChatService:
             sources=list(sources),
             intent=result.get("intent", "unknown"),
             expected_epoch=expected_epoch,
+            citations=normalize_citations(result.get("citations")),
         )
 
     async def get_chat_history(
@@ -479,8 +514,8 @@ class ChatService:
         (``pending_confirmation``) lives in the checkpoint thread and
         would otherwise survive the clear — a later bare "确认" would
         execute a refund the user believed they had discarded (review
-        2026-09-26, #8). Checkpoint deletion is fail-open: a failing
-        clear must never 500 the history endpoint.
+        2026-09-26, #8). Every required reset must succeed before the
+        API acknowledges completion; failures remain visible for retry.
 
         Args:
             session_id: Session identifier
@@ -489,11 +524,6 @@ class ChatService:
             await self.memory_strategy.clear_session(session_id=session_id)
         checkpointer = getattr(self.graph, "checkpointer", None)
         if checkpointer is not None:
-            try:
-                await checkpointer.adelete_thread(str(session_id))
-            except Exception:  # noqa: BLE001 - clear must never fail the API
-                logger.warning(
-                    "Failed to clear dialogue checkpoint for session %s",
-                    session_id,
-                    exc_info=True,
-                )
+            await checkpointer.adelete_thread(str(session_id))
+        if self.persister is not None:
+            await self.persister.clear_history(session_id)

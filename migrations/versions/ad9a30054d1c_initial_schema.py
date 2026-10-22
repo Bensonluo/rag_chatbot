@@ -137,6 +137,12 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_messages_session_id"), table_name="messages")
     op.drop_index(op.f("ix_messages_intent"), table_name="messages")
     op.drop_table("messages")
+    if op.get_context().dialect.name == "postgresql":
+        # PostgreSQL enums outlive their tables. Drop only after messages is
+        # gone; RESTRICT (the default) fails safely if another table uses one.
+        # Leaving these behind prevents a clean downgrade -> upgrade cycle.
+        op.execute("DROP TYPE IF EXISTS messagerole RESTRICT")
+        op.execute("DROP TYPE IF EXISTS messagestatus RESTRICT")
     op.drop_index(op.f("ix_chat_sessions_user_id"), table_name="chat_sessions")
     op.drop_table("chat_sessions")
     op.drop_index(op.f("ix_users_email"), table_name="users")

@@ -32,11 +32,15 @@ from app.services.agent.metrics import (
     AGENT_TOOL_CALLS,
     OUTCOME_ANSWERED,
     OUTCOME_BUDGET_EXHAUSTED,
+    OUTCOME_HANDOFF,
+    OUTCOME_HANDOFF_FAILED,
     OUTCOME_STAGED,
     OUTCOME_STEPS_EXHAUSTED,
     record_agent_outcome,
 )
+from app.services.chat.citations import normalize_citations
 from app.services.dialogue.i18n import GENERATION_LANG_DIRECTIVE, detect_language
+from app.services.dialogue.tools import ToolResult
 from app.services.llm.base import LLMMessage
 from app.services.llm.budget import LLMBudgetExceeded
 
@@ -89,7 +93,8 @@ class AgentResult:
         truncated: True when the step budget ran out before a final
             answer.
         outcome: Terminal outcome label for telemetry (answered /
-            staged / budget_exhausted / steps_exhausted).
+            staged / handoff / handoff_failed / budget_exhausted / steps_exhausted).
+        handoff_ticket_id: Persisted ticket when escalation succeeded.
     """
 
     response: str
@@ -98,6 +103,8 @@ class AgentResult:
     tool_trace: list[dict[str, Any]] = field(default_factory=list)
     truncated: bool = False
     outcome: str = OUTCOME_ANSWERED
+    handoff_ticket_id: int | None = None
+    citations: list[dict[str, Any]] = field(default_factory=list)
 
 
 class AgentService:
@@ -188,6 +195,7 @@ class AgentService:
 
         executed: list[str] = []
         trace: list[dict[str, Any]] = []
+        evidence: list[dict[str, Any]] = []
 
         for step in range(self._max_steps):
             try:
@@ -211,21 +219,7 @@ class AgentService:
                     response=response.content or _FALLBACK_RESPONSE,
                     executed_tools=executed,
                     tool_trace=trace,
-                )
-
-            # No budget left for another model round after executing —
-            # stop instead of starting work we cannot finish.
-            if step == self._max_steps - 1:
-                logger.warning(
-                    "Agent step budget exhausted after %d rounds; tools requested again",
-                    self._max_steps,
-                )
-                return AgentResult(
-                    response=_FALLBACK_RESPONSE,
-                    executed_tools=executed,
-                    tool_trace=trace,
-                    truncated=True,
-                    outcome=OUTCOME_STEPS_EXHAUSTED,
+                    citations=normalize_citations(evidence) if response.content else [],
                 )
 
             # Echo the model's tool request back into history (the API
@@ -239,6 +233,17 @@ class AgentService:
             )
 
             for call in calls:
+                # Escalation terminates deterministically and needs no
+                # follow-up model round, even on the final allowed step.
+                is_handoff = call.get("name") == "escalate_to_human"
+                if step == self._max_steps - 1 and not is_handoff:
+                    return AgentResult(
+                        response=_FALLBACK_RESPONSE,
+                        executed_tools=executed,
+                        tool_trace=trace,
+                        truncated=True,
+                        outcome=OUTCOME_STEPS_EXHAUSTED,
+                    )
                 staged = self._maybe_stage_confirmation(call)
                 if staged is not None:
                     # Keep the audit trail of tools already run before
@@ -246,7 +251,34 @@ class AgentService:
                     staged.executed_tools = executed
                     staged.tool_trace = trace
                     return staged
-                await self._execute_call(call, messages, executed, trace, user_id, session_id)
+                tool_result = await self._execute_call(
+                    call, messages, executed, trace, user_id, session_id
+                )
+                if (
+                    call.get("name") == "search_knowledge_base"
+                    and tool_result is not None
+                    and tool_result.success
+                ):
+                    evidence.extend(normalize_citations(tool_result.data.get("citations")))
+                if is_handoff:
+                    from app.services.dialogue.nodes import _build_handoff_response
+
+                    ticket = tool_result.data if tool_result and tool_result.success else {}
+                    ticket_id = ticket.get("ticket_id")
+                    # The model cannot rewrite a failed handoff into a
+                    # success, execute later tools, or stage a refund
+                    # after responsibility was handed to a human.
+                    return AgentResult(
+                        response=_build_handoff_response(
+                            "agent", ticket, lang=detect_language(user_message)
+                        ),
+                        executed_tools=executed,
+                        tool_trace=trace,
+                        outcome=OUTCOME_HANDOFF
+                        if ticket_id is not None
+                        else OUTCOME_HANDOFF_FAILED,
+                        handoff_ticket_id=ticket_id,
+                    )
 
         return AgentResult(
             response=_FALLBACK_RESPONSE,
@@ -288,7 +320,7 @@ class AgentService:
         trace: list[dict[str, Any]],
         user_id: int | None,
         session_id: int | None = None,
-    ) -> None:
+    ) -> ToolResult | None:
         """Execute one tool call and append its result to the history."""
         tool = self._tools.get_tool_by_name(call.get("name", ""))
         if tool is None:
@@ -303,10 +335,10 @@ class AgentService:
                     "summary": unknown,
                 }
             )
-            return
+            return None
 
         args = _parse_arguments(call)
-        result = await self._tools.execute(
+        result: ToolResult = await self._tools.execute(
             tool.intent, args, user_id=user_id, session_id=session_id
         )
         AGENT_TOOL_CALLS.labels(
@@ -325,6 +357,7 @@ class AgentService:
                 ],
             }
         )
+        return result
 
 
 def _parse_arguments(call: dict[str, Any]) -> dict[str, Any]:

@@ -1,0 +1,318 @@
+{
+  "schema_version": 1,
+  "scope": "Local production BM25 + SQLite + compiled graph; recorded LLM is only a contract fixture. No embeddings or external tools.",
+  "cases": [
+    {
+      "id": "knowledge-zh",
+      "category": "versioned_knowledge",
+      "language": "zh",
+      "documents": [
+        {
+          "id": "policy-zh-chunk",
+          "content": "退货政策：签收后七天内可申请退货，商品须保持完好并保留购买凭证。",
+          "metadata": {
+            "document_id": "returns-zh",
+            "version_id": "returns-zh-v2",
+            "title": "退货政策",
+            "page_start": 2,
+            "page_end": 2,
+            "section_path": [
+              "售后"
+            ]
+          }
+        }
+      ],
+      "turns": [
+        {
+          "utterance": "退货政策是什么？",
+          "expected_intent": "policy",
+          "expected_version_ids": [
+            "returns-zh-v2"
+          ],
+          "required_points": [
+            "七天内申请，保持商品完好并提供购买凭证。"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "empty-zh",
+      "category": "no_evidence",
+      "language": "zh",
+      "documents": [],
+      "turns": [
+        {
+          "utterance": "月球配送政策是什么？",
+          "expected_intent": "policy",
+          "abstention": true,
+          "required_points": [
+            "说明没有可靠资料，不能编造月球配送规则。"
+          ],
+          "forbidden_promises": [
+            "保证送达",
+            "guaranteed delivery"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "handoff-success-zh",
+      "category": "handoff_success",
+      "language": "zh",
+      "documents": [],
+      "turns": [
+        {
+          "utterance": "转人工",
+          "expected_intent": "handoff",
+          "expected_handoff_outcome": "queued",
+          "required_points": [
+            "确认已创建人工工单，不保证人工已接听。"
+          ],
+          "forbidden_promises": [
+            "人工客服已经接听",
+            "an agent has already answered",
+            "立即退款",
+            "instant refund"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "handoff-failure-zh",
+      "category": "handoff_failure",
+      "language": "zh",
+      "documents": [],
+      "handoff_failure": true,
+      "turns": [
+        {
+          "utterance": "转人工",
+          "expected_intent": "handoff",
+          "expected_handoff_outcome": "failed",
+          "required_points": [
+            "转接未确认成功，告知重试。"
+          ],
+          "forbidden_promises": [
+            "已为您转接",
+            "工单号",
+            "being transferred",
+            "ticket #",
+            "already in the queue"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "switch-zh",
+      "category": "multi_turn",
+      "language": "zh",
+      "documents": [
+        {
+          "id": "policy-zh-chunk",
+          "content": "退货政策：签收后七天内可申请退货，商品须保持完好并保留购买凭证。",
+          "metadata": {
+            "document_id": "returns-zh",
+            "version_id": "returns-zh-v2",
+            "title": "退货政策",
+            "page_start": 2,
+            "page_end": 2,
+            "section_path": [
+              "售后"
+            ]
+          }
+        }
+      ],
+      "turns": [
+        {
+          "utterance": "退货政策是什么？",
+          "expected_intent": "policy",
+          "expected_version_ids": [
+            "returns-zh-v2"
+          ],
+          "required_points": [
+            "七天内申请，保持商品完好并提供购买凭证。"
+          ]
+        },
+        {
+          "utterance": "转人工",
+          "expected_intent": "handoff",
+          "expected_handoff_outcome": "queued",
+          "required_points": [
+            "确认已创建人工工单，不保证人工已接听。"
+          ],
+          "forbidden_promises": [
+            "人工客服已经接听",
+            "an agent has already answered",
+            "立即退款",
+            "instant refund"
+          ]
+        },
+        {
+          "utterance": "退货政策是什么？",
+          "expected_intent": "policy",
+          "expected_version_ids": [
+            "returns-zh-v2"
+          ],
+          "required_points": [
+            "七天内申请，保持商品完好并提供购买凭证。"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "knowledge-en",
+      "category": "versioned_knowledge",
+      "language": "en",
+      "documents": [
+        {
+          "id": "policy-en-chunk",
+          "content": "Return policy: request a return within seven days of delivery. Keep the item intact and provide proof of purchase.",
+          "metadata": {
+            "document_id": "returns-en",
+            "version_id": "returns-en-v2",
+            "title": "Return policy",
+            "page_start": 2,
+            "page_end": 2,
+            "section_path": [
+              "After sales"
+            ]
+          }
+        }
+      ],
+      "turns": [
+        {
+          "utterance": "What is the return policy?",
+          "expected_intent": "policy",
+          "expected_version_ids": [
+            "returns-en-v2"
+          ],
+          "required_points": [
+            "Apply within seven days, keep the item intact, and provide proof of purchase."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "empty-en",
+      "category": "no_evidence",
+      "language": "en",
+      "documents": [],
+      "turns": [
+        {
+          "utterance": "What is the lunar delivery policy?",
+          "expected_intent": "policy",
+          "abstention": true,
+          "required_points": [
+            "Say evidence is unavailable; do not invent lunar delivery rules."
+          ],
+          "forbidden_promises": [
+            "保证送达",
+            "guaranteed delivery"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "handoff-success-en",
+      "category": "handoff_success",
+      "language": "en",
+      "documents": [],
+      "turns": [
+        {
+          "utterance": "human agent",
+          "expected_intent": "handoff",
+          "expected_handoff_outcome": "queued",
+          "required_points": [
+            "Confirm a handoff ticket was created, without claiming an agent has answered."
+          ],
+          "forbidden_promises": [
+            "人工客服已经接听",
+            "an agent has already answered",
+            "立即退款",
+            "instant refund"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "handoff-failure-en",
+      "category": "handoff_failure",
+      "language": "en",
+      "documents": [],
+      "handoff_failure": true,
+      "turns": [
+        {
+          "utterance": "human agent",
+          "expected_intent": "handoff",
+          "expected_handoff_outcome": "failed",
+          "required_points": [
+            "The transfer could not be confirmed; ask the user to retry."
+          ],
+          "forbidden_promises": [
+            "已为您转接",
+            "工单号",
+            "being transferred",
+            "ticket #",
+            "already in the queue"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "switch-en",
+      "category": "multi_turn",
+      "language": "en",
+      "documents": [
+        {
+          "id": "policy-en-chunk",
+          "content": "Return policy: request a return within seven days of delivery. Keep the item intact and provide proof of purchase.",
+          "metadata": {
+            "document_id": "returns-en",
+            "version_id": "returns-en-v2",
+            "title": "Return policy",
+            "page_start": 2,
+            "page_end": 2,
+            "section_path": [
+              "After sales"
+            ]
+          }
+        }
+      ],
+      "turns": [
+        {
+          "utterance": "What is the return policy?",
+          "expected_intent": "policy",
+          "expected_version_ids": [
+            "returns-en-v2"
+          ],
+          "required_points": [
+            "Apply within seven days, keep the item intact, and provide proof of purchase."
+          ]
+        },
+        {
+          "utterance": "human agent",
+          "expected_intent": "handoff",
+          "expected_handoff_outcome": "queued",
+          "required_points": [
+            "Confirm a handoff ticket was created, without claiming an agent has answered."
+          ],
+          "forbidden_promises": [
+            "人工客服已经接听",
+            "an agent has already answered",
+            "立即退款",
+            "instant refund"
+          ]
+        },
+        {
+          "utterance": "What is the return policy?",
+          "expected_intent": "policy",
+          "expected_version_ids": [
+            "returns-en-v2"
+          ],
+          "required_points": [
+            "Apply within seven days, keep the item intact, and provide proof of purchase."
+          ]
+        }
+      ]
+    }
+  ]
+}

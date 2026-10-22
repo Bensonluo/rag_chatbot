@@ -9,6 +9,7 @@ never “您好，请问有什么可以帮您”.
 import asyncio
 from unittest.mock import AsyncMock, Mock
 
+import pytest
 from langchain_core.runnables import RunnableConfig
 
 from app.models.enums.intent import Intent
@@ -182,7 +183,8 @@ class TestHandleHandoffNode:
 
         assert updates["handoff_ticket_id"] == 42
         assert "工单号 #42" in updates["response"]
-        assert "排队人数：3 人" in updates["response"]
+        assert "排队位置：第 3 位" in updates["response"]
+        assert updates["handoff_outcome"] == "queued"
         assert updates["intent"] == "handoff"
         # Template response reaches the stream queue (not LLM-streamed).
         assert queue.get_nowait() == updates["response"]
@@ -220,26 +222,39 @@ class TestHandleHandoffNode:
 
         assert "抱歉" in updates["response"]
 
-    async def test_ticket_failure_still_responds(self):
-        """DB down must not block the user from reaching a human."""
+    @pytest.mark.parametrize(
+        "message, failure, retry",
+        [
+            ("转人工", "未能", "重试"),
+            ("human agent", "couldn't", "try again"),
+        ],
+    )
+    async def test_ticket_failure_reports_failure_and_retry(self, message, failure, retry):
+        """A failed transfer must not leave a user waiting for a nonexistent ticket."""
         handoff = Mock()
         handoff.create_ticket_for_session = AsyncMock(
             return_value={"ticket_id": None, "queue_position": None, "reused": False}
         )
         factory = _make_factory(handoff_service=handoff)
 
-        state: DialogueState = {"message": "转人工", "session_id": 7}
-        updates = await factory.handle_handoff_node(state)
+        state: DialogueState = {"message": message, "session_id": 7}
+        config, queue = _config_with_queue()
+        updates = await factory.handle_handoff_node(state, config)
 
-        assert "转接人工客服" in updates["response"]
+        assert failure in updates["response"]
+        assert retry in updates["response"]
+        assert await queue.get() == updates["response"]
+        assert updates["handoff_outcome"] == "failed"
         assert "handoff_ticket_id" not in updates
 
     async def test_no_service_still_responds(self):
-        """Handoff without a service wired (None) still acknowledges."""
+        """No configured handoff service is an unsuccessful transfer."""
         factory = _make_factory(handoff_service=None)
         state: DialogueState = {"message": "转人工", "session_id": 7}
         updates = await factory.handle_handoff_node(state)
         assert "转接人工客服" in updates["response"]
+        assert "未能" in updates["response"]
+        assert updates["handoff_outcome"] == "failed"
 
     async def test_reused_ticket_mentions_queue_membership(self):
         handoff = Mock()
@@ -252,7 +267,7 @@ class TestHandleHandoffNode:
         updates = await factory.handle_handoff_node(state)
 
         assert "排队中" in updates["response"]
-        assert "排队人数" not in updates["response"]
+        assert "排队位置" not in updates["response"]
 
 
 # ── Rule-based detector integration ────────────────────────────────────────

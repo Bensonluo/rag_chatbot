@@ -10,6 +10,7 @@ from typing import Any
 
 from app.services.embeddings.base import EmbeddingServiceBase
 from app.services.graph.base import GraphClient, GraphSearchResult
+from app.services.graph.provenance import collect_source_provenance
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,10 @@ class GlobalSearchService:
                 "YIELD node, score "
                 "RETURN node.community_id AS cid, node.title AS title, "
                 "node.summary AS summary, node.entity_count AS entity_count, "
-                "node.entities AS entities, score "
+                "node.entities AS entities, score, "
+                "node.source_document_ids AS source_document_ids, "
+                "node.source_version_ids AS source_version_ids, "
+                "node.source_chunk_ids AS source_chunk_ids "
                 "ORDER BY score DESC",
                 {"k": top_k, "embedding": query_embedding},
             )
@@ -64,6 +68,7 @@ class GlobalSearchService:
                         "community_id": r.get("cid"),
                         "entity_count": r.get("entity_count", 0),
                         "entities": entities_list if isinstance(entities_list, list) else [],
+                        **collect_source_provenance(r),
                     },
                 )
             )
@@ -82,7 +87,10 @@ class GlobalSearchService:
                 "WHERE cs.embedding IS NOT NULL "
                 "RETURN cs.community_id AS cid, cs.title AS title, "
                 "cs.summary AS summary, cs.entity_count AS entity_count, "
-                "cs.entities AS entities, 0.5 AS score "
+                "cs.entities AS entities, 0.5 AS score, "
+                "cs.source_document_ids AS source_document_ids, "
+                "cs.source_version_ids AS source_version_ids, "
+                "cs.source_chunk_ids AS source_chunk_ids "
                 "LIMIT $k",
                 {"k": top_k},
             )

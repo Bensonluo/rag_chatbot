@@ -177,9 +177,16 @@ class ChatServiceFactory:
         )
 
         # Create intent detector
+        intent_llm_service = light_llm_service
+        if settings.INTENT_GLM_MODEL and intent_type in ["llm_based", "hybrid"]:
+            from app.services.llm.factory import LLMFactory
+
+            intent_llm_service = BudgetedLLMService(
+                LLMFactory.create(provider="glm", model=settings.INTENT_GLM_MODEL)
+            )
         intent_detector = IntentFactory.create(
             detector_type=intent_type,
-            llm_service=light_llm_service if intent_type in ["llm_based", "hybrid"] else None,
+            llm_service=intent_llm_service if intent_type in ["llm_based", "hybrid"] else None,
         )
 
         # Create tool registry and build LangGraph dialogue graph

@@ -2,6 +2,7 @@
 
 from datetime import UTC
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -14,6 +15,7 @@ from app.models.database.ticket import (
     PRIORITY_NORMAL,
     HandoffTicket,
 )
+from app.repositories.ticket_repository import TicketRepository
 from app.services.handoff.service import HandoffService
 
 
@@ -60,6 +62,35 @@ class TestCreateTicket:
         async with session_maker() as session:
             count = len((await session.execute(select(HandoffTicket))).scalars().all())
         assert count == 1
+
+    @pytest.mark.parametrize("reuse_existing", [False, True])
+    async def test_queue_lookup_failure_keeps_persisted_ticket(self, session_maker, reuse_existing):
+        service = HandoffService(session_maker=session_maker)
+        existing_id = None
+        if reuse_existing:
+            first = await service.create_ticket_for_session(1, 7, "explicit", {})
+            existing_id = first["ticket_id"]
+
+        with patch.object(
+            TicketRepository,
+            "position_in_queue",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("queue lookup unavailable"),
+        ) as position:
+            result = await service.create_ticket_for_session(1, 7, "explicit", {})
+
+        # Independently verify that the reported handoff exists in the queue.
+        async with session_maker() as session:
+            ticket = (await session.execute(select(HandoffTicket))).scalar_one()
+        assert result == {
+            "ticket_id": ticket.id,
+            "queue_position": None,
+            "reused": reuse_existing,
+        }
+        assert ticket.status == "open"
+        if reuse_existing:
+            assert ticket.id == existing_id
+        position.assert_awaited_once_with(ticket.id)
 
     async def test_queue_position_counts_open_only(self, session_maker):
         service = HandoffService(session_maker=session_maker)

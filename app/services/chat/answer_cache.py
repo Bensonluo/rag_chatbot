@@ -25,10 +25,11 @@ import hashlib
 import json
 import logging
 import re
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 from app.services.chat.cache_eviction import record_response_index
+from app.services.chat.citations import normalize_citations
 from app.services.chat.metrics import ANSWER_CACHE_HITS, ANSWER_CACHE_MISSES
 from app.services.retrieval.kb_epoch import EPOCH_UNAVAILABLE, get_kb_epoch
 
@@ -60,6 +61,7 @@ class CachedAnswer:
     response: str
     sources: list[str]
     intent: str
+    citations: list[dict[str, Any]] = field(default_factory=list)
 
 
 class AnswerCacheService:
@@ -103,6 +105,7 @@ class AnswerCacheService:
                 response=str(payload.get("response", "")),
                 sources=[str(s) for s in payload.get("sources", [])],
                 intent=str(payload.get("intent", "")),
+                citations=normalize_citations(payload.get("citations")),
             )
             if not answer.response or epoch != await self.capture_epoch():
                 ANSWER_CACHE_MISSES.inc()
@@ -122,6 +125,7 @@ class AnswerCacheService:
         sources: list[str],
         intent: str,
         expected_epoch: str | None = None,
+        citations: list[dict[str, Any]] | None = None,
     ) -> None:
         """Store a grounded answer. Fail-open: errors are logged, never raised."""
         if not response or not sources or len(response) > self._max_response_chars:
@@ -133,7 +137,12 @@ class AnswerCacheService:
                 # that bypasses KB invalidation.
                 return
             payload = json.dumps(
-                {"response": response, "sources": sources, "intent": intent},
+                {
+                    "response": response,
+                    "sources": sources,
+                    "intent": intent,
+                    "citations": normalize_citations(citations),
+                },
                 ensure_ascii=False,
             )
             await self._client().set(key, payload, ex=self._ttl)

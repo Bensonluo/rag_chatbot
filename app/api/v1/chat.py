@@ -23,12 +23,15 @@ from app.api.v1.sessions import get_session_service
 from app.config.settings import settings
 from app.middleware.rate_limiter_redis import EndpointRateLimiter, client_ip_from_request
 from app.models.database.user import User
+from app.models.schemas.citation import SourceCitation
 from app.services.chat.chat_service import (
     HEARTBEAT,
     STREAM_ERROR,
     ChatService,
+    CitationEvent,
     GraphUnavailableError,
 )
+from app.services.chat.citations import normalize_citations
 from app.services.chat.factory import ChatServiceFactory
 from app.services.embeddings import EmbeddingFactory
 from app.services.handoff.containment_metrics import start_containment_refresher
@@ -327,6 +330,7 @@ class ChatRequest(BaseModel):
     session_id: int = Field(..., gt=0, description="Session ID")
     user_id: int | None = Field(None, gt=0, description="User ID (optional)")
     max_tokens: int | None = Field(None, gt=0, le=4096, description="Max tokens for response")
+    include_citations: bool = Field(False, description="Emit the final citations event in SSE")
 
 
 class ChatResponse(BaseModel):
@@ -336,6 +340,7 @@ class ChatResponse(BaseModel):
     session_id: int
     intent: str
     sources: list[str] | None = None
+    citations: list[SourceCitation] = Field(default_factory=list)
     metadata: dict[str, Any] | None = None
     dialogue_state: dict[str, Any] | None = None
 
@@ -346,6 +351,8 @@ class ChatMessageResponse(BaseModel):
     role: str
     content: str
     timestamp: str | None = None
+    sources: list[str] | None = None
+    citations: list[SourceCitation] = Field(default_factory=list)
 
 
 class ChatHistoryResponse(BaseModel):
@@ -395,6 +402,10 @@ async def chat(
             session_id=response.session_id,
             intent=response.intent,
             sources=response.sources,
+            citations=[
+                SourceCitation.model_validate(citation)
+                for citation in normalize_citations(getattr(response, "citations", None))
+            ],
             metadata=response.metadata,
             dialogue_state=dialogue_state,
         )
@@ -448,13 +459,21 @@ async def chat_stream(
     try:
 
         async def generate() -> AsyncIterator[str]:
+            citation_options = {"include_citations": True} if request.include_citations else {}
             async for chunk in chat_service.process_message_stream(
                 session_id=request.session_id,
                 message=request.message,
                 user_id=user_id or 0,
                 stream_max_seconds=settings.CHAT_STREAM_MAX_SECONDS,
+                **citation_options,
             ):
-                if isinstance(chunk, TraceEvent):
+                if isinstance(chunk, CitationEvent):
+                    if request.include_citations:
+                        payload = json.dumps(
+                            {"citations": normalize_citations(chunk.citations)}, ensure_ascii=False
+                        )
+                        yield f"event: citations\ndata: {payload}\n\n"
+                elif isinstance(chunk, TraceEvent):
                     # Pipeline execution chain for the demo panel — a
                     # named event, so content-only consumers never see it.
                     yield _sse_trace_frame(chunk)
@@ -510,6 +529,11 @@ async def get_chat_history(
                     role=msg.role,
                     content=msg.content,
                     timestamp=msg.timestamp,
+                    sources=msg.sources if isinstance(msg.sources, list) else None,
+                    citations=[
+                        SourceCitation.model_validate(citation)
+                        for citation in normalize_citations(getattr(msg, "citations", None))
+                    ],
                 )
                 for msg in messages
             ],

@@ -100,11 +100,11 @@ def graph_client(monkeypatch):
 
 
 @pytest.mark.parametrize("failure", [None, "connect", "processing"])
-async def test_graph_shared_client_lifecycle(graph_client, failure):
+async def test_graph_shared_client_lifecycle(graph_client: AsyncMock, failure):
     if failure == "connect":
         graph_client.connect.side_effect = RuntimeError("connection failed")
 
-    async def run():
+    async def run() -> None:
         async with document_import.connected_graph():
             assert graph_api.get_graph_client() is graph_client
             graph_client.connect.assert_awaited_once()
@@ -120,11 +120,13 @@ async def test_graph_shared_client_lifecycle(graph_client, failure):
     graph_client.close.assert_awaited_once()
 
 
-async def test_existing_graph_connection_remains_caller_owned(graph_client, monkeypatch):
+async def test_existing_graph_connection_remains_caller_owned(graph_client: AsyncMock, monkeypatch):
+    factory = Mock(return_value=graph_client)
+    monkeypatch.setattr(GraphFactory, "create_from_settings", factory)
     monkeypatch.setattr(graph_api, "_graph_client", graph_client)
     async with document_import.connected_graph():
         assert graph_api.get_graph_client() is graph_client
-    GraphFactory.create_from_settings.assert_not_called()
+    factory.assert_not_called()
     graph_client.connect.assert_not_awaited()
     graph_client.close.assert_not_awaited()
     assert graph_api.get_graph_client() is graph_client
@@ -138,7 +140,7 @@ async def test_graph_disabled_allocates_no_client(monkeypatch):
 
 
 @pytest.fixture
-async def runner(monkeypatch, graph_client):
+async def runner(monkeypatch, graph_client: AsyncMock):
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

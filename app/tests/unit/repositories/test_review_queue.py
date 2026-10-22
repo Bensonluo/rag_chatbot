@@ -21,6 +21,7 @@ from app.models.database.session import ChatSession
 from app.models.database.ticket import HandoffTicket
 from app.models.enums.message import MessageRole
 from app.repositories.session_repository import SessionRepository
+from app.repositories.ticket_repository import TicketRepository
 
 _NOW = datetime(2026, 10, 3, 0, 0, tzinfo=UTC)
 
@@ -184,6 +185,46 @@ class TestRecordReviewVerdict:
         assert row.session_metadata is not None
         assert row.session_metadata["qa_verdict"]["note"] == "复核后确认"
         assert len(row.session_metadata) == 1  # one verdict key, not accumulating
+
+    @pytest.mark.parametrize("reopened_count", [0, 2])
+    async def test_corrected_verdict_revokes_resolution_without_user_reopen(
+        self, session_maker, reopened_count
+    ):
+        await _seed(session_maker, sessions=[1], assistant_turns={1: 1})
+        since = _NOW - timedelta(days=7)
+
+        async with session_maker() as session:
+            row = await session.get(ChatSession, 1)
+            assert row is not None
+            row.reopened_count = reopened_count
+            row.session_metadata = {"source": "support"}
+            await session.commit()
+            await SessionRepository(session).record_review_verdict(
+                1, resolved=True, note="初审确认解决"
+            )
+            stats = await TicketRepository(session).get_containment_stats(since=since)
+            assert stats["sessions_resolved"] == 1
+
+        async with session_maker() as session:
+            await SessionRepository(session).record_review_verdict(
+                1, resolved=False, note="复核发现问题仍存在"
+            )
+
+        # Read committed state through a new session, as the dashboard does.
+        async with session_maker() as session:
+            row = await session.get(ChatSession, 1)
+            assert row is not None
+            assert row.resolved_at is None
+            assert row.reopened_count == reopened_count
+            assert row.session_metadata is not None
+            assert row.session_metadata["source"] == "support"
+            assert row.session_metadata["qa_verdict"]["resolved"] is False
+            assert row.session_metadata["qa_verdict"]["note"] == "复核发现问题仍存在"
+            stats = await TicketRepository(session).get_containment_stats(since=since)
+            assert stats["sessions_resolved"] == 0
+            assert stats["sessions_reopened"] == (1 if reopened_count else 0)
+
+        assert await _queue(session_maker) == set()
 
 
 class TestLastUserMessage:

@@ -24,7 +24,7 @@ class TestQdrantClient:
         client = QdrantClient(url="unused", collection_name="test", client=raw)
         old_ids, new_ids = [str(uuid.uuid4()), str(uuid.uuid4())], [str(uuid.uuid4())]
 
-        def payloads(ids):
+        def payloads(ids: list[str]) -> list[dict[str, str]]:
             return [
                 {"document_id": "doc", "chunk_id": chunk_id, "content": chunk_id}
                 for chunk_id in ids

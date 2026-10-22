@@ -17,6 +17,7 @@ from app.services.graph.base import (
     GraphRelation,
     GraphSearchResult,
 )
+from app.services.graph.provenance import collect_source_provenance
 from app.services.graph.schema import get_schema_prompt_text
 from app.services.llm.base import LLMMessage, LLMServiceBase
 
@@ -37,6 +38,7 @@ Rules:
 - Generate ONLY read-only MATCH/WHERE/RETURN queries. No CREATE, MERGE, SET, DELETE.
 - Always add LIMIT (max {max_results}).
 - Use parameterized values via $params where appropriate.
+- When returning stored entities or relations, also return their existing source_document_ids/source_document_id, source_version_ids/source_version_id and source_chunk_ids when available. Never invent source identifiers.
 - Return results as: {{"query": "...", "params": {{...}}}}
 - If the question cannot be answered from the schema, return {{"query": null, "params": {{}}}}
 
@@ -165,6 +167,7 @@ class TextToCypherService:
                                 name=value["name"],
                                 type=value.get("type", ""),
                                 description=value.get("description"),
+                                properties=collect_source_provenance(value),
                             )
                         )
                     parts.append(f"{key}: {value}")
@@ -179,7 +182,7 @@ class TextToCypherService:
                     relations=relations,
                     score=1.0,
                     source_type="text_to_cypher",
-                    metadata={"query": query},
+                    metadata={"query": query, **collect_source_provenance(record)},
                 )
             )
         return results

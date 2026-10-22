@@ -1,0 +1,117 @@
+"""Real database interleavings for competing handoff state transitions."""
+
+import asyncio
+import os
+from unittest.mock import patch
+from uuid import uuid4
+
+import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from app.models.database.base import Base
+from app.models.database.session import ChatSession
+from app.models.database.ticket import HandoffTicket
+from app.models.database.user import User
+from app.repositories.ticket_repository import TicketRepository
+
+
+@pytest.fixture
+async def ticket_database(tmp_path):
+    # Separate connections to a file exercise committed state across sessions,
+    # unlike a shared in-memory SQLite connection. Opt-in external runs must
+    # use a disposable scratch database; never use the application's DATABASE_URL.
+    url = os.environ.get("RAG_TEST_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'tickets.db'}")
+    engine = create_async_engine(url)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        maker = async_sessionmaker(engine, expire_on_commit=False)
+        async with maker() as session:
+            # PostgreSQL enforces parent FKs; create real parent rows and unique
+            # identities so repeated scratch runs do not share ticket state.
+            user = User(email=f"ticket-{uuid4().hex}@example.test", hashed_password="test-only")
+            session.add(user)
+            await session.flush()
+            chat = ChatSession(user_id=user.id)
+            session.add(chat)
+            await session.flush()
+            ticket = await TicketRepository(session).create(
+                HandoffTicket(session_id=chat.id, reason="explicit", summary="{}")
+            )
+            ticket_id = ticket.id
+        yield maker, ticket_id
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("delayed_action", "winning_action", "delayed_succeeds", "final_status"),
+    [
+        ("claim", "claim", False, "claimed"),
+        ("claim", "resolve", False, "resolved"),
+        ("resolve", "claim", True, "resolved"),
+        ("resolve", "resolve", False, "resolved"),
+    ],
+)
+async def test_competing_transitions(
+    ticket_database, delayed_action, winning_action, delayed_succeeds, final_status
+):
+    maker, ticket_id = ticket_database
+    decision_reached = asyncio.Event()
+    winner_finished = asyncio.Event()
+
+    async with maker() as delayed_session, maker() as winning_session:
+        # Keep a stale identity-map entry alive as well: a returned transition
+        # must refresh it rather than exposing the pre-race state to the caller.
+        stale_ticket = await TicketRepository(delayed_session).get_by_id(ticket_id)
+        assert stale_ticket is not None
+        assert stale_ticket.status == "open"
+        original_execute = delayed_session.execute
+
+        async def pause_at_decision(statement, *args, **kwargs):
+            # A read-then-write implementation can read the old status before
+            # its competitor commits. Atomic writes must check the status at
+            # the write itself, so let the competitor commit before that write.
+            if statement.is_select:
+                result = await original_execute(statement, *args, **kwargs)
+                decision_reached.set()
+                await winner_finished.wait()
+                return result
+            decision_reached.set()
+            await winner_finished.wait()
+            return await original_execute(statement, *args, **kwargs)
+
+        async def winning_transition() -> HandoffTicket | None:
+            await decision_reached.wait()
+            try:
+                repo = TicketRepository(winning_session)
+                operation = repo.claim if winning_action == "claim" else repo.resolve
+                return await operation(ticket_id, agent_id=202)
+            finally:
+                winner_finished.set()
+
+        with patch.object(delayed_session, "execute", side_effect=pause_at_decision):
+            operation = getattr(TicketRepository(delayed_session), delayed_action)
+            delayed, winner = await asyncio.wait_for(
+                asyncio.gather(operation(ticket_id, agent_id=101), winning_transition()),
+                timeout=5,
+            )
+
+        assert winner is not None
+        assert (delayed is not None) == delayed_succeeds
+        if delayed is not None:
+            assert delayed.status == final_status
+            assert delayed.assigned_to == 202
+            assert delayed.claimed_at == winner.claimed_at
+        winning_claimed_at = winner.claimed_at
+
+    async with maker() as observer:
+        persisted = await TicketRepository(observer).get_by_id(ticket_id)
+        assert persisted is not None
+        assert persisted.status == final_status
+        assert persisted.assigned_to == 202
+        assert persisted.claimed_at == winning_claimed_at
+        if winning_action == "claim":
+            assert persisted.claimed_at is not None
+        else:
+            assert persisted.claimed_at is None

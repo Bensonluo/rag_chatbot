@@ -2,11 +2,13 @@
 
 from io import BytesIO
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from typing import Any
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
 from fastapi import FastAPI, HTTPException, UploadFile
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -15,9 +17,12 @@ from app.api.v1 import documents
 from app.config.settings import settings
 from app.core.exceptions import ValidationError
 from app.models.database.base import Base
-from app.models.database.document import Document, DocumentVersion
+from app.models.database.document import DocumentVersion
 from app.models.database.user import User
 from app.services.documents.jobs import DocumentJobService
+from app.services.embeddings import EmbeddingFactory
+from app.services.embeddings.base import EmbeddingServiceBase
+from app.services.retrieval.factory import RetrievalFactory
 from app.services.retrieval.vector_base import SearchResult
 
 PREFIX = "/api/v1/documents"
@@ -30,7 +35,7 @@ async def test_queued_job_with_previous_embedding_configuration_fails_before_cli
     config = documents.pipeline_config()
     config[field] = "previous-deployment"
     constructor = AsyncMock()
-    monkeypatch.setattr(documents.EmbeddingFactory, "create", constructor)
+    monkeypatch.setattr(EmbeddingFactory, "create", constructor)
     with pytest.raises(ValidationError, match="submit a new revision"):
         await documents.build_ingestion_service(config)
     constructor.assert_not_called()
@@ -43,7 +48,11 @@ async def api(monkeypatch):
     async with engine.begin() as connection:
         await connection.run_sync(
             lambda sync: Base.metadata.create_all(
-                sync, tables=[Document.__table__, DocumentVersion.__table__]
+                sync,
+                tables=[
+                    Base.metadata.tables["documents"],
+                    Base.metadata.tables["document_versions"],
+                ],
             )
         )
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -73,12 +82,13 @@ async def api(monkeypatch):
     await engine.dispose()
 
 
-async def upload(api, **overrides):
+async def upload(api: SimpleNamespace, **overrides: Any) -> httpx.Response:
     payload = {"title": "Return policy", "content": "Returns within seven days.", **overrides}
-    return await api.client.post(PREFIX + "/upload", json=payload)
+    response: httpx.Response = await api.client.post(PREFIX + "/upload", json=payload)
+    return response
 
 
-async def process(api, *, error=None):
+async def process(api: SimpleNamespace, *, error: Exception | None = None) -> None:
     service = SimpleNamespace(
         close=AsyncMock(),
         ingest_bytes=AsyncMock(
@@ -186,7 +196,8 @@ async def test_upload_byte_limits_count_utf8_and_stop_file_reading(api, monkeypa
     assert await api.jobs.list_documents() == []
 
     file = UploadFile(filename="large.txt", file=BytesIO(b"x" * 1000))
-    file.read = AsyncMock(wraps=file.read)
+    read = AsyncMock(wraps=file.read)
+    monkeypatch.setattr(file, "read", read)
     with pytest.raises(HTTPException) as exc:
         await documents.upload_document_file(
             file=file,
@@ -197,7 +208,7 @@ async def test_upload_byte_limits_count_utf8_and_stop_file_reading(api, monkeypa
             jobs=api.jobs,
         )
     assert exc.value.status_code == 413
-    assert [call.args[0] for call in file.read.await_args_list] == [17]
+    assert [call.args[0] for call in read.await_args_list] == [17]
     assert file.file.closed
 
 
@@ -337,7 +348,7 @@ async def test_delete_unregistered_legacy_document_is_idempotent(api):
 async def test_search_auth_rejects_anonymous_before_constructing_clients(api, monkeypatch):
     api.app.dependency_overrides[get_current_user] = lambda: None
     constructor = AsyncMock()
-    monkeypatch.setattr(documents.EmbeddingFactory, "create_from_settings", constructor)
+    monkeypatch.setattr(EmbeddingFactory, "create_from_settings", constructor)
     response = await api.client.post(PREFIX + "/search", json={"query": "policy"})
     assert response.status_code == 401
     constructor.assert_not_called()
@@ -348,16 +359,16 @@ async def test_search_cleanup_includes_embedding_cache_and_survives_vector_close
 ):
     from app.services.embeddings.cached_embeddings import CachedEmbeddingService
 
-    provider = SimpleNamespace(model="test", dimensions=2, close=AsyncMock())
+    provider = Mock(spec=EmbeddingServiceBase, model="test", dimensions=2, close=AsyncMock())
     embeddings = CachedEmbeddingService(provider, redis_url="redis://unused")
-    redis = SimpleNamespace(close=AsyncMock())
+    redis = Mock(spec=Redis, close=AsyncMock())
     embeddings._redis = redis
     vector = SimpleNamespace(
         client=SimpleNamespace(close=AsyncMock(side_effect=RuntimeError("close error"))),
         search=AsyncMock(return_value=[]),
     )
-    monkeypatch.setattr(documents.EmbeddingFactory, "create_from_settings", lambda: embeddings)
-    monkeypatch.setattr(documents.RetrievalFactory, "create_vector_client", lambda **kwargs: vector)
+    monkeypatch.setattr(EmbeddingFactory, "create_from_settings", lambda: embeddings)
+    monkeypatch.setattr(RetrievalFactory, "create_vector_client", lambda **kwargs: vector)
     response = await api.client.post(PREFIX + "/search", json={"query": "policy"})
     assert response.status_code == 200
     vector.client.close.assert_awaited_once()
@@ -367,12 +378,12 @@ async def test_search_cleanup_includes_embedding_cache_and_survives_vector_close
 
 async def test_search_vector_construction_failure_still_closes_embedding_provider(monkeypatch):
     provider = SimpleNamespace(close=AsyncMock())
-    monkeypatch.setattr(documents.EmbeddingFactory, "create_from_settings", lambda: provider)
+    monkeypatch.setattr(EmbeddingFactory, "create_from_settings", lambda: provider)
 
     def fail(**kwargs):
         raise RuntimeError("invalid vector configuration")
 
-    monkeypatch.setattr(documents.RetrievalFactory, "create_vector_client", fail)
+    monkeypatch.setattr(RetrievalFactory, "create_vector_client", fail)
     with pytest.raises(RuntimeError, match="invalid vector configuration"):
         await anext(documents.get_qdrant_client())
     provider.close.assert_awaited_once()
@@ -388,8 +399,8 @@ async def test_search_releases_owned_vector_and_embedding_clients(api, monkeypat
             side_effect=RuntimeError("vector offline") if fail_search else None,
         ),
     )
-    monkeypatch.setattr(documents.EmbeddingFactory, "create_from_settings", lambda: embeddings)
-    monkeypatch.setattr(documents.RetrievalFactory, "create_vector_client", lambda **kwargs: vector)
+    monkeypatch.setattr(EmbeddingFactory, "create_from_settings", lambda: embeddings)
+    monkeypatch.setattr(RetrievalFactory, "create_vector_client", lambda **kwargs: vector)
     response = await api.client.post(PREFIX + "/search", json={"query": "Policy"})
     assert response.status_code == (500 if fail_search else 200)
     vector.client.close.assert_awaited_once()
@@ -413,12 +424,14 @@ async def test_health_reports_real_dependency_failures(
     monkeypatch.setattr(documents, "async_session_maker", api.sessions)
     if not database:
         async with api.engine.begin() as connection:
-            await connection.run_sync(lambda sync: DocumentVersion.__table__.drop(sync))
+            await connection.run_sync(
+                lambda sync: Base.metadata.tables["document_versions"].drop(sync)
+            )
     api.app.state.document_worker = SimpleNamespace(done=lambda: not worker)
     remote = AsyncMock()
     remote.get.return_value = httpx.Response(200 if vector else 503)
     remote.__aenter__.return_value = remote
-    monkeypatch.setattr(documents.httpx, "AsyncClient", lambda **kwargs: remote)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: remote)
     response = await api.client.get(PREFIX + "/health")
     assert response.status_code == expected
     body = response.json()

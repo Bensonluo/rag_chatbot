@@ -106,6 +106,8 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GLM_API_KEY: ${GLM_API_KEY:-}
       GLM_MODEL: ${GLM_MODEL:-glm-5.3-flash}
+      GLM_BASE_URL: ${GLM_BASE_URL:-https://open.bigmodel.cn/api/coding/paas/v4/}
+      INTENT_GLM_MODEL: ${INTENT_GLM_MODEL:-}
       # MiniMax: backup failover + speed (light) tier
       MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
       MINIMAX_MODEL: ${MINIMAX_MODEL:-MiniMax-M3}

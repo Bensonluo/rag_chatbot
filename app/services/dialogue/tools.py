@@ -130,6 +130,8 @@ class ToolRegistry:
             result = tool.handler(call_args)
             if inspect.isawaitable(result):
                 result = await result
+            if isinstance(result, ToolResult):
+                return result
             return ToolResult(success=True, data=result, message="OK")
         except Exception as e:
             return ToolResult(success=False, data={}, message=str(e))
@@ -320,6 +322,7 @@ def create_knowledge_tool(hybrid_search: Any) -> ToolDefinition:
     """
 
     async def _search_kb(args: dict[str, Any]) -> dict[str, Any]:
+        from app.services.chat.citations import citations_from_documents
         from app.services.retrieval.vector_base import VectorSearchRequest, retrieval_acl_scope
 
         query = str(args.get("query", "")).strip()
@@ -346,7 +349,13 @@ def create_knowledge_tool(hybrid_search: Any) -> ToolDefinition:
             }
             for hit in hits
         ]
-        return {"results": results, "count": len(results)}
+        citations = citations_from_documents(
+            [
+                {"document_id": hit.document_id, "content": hit.content, "metadata": hit.metadata}
+                for hit in hits
+            ]
+        )
+        return {"results": results, "count": len(results), "citations": citations}
 
     return ToolDefinition(
         name="search_knowledge_base",
@@ -384,23 +393,23 @@ def create_escalate_tool(handoff_service: Any) -> ToolDefinition:
     SLA queue (same HandoffService the intent-routed handoff node uses,
     same session-dedup semantics) so the fastest resolution path for an
     unsolvable case is one tool call away. session_id/user_id are
-    injected server-side by the registry; a ticket-persistence failure
-    degrades to "requested, no number" — never a failed loop.
+    injected server-side by the registry. A ticket-persistence failure
+    returns a failed ToolResult so audit and user-facing copy agree.
     """
 
-    async def _escalate(args: dict[str, Any]) -> dict[str, Any]:
+    async def _escalate(args: dict[str, Any]) -> ToolResult:
         from app.services.dialogue.funnel_metrics import LAYER_HANDOFF, record_funnel_layer
+        from app.services.dialogue.i18n import HANDOFF_NO_TICKET, LANG_ZH
 
         session_id = args.get("session_id")
         if session_id is None:
             # No authenticated conversation to attach the ticket to —
             # structured degradation, not an exception.
-            return {
-                "ticket_id": None,
-                "queue_position": None,
-                "reused": False,
-                "message": "当前会话无法定位，请直接联系人工客服",
-            }
+            return ToolResult(
+                success=False,
+                data={"ticket_id": None, "queue_position": None, "reused": False},
+                message=HANDOFF_NO_TICKET[LANG_ZH],
+            )
         result = await handoff_service.create_ticket_for_session(
             session_id=session_id,
             user_id=args.get("user_id"),
@@ -411,10 +420,12 @@ def create_escalate_tool(handoff_service: Any) -> ToolDefinition:
         # otherwise the handoff share (containment inverse) undercounts.
         record_funnel_layer(LAYER_HANDOFF)
         if result.get("ticket_id") is None:
-            return {**result, "message": "转人工请求已提交，请留意后续通知"}
+            return ToolResult(success=False, data=result, message=HANDOFF_NO_TICKET[LANG_ZH])
         position = result.get("queue_position")
         queue_note = f"当前排队第 {position} 位" if position else "已进入人工队列"
-        return {**result, "message": f"已为您转接人工客服，{queue_note}"}
+        return ToolResult(
+            success=True, data={**result, "message": f"已为您转接人工客服，{queue_note}"}
+        )
 
     return ToolDefinition(
         name="escalate_to_human",

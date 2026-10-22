@@ -1,21 +1,17 @@
-"""Run the LLM answer-quality golden set against a configured LLM provider.
+"""Run given-context answer point coverage against a configured LLM.
 
-CI-optional tier: needs a real LLM key (set OPENAI_API_KEY/OPENAI_MODEL/
-OPENAI_BASE_URL — any OpenAI-compatible provider, e.g. MiniMax via
-``OPENAI_BASE_URL=https://api.minimaxi.com/v1``). Exit code 1 when the
-pass rate is below the threshold, so it can gate a release run.
+The CLI injects curated FAQ answers directly. It does not run the chat graph,
+retrieval, tools, or evidence faithfulness checks. A separate production-pipeline
+evaluation is needed for those claims. Model/judge errors fail the gate even
+when the pass-rate threshold is zero; invalid inputs exit with status 2.
 
-System under test: FAQ-context-grounded answer generation — the same
-"retrieved policy text + LLM composition" shape the chat pipeline uses,
-wired directly so no database or vector store is required.
-
-Usage:
-    python scripts/run_answer_eval.py [--threshold 0.8] [--cases PATH]
+Usage: python scripts/run_answer_eval.py [--threshold 0.8] [--cases PATH]
 """
 
 import argparse
 import asyncio
 import logging
+import math
 import sys
 from pathlib import Path
 
@@ -49,26 +45,40 @@ def build_context_block(case: AnswerCase, faq_map: dict[str, str]) -> str:
         if answer:
             blocks.append(answer)
         else:
-            logger.warning("Case %s references unknown faq %s", case.id, faq_id)
+            raise ValueError("An answer case references unavailable FAQ context")
     return "\n\n".join(blocks)
 
 
+def _threshold(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number) or not 0 <= number <= 1:
+        raise argparse.ArgumentTypeError("threshold must be finite and between 0 and 1")
+    return number
+
+
 async def main() -> int:
-    parser = argparse.ArgumentParser(description="Run the LLM answer-quality gate")
-    parser.add_argument("--threshold", type=float, default=0.8, help="pass-rate gate")
+    parser = argparse.ArgumentParser(description="Run the given-context answer point-coverage gate")
+    parser.add_argument("--threshold", type=_threshold, default=0.8, help="pass-rate gate")
     parser.add_argument("--cases", type=str, default=None, help="golden set path")
     parser.add_argument("--provider", type=str, default="openai", help="LLM provider")
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-    cases = load_answer_cases(args.cases) if args.cases else load_answer_cases()
-    if not cases:
-        logger.error("No answer cases loaded; nothing to run")
+    try:
+        cases = load_answer_cases(args.cases) if args.cases else load_answer_cases()
+        faq_map = {e.faq_id: e.answer for e in load_faq_entries(DEFAULT_FAQ_FILE)}
+        # Validate every reference before constructing a provider or spending tokens.
+        for case in cases:
+            build_context_block(case, faq_map)
+    except (OSError, ValueError):
+        logger.error("Invalid answer golden set or unavailable FAQ context; no evaluation run")
         return 2
-
-    faq_map = {e.faq_id: e.answer for e in load_faq_entries(DEFAULT_FAQ_FILE)}
-    llm = LLMFactory.create(provider=args.provider)
+    try:
+        llm = LLMFactory.create(provider=args.provider)
+    except Exception:
+        logger.error("Unable to initialize the evaluation provider")
+        return 2
 
     async def answer_fn(case: AnswerCase) -> str:
         context = build_context_block(case, faq_map)
@@ -90,20 +100,24 @@ async def main() -> int:
     report = await run_answer_eval(answer_fn, judge_llm=llm, cases=cases)
 
     print(
-        f"\n=== Answer-quality gate: {report.passed}/{report.total} passed "
+        f"\n=== Given-context answer gate: {report.passed}/{report.total} passed "
         f"(pass_rate={report.pass_rate:.1%}, point_coverage={report.point_coverage:.1%}, "
-        f"judge_errors={report.judge_errors}) ==="
+        f"judge_errors={report.judge_errors}, generation_errors={report.generation_errors}) ==="
     )
     for failure in report.failures:
         print(f"\n[FAIL] {failure.case.id} ({failure.case.category})")
-        print(f"  query: {failure.case.query}")
-        if failure.points_missed:
-            print(f"  missed points: {failure.points_missed}")
-        if failure.forbidden_hits:
-            print(f"  forbidden hits: {failure.forbidden_hits}")
+        # Model content and exception strings may contain sensitive text. Keep
+        # console diagnostics to status/counts rather than echoing either one.
+        print(f"  missed points: {len(failure.points_missed)}")
+        print(f"  forbidden hits: {len(failure.forbidden_hits)}")
         if failure.judge_error:
-            print("  judge error: verdict unparseable")
-        print(f"  answer: {failure.answer[:200]}{'…' if len(failure.answer) > 200 else ''}")
+            print("  judge error: unavailable or invalid verdict")
+        if failure.generation_error:
+            print("  generation error: unavailable or invalid answer")
+
+    if report.generation_errors or report.judge_errors:
+        print("\nFAIL: evaluation contains generation or judge errors")
+        return 1
 
     if report.pass_rate < args.threshold:
         print(f"\nBELOW THRESHOLD: {report.pass_rate:.1%} < {args.threshold:.0%}")

@@ -16,8 +16,8 @@ row is open and never-reopened, which is exactly what the defaults say.
 
 from collections.abc import Sequence
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "c5f2a8e3d17b"

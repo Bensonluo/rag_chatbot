@@ -91,9 +91,17 @@
     "id": "cg-shipping-time-default",
     "topic": "shipping_time",
     "query": "多久发货",
-    "canonical": "普通订单付款后 48 小时内发货，大促期间可能延迟至 72 小时。",
+    "canonical": "普通订单付款后 48 小时内发货。",
     "adversarial": "您的订单 24 小时内发货。",
     "grounded_contains": "48 小时"
+  },
+  {
+    "id": "cg-shipping-time-peak",
+    "topic": "shipping_time",
+    "query": "双十一大促多久发货",
+    "canonical": "大促期间订单可能延迟至 72 小时内发货。",
+    "adversarial": "双十一大促订单 48 小时内发货。",
+    "grounded_contains": "72 小时"
   },
   {
     "id": "cg-invoice-window",

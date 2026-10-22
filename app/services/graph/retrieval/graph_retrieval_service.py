@@ -8,6 +8,7 @@ mirroring the HybridSearchService pattern from the vector retrieval layer.
 import logging
 
 from app.services.graph.base import GraphSearchResult
+from app.services.graph.provenance import collect_source_provenance
 from app.services.graph.retrieval.graph_embedding_search import GraphEmbeddingSearch
 from app.services.graph.retrieval.text_to_cypher import TextToCypherService
 
@@ -71,17 +72,32 @@ class GraphRetrievalService:
         """RRF fusion across two result sets, same algorithm as HybridSearchService."""
         scores: dict[str, float] = {}
         content_map: dict[str, GraphSearchResult] = {}
+        provenance: dict[str, list[object]] = {}
 
         for rank, result in enumerate(cypher_results):
             key = result.content
             scores[key] = scores.get(key, 0.0) + self._cypher_weight / (k + rank + 1)
             content_map[key] = result
+            provenance.setdefault(key, []).extend(
+                [
+                    result.metadata,
+                    [entity.properties for entity in result.entities],
+                    [relation.properties for relation in result.relations],
+                ]
+            )
 
         for rank, result in enumerate(embedding_results):
             key = result.content
             scores[key] = scores.get(key, 0.0) + self._embedding_weight / (k + rank + 1)
             if key not in content_map:
                 content_map[key] = result
+            provenance.setdefault(key, []).extend(
+                [
+                    result.metadata,
+                    [entity.properties for entity in result.entities],
+                    [relation.properties for relation in result.relations],
+                ]
+            )
 
         sorted_keys = sorted(scores, key=scores.get, reverse=True)  # type: ignore[arg-type]
 
@@ -97,6 +113,7 @@ class GraphRetrievalService:
                     source_type=result.source_type,
                     metadata={
                         **(result.metadata or {}),
+                        **collect_source_provenance(*provenance[key]),
                         "rrf_score": scores[key],
                     },
                 )

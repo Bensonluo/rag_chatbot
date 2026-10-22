@@ -12,6 +12,7 @@ from app.services.graph.base import (
     GraphClient,
     GraphSearchResult,
 )
+from app.services.graph.provenance import collect_source_provenance
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,15 @@ class GraphEmbeddingSearch:
                     relations=all_relations,
                     score=result.score,
                     source_type="graph_embedding",
-                    metadata={"entity_type": entity.type},
+                    metadata={
+                        "entity_type": entity.type,
+                        **collect_source_provenance(
+                            result.metadata,
+                            [nb.metadata for nb in neighborhood],
+                            [entity.properties for entity in all_entities],
+                            [relation.properties for relation in all_relations],
+                        ),
+                    },
                 )
             )
 

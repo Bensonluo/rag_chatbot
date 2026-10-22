@@ -1,5 +1,7 @@
 """Graph evidence must surface its source documents in response citations."""
 
+from typing import Any
+
 from app.services.dialogue.nodes import _extract_sources, _search_result_to_dict
 from app.services.graph.base import GraphSearchResult
 from app.services.retrieval.vector_base import SearchResult
@@ -32,7 +34,7 @@ def test_fused_graph_citations_use_source_documents_instead_of_synthetic_result_
 
 
 def test_single_graph_source_and_legacy_document_citations_are_retained() -> None:
-    docs = [
+    docs: list[dict[str, Any]] = [
         {"metadata": {"source_document_id": "policy"}},
         {"document_id": "legacy", "metadata": None},
         {"metadata": {"source_document_ids": "policy"}},

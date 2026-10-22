@@ -5,9 +5,8 @@ Writes each dialogue turn (user message + assistant response) to the
 database using a request-scoped session so no repository is ever bound
 to the startup session (which closes once the lifespan context exits).
 
-Persistence failures are logged but never propagated: chat
-availability takes priority over durability, and the missing rows are
-recoverable from upstream logs if needed.
+Turn-write failures are logged without interrupting chat. Explicit history
+deletion propagates database errors so callers cannot report a false reset.
 """
 
 from __future__ import annotations
@@ -18,7 +17,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import update
+from sqlalchemy import delete, update
 
 from app.models.database.message import Message
 from app.models.database.session import ChatSession
@@ -26,6 +25,7 @@ from app.models.enums.message import MessageRole, MessageStatus
 from app.repositories.message_repository import MessageRepository
 from app.repositories.user_fact_repository import UserFactRepository
 from app.services.chat.chat_service import ChatMessage
+from app.services.chat.citations import normalize_citations
 from app.services.chat.compressor import SessionCompressor
 from app.services.chat.resolution import is_resolution_confirmation
 from app.services.chat.user_fact_extractor import UserFactExtractor
@@ -112,8 +112,8 @@ class ChatMessagePersister:
         self._session_maker = session_maker
         self._compressor = compressor
         self._fact_extractor = fact_extractor
-        self._pending_compressions: set[asyncio.Task[bool]] = set()
-        self._pending_extractions: set[asyncio.Task[bool]] = set()
+        self._pending_compressions: dict[asyncio.Task[bool], int] = {}
+        self._pending_extractions: dict[asyncio.Task[bool], int] = {}
 
     async def persist_turn(
         self,
@@ -139,6 +139,11 @@ class ChatMessagePersister:
                 repo = MessageRepository(session)
                 await self._apply_resolution_transition(session, session_id, user_message)
                 assistant_metadata = dict(metadata or {})
+                citations = normalize_citations(assistant_metadata.get("citations"))
+                if citations:
+                    assistant_metadata["citations"] = citations
+                else:
+                    assistant_metadata.pop("citations", None)
                 if sources:
                     assistant_metadata["sources"] = sources
 
@@ -241,7 +246,27 @@ class ChatMessagePersister:
                     # Overlap-free: the summary already carries whatever
                     # happened before it was written.
                     rows = [msg for msg in rows if msg.created_at >= summary.created_at]
-                turns = [ChatMessage(role=msg.role.value, content=msg.content) for msg in rows]
+                turns = []
+                for msg in rows:
+                    metadata = msg.message_metadata or {}
+                    sources = metadata.get("sources")
+                    turns.append(
+                        ChatMessage(
+                            role=msg.role.value,
+                            content=msg.content,
+                            timestamp=msg.created_at.isoformat(),
+                            sources=(
+                                [source for source in sources if isinstance(source, str)]
+                                if isinstance(sources, list) and msg.role == MessageRole.ASSISTANT
+                                else None
+                            ),
+                            citations=(
+                                normalize_citations(metadata.get("citations"))
+                                if msg.role == MessageRole.ASSISTANT
+                                else []
+                            ),
+                        )
+                    )
                 if summary is not None and summary.content:
                     turns.insert(
                         0,
@@ -274,6 +299,18 @@ class ChatMessagePersister:
             logger.warning("Failed to read user facts (user=%s): %s", user_id, exc)
             return []
 
+    async def clear_history(self, session_id: int) -> None:
+        """Delete durable turns and summaries after this process's writers settle.
+
+        Other sessions, user facts and handoff tickets are retained. Concurrent
+        new turns or writers in other processes require separate coordination.
+        Unlike best-effort turn writes, a failed clear must reach the caller.
+        """
+        await self.drain(session_id=session_id)
+        async with self._session_maker() as session:
+            await session.execute(delete(Message).where(Message.session_id == session_id))
+            await session.commit()
+
     def _schedule_compression(self, session_id: int) -> None:
         """Schedule best-effort compression; never disturbs the caller."""
         if self._compressor is None:
@@ -284,8 +321,8 @@ class ChatMessagePersister:
             )
         except RuntimeError:  # no running loop (sync caller in tests)
             return
-        self._pending_compressions.add(task)
-        task.add_done_callback(self._pending_compressions.discard)
+        self._pending_compressions[task] = session_id
+        task.add_done_callback(lambda finished: self._pending_compressions.pop(finished, None))
 
     def _schedule_extraction(self, session_id: int) -> None:
         """Schedule best-effort user-fact extraction (Phase B); same
@@ -298,12 +335,15 @@ class ChatMessagePersister:
             )
         except RuntimeError:  # no running loop (sync caller in tests)
             return
-        self._pending_extractions.add(task)
-        task.add_done_callback(self._pending_extractions.discard)
+        self._pending_extractions[task] = session_id
+        task.add_done_callback(lambda finished: self._pending_extractions.pop(finished, None))
 
-    async def drain(self) -> None:
-        """Await outstanding background tasks (shutdown / test seams)."""
-        pending = self._pending_compressions | self._pending_extractions
+    async def drain(self, session_id: int | None = None) -> None:
+        """Await current background work, optionally scoped to one conversation."""
+        tracked = self._pending_compressions | self._pending_extractions
+        pending = [
+            task for task, owner in tracked.items() if session_id is None or owner == session_id
+        ]
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
 

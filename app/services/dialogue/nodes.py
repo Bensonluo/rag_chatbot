@@ -52,6 +52,12 @@ from app.models.enums.intent import (
 )
 from app.services.agent.metrics import AGENT_LOOP_OUTCOMES, OUTCOME_FALLBACK
 from app.services.chat.answer_cache import CachedAnswer
+from app.services.chat.citations import (
+    citations_from_documents,
+    faq_citations,
+    normalize_citations,
+    sources_from_citations,
+)
 from app.services.dialogue.emotion import assess_emotion
 from app.services.dialogue.funnel_metrics import (
     LAYER_AGENT_TOOL,
@@ -359,6 +365,7 @@ class NodeFactory:
             "route_after_cache": "hit",
             "response": cached.response,
             "sources": cached.sources,
+            "citations": normalize_citations(getattr(cached, "citations", [])),
             "intent": cached.intent,
         }
         # Freshness insurance: re-verify with the deterministic gates
@@ -370,9 +377,12 @@ class NodeFactory:
             check = self._guardrail_service.check_output(response)
             if check.was_blocked:
                 response = GUARDRAIL_OUTPUT_BLOCKED[_turn_lang(state)]
+                updates["citations"] = []
             elif check.sanitized_content and check.sanitized_content != response:
                 response = check.sanitized_content
+                updates["citations"] = []
         updates["response"] = response
+        updates["citations"] = self._safe_citations(updates.get("citations"))
 
         emit_trace("cs.cache", hit=True, sources=cached.sources[:3])
         record_funnel_layer(LAYER_L0_CACHE)
@@ -821,6 +831,11 @@ class NodeFactory:
             "route_after_faq": "hit",
             "response": response,
             "sources": [f"faq:{entry.faq_id}"],
+            "citations": self._safe_citations(
+                faq_citations(entry.faq_id, getattr(entry, "question", ""), entry.answer)
+                if response == entry.answer
+                else []
+            ),
         }
 
     @traced_stage("cs.retrieval")
@@ -1119,8 +1134,34 @@ class NodeFactory:
             # gate actually ran, not that it was skipped.
             emit_trace("cs.claim_gate", action="pass", facts=len(facts))
         if result.violations:
-            updates = {**updates, "response": apply_violations(response, result)}
+            updates = {**updates, "response": apply_violations(response, result), "citations": []}
         return updates
+
+    def _safe_citations(self, value: object) -> list[dict[str, Any]]:
+        """Reference excerpts must not bypass the answer's output guardrail."""
+        citations = normalize_citations(value)
+        if self._guardrail_service is None:
+            return citations
+        safe = []
+        for citation in citations:
+            display_text = [
+                citation["excerpt"],
+                citation.get("title", ""),
+                *citation["section_path"],
+            ]
+            for text in display_text:
+                if not text:
+                    continue
+                check = self._guardrail_service.check_output(text)
+                if check.was_blocked or (
+                    check.sanitized_content is not None and check.sanitized_content != text
+                ):
+                    # Keep the revision/offset contract exact. A rewritten
+                    # excerpt would no longer be the cited source snapshot.
+                    break
+            else:
+                safe.append(citation)
+        return safe
 
     @traced_stage("cs.generation")
     async def generate_response_node(
@@ -1141,6 +1182,7 @@ class NodeFactory:
         if _used_history(config):
             updates["personalized"] = True
         updates = self._apply_claim_gate(state, updates)
+        updates["citations"] = self._safe_citations(updates.get("citations"))
 
         if self._guardrail_service is None or state.get("blocked"):
             _emit_response(updates.get("response", ""), config)
@@ -1153,8 +1195,10 @@ class NodeFactory:
         result = self._guardrail_service.check_output(response)
         if result.was_blocked:
             updates["response"] = GUARDRAIL_OUTPUT_BLOCKED[_turn_lang(state)]
+            updates["citations"] = []
         elif result.sanitized_content and result.sanitized_content != response:
             updates["response"] = result.sanitized_content
+            updates["citations"] = []
         _emit_response(updates.get("response", ""), config)
         return updates
 
@@ -1244,6 +1288,7 @@ class NodeFactory:
                 updates: dict[str, Any] = {
                     "response": cached.response,
                     "sources": cached.sources,
+                    "citations": normalize_citations(getattr(cached, "citations", [])),
                     "intent": cached.intent,
                 }
                 updates = self._gate_claims(updates, message=message, check_actions=True)
@@ -1252,8 +1297,11 @@ class NodeFactory:
                     check = self._guardrail_service.check_output(response)
                     if check.was_blocked:
                         response = GUARDRAIL_OUTPUT_BLOCKED[_turn_lang(state)]
+                        updates["citations"] = []
                     elif check.sanitized_content and check.sanitized_content != response:
                         response = check.sanitized_content
+                        updates["citations"] = []
+                updates["citations"] = self._safe_citations(updates.get("citations"))
                 updates["response"] = response
 
                 emit_trace("cs.semantic_cache", hit=True, intent=cached.intent)
@@ -1372,6 +1420,7 @@ class NodeFactory:
             )
 
         response = _build_handoff_response(reason, ticket, lang=_turn_lang(state))
+        handoff_outcome = "queued" if ticket.get("ticket_id") is not None else "failed"
 
         record_funnel_layer(LAYER_HANDOFF)
         emit_trace(
@@ -1380,11 +1429,13 @@ class NodeFactory:
             ticket_id=ticket.get("ticket_id"),
             queue_position=ticket.get("queue_position"),
             reused=bool(ticket.get("reused")),
+            outcome=handoff_outcome,
         )
         updates: dict[str, Any] = {
             "response": response,
             "intent": "handoff",
             "handoff_reason": reason,
+            "handoff_outcome": handoff_outcome,
             "pending_confirmation": None,
             "slot_prompt": "",
         }
@@ -1470,10 +1521,17 @@ class NodeFactory:
             "executed_tools": result.tool_trace,
             # None when this run staged nothing — clears stale gates.
             "pending_confirmation": result.pending_confirmation,
+            "citations": normalize_citations(result.citations),
+            "sources": sources_from_citations(result.citations),
         }
         if result.tool_trace:
             # Tools actually ran — the task is terminal (task_executed).
             updates["task_executed"] = True
+        if result.outcome in {"handoff", "handoff_failed"}:
+            updates["handoff_outcome"] = "queued" if result.handoff_ticket_id else "failed"
+            updates["handoff_reason"] = "agent"
+            if result.handoff_ticket_id is not None:
+                updates["handoff_ticket_id"] = result.handoff_ticket_id
         emit_trace(
             "cs.agent",
             tools=[str(entry.get("tool", "")) for entry in result.tool_trace],
@@ -1496,8 +1554,12 @@ class NodeFactory:
             check = self._guardrail_service.check_output(response)
             if check.was_blocked:
                 updates["response"] = GUARDRAIL_OUTPUT_BLOCKED[_turn_lang(state)]
+                updates["citations"] = []
             elif check.sanitized_content and check.sanitized_content != response:
                 updates["response"] = check.sanitized_content
+                updates["citations"] = []
+
+        updates["citations"] = self._safe_citations(updates.get("citations"))
 
         _emit_response(updates["response"], config)
         return updates
@@ -1707,8 +1769,17 @@ class NodeFactory:
             "请根据以上参考资料回答用户的问题。如果资料中没有相关内容，请如实告知。"
         )
         response_text = await self._call_llm(context, config, state)
+        configurable = config.get("configurable", {}) if config else {}
+        citations = (
+            citations_from_documents(retrieved_docs)
+            if self._llm_service is not None
+            and response_text
+            and not response_text.endswith(GENERATION_FAILED[_turn_lang(state)])
+            and not configurable.get("generation_evidence_replaced")
+            else []
+        )
         response_text = _maybe_append_resume_hint(response_text, state)
-        return {"response": response_text}
+        return {"response": response_text, "citations": citations}
 
     async def _generate_direct(
         self,
@@ -2018,6 +2089,11 @@ class NodeFactory:
             configurable = config.get("configurable") if config else None
             if isinstance(configurable, dict):
                 configurable["streamed_response"] = True
+                # A policy/PII gate may have replaced the model text before
+                # emission. Do not present its original references as support
+                # for that replacement response.
+                if "".join(emitted) != "".join(chunks) + rf_tail:
+                    configurable["generation_evidence_replaced"] = True
             return "".join(emitted)
 
         try:
@@ -2104,6 +2180,8 @@ def _source_document_ids(metadata: dict[str, Any]) -> list[str]:
     values = metadata.get("source_document_ids") or []
     if isinstance(values, str):
         values = [values]
+    elif not isinstance(values, (list, tuple)):
+        values = []
     singular = metadata.get("source_document_id")
     return [value for value in [singular, *values] if isinstance(value, str) and value]
 
@@ -2113,7 +2191,16 @@ def _search_result_to_dict(result: SearchResult | GraphSearchResult) -> dict[str
     metadata = dict(getattr(result, "metadata", None) or {})
     source_type = getattr(result, "source_type", None)
     if source_type:
+        from app.services.graph.provenance import collect_source_provenance
+
         metadata["source_type"] = source_type
+        metadata.update(
+            collect_source_provenance(
+                metadata,
+                [entity.properties for entity in getattr(result, "entities", [])],
+                [relation.properties for relation in getattr(result, "relations", [])],
+            )
+        )
     sources = _source_document_ids(metadata)
     return {
         "document_id": getattr(result, "document_id", "") or (sources[0] if sources else ""),
@@ -2127,10 +2214,7 @@ def _graph_doc_to_dict(result: Any) -> dict[str, Any]:
     """Convert a graph retrieval result to a plain dict."""
     if isinstance(result, dict):
         return result
-    return {
-        "content": getattr(result, "content", str(result)),
-        "metadata": getattr(result, "metadata", None),
-    }
+    return _search_result_to_dict(result)
 
 
 def _extract_sources(docs: list[dict[str, Any]]) -> list[str]:
@@ -2138,14 +2222,19 @@ def _extract_sources(docs: list[dict[str, Any]]) -> list[str]:
     sources: list[str] = []
     for doc in docs:
         metadata = doc.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
         graph_sources = _source_document_ids(metadata)
         doc_id = doc.get("document_id")
         candidates = graph_sources
-        if not graph_sources or metadata.get("source_type") not in {
+        source_type = metadata.get("source_type")
+        is_graph = isinstance(source_type, str) and source_type in {
             "graph_embedding",
             "text_to_cypher",
             "community_summary",
-        }:
+            "graph",
+        }
+        if not is_graph:
             candidates = [doc_id, *graph_sources] if isinstance(doc_id, str) else graph_sources
         for source in candidates:
             if isinstance(source, str) and source and source not in sources:

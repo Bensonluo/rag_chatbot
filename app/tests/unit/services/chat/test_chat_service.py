@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from app.services.chat.chat_service import STREAM_ERROR, ChatResponse, ChatService
+from app.services.dialogue.state import begin_turn
 
 
 def _make_graph(return_value: dict[str, Any]) -> Mock:
@@ -122,7 +123,7 @@ class TestChatService:
 
     @pytest.mark.asyncio
     async def test_clear_chat_history(self):
-        mock_graph = Mock()
+        mock_graph = Mock(checkpointer=None)
         mock_memory = Mock()
         mock_memory.clear_session = AsyncMock()
         service = ChatService(graph=mock_graph, memory_strategy=mock_memory)
@@ -155,6 +156,56 @@ class TestChatService:
         metadata = response.metadata
         assert metadata is not None
         assert metadata["pending_slots"] == ["order_id", "reason"]
+
+
+class TestHandoffAuditMetadata:
+    @pytest.mark.parametrize("transport", ["rest", "stream"])
+    @pytest.mark.parametrize(
+        ("handoff_state", "expected"),
+        [
+            (
+                {"handoff_outcome": "queued", "handoff_ticket_id": 42},
+                {"handoff_outcome": "queued", "handoff_ticket_id": 42},
+            ),
+            ({"handoff_outcome": "failed", "handoff_ticket_id": 0}, {"handoff_outcome": "failed"}),
+            ({"handoff_outcome": "", "handoff_ticket_id": 0}, {}),
+            ({}, {}),
+        ],
+    )
+    async def test_handoff_metadata_has_transport_parity(self, transport, handoff_state, expected):
+        result = {"response": "本轮响应", **handoff_state}
+
+        async def invoke(state, config):
+            queue = config["configurable"].get("stream_queue")
+            if queue is not None:
+                queue.put_nowait(result["response"])
+            return result
+
+        graph = Mock()
+        graph.ainvoke = invoke
+        persister = AsyncMock()
+        service = ChatService(graph=graph, persister=persister)
+        if transport == "rest":
+            response = await service.process_message(1, "用户消息", 7)
+            assert response.metadata is not None
+            assert {
+                k: v for k, v in response.metadata.items() if k.startswith("handoff_")
+            } == expected
+        else:
+            assert [c async for c in service.process_message_stream(1, "用户消息", 7)] == [
+                "本轮响应"
+            ]
+
+        persister.persist_turn.assert_awaited_once()
+        metadata = persister.persist_turn.await_args.kwargs["metadata"]
+        assert {k: v for k, v in metadata.items() if k.startswith("handoff_")} == expected
+
+    @pytest.mark.parametrize("outcome", ["queued", "failed"])
+    def test_next_turn_clears_handoff_audit_state(self, outcome):
+        updates = begin_turn({"handoff_outcome": outcome, "handoff_ticket_id": 42})
+
+        assert updates["handoff_outcome"] == ""
+        assert updates["handoff_ticket_id"] == 0
 
 
 class TestKnowledgeGapWiring:

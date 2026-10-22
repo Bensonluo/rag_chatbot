@@ -2,6 +2,7 @@
 
 import importlib.util
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import AsyncMock, Mock
 
 from alembic.migration import MigrationContext
@@ -11,14 +12,16 @@ from sqlalchemy import create_engine, inspect, text
 ROOT = Path(__file__).resolve().parents[4]
 
 
-def load(path, name):
+def load(path: str, name: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, ROOT / path)
+    assert spec is not None
+    assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def test_additive_migration_preserves_legacy_documents_and_is_replayable():
+def test_additive_migration_preserves_legacy_documents_and_is_replayable(monkeypatch):
     migration = load(
         "migrations/versions/f9a2c7d6b410_document_ingestion_jobs.py", "document_migration"
     )
@@ -30,7 +33,7 @@ def test_additive_migration_preserves_legacy_documents_and_is_replayable():
             )
         )
         conn.execute(text("INSERT INTO documents VALUES (1, 'policy', 'Refunds')"))
-        migration.op = Operations(MigrationContext.configure(conn))
+        monkeypatch.setattr(migration, "op", Operations(MigrationContext.configure(conn)))
         migration.upgrade()
         migration.upgrade()  # An ORM-created legacy database can already have these additions.
         assert "document_versions" in inspect(conn).get_table_names()

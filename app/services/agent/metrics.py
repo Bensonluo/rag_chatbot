@@ -38,6 +38,8 @@ OUTCOME_STAGED = "staged"
 OUTCOME_BUDGET_EXHAUSTED = "budget_exhausted"
 OUTCOME_STEPS_EXHAUSTED = "steps_exhausted"
 OUTCOME_FALLBACK = "fallback"
+OUTCOME_HANDOFF = "handoff"
+OUTCOME_HANDOFF_FAILED = "handoff_failed"
 
 
 def record_agent_outcome(outcome: str, tool_calls: int) -> None:

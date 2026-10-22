@@ -1,26 +1,13 @@
-"""LLM-as-judge answer-quality golden set (CI-optional quality tier).
+"""Given-context answer evaluation using semantic point coverage and forbidden text.
 
-The intent golden set (``runner.py``) gates *routing* deterministically.
-This tier gates the answer itself: given a customer query and the correct
-retrieved context, does the assistant produce a complete, policy-accurate
-reply free of fabricated promises? That is the industry's "resolution
-quality" gate (Zendesk/Intercom Fin resolution benchmarks, JD Yanhu and
-Alibaba Xiaomi's quality-inspection pipelines) and it needs a judge LLM,
-so it runs on demand with a configured key rather than in keyless CI.
+This evaluates generated replies against listed expected points. Point coverage
+is not a faithfulness, retrieval-quality, resolution, or production-chat metric:
+the judge does not check every claim against retrieved source evidence. The CLI
+supplies curated FAQ context directly; callers may supply their own answer_fn.
 
-Scoring model:
-
-- ``required_points``: facts the answer must cover; judged by an LLM
-  referee returning strict JSON, because point coverage is semantic.
-- ``forbidden_patterns``: substrings that must never appear (fabricated
-  SLAs, meta leaks like "as an AI"); checked deterministically, no judge
-  needed — a substring hit is unambiguous.
-- Fail-closed judge: if the judge output cannot be parsed, the case
-  fails with ``judge_error`` set rather than silently passing.
-
-Reasoning models (e.g. MiniMax-M2.7) emit ``<think>...</think>`` blocks
-inside ``content``; ``strip_think`` removes them before any text is
-scored, on both the answer and judge sides.
+Malformed verdicts and provider failures fail their case and retain every
+required point in the denominator. Completed provider <think> blocks are removed
+before scoring; all remaining verdict text must follow the strict JSON contract.
 """
 
 import json
@@ -79,10 +66,13 @@ class AnswerCaseResult:
     points_missed: list[str] = field(default_factory=list)
     forbidden_hits: list[str] = field(default_factory=list)
     judge_error: bool = False
+    generation_error: bool = False
 
     @property
     def passed(self) -> bool:
-        return not self.points_missed and not self.forbidden_hits and not self.judge_error
+        return not (
+            self.points_missed or self.forbidden_hits or self.judge_error or self.generation_error
+        )
 
 
 @dataclass
@@ -95,6 +85,7 @@ class AnswerEvalReport:
     point_total: int = 0
     point_passed: int = 0
     failures: list[AnswerCaseResult] = field(default_factory=list)
+    generation_errors: int = 0
 
     @property
     def pass_rate(self) -> float:
@@ -105,35 +96,93 @@ class AnswerEvalReport:
         return self.point_passed / self.point_total if self.point_total else 0.0
 
 
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in payload:
+            raise ValueError("Duplicate JSON object key")
+        payload[key] = value
+    return payload
+
+
+def _text(value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("Expected a nonempty string")
+    return value.strip()
+
+
+def _texts(value: Any, *, required: bool = False) -> list[str]:
+    if not isinstance(value, list) or (required and not value):
+        raise ValueError("Expected a list of strings")
+    strings = [_text(item) for item in value]
+    if len(set(strings)) != len(strings):
+        raise ValueError("Duplicate list entry")
+    return strings
+
+
+def _validate_cases(cases: list[AnswerCase]) -> None:
+    if not isinstance(cases, list) or not cases:
+        raise ValueError("Answer golden set must be a nonempty list")
+    seen: set[str] = set()
+    for index, case in enumerate(cases):
+        try:
+            if not isinstance(case, AnswerCase):
+                raise ValueError("Expected AnswerCase")
+            identifier = _text(case.id)
+            if identifier in seen:
+                raise ValueError("Duplicate case ID")
+            seen.add(identifier)
+            _text(case.query)
+            _text(case.category)
+            _texts(case.required_points, required=True)
+            _texts(case.forbidden_patterns)
+            _texts(case.faq_ids)
+        except ValueError:
+            raise ValueError(f"Invalid or duplicate answer case at index {index}") from None
+
+
 def load_answer_cases(path: str | Path = ANSWER_GOLDEN_SET_FILE) -> list[AnswerCase]:
-    """Load answer cases, degrading to empty on any read/shape failure."""
-    file_path = Path(path)
+    """Load the entire validated set or raise ValueError; never skip failed rows.
+
+    The legacy singular faq_id is accepted alongside faq_ids. No other scalar
+    coercion or schema guessing is performed, and duplicate case IDs are errors.
+    """
     try:
-        raw: list[dict[str, Any]] = json.loads(file_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
-        logger.error("Answer golden set unreadable (%s): %s", file_path, exc)
-        return []
+        raw = json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=_unique_object)
+    except (OSError, ValueError):
+        raise ValueError("Answer golden set is unreadable or not valid JSON") from None
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("Answer golden set must be a nonempty list")
     cases: list[AnswerCase] = []
+    allowed = {
+        "id",
+        "query",
+        "category",
+        "required_points",
+        "forbidden_patterns",
+        "faq_ids",
+        "faq_id",
+    }
     for index, item in enumerate(raw):
         try:
-            points = [str(p) for p in item["required_points"]]
-            if not points:
-                raise ValueError("required_points is empty")
-            raw_faqs = item.get("faq_ids", [])
-            if item.get("faq_id") is not None:
-                raw_faqs = [item["faq_id"], *raw_faqs]
+            if not isinstance(item, dict) or set(item) - allowed:
+                raise ValueError("Invalid case object")
+            faqs = _texts(item.get("faq_ids", []))
+            if "faq_id" in item:
+                faqs = [_text(item["faq_id"]), *faqs]
             cases.append(
                 AnswerCase(
-                    id=str(item["id"]),
-                    query=str(item["query"]),
-                    category=str(item["category"]),
-                    required_points=points,
-                    forbidden_patterns=[str(p) for p in item.get("forbidden_patterns", [])],
-                    faq_ids=[str(f) for f in raw_faqs],
+                    id=_text(item["id"]),
+                    query=_text(item["query"]),
+                    category=_text(item["category"]),
+                    required_points=_texts(item["required_points"], required=True),
+                    forbidden_patterns=_texts(item.get("forbidden_patterns", [])),
+                    faq_ids=faqs,
                 )
             )
-        except (KeyError, TypeError, ValueError) as exc:
-            logger.warning("Skipping malformed answer case #%d: %s", index, exc)
+        except (KeyError, ValueError):
+            raise ValueError(f"Invalid answer case at index {index}") from None
+    _validate_cases(cases)
     return cases
 
 
@@ -160,27 +209,23 @@ def build_judge_messages(case: AnswerCase, answer: str) -> list[LLMMessage]:
 
 
 def parse_judge_json(text: str, point_count: int) -> list[bool] | None:
-    """Parse the judge's verdict into per-point booleans.
+    """Accept a JSON object with exactly one boolean per expected point index.
 
-    Returns None when no verdict can be recovered — the caller treats
-    that as a judge error rather than guessing.
+    Completed provider reasoning blocks are tolerated for compatibility; prose,
+    fences, arrays, duplicate/extra keys and nonboolean values are rejected.
     """
-    cleaned = strip_think(text)
-    start, end = cleaned.find("{"), cleaned.rfind("}")
-    if start == -1 or end <= start:
+    if not isinstance(text, str) or type(point_count) is not int or point_count < 1:
         return None
     try:
-        payload: dict[str, Any] = json.loads(cleaned[start : end + 1])
-    except json.JSONDecodeError:
+        payload = json.loads(strip_think(text), object_pairs_hook=_unique_object)
+    except ValueError:
         return None
-
-    verdicts: list[bool] = []
-    for i in range(point_count):
-        value = payload.get(str(i))
-        if not isinstance(value, bool):
-            return None
-        verdicts.append(value)
-    return verdicts
+    keys = {str(i) for i in range(point_count)}
+    if not isinstance(payload, dict) or set(payload) != keys:
+        return None
+    if any(type(payload[key]) is not bool for key in keys):
+        return None
+    return [payload[str(i)] for i in range(point_count)]
 
 
 async def run_answer_eval(
@@ -191,8 +236,8 @@ async def run_answer_eval(
     """Score an answer-producing pipeline over the answer golden set.
 
     Args:
-        answer_fn: Produces the assistant reply for a case (the system
-            under test — full pipeline, or retrieval+LLM composition).
+        answer_fn: Produces a reply; this evaluator scores listed point
+            coverage, not evidence faithfulness or retrieval correctness.
         judge_llm: LLM service exposing ``generate(messages=..., ...)``
             whose response carries ``.content`` (``LLMServiceBase``).
         cases: Override the loaded golden set (tests / subsets).
@@ -200,40 +245,51 @@ async def run_answer_eval(
     if cases is None:
         cases = load_answer_cases()
 
-    report = AnswerEvalReport(total=len(cases))
-    for case in cases:
-        answer = strip_think(await answer_fn(case))
-
-        forbidden_hits = [p for p in case.forbidden_patterns if p in answer]
-
-        response = await judge_llm.generate(  # type: ignore[attr-defined]
-            messages=build_judge_messages(case, answer),
-            max_tokens=_JUDGE_MAX_TOKENS,
-            temperature=0.0,
-        )
-        verdicts = parse_judge_json(response.content, len(case.required_points))
-
-        if verdicts is None:
-            logger.warning("Judge verdict unparseable for case %s", case.id)
-            result = AnswerCaseResult(
-                case=case, answer=answer, forbidden_hits=forbidden_hits, judge_error=True
-            )
-            report.judge_errors += 1
+    _validate_cases(cases)
+    report = AnswerEvalReport(
+        total=len(cases), point_total=sum(len(case.required_points) for case in cases)
+    )
+    for index, case in enumerate(cases):
+        result = AnswerCaseResult(case=case, answer="", points_missed=list(case.required_points))
+        try:
+            raw_answer = await answer_fn(case)
+            if not isinstance(raw_answer, str):
+                raise ValueError("Invalid answer type")
+            answer = strip_think(raw_answer)
+            if not answer or "<think>" in answer or "</think>" in answer:
+                raise ValueError("Empty or unfinished answer")
+            result.answer = answer
+        except Exception:
+            # Provider exceptions may contain credentials or request payloads.
+            # Cancellation/KeyboardInterrupt are BaseExceptions and propagate.
+            logger.warning("Answer generation failed for case index %d", index)
+            result.generation_error = True
+            report.generation_errors += 1
         else:
-            result = AnswerCaseResult(
-                case=case,
-                answer=answer,
-                forbidden_hits=forbidden_hits,
-                points_passed=[
+            result.forbidden_hits = [p for p in case.forbidden_patterns if p in answer]
+            try:
+                response = await judge_llm.generate(  # type: ignore[attr-defined]
+                    messages=build_judge_messages(case, answer),
+                    max_tokens=_JUDGE_MAX_TOKENS,
+                    temperature=0.0,
+                )
+                verdicts = parse_judge_json(response.content, len(case.required_points))
+            except Exception:
+                verdicts = None
+            if verdicts is None:
+                logger.warning(
+                    "Judge failed or returned an invalid verdict for case index %d", index
+                )
+                result.judge_error = True
+                report.judge_errors += 1
+            else:
+                result.points_passed = [
                     p for p, ok in zip(case.required_points, verdicts, strict=True) if ok
-                ],
-                points_missed=[
+                ]
+                result.points_missed = [
                     p for p, ok in zip(case.required_points, verdicts, strict=True) if not ok
-                ],
-            )
-            report.point_total += len(case.required_points)
-            report.point_passed += len(result.points_passed)
-
+                ]
+                report.point_passed += len(result.points_passed)
         report.passed += int(result.passed)
         if not result.passed:
             report.failures.append(result)

@@ -170,6 +170,46 @@ class TestResolve:
             await repo.resolve(ids[0], agent_id=5)
             assert await repo.resolve(ids[0], agent_id=5) is None
 
+    async def test_other_agent_resolve_preserves_claim_owner_and_time(self, session_maker):
+        ids = await _seed(session_maker, 1)
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            claimed = await repo.claim(ids[0], agent_id=7)
+            assert claimed is not None
+            claimed_at = claimed.claimed_at
+            assert claimed_at is not None
+            resolved = await repo.resolve(ids[0], agent_id=8)
+            assert resolved is not None
+            assert resolved.assigned_to == 7
+            assert resolved.claimed_at == claimed_at
+
+        async with session_maker() as session:
+            persisted = await TicketRepository(session).get_by_id(ids[0])
+            assert persisted is not None
+            assert persisted.status == "resolved"
+            assert persisted.assigned_to == 7
+            assert persisted.claimed_at == claimed_at
+
+    async def test_resolve_missing_returns_none(self, session_maker):
+        async with session_maker() as session:
+            assert await TicketRepository(session).resolve(999, agent_id=7) is None
+
+    async def test_resolve_only_accepts_open_or_claimed(self, session_maker):
+        async with session_maker() as session:
+            repo = TicketRepository(session)
+            ticket = await repo.create(
+                HandoffTicket(session_id=100, reason="explicit", status="cancelled")
+            )
+            ticket_id = ticket.id
+            assert await repo.resolve(ticket_id, agent_id=7) is None
+
+        async with session_maker() as session:
+            persisted = await TicketRepository(session).get_by_id(ticket_id)
+            assert persisted is not None
+            assert persisted.status == "cancelled"
+            assert persisted.assigned_to is None
+            assert persisted.claimed_at is None
+
 
 class TestSessionLookup:
     async def test_open_ticket_for_session_finds_unresolved(self, session_maker):

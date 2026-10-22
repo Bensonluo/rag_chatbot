@@ -47,7 +47,7 @@ class TestParseJudgeJson:
 
     def test_json_with_surrounding_prose(self):
         text = '好的，结论如下：\n{"0": true, "1": true}\n以上。'
-        assert parse_judge_json(text, 2) == [True, True]
+        assert parse_judge_json(text, 2) is None
 
     def test_json_with_think_block(self):
         text = '<think>逐条核对</think>{"0": false, "1": true}'
@@ -165,8 +165,8 @@ class TestRunAnswerEval:
         assert report.judge_errors == 1
         assert report.passed == 0
         assert report.failures[0].judge_error is True
-        # A judge error yields no point verdicts, so coverage is 0/0.
-        assert report.point_total == 0
+        # Failed judging still counts every required point as unverified.
+        assert report.point_total == 2
         assert report.point_coverage == 0.0
 
     @pytest.mark.asyncio
@@ -212,7 +212,7 @@ class TestLoadAnswerCases:
         assert cases[0].faq_ids == ["returns_policy"]
         assert cases[0].forbidden_patterns == ["f1"]
 
-    def test_malformed_entries_skipped(self, tmp_path):
+    def test_malformed_entries_reject_entire_set(self, tmp_path):
         payload = [
             {"id": "ok", "query": "q", "category": "c", "required_points": ["p"]},
             {"id": "no-points", "query": "q", "category": "c", "required_points": []},
@@ -221,12 +221,114 @@ class TestLoadAnswerCases:
         path = tmp_path / "cases.json"
         path.write_text(json.dumps(payload), encoding="utf-8")
 
-        cases = load_answer_cases(path)
+        with pytest.raises(ValueError):
+            load_answer_cases(path)
 
-        assert [c.id for c in cases] == ["ok"]
-
-    def test_missing_file_degrades_to_empty(self, tmp_path):
-        assert load_answer_cases(tmp_path / "nope.json") == []
+    def test_missing_file_is_configuration_error(self, tmp_path):
+        with pytest.raises(ValueError):
+            load_answer_cases(tmp_path / "nope.json")
 
     def test_bundled_set_uses_known_file(self):
         assert ANSWER_GOLDEN_SET_FILE.exists()
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '[{"0": true, "1": true}]',
+        '{"0": true, "1": true, "2": true}',
+        '{"0": false, "0": true, "1": true}',
+        '{"0": 1, "1": true}',
+        '{"0": true, "1": null}',
+        '```json\n{"0": true, "1": true}\n```',
+    ],
+)
+def test_judge_rejects_noncanonical_verdicts(text: str) -> None:
+    assert parse_judge_json(text, 2) is None
+
+
+@pytest.mark.asyncio
+async def test_judge_failure_does_not_remove_points_from_denominator() -> None:
+    judge = Mock()
+    judge.generate = AsyncMock(
+        side_effect=[Mock(content='{"0": true, "1": true}'), Mock(content="bad JSON")]
+    )
+    answer = AsyncMock(return_value="answer")
+    report = await run_answer_eval(answer, judge, [_case(), _case(id="c2")])
+    assert report.total == 2
+    assert report.point_total == 4
+    assert report.point_passed == 2
+    assert report.point_coverage == 0.5
+    assert report.failures[0].points_missed == ["要点甲", "要点乙"]
+
+
+@pytest.mark.asyncio
+async def test_generator_and_judge_exceptions_keep_all_cases_and_hide_details(caplog) -> None:
+    answer = AsyncMock(side_effect=[RuntimeError("private-generator-key"), "answer", "answer"])
+    judge = Mock()
+    judge.generate = AsyncMock(
+        side_effect=[RuntimeError("private-judge-key"), Mock(content='{"0": true, "1": true}')]
+    )
+    report = await run_answer_eval(answer, judge, [_case(id=str(i)) for i in range(3)])
+    assert report.total == 3 and report.passed == 1
+    assert report.point_total == 6 and report.point_passed == 2
+    assert report.generation_errors == 1 and report.judge_errors == 1
+    assert report.failures[0].generation_error is True
+    assert all(f.points_missed == ["要点甲", "要点乙"] for f in report.failures)
+    assert answer.await_count == 3 and judge.generate.await_count == 2
+    assert "private-generator-key" not in caplog.text
+    assert "private-judge-key" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answer_text", [None, "", "   ", "<think>unfinished", "<think>reason</think>"]
+)
+async def test_invalid_generator_answer_cannot_pass(answer_text: object) -> None:
+    judge = _judge_responding('{"0": true, "1": true}')
+    report = await run_answer_eval(AsyncMock(return_value=answer_text), judge, [_case()])
+    assert report.passed == 0 and report.point_total == 2
+    assert report.generation_errors == 1
+    judge.generate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_is_not_swallowed() -> None:
+    import asyncio
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_answer_eval(
+            AsyncMock(side_effect=asyncio.CancelledError), _judge_responding("{}"), [_case()]
+        )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        {},
+        [None],
+        [{"id": "a", "query": "q", "category": "c", "required_points": "point"}],
+        [{"id": "a", "query": "q", "category": "c", "required_points": [True]}],
+        [{"id": "a", "query": "q", "category": "c", "required_points": [" "]}],
+        [{"id": "a", "query": "q", "category": "c", "required_points": ["p"], "faq_ids": "faq"}],
+        [{"id": "a", "query": "q", "category": "c", "required_points": ["p"], "unknown": True}],
+        [{"id": "a", "query": "q", "category": "c", "required_points": ["p"]}] * 2,
+    ],
+)
+def test_invalid_golden_set_is_rejected_as_a_whole(tmp_path, payload: object) -> None:
+    path = tmp_path / "cases.json"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError):
+        load_answer_cases(path)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cases", [[], [_case(), _case()], [_case(required_points=[])]])
+async def test_direct_runner_rejects_invalid_case_sets_before_model_calls(cases) -> None:
+    answer = AsyncMock(return_value="answer")
+    judge = _judge_responding("{}")
+    with pytest.raises(ValueError):
+        await run_answer_eval(answer, judge, cases)
+    answer.assert_not_awaited()
+    judge.generate.assert_not_awaited()

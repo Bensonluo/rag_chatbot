@@ -1,6 +1,7 @@
 """Evidence-preservation and publication contracts across the ingestion pipeline."""
 
 from pathlib import Path
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -14,7 +15,18 @@ from app.tests.unit.services.documents.test_parsing import make_pdf, text_page
 
 
 @pytest.fixture
-def service(monkeypatch):
+def keyword_effects(monkeypatch) -> dict[str, AsyncMock]:
+    effects = {
+        name: AsyncMock()
+        for name in ("publish_keyword_document", "purge_keyword_document", "bump_kb_epoch")
+    }
+    for name, mock in effects.items():
+        monkeypatch.setattr(ingestion, name, mock)
+    return effects
+
+
+@pytest.fixture
+def service(keyword_effects):
     async def embed(texts):
         return EmbeddingResult(
             embeddings=[[float(len(text)), 1.0] for text in texts],
@@ -23,17 +35,17 @@ def service(monkeypatch):
             tokens_used=len(texts),
         )
 
-    monkeypatch.setattr(ingestion, "publish_keyword_document", AsyncMock())
-    monkeypatch.setattr(ingestion, "purge_keyword_document", AsyncMock())
-    monkeypatch.setattr(ingestion, "bump_kb_epoch", AsyncMock())
     return ingestion.DocumentIngestionService(
         qdrant_client=Mock(replace_document=AsyncMock()),
         embedding_service=Mock(embed=AsyncMock(side_effect=embed)),
     )
 
 
-def payloads(service):
-    return service.qdrant_client.replace_document.await_args.kwargs["payloads"]
+def payloads(service: ingestion.DocumentIngestionService) -> list[dict[str, Any]]:
+    replace = service.qdrant_client.replace_document
+    assert isinstance(replace, AsyncMock)
+    assert replace.await_args is not None
+    return cast(list[dict[str, Any]], replace.await_args.kwargs["payloads"])
 
 
 @pytest.mark.asyncio
@@ -160,7 +172,9 @@ async def test_multilingual_embeddings_obey_count_and_byte_budgets(service) -> N
 
 
 @pytest.mark.asyncio
-async def test_reingestion_replaces_document_with_stable_chunk_ids(service) -> None:
+async def test_reingestion_replaces_document_with_stable_chunk_ids(
+    service, keyword_effects
+) -> None:
     text = "Refund policy. " * 100
 
     first = await service.ingest_text(text, "Refund policy", document_id="policy")
@@ -180,18 +194,20 @@ async def test_reingestion_replaces_document_with_stable_chunk_ids(service) -> N
         call.args[0] == "policy" for call in service.qdrant_client.replace_document.await_args_list
     )
     service.qdrant_client.add.assert_not_called()
-    assert ingestion.publish_keyword_document.await_count == 3
+    assert keyword_effects["publish_keyword_document"].await_count == 3
 
 
 @pytest.mark.asyncio
-async def test_embedding_count_mismatch_does_not_publish_partial_document(service) -> None:
+async def test_embedding_count_mismatch_does_not_publish_partial_document(
+    service, keyword_effects
+) -> None:
     service.embedding_service.embed = AsyncMock(return_value=EmbeddingResult([], "test", 2, 0))
 
     with pytest.raises(ExternalServiceError, match="count"):
         await service.ingest_text("Refunds allowed.", "Policy")
 
     service.qdrant_client.replace_document.assert_not_awaited()
-    ingestion.publish_keyword_document.assert_not_awaited()
+    keyword_effects["publish_keyword_document"].assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -311,7 +327,9 @@ async def test_failed_graph_cleanup_prevents_vector_deletion(service) -> None:
 
 
 @pytest.mark.asyncio
-async def test_failed_vector_replacement_invalidates_cached_old_evidence(service) -> None:
+async def test_failed_vector_replacement_invalidates_cached_old_evidence(
+    service, keyword_effects
+) -> None:
     state = []
 
     async def replace(document_id, **kwargs):
@@ -324,19 +342,19 @@ async def test_failed_vector_replacement_invalidates_cached_old_evidence(service
         await service.ingest_text("New policy.", "Policy", document_id="policy")
 
     assert state
-    ingestion.purge_keyword_document.assert_awaited_once_with("policy")
-    ingestion.bump_kb_epoch.assert_awaited_once()
-    ingestion.publish_keyword_document.assert_not_awaited()
+    keyword_effects["purge_keyword_document"].assert_awaited_once_with("policy")
+    keyword_effects["bump_kb_epoch"].assert_awaited_once()
+    keyword_effects["publish_keyword_document"].assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_vector_deletion_timeout_also_rotates_cache_epoch(service) -> None:
+async def test_vector_deletion_timeout_also_rotates_cache_epoch(service, keyword_effects) -> None:
     service.qdrant_client.delete_by_filter = AsyncMock(side_effect=TimeoutError())
 
     with pytest.raises(TimeoutError):
         await service.delete_document("policy")
 
-    ingestion.bump_kb_epoch.assert_awaited_once()
+    keyword_effects["bump_kb_epoch"].assert_awaited_once()
 
 
 @pytest.mark.asyncio

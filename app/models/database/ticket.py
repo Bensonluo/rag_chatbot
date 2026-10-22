@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.database.base import Base, TimestampMixin
@@ -41,6 +41,15 @@ class HandoffTicket(Base, TimestampMixin):
     """
 
     __tablename__ = "handoff_tickets"
+    __table_args__ = (
+        Index(
+            "uq_handoff_tickets_active_session",
+            "session_id",
+            unique=True,
+            postgresql_where=text("status IN ('open', 'claimed')"),
+            sqlite_where=text("status IN ('open', 'claimed')"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     session_id: Mapped[int] = mapped_column(
@@ -52,7 +61,9 @@ class HandoffTicket(Base, TimestampMixin):
     reason: Mapped[str] = mapped_column(String(50), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="open", index=True)
-    priority: Mapped[int] = mapped_column(nullable=False, default=PRIORITY_NORMAL)
+    priority: Mapped[int] = mapped_column(
+        nullable=False, default=PRIORITY_NORMAL, server_default=str(PRIORITY_NORMAL)
+    )
     assigned_to: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     claimed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None

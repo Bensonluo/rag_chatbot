@@ -251,6 +251,7 @@ testpaths = [
     "app/tests/integration/test_chat_pipeline.py",
     "app/tests/integration/test_chat_pipeline_real_graph.py",
     "app/tests/integration/test_document_pipeline.py",
+    "app/tests/integration/test_backup_restore_drill.py",
     "app/tests/unit/deploy",
     "app/tests/unit/repositories",
 ]

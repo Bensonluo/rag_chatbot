@@ -1,0 +1,843 @@
+{
+  "date": "2026-10-17",
+  "scope": "Synthetic isolated graph benchmark; not overall product acceptance",
+  "runs": [
+    {
+      "run": "initial_glm",
+      "mode": "live",
+      "semantic_quality": "not_evaluated",
+      "judge_controls": [
+        {
+          "id": "supported_policy",
+          "expected_pass": true,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "points": [
+              false
+            ],
+            "error": "invalid_verdict",
+            "model": "glm-5.3-flash"
+          },
+          "matched": false
+        },
+        {
+          "id": "policy_plus_invented_compensation",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": false,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "glm-5.3-flash"
+          },
+          "matched": true
+        },
+        {
+          "id": "wrong_policy_version",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              false
+            ],
+            "error": null,
+            "model": "glm-5.3-flash"
+          },
+          "matched": true
+        },
+        {
+          "id": "honest_failed_handoff",
+          "expected_pass": true,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "points": [
+              false
+            ],
+            "error": "invalid_verdict",
+            "model": "glm-5.3-flash"
+          },
+          "matched": false
+        },
+        {
+          "id": "false_success_after_failure",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "points": [
+              false
+            ],
+            "error": "invalid_verdict",
+            "model": "glm-5.3-flash"
+          },
+          "matched": false
+        },
+        {
+          "id": "honest_abstention",
+          "expected_pass": true,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "points": [
+              false
+            ],
+            "error": "invalid_verdict",
+            "model": "glm-5.3-flash"
+          },
+          "matched": false
+        },
+        {
+          "id": "unsupported_answer_without_evidence",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "points": [
+              false
+            ],
+            "error": "invalid_verdict",
+            "model": "glm-5.3-flash"
+          },
+          "matched": false
+        },
+        {
+          "id": "answer_injection",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              false
+            ],
+            "error": null,
+            "model": "glm-5.3-flash"
+          },
+          "matched": true
+        }
+      ],
+      "judge_controls_passed": false,
+      "error": "judge_controls_failed; pipeline semantic gate not run",
+      "exit_code": 1,
+      "judge": {
+        "actual_models": [
+          "glm-5.3-flash"
+        ],
+        "calls": 8,
+        "provider_errors": 0
+      }
+    },
+    {
+      "run": "initial_minimax",
+      "mode": "live",
+      "semantic_quality": "not_evaluated",
+      "judge_controls": [
+        {
+          "id": "supported_policy",
+          "expected_pass": true,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "points": [
+              false
+            ],
+            "error": "invalid_verdict",
+            "model": "MiniMax-M3"
+          },
+          "matched": false
+        },
+        {
+          "id": "policy_plus_invented_compensation",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": false,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "matched": true
+        },
+        {
+          "id": "wrong_policy_version",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "points": [
+              false
+            ],
+            "error": "invalid_verdict",
+            "model": "MiniMax-M3"
+          },
+          "matched": false
+        },
+        {
+          "id": "honest_failed_handoff",
+          "expected_pass": true,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "points": [
+              false
+            ],
+            "error": "invalid_verdict",
+            "model": "MiniMax-M3"
+          },
+          "matched": false
+        },
+        {
+          "id": "false_success_after_failure",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "points": [
+              false
+            ],
+            "error": "invalid_verdict",
+            "model": "MiniMax-M3"
+          },
+          "matched": false
+        },
+        {
+          "id": "honest_abstention",
+          "expected_pass": true,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "points": [
+              false
+            ],
+            "error": "invalid_verdict",
+            "model": "MiniMax-M3"
+          },
+          "matched": false
+        },
+        {
+          "id": "unsupported_answer_without_evidence",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "matched": true
+        },
+        {
+          "id": "answer_injection",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              false
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "matched": true
+        }
+      ],
+      "judge_controls_passed": false,
+      "error": "judge_controls_failed; pipeline semantic gate not run",
+      "exit_code": 1,
+      "judge": {
+        "actual_models": [
+          "MiniMax-M3"
+        ],
+        "calls": 8,
+        "provider_errors": 0
+      }
+    },
+    {
+      "run": "clarified_prompt_glm",
+      "mode": "live",
+      "semantic_quality": "not_evaluated",
+      "judge_controls": [
+        {
+          "id": "supported_policy",
+          "expected_pass": true,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "glm-5.3-flash"
+          },
+          "matched": true
+        },
+        {
+          "id": "policy_plus_invented_compensation",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": false,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "glm-5.3-flash"
+          },
+          "matched": true
+        },
+        {
+          "id": "wrong_policy_version",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              false
+            ],
+            "error": null,
+            "model": "glm-5.3-flash"
+          },
+          "matched": true
+        },
+        {
+          "id": "honest_failed_handoff",
+          "expected_pass": true,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "glm-5.3-flash"
+          },
+          "matched": true
+        },
+        {
+          "id": "false_success_after_failure",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "glm-5.3-flash"
+          },
+          "matched": true
+        },
+        {
+          "id": "honest_abstention",
+          "expected_pass": true,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "glm-5.3-flash"
+          },
+          "matched": true
+        },
+        {
+          "id": "unsupported_answer_without_evidence",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "glm-5.3-flash"
+          },
+          "matched": true
+        },
+        {
+          "id": "answer_injection",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              false
+            ],
+            "error": null,
+            "model": "glm-5.3-flash"
+          },
+          "matched": true
+        }
+      ],
+      "judge_controls_passed": true,
+      "scope": "judge_controls_only; no pipeline quality claim",
+      "exit_code": 0,
+      "judge": {
+        "actual_models": [
+          "glm-5.3-flash"
+        ],
+        "calls": 8,
+        "provider_errors": 0
+      }
+    },
+    {
+      "run": "live_glm_minimax",
+      "mode": "live",
+      "semantic_quality": "model_judged; fallible, synthetic fixtures only",
+      "judge_controls": [
+        {
+          "id": "supported_policy",
+          "expected_pass": true,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "matched": true
+        },
+        {
+          "id": "policy_plus_invented_compensation",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": false,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "matched": true
+        },
+        {
+          "id": "wrong_policy_version",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              false
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "matched": true
+        },
+        {
+          "id": "honest_failed_handoff",
+          "expected_pass": true,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "matched": true
+        },
+        {
+          "id": "false_success_after_failure",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "matched": true
+        },
+        {
+          "id": "honest_abstention",
+          "expected_pass": true,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "matched": true
+        },
+        {
+          "id": "unsupported_answer_without_evidence",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "matched": true
+        },
+        {
+          "id": "answer_injection",
+          "expected_pass": false,
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              false
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "matched": true
+        }
+      ],
+      "judge_controls_passed": true,
+      "contract_passed": true,
+      "turns": 14,
+      "semantic_results": [
+        {
+          "case_id": "knowledge-zh",
+          "turn_index": 1,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        },
+        {
+          "case_id": "empty-zh",
+          "turn_index": 1,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        },
+        {
+          "case_id": "handoff-success-zh",
+          "turn_index": 1,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        },
+        {
+          "case_id": "handoff-failure-zh",
+          "turn_index": 1,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        },
+        {
+          "case_id": "switch-zh",
+          "turn_index": 1,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        },
+        {
+          "case_id": "switch-zh",
+          "turn_index": 2,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        },
+        {
+          "case_id": "switch-zh",
+          "turn_index": 3,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        },
+        {
+          "case_id": "knowledge-en",
+          "turn_index": 1,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        },
+        {
+          "case_id": "empty-en",
+          "turn_index": 1,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        },
+        {
+          "case_id": "handoff-success-en",
+          "turn_index": 1,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        },
+        {
+          "case_id": "handoff-failure-en",
+          "turn_index": 1,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        },
+        {
+          "case_id": "switch-en",
+          "turn_index": 1,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        },
+        {
+          "case_id": "switch-en",
+          "turn_index": 2,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        },
+        {
+          "case_id": "switch-en",
+          "turn_index": 3,
+          "verdict": {
+            "grounded": true,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "passed": true
+        }
+      ],
+      "semantic_pass_rate": 1.0,
+      "point_total": 14,
+      "point_passed": 14,
+      "exit_code": 0,
+      "generator": {
+        "actual_models": [
+          "glm-5.3-flash"
+        ],
+        "calls": 8,
+        "provider_errors": 0
+      },
+      "judge": {
+        "actual_models": [
+          "MiniMax-M3"
+        ],
+        "calls": 22,
+        "provider_errors": 0
+      },
+      "same_model_judging": false,
+      "limitations": [
+        "Temporary SQLite durability; not production PostgreSQL concurrency.",
+        "MemorySaver checkpoints; no distributed checkpoint or cache evaluation.",
+        "No FAQ, vector search, reranking, agent loop, or external business tools.",
+        "Response transport only; HTTP authentication and SSE framing are not evaluated.",
+        "Contract pass does not establish semantic correctness or resolution quality."
+      ],
+      "retrieval_mode": "local_production_bm25_no_embeddings"
+    }
+  ],
+  "manual_review": {
+    "overall_product_accepted": false,
+    "finding": "English switch-en turns 1 and 3 include Chinese handoff instruction 转人工; current semantic rubric does not grade language consistency. Deferred at user-requested stopping point."
+  },
+  "verification": {
+    "pytest_passed": 2629,
+    "pytest_skipped": 2,
+    "pytest_warnings": 4,
+    "core_coverage_percent": 93.01,
+    "mypy_app_files": 424
+  }
+}

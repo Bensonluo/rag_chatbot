@@ -18,15 +18,40 @@ behind the same signature once there is labeled traffic to tune on
 from __future__ import annotations
 
 import re
+import unicodedata
 
-# zh: 解决了 (not preceded by 没/未 — "还没解决" means still open), 搞定了,
-# 没有问题了. en: solved/fixed/sorted/worked as whole words, "all set".
-RESOLVE_CONFIRMATION_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"(?<![没未])解决了"),
-    re.compile(r"搞定了"),
-    re.compile(r"没有问题了"),
-    re.compile(r"\b(?:solved|fixed|sorted|worked)\b", re.IGNORECASE),
-    re.compile(r"\ball\s+set\b", re.IGNORECASE),
+# Match the complete utterance, not a positive word inside a denial,
+# question, quotation, hypothetical, or a request for further help.
+# A negative-keyword blacklist cannot cover those constructions reliably.
+# Permit only a short affirmative statement with optional courtesy phrases;
+# unfamiliar wording stays unconfirmed and eligible for human QA.
+_SEPARATOR = r"[\s,.!;，。！；]*"
+_COURTESY = (
+    r"(?:谢谢(?:你|您)?(?:的帮助)?|多谢(?:你|您)?|"
+    r"(?:非常)?感谢(?:(?:你|您)(?:的帮助)?|帮助)?|"
+    r"好的|好了|好|是的|嗯|yes|ok(?:ay)?|thanks(?:\s+a\s+lot)?|"
+    r"thank\s+you(?:\s+(?:very\s+much|for\s+your\s+help))?)"
+)
+_ZH_CONFIRMATION = (
+    r"(?:(?:我的|这个)?问题)?(?:现在|这下)?(?:已经|终于)?"
+    r"(?:(?:都)?解决了|搞定了|没有问题了)"
+)
+_EN_CONFIRMATION = (
+    r"(?:"
+    r"(?:solved|fixed|sorted|resolved|worked)|"
+    r"(?:it|that|this)\s+(?:worked|solved\s+it|fixed\s+it)|"
+    r"(?:(?:my|the)\s+)?(?:problem|issue)\s+(?:(?:is|has\s+been)\s+)?"
+    r"(?:solved|fixed|sorted|resolved)|"
+    r"(?:it|that|this)(?:\s+(?:is|has\s+been)|'s)\s+(?:solved|fixed|sorted|resolved)|"
+    r"(?:all\s+set|(?:i\s+am|i'm|we\s+are|we're)\s+all\s+set)|"
+    r"(?:everything\s+is|it\s+is|it's)\s+working\s+now"
+    r")(?:\s+now)?"
+)
+_CONFIRMATION = re.compile(
+    rf"(?:{_COURTESY}{_SEPARATOR}){{0,2}}"
+    rf"(?:{_ZH_CONFIRMATION}|{_EN_CONFIRMATION})"
+    rf"{_SEPARATOR}(?:{_COURTESY}{_SEPARATOR}){{0,2}}",
+    re.IGNORECASE,
 )
 
 
@@ -40,4 +65,5 @@ def is_resolution_confirmation(text: str) -> bool:
     """
     if not text:
         return False
-    return any(pattern.search(text) for pattern in RESOLVE_CONFIRMATION_PATTERNS)
+    normalized = unicodedata.normalize("NFKC", text).replace("’", "'").strip()
+    return _CONFIRMATION.fullmatch(normalized) is not None

@@ -15,7 +15,6 @@ layer can map them to 404/409 semantics.
 from __future__ import annotations
 
 import contextlib
-import json
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -110,10 +109,10 @@ class HandoffService:
         """
         Create (or reuse) a handoff ticket for a chat session.
 
-        Re-requesting a human while a ticket is already open for the
-        session returns the existing ticket — users say 转人工 more than
-        once while waiting, and duplicate tickets would inflate the
-        agent queue.
+        Concurrent requests share one active ticket per session. Reuse
+        preserves assignment and original context, retains the latest
+        request, and raises priority for urgent escalation without downgrading
+        it on a later routine retry. Closed tickets remain historical.
 
         Args:
             session_id: Chat session the handoff originated from
@@ -124,8 +123,10 @@ class HandoffService:
         Returns:
             Dict with ticket_id, queue_position, and reused flag.
             queue_position is the 1-based position in the priority-ordered
-            open queue. ticket_id is None when persistence failed (the
-            chat turn still succeeds; the response just omits the number).
+            open queue, or None when unavailable. A queue lookup failure
+            preserves the confirmed ticket_id. ticket_id is None when no
+            ticket could be confirmed; callers must clearly report that
+            the handoff failed instead of promising an agent response.
         """
         if reason not in VALID_REASONS:
             reason = REASON_EXPLICIT
@@ -150,27 +151,14 @@ class HandoffService:
             await ensure_demo_session_row(self._session_maker, session_id)
             async with self._session_maker() as session:
                 repo = TicketRepository(session)
-                existing = await repo.get_open_ticket_for_session(session_id)
-                if existing is not None:
-                    return {
-                        "ticket_id": existing.id,
-                        "queue_position": await repo.position_in_queue(existing.id),
-                        "reused": True,
-                    }
-
-                ticket = HandoffTicket(
+                ticket, reused = await repo.create_or_reuse_active(
                     session_id=session_id,
                     user_id=user_id or 0,
                     reason=reason,
                     priority=_priority_for_reason(reason),
-                    summary=json.dumps(context, ensure_ascii=False, default=str),
+                    context=context,
                 )
-                created = await repo.create(ticket)
-                return {
-                    "ticket_id": created.id,
-                    "queue_position": await repo.position_in_queue(created.id),
-                    "reused": False,
-                }
+                ticket_id = ticket.id
         except Exception as exc:  # noqa: BLE001 - availability over durability
             logger.warning(
                 "Failed to create handoff ticket (session=%s): %s",
@@ -178,6 +166,16 @@ class HandoffService:
                 exc,
             )
             return {"ticket_id": None, "queue_position": None, "reused": False}
+
+        # Queue position is advisory. Its read transaction must not turn a
+        # confirmed handoff into a reported failure after the ticket commits.
+        queue_position = None
+        try:
+            async with self._session_maker() as session:
+                queue_position = await TicketRepository(session).position_in_queue(ticket_id)
+        except Exception as exc:  # noqa: BLE001 - retain the confirmed ticket
+            logger.warning("Failed to read handoff queue position (ticket=%s): %s", ticket_id, exc)
+        return {"ticket_id": ticket_id, "queue_position": queue_position, "reused": reused}
 
     async def _summarize_session(self, session_id: int, llm: SummaryLLM) -> str | None:
         """Load recent turns (own DB session) and summarize them."""

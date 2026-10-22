@@ -38,6 +38,7 @@ class TurnState(TypedDict, total=False):
     executed_tools: list[dict[str, Any]]
     retrieved_docs: list[dict[str, Any]]
     sources: list[str]
+    citations: list[dict[str, Any]]
     # True when a retrieval leg actually ran this turn (empty results
     # included) — begin_turn pre-clears retrieved_docs to [], so the
     # generation-side no-evidence branch cannot key on emptiness alone.
@@ -49,6 +50,8 @@ class TurnState(TypedDict, total=False):
     response: str
     handoff_reason: str
     handoff_ticket_id: int
+    # Empty when no handoff was attempted; otherwise "queued" or "failed".
+    handoff_outcome: str
     blocked: bool
     blocked_reason: str
     # True when this turn's generation folded in session history or
@@ -119,11 +122,13 @@ def begin_turn(state: DialogueState) -> DialogueState:
         "executed_tools": [],
         "retrieved_docs": [],
         "sources": [],
+        "citations": [],
         "retrieval_ran": False,
         "retrieval_degraded": False,
         "response": "",
         "handoff_reason": "",
         "handoff_ticket_id": 0,
+        "handoff_outcome": "",
         "blocked": False,
         "blocked_reason": "",
         "personalized": False,

@@ -103,9 +103,9 @@ async def review_session(
     """Record a QA verdict on a sampled session.
 
     Any verdict removes the session from the review queue; a resolved
-    verdict additionally stamps resolved_at (same positive-evidence
-    semantics as the user-confirmation path, feeding sessions_resolved
-    in the containment cross-tab).
+    verdict stamps resolved_at, while an unresolved verdict clears it.
+    The latest verdict determines the session's contribution to
+    sessions_resolved without counting a review correction as a user reopen.
     """
     require_qa_reviewer(current_user)
     repo = SessionRepository(db)

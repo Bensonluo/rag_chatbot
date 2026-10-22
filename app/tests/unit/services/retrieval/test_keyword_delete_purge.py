@@ -64,6 +64,7 @@ class TestKeywordLegPurge:
         # Other documents untouched.
         survivor = await leg.search(VectorSearchRequest(query="yxwbeta", top_k=5))
         assert [h.document_id for h in survivor] == ["docB"]
+        assert survivor[0].metadata is not None
         assert survivor[0].metadata["chunk_id"] == "b1"
 
     async def test_remove_document_is_noop_for_unknown_id(self) -> None:

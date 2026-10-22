@@ -9,6 +9,7 @@ import hashlib
 import logging
 
 from app.services.graph.base import GraphSearchResult
+from app.services.graph.provenance import collect_source_provenance
 from app.services.retrieval.vector_base import SearchResult
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,11 @@ class MultiPathRetrievalFusion:
                     score=0.0,
                     metadata={
                         **(graph_result.metadata or {}),
+                        **collect_source_provenance(
+                            graph_result.metadata,
+                            [entity.properties for entity in graph_result.entities],
+                            [relation.properties for relation in graph_result.relations],
+                        ),
                         "source_type": graph_result.source_type,
                         "entities": [
                             {"name": e.name, "type": e.type} for e in graph_result.entities

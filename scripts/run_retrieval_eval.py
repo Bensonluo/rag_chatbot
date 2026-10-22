@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import json
 import logging
+import math
 import sys
 from pathlib import Path
 
@@ -30,11 +31,18 @@ from app.services.evaluation.retrieval_eval import (  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
+def _threshold(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number) or not 0 <= number <= 1:
+        raise argparse.ArgumentTypeError("threshold must be finite and between 0 and 1")
+    return number
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(description="Run the retrieval golden-set baseline")
     parser.add_argument(
         "--threshold",
-        type=float,
+        type=_threshold,
         default=None,
         help="minimum fused-arm recall@3 to pass; omit for report-only",
     )
@@ -44,25 +52,38 @@ async def main() -> int:
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-    cases = load_retrieval_cases(args.cases) if args.cases else None
-    if cases is not None and not cases:
-        logger.error("No retrieval cases loaded; nothing to run")
+    try:
+        # Load defaults explicitly so an empty bundled set cannot bypass the gate.
+        cases = load_retrieval_cases(args.cases)
+        if not cases:
+            raise ValueError("Empty retrieval cases")
+    except (OSError, ValueError, KeyError, TypeError):
+        logger.error("Invalid or empty retrieval golden set; no evaluation run")
         return 2
-
-    report = await run_retrieval_baseline(cases=cases)
-    print(format_baseline_table(report))
-
-    if args.json:
-        Path(args.json).write_text(
-            json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-        logger.info("Report written to %s", args.json)
-
-    if args.threshold is not None:
+    try:
+        report = await run_retrieval_baseline(cases=cases)
         fused = report["arms"]["hybrid_rrf_lexical_vector"]["overall"]["recall@3"]
-        if fused < args.threshold:
-            logger.error("fused recall@3 %.3f below threshold %.3f", fused, args.threshold)
-            return 1
+        if (
+            report["cases"] != len(cases)
+            or type(fused) not in (int, float)
+            or not math.isfinite(fused)
+            or not 0 <= fused <= 1
+        ):
+            raise ValueError("Invalid retrieval report")
+        rendered = format_baseline_table(report)
+        if args.json:
+            Path(args.json).write_text(
+                json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False), encoding="utf-8"
+            )
+        print(rendered)
+    except Exception:
+        # Never echo exception strings: downstream failures may carry credentials.
+        logger.error("Retrieval evaluation failed or produced an invalid report")
+        return 1
+
+    if args.threshold is not None and fused < args.threshold:
+        logger.error("fused recall@3 %.3f below threshold %.3f", fused, args.threshold)
+        return 1
     return 0
 
 

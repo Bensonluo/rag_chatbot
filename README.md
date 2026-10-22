@@ -82,7 +82,7 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 
 | 📈 Stats | | |
 |:---:|:---:|:---:|
-| **2218** maintained tests | **3** LLM providers | **92.80%** core coverage |
+| **2629** passing tests | **3** LLM providers | **93.01%** core coverage |
 | **12** dialogue nodes | **5** data stores | **4** memory strategies |
 
 </div>
@@ -98,7 +98,7 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 7. **Human handoff loop** — emotion/complexity-triggered tickets with queue position and AHT, plus knowledge-gap recording
 8. **Observable demo runtime** — `/metrics`, TTFT/duration/outcome metrics, SLA + policy-gate alert rules, tracing hooks
 9. **Epoch-scoped cache pyramid** — L0 answer / L1 semantic / L2 retrieval caches; every KB mutation rotates an epoch that invalidates all three wholesale — no stale entries, no per-key eviction
-10. **Containment resolution KPI** — the north-star metric with downvote doctrine (a downvoted answer counts as unresolved), served as a DB-bridged Prometheus gauge
+10. **Containment KPI** — the share of served sessions with no handoff or downvote, served as a DB-bridged Prometheus gauge. Containment is not confirmed resolution; user confirmations, reopen counts, and human QA verdicts are tracked separately.
 11. **Scale-ready node template** — compose port range + nginx upstream template + dns_sd multi-replica scraping: one node today, N replicas without re-architecture
 
 ---
@@ -359,6 +359,15 @@ See [.env.example](.env.example) for the full list.
 
 ## Document ingestion for support knowledge
 
+Chat answers and history include `citations`: reference snapshots with the
+document revision, passage, available page/section location, and an excerpt.
+Streaming clients opt in with `include_citations: true` to receive the final
+`event: citations` frame before `[DONE]`; existing clients retain the text-only
+protocol. Historical references keep their original versions after a document
+update. These are references supplied for the answer, not proof of each claim.
+See the [citation contract](docs/design/answer-citations.md) for compatibility,
+location semantics, cache behavior, and source-deletion boundaries.
+
 Uploads retain the original source in PostgreSQL and return **HTTP 202** with
 `document_id`, `version_id`, `revision`, and `status`. Existing clients that
 expected a completed upload at HTTP 201 must poll the revision endpoint.
@@ -478,12 +487,19 @@ collection and re-ingestion; queued jobs with an outdated model configuration fa
 explicitly. Pre-existing chunks have no recoverable original source: re-upload
 those documents to obtain the new provenance and revision lifecycle.
 
+PostgreSQL backup and new-database recovery are covered by a disposable
+PostgreSQL 16 drill, including historical citations, document bytes, handoff
+state, and same-database dialogue checkpoints. Follow the
+[backup and recovery runbook](docs/operations/backup-and-recovery.md) to select
+the correct Compose stack and verify a restore. Qdrant/Neo4j recovery and
+separately configured checkpoint databases require their own recovery plans.
+
 ---
 
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 2218 tests / 92.80%)
+# Maintained core suite (70% minimum; currently 2629 passed + 2 opt-in skipped / 93.01%)
 pytest
 
 # Targeted runs
@@ -493,24 +509,43 @@ pytest app/tests/unit/services/intent/ -v      # Intent detection
 pytest app/tests --no-cov
 ```
 
+Answer evaluation now separates given-context point coverage from evidence-grounded
+pipeline grading. The isolated real graph covers 14 bilingual turns with actual
+BM25 retrieval, citations, SQLite messages, and handoff outcomes. GLM generation
+and independent MiniMax judging passed these synthetic checks on 2026-10-17;
+manual review still found a Chinese handoff hint in English replies. This is not
+an overall product acceptance result. See the [evaluation runbook](docs/operations/answer-quality-evaluation.md)
+and [recorded results](docs/reviews/answer-quality-results-2026-10-17.json).
+
 ### Code Quality Gates
 
 ```bash
-# Runtime-critical Ruff checks (production code only)
-ruff check app --exclude app/tests --select E9,F63,F7,F82
-
-# Key typed boundaries used by the demo chain
-mypy app/core/security.py app/services/documents/base.py \
-  app/services/documents/ingestion.py app/services/graph/base.py \
-  --follow-imports=silent --ignore-missing-imports
+# Full checks used by CI
+ruff check app/
+ruff format --check app/
+mypy app/
 ```
+
+Local verification on 2026-10-17: 2629 tests pass, with two opt-in scenarios
+skipped by default (PostgreSQL concurrency and the Docker recovery drill);
+core coverage is 93.01%. Ruff and
+full strict Mypy pass (424 Python files). All 8 PostgreSQL concurrency tests
+and the SQLite/PostgreSQL migration round trips pass in isolated databases.
+The new PostgreSQL backup/recovery drill also passes with explicit Docker opt-in.
+CI migration/recovery commands were verified locally; remote CI was not triggered.
+See the [iteration record](docs/reviews/product-quality-2026-10-16.md) for evidence
+and migration precautions. The companion `portfolio-fe` now passes all 86
+tests (79 Jest + 7 citation protocol tests), lint, strict TypeScript checks, and
+a static build of 11 pages. Its legacy test configuration and 125 type errors
+are resolved. Runtime npm audit reports zero vulnerabilities; development-tool
+dependency advisories remain documented in the iteration record.
 
 | Metric | Value |
 |--------|-------|
-| Maintained test cases | **2218** |
-| Maintained core coverage | **92.80%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
-| Python files | ~345 |
-| Test files | ~145 |
+| Maintained test results | **2629 passed, 2 opt-in skipped** |
+| Maintained core coverage | **93.01%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
+| Python files (app/) | 424 |
+| Python files in app/tests/ | 214 (208 test_ modules) |
 
 ---
 
@@ -522,7 +557,7 @@ mypy app/core/security.py app/services/documents/base.py \
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 2218 maintained core tests, 92.80% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
+- [x] 2629 passing core tests, 93.01% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)

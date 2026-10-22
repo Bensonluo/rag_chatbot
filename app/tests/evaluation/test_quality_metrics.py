@@ -65,12 +65,13 @@ class TestQualityMetricsSnapshot:
                             user_rating=1 if index < 2 else -1,
                         )
                     )
-            # Sessions 0 and 1 escalated; session 1 twice (deduplicated).
-            session.add(HandoffTicket(session_id=1, user_id=1, reason="explicit", status="open"))
-            session.add(HandoffTicket(session_id=1, user_id=1, reason="emotion", status="open"))
+            # Two sessions escalated; the first has a resolved historical ticket
+            # and a new active ticket. Metrics must count distinct sessions.
             session.add(
-                HandoffTicket(session_id=2, user_id=1, reason="explicit", status="resolved")
+                HandoffTicket(session_id=1, user_id=1, reason="explicit", status="resolved")
             )
+            session.add(HandoffTicket(session_id=1, user_id=1, reason="emotion", status="open"))
+            session.add(HandoffTicket(session_id=2, user_id=1, reason="explicit", status="open"))
             await session.commit()
 
         snapshot = await QualityMetricsService(session_maker).snapshot()

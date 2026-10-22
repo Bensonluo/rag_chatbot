@@ -37,6 +37,7 @@ from typing import Any, Protocol
 
 from app.services.chat.answer_cache import CachedAnswer, normalize_message
 from app.services.chat.cache_eviction import record_response_index
+from app.services.chat.citations import normalize_citations
 from app.services.retrieval.kb_epoch import EPOCH_UNAVAILABLE
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,7 @@ class SemanticCacheService:
                 response=str(best["response"]),
                 sources=[str(s) for s in best.get("sources", [])],
                 intent=str(best["intent"]),
+                citations=normalize_citations(best.get("citations")),
             )
         except Exception:  # noqa: BLE001 - fail-open iron law
             logger.warning("Semantic cache read failed; degrading to miss", exc_info=True)
@@ -179,6 +181,7 @@ class SemanticCacheService:
                     "response": answer.response,
                     "sources": answer.sources,
                     "intent": answer.intent,
+                    "citations": normalize_citations(answer.citations),
                     "vec": encode_vector(list(vec)),
                 },
                 ensure_ascii=False,

@@ -1,7 +1,8 @@
 """Document graph transactions preserve independent sources and provenance."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -15,6 +16,7 @@ def graph():
     queries = []
 
     async def run(query, params):
+        rows: list[dict[str, Any]]
         queries.append((query, params))
         if "RETURN node.id AS id" in query:
             # A shared entity has an existing ID, not the upload's proposed ID.
@@ -195,7 +197,7 @@ async def test_invalid_chunk_provenance_is_rejected_before_mutation(graph, chunk
 @pytest.mark.asyncio
 async def test_embedding_search_falls_back_without_gds_and_returns_source_provenance():
     client = Neo4jClient()
-    client._run_query = AsyncMock(
+    run_query = AsyncMock(
         side_effect=[
             RuntimeError("vector index dimensions mismatch"),
             [
@@ -211,11 +213,14 @@ async def test_embedding_search_falls_back_without_gds_and_returns_source_proven
             ],
         ]
     )
-    results = await client.search_entities_by_embedding([0.1, 0.2], entity_types=["Policy"])
+    with patch.object(client, "_run_query", run_query):
+        results = await client.search_entities_by_embedding([0.1, 0.2], entity_types=["Policy"])
 
+    assert results[0].metadata is not None
     assert results[0].metadata["source_document_ids"] == ["doc-a", "doc-b"]
     assert results[0].entities[0].properties["source_chunk_ids"] == ["chunk-1", "chunk-2"]
-    query, params = client._run_query.await_args.args
+    assert run_query.await_args is not None
+    query, params = run_query.await_args.args
     assert "gds." not in query
     assert "size(e.embedding) = size($embedding)" in query
     assert "en > 0 AND qn > 0" in query
@@ -225,6 +230,10 @@ async def test_embedding_search_falls_back_without_gds_and_returns_source_proven
 @pytest.mark.asyncio
 async def test_identity_constraint_failures_are_visible():
     client = Neo4jClient()
-    client._run_query = AsyncMock(side_effect=RuntimeError("permission denied"))
-    with pytest.raises(GraphClientError, match="identity constraints"):
+    with (
+        patch.object(
+            client, "_run_query", AsyncMock(side_effect=RuntimeError("permission denied"))
+        ),
+        pytest.raises(GraphClientError, match="identity constraints"),
+    ):
         await client._ensure_constraints()

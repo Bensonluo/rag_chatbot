@@ -38,7 +38,7 @@ class TestGraphRetrievalServiceRRF:
         results = await service.search("Can I refund a custom product?", top_k=5)
 
         assert {result.content for result in results} == {standard.content, exception.content}
-        assert {result.metadata["source_document_id"] for result in results} == {
+        assert {(result.metadata or {})["source_document_id"] for result in results} == {
             "standard-policy",
             "custom-policy",
         }

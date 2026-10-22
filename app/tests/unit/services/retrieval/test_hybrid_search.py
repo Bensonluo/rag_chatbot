@@ -1,5 +1,6 @@
 """Tests for hybrid search service"""
 
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -12,7 +13,7 @@ class TestHybridSearchService:
         from app.services.retrieval.hybrid_search import HybridSearchService, KeywordSearch
         from app.services.retrieval.vector_base import SearchResult, VectorSearchRequest
 
-        chunks = [
+        chunks: list[dict[str, Any]] = [
             {
                 "id": chunk_id,
                 "content": content,
@@ -35,9 +36,10 @@ class TestHybridSearchService:
         )
 
         assert len(results) == 2
-        assert {result.metadata["chunk_id"] for result in results} == {"c1", "c2"}
+        assert {(result.metadata or {})["chunk_id"] for result in results} == {"c1", "c2"}
         assert [result.document_id for result in results] == ["policy", "policy"]
         for result in results:
+            assert result.metadata is not None
             assert result.metadata["vector_score"] > 0
             assert result.metadata["keyword_score"] > 0
             assert result.metadata["title"] == "Returns"

@@ -145,6 +145,28 @@ class TestChatFactoryLightWiring:
         wired = handoff_create.call_args.kwargs["llm_service"]
         assert wired._inner.model == "glm-4-flash"
 
+    def test_intent_glm_override_shares_key_and_coding_endpoint(self):
+        from app.config.settings import settings
+        from app.services.llm.budget import BudgetedLLMService
+        from app.services.llm.glm_client import GLMClient
+
+        endpoint = "https://open.bigmodel.cn/api/coding/paas/v4/"
+        with (
+            patch.object(settings, "INTENT_GLM_MODEL", "glm-5.3"),
+            patch.object(settings, "GLM_API_KEY", "test-glm-key"),
+            patch.object(settings, "GLM_BASE_URL", endpoint),
+            patch("app.services.chat.factory.IntentFactory.create") as intent_create,
+            patch("app.services.handoff.create_handoff_service") as handoff_create,
+        ):
+            self._run_factory()
+        wired = intent_create.call_args.kwargs["llm_service"]
+        assert isinstance(wired, BudgetedLLMService)
+        assert isinstance(wired._inner, GLMClient)
+        assert wired._inner.model == "glm-5.3"
+        assert wired._inner.api_key == "test-glm-key"
+        assert str(wired._inner.client.base_url) == endpoint
+        assert handoff_create.call_args.kwargs["llm_service"]._inner.model == "glm-4-flash"
+
     def test_agent_receives_primary_tier(self):
         """Tool-calling rounds need capability — never the light tier."""
         from app.config.settings import settings

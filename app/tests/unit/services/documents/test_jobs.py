@@ -5,12 +5,14 @@ SKIP LOCKED coordination still requires PostgreSQL integration coverage.
 """
 
 import asyncio
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from collections.abc import AsyncIterator, Callable
+from typing import Any, cast
+from unittest.mock import AsyncMock, Mock
 
 import pytest
-from sqlalchemy import event, inspect, select
+from sqlalchemy import String, event, inspect, select
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.engine import Dialect
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import Session, undefer
 from sqlalchemy.pool import StaticPool
@@ -20,16 +22,22 @@ from app.models.database.base import Base
 from app.models.database.document import Document, DocumentVersion
 from app.services.documents.ingestion import DocumentIngestionService
 from app.services.documents.jobs import DocumentJobService
-from app.services.graph.base import GraphClientError
+from app.services.embeddings.base import EmbeddingServiceBase
+from app.services.graph.base import GraphClient, GraphClientError
+from app.services.retrieval.qdrant_client import QdrantClient
 
 
 @pytest.fixture
-async def jobs():
+async def jobs() -> AsyncIterator[DocumentJobService]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
     async with engine.begin() as connection:
         await connection.run_sync(
             lambda sync: Base.metadata.create_all(
-                sync, tables=[Document.__table__, DocumentVersion.__table__]
+                sync,
+                tables=[
+                    Base.metadata.tables["documents"],
+                    Base.metadata.tables["document_versions"],
+                ],
             )
         )
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -37,8 +45,8 @@ async def jobs():
     await engine.dispose()
 
 
-async def submit(jobs, **changes):
-    request = {
+async def submit(jobs: DocumentJobService, **changes: Any) -> dict[str, Any]:
+    request: dict[str, Any] = {
         "data": b"Refunds are available within seven days.",
         "title": "Refund policy",
         "filename": "refund-policy.txt",
@@ -50,8 +58,14 @@ async def submit(jobs, **changes):
     return await jobs.submit(**request)
 
 
-def provider(*, warnings=None, graph_status="disabled", error=None):
-    service = SimpleNamespace(
+def provider(
+    *,
+    warnings: list[str] | None = None,
+    graph_status: str = "disabled",
+    error: BaseException | None = None,
+) -> tuple[Mock, AsyncMock]:
+    service = Mock(
+        spec_set=DocumentIngestionService,
         ingest_bytes=AsyncMock(
             return_value={
                 "chunks_count": 2,
@@ -68,7 +82,9 @@ def provider(*, warnings=None, graph_status="disabled", error=None):
 
 
 @pytest.mark.asyncio
-async def test_exact_reupload_deduplicates_but_different_pipeline_creates_revision(jobs):
+async def test_exact_reupload_deduplicates_but_different_pipeline_creates_revision(
+    jobs: DocumentJobService,
+):
     first = await submit(jobs)
     duplicate = await submit(jobs, metadata={"uploaded_by": 99, "language": "en"})
     assert duplicate["document_id"] == first["document_id"]
@@ -84,7 +100,9 @@ async def test_exact_reupload_deduplicates_but_different_pipeline_creates_revisi
 
 
 @pytest.mark.asyncio
-async def test_changed_source_and_restoring_older_source_create_new_immutable_revisions(jobs):
+async def test_changed_source_and_restoring_older_source_create_new_immutable_revisions(
+    jobs: DocumentJobService,
+):
     first = await submit(jobs, document_id="doc-a")
     second = await submit(jobs, document_id="doc-a", data=b"Updated refund policy.")
     third = await submit(jobs, document_id="doc-a")
@@ -98,7 +116,9 @@ async def test_changed_source_and_restoring_older_source_create_new_immutable_re
 
 
 @pytest.mark.asyncio
-async def test_original_bytes_survive_new_service_and_status_does_not_load_large_columns(jobs):
+async def test_original_bytes_survive_new_service_and_status_does_not_load_large_columns(
+    jobs: DocumentJobService,
+):
     uploaded = await submit(jobs, data=b"\x00\x01original\xff", filename="..\\secret\\original.pdf")
     restarted = DocumentJobService(jobs.sessions)
     assert await restarted.source(uploaded["version_id"]) == (
@@ -108,14 +128,19 @@ async def test_original_bytes_survive_new_service_and_status_does_not_load_large
     )
     async with jobs.sessions() as db:
         version = await db.get(DocumentVersion, uploaded["version_id"])
-        assert {"source_content", "normalized_text"} <= inspect(version).unloaded
+        assert version is not None
+        state = inspect(version)
+        assert state is not None
+        assert {"source_content", "normalized_text"} <= state.unloaded
     status = await restarted.get_version(uploaded["version_id"])
     assert "source_content" not in status
     assert "normalized_text" not in status
 
 
 @pytest.mark.asyncio
-async def test_processing_is_visible_before_provider_finishes_and_success_becomes_active(jobs):
+async def test_processing_is_visible_before_provider_finishes_and_success_becomes_active(
+    jobs: DocumentJobService,
+):
     uploaded = await submit(jobs, document_id="doc-a")
     service, factory = provider()
 
@@ -144,13 +169,16 @@ async def test_processing_is_visible_before_provider_finishes_and_success_become
             .where(DocumentVersion.id == uploaded["version_id"])
             .options(undefer(DocumentVersion.normalized_text))
         )
+        assert stored is not None
         assert stored.normalized_text == "Normalized source."
     service.close.assert_awaited_once()
     assert await jobs.process_next(factory) is False
 
 
 @pytest.mark.asyncio
-async def test_partial_result_remains_active_and_retry_reuses_revision_and_source(jobs):
+async def test_partial_result_remains_active_and_retry_reuses_revision_and_source(
+    jobs: DocumentJobService,
+):
     uploaded = await submit(jobs, document_id="doc-a")
     service, factory = provider(warnings=["Graph extraction unavailable"], graph_status="failed")
     await jobs.process_next(factory)
@@ -173,7 +201,9 @@ async def test_partial_result_remains_active_and_retry_reuses_revision_and_sourc
 @pytest.mark.parametrize(
     "error", [ValidationError("Unreadable PDF"), RuntimeError("private provider token")]
 )
-async def test_failed_replacement_preserves_active_version_and_can_retry(jobs, error):
+async def test_failed_replacement_preserves_active_version_and_can_retry(
+    jobs: DocumentJobService, error
+):
     active = await submit(jobs, document_id="doc-a")
     _, good_factory = provider()
     await jobs.process_next(good_factory)
@@ -198,10 +228,13 @@ async def test_failed_replacement_preserves_active_version_and_can_retry(jobs, e
 
 
 @pytest.mark.asyncio
-async def test_restarted_worker_recovers_persisted_processing_job_with_same_ids(jobs):
+async def test_restarted_worker_recovers_persisted_processing_job_with_same_ids(
+    jobs: DocumentJobService,
+):
     uploaded = await submit(jobs, document_id="doc-a")
     async with jobs.sessions() as db:
         version = await db.get(DocumentVersion, uploaded["version_id"])
+        assert version is not None
         version.status, version.attempts = "processing", 1
         await db.commit()
 
@@ -218,7 +251,7 @@ async def test_restarted_worker_recovers_persisted_processing_job_with_same_ids(
 
 
 @pytest.mark.asyncio
-async def test_cancelled_worker_leaves_recoverable_processing_state(jobs):
+async def test_cancelled_worker_leaves_recoverable_processing_state(jobs: DocumentJobService):
     uploaded = await submit(jobs, document_id="doc-a")
     service, factory = provider(error=asyncio.CancelledError())
     with pytest.raises(asyncio.CancelledError):
@@ -231,7 +264,9 @@ async def test_cancelled_worker_leaves_recoverable_processing_state(jobs):
 
 
 @pytest.mark.asyncio
-async def test_retry_refuses_an_older_revision_even_when_newest_revision_failed(jobs):
+async def test_retry_refuses_an_older_revision_even_when_newest_revision_failed(
+    jobs: DocumentJobService,
+):
     first = await submit(jobs, document_id="doc-a")
     _, failed_factory = provider(error=ValidationError("Unreadable source"))
     await jobs.process_next(failed_factory)
@@ -244,7 +279,9 @@ async def test_retry_refuses_an_older_revision_even_when_newest_revision_failed(
 
 
 @pytest.mark.asyncio
-async def test_delete_purges_all_originals_and_prevents_queued_revision_reappearing(jobs):
+async def test_delete_purges_all_originals_and_prevents_queued_revision_reappearing(
+    jobs: DocumentJobService,
+):
     first = await submit(jobs, document_id="doc-a")
     _, factory = provider()
     await jobs.process_next(factory)
@@ -269,7 +306,7 @@ async def test_delete_purges_all_originals_and_prevents_queued_revision_reappear
 
 
 @pytest.mark.asyncio
-async def test_failed_external_delete_retains_sources_and_active_registry(jobs):
+async def test_failed_external_delete_retains_sources_and_active_registry(jobs: DocumentJobService):
     first = await submit(jobs, document_id="doc-a")
     _, factory = provider()
     await jobs.process_next(factory)
@@ -283,7 +320,9 @@ async def test_failed_external_delete_retains_sources_and_active_registry(jobs):
 
 
 @pytest.mark.asyncio
-async def test_final_registry_commit_failure_does_not_strand_an_indexed_job(jobs):
+async def test_final_registry_commit_failure_does_not_strand_an_indexed_job(
+    jobs: DocumentJobService,
+):
     uploaded = await submit(jobs, document_id="doc-a")
     _, factory = provider()
 
@@ -309,7 +348,7 @@ async def test_final_registry_commit_failure_does_not_strand_an_indexed_job(jobs
 
 
 @pytest.mark.asyncio
-async def test_missing_sources_and_invalid_submissions_are_explicit(jobs):
+async def test_missing_sources_and_invalid_submissions_are_explicit(jobs: DocumentJobService):
     with pytest.raises(ValidationError):
         await submit(jobs, data=b"")
     with pytest.raises(ValidationError):
@@ -323,7 +362,7 @@ async def test_missing_sources_and_invalid_submissions_are_explicit(jobs):
 
 
 @pytest.mark.asyncio
-async def test_normalized_source_availability_and_failed_retry_retention(jobs):
+async def test_normalized_source_availability_and_failed_retry_retention(jobs: DocumentJobService):
     uploaded = await submit(jobs, document_id="doc-a")
     with pytest.raises(NotFoundError):
         await jobs.normalized("absent")
@@ -349,7 +388,9 @@ async def test_normalized_source_availability_and_failed_retry_retention(jobs):
 
 
 @pytest.mark.asyncio
-async def test_retry_rechecks_status_after_concurrent_delete_finishes(jobs, monkeypatch):
+async def test_retry_rechecks_status_after_concurrent_delete_finishes(
+    jobs: DocumentJobService, monkeypatch
+):
     uploaded = await submit(jobs, document_id="doc-a")
     _, failed_factory = provider(error=ValidationError("Unreadable source"))
     await jobs.process_next(failed_factory)
@@ -362,6 +403,7 @@ async def test_retry_rechecks_status_after_concurrent_delete_finishes(jobs, monk
             deleted = True
             async with jobs.sessions() as other:
                 version = await other.get(DocumentVersion, uploaded["version_id"])
+                assert version is not None
                 version.status, version.source_content = "deleted", None
                 await other.commit()
         return await original_scalar(session, statement, *args, **kwargs)
@@ -374,7 +416,7 @@ async def test_retry_rechecks_status_after_concurrent_delete_finishes(jobs, monk
 
 
 @pytest.mark.asyncio
-async def test_invalid_provider_result_cannot_activate_a_failed_revision(jobs):
+async def test_invalid_provider_result_cannot_activate_a_failed_revision(jobs: DocumentJobService):
     first = await submit(jobs, document_id="doc-a")
     _, factory = provider()
     await jobs.process_next(factory)
@@ -387,7 +429,7 @@ async def test_invalid_provider_result_cannot_activate_a_failed_revision(jobs):
 
 
 @pytest.mark.asyncio
-async def test_provider_cleanup_failure_does_not_lose_successful_job(jobs):
+async def test_provider_cleanup_failure_does_not_lose_successful_job(jobs: DocumentJobService):
     uploaded = await submit(jobs, document_id="doc-a")
     service, factory = provider()
     service.close.side_effect = RuntimeError("Already closed")
@@ -397,7 +439,9 @@ async def test_provider_cleanup_failure_does_not_lose_successful_job(jobs):
 
 
 @pytest.mark.asyncio
-async def test_successful_ocr_warning_does_not_mark_a_fully_indexed_document_partial(jobs):
+async def test_successful_ocr_warning_does_not_mark_a_fully_indexed_document_partial(
+    jobs: DocumentJobService,
+):
     uploaded = await submit(jobs, document_id="doc-a")
     _, factory = provider(warnings=["OCR was used for scanned pages"], graph_status="indexed")
     await jobs.process_next(factory)
@@ -405,18 +449,21 @@ async def test_successful_ocr_warning_does_not_mark_a_fully_indexed_document_par
 
 
 @pytest.mark.asyncio
-async def test_delete_retry_purges_graph_when_vector_delete_already_succeeded(jobs, monkeypatch):
+async def test_delete_retry_purges_graph_when_vector_delete_already_succeeded(
+    jobs: DocumentJobService, monkeypatch
+):
     uploaded = await submit(jobs, document_id="doc-a")
     _, factory = provider()
     await jobs.process_next(factory)
     # Resume a partial/external deletion whose vector points are already gone.
-    vector = SimpleNamespace(delete_by_filter=AsyncMock(return_value=0))
-    graph = SimpleNamespace(
-        delete_document_graph=AsyncMock(side_effect=[GraphClientError("Graph offline"), {}])
+    vector = Mock(spec_set=QdrantClient, delete_by_filter=AsyncMock(return_value=0))
+    graph = Mock(
+        spec_set=GraphClient,
+        delete_document_graph=AsyncMock(side_effect=[GraphClientError("Graph offline"), {}]),
     )
     service = DocumentIngestionService(
         qdrant_client=vector,
-        embedding_service=SimpleNamespace(),
+        embedding_service=Mock(spec_set=EmbeddingServiceBase),
         graph_client=graph,
         graph_enabled=True,
     )
@@ -440,7 +487,7 @@ async def test_delete_retry_purges_graph_when_vector_delete_already_succeeded(jo
 
 @pytest.mark.asyncio
 async def test_postgres_worker_claim_uses_non_key_exclusive_lock_and_skips_busy_documents(
-    jobs, monkeypatch
+    jobs: DocumentJobService, monkeypatch
 ):
     """Pin PostgreSQL SQL semantics that SQLite does not implement."""
     await submit(jobs, document_id="doc-a")
@@ -452,7 +499,8 @@ async def test_postgres_worker_claim_uses_non_key_exclusive_lock_and_skips_busy_
             statements.append(
                 str(
                     statement.compile(
-                        dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+                        dialect=cast(Callable[[], Dialect], postgresql.dialect)(),
+                        compile_kwargs={"literal_binds": True},
                     )
                 )
             )
@@ -470,7 +518,7 @@ async def test_postgres_worker_claim_uses_non_key_exclusive_lock_and_skips_busy_
 
 
 @pytest.mark.asyncio
-async def test_maximum_accepted_document_id_fits_registry_source_column(jobs):
+async def test_maximum_accepted_document_id_fits_registry_source_column(jobs: DocumentJobService):
     document_id = "d" * 255
     uploaded = await submit(jobs, document_id=document_id)
     assert uploaded["document_id"] == document_id
@@ -482,5 +530,9 @@ async def test_maximum_accepted_document_id_fits_registry_source_column(jobs):
         document = await db.scalar(select(Document).where(Document.external_doc_id == document_id))
         # SQLite does not enforce VARCHAR length, so assert the PostgreSQL
         # storage contract for the full API-accepted identifier explicitly.
-        assert len(document.source) <= Document.__table__.c.source.type.length
+        assert document is not None
+        source_type = Document.__table__.c.source.type
+        assert isinstance(source_type, String)
+        assert source_type.length is not None
+        assert len(document.source) <= source_type.length
     assert (await jobs.source(uploaded["version_id"]))[0]

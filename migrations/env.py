@@ -18,10 +18,13 @@ from app.models.database.base import Base
 # (side-effect imports — removing them empties Base.metadata and would
 # make autogenerate diff against an empty model set)
 from app.models.database.document import Document  # noqa: F401
+from app.models.database.knowledge_gap import KnowledgeGapRecord  # noqa: F401
+from app.models.database.knowledge_gap_resolution import KnowledgeGapResolution  # noqa: F401
 from app.models.database.message import Message  # noqa: F401
 from app.models.database.session import ChatSession  # noqa: F401
 from app.models.database.ticket import HandoffTicket  # noqa: F401
 from app.models.database.user import User  # noqa: F401
+from app.models.database.user_fact import UserFactRecord  # noqa: F401
 
 # Alembic config object
 config = context.config
@@ -53,6 +56,7 @@ def run_migrations_offline() -> None:
     context.configure(
         url=url,
         target_metadata=target_metadata,
+        compare_server_default=True,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
@@ -78,6 +82,7 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            compare_server_default=True,
         )
 
         with context.begin_transaction():

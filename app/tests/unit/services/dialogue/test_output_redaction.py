@@ -19,7 +19,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from app.models.enums.intent import Intent
-from app.services.chat.chat_service import STREAM_ERROR, ChatService
+from app.services.chat.chat_service import STREAM_ERROR, ChatService, CitationEvent
 from app.services.dialogue.graph import build_dialogue_graph
 from app.services.guardrails.base import GuardrailService
 from app.services.guardrails.output_guard import DefaultOutputGuardrail
@@ -90,7 +90,7 @@ def _guardrails() -> GuardrailService:
 
 async def _turn(
     chat: ChatService, message: str, streaming: bool
-) -> tuple[str, list[str | TraceEvent]]:
+) -> tuple[str, list[str | TraceEvent | CitationEvent]]:
     if not streaming:
         return (await chat.process_message(1, message, 0)).content, []
     chunks = [c async for c in chat.process_message_stream(1, message, 0)]

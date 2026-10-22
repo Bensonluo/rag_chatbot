@@ -1,6 +1,7 @@
 """File extraction preserves page evidence and fails explicitly when extraction cannot."""
 
 import io
+import shutil
 import subprocess
 from pathlib import Path
 from unittest.mock import Mock
@@ -46,7 +47,9 @@ def make_pdf(page_contents: list[str | None], *, with_raster: bool = False) -> b
                         NameObject("/Height"): NumberObject(1600),
                     }
                 )
-                page["/Resources"][NameObject("/XObject")] = DictionaryObject(
+                resources = page["/Resources"]
+                assert isinstance(resources, DictionaryObject)
+                resources[NameObject("/XObject")] = DictionaryObject(
                     {NameObject("/Scan"): writer._add_object(raster)}
                 )
                 stream.set_data(content.encode("ascii") + b"\nq 250 0 0 250 0 0 cm /Scan Do Q")
@@ -117,7 +120,7 @@ async def test_pdf_layout_preserves_column_spacing() -> None:
 @pytest.mark.asyncio
 async def test_pdf_requires_ocr_for_pages_with_graphics_but_no_text(monkeypatch) -> None:
     data = make_pdf([text_page("First page policy"), "0 0 100 100 re S"])
-    monkeypatch.setattr(parsing.shutil, "which", lambda name: None)
+    monkeypatch.setattr(shutil, "which", lambda name: None)
 
     with pytest.raises(ValidationError, match=r"page 2.*OCR"):
         await parsing.parse_document(data, "pdf")
@@ -154,7 +157,7 @@ async def test_sparse_searchable_header_does_not_hide_scanned_page_body(monkeypa
 @pytest.mark.asyncio
 async def test_sparse_text_over_scanned_body_requires_ocr_tools(monkeypatch) -> None:
     data = make_pdf([text_page("Page 1")], with_raster=True)
-    monkeypatch.setattr(parsing.shutil, "which", lambda name: None)
+    monkeypatch.setattr(shutil, "which", lambda name: None)
 
     with pytest.raises(ValidationError, match="needs OCR"):
         await parsing.parse_document(data, "pdf")
@@ -219,14 +222,14 @@ async def test_unsupported_formats_and_whitespace_only_files_are_rejected() -> N
 def test_ocr_uses_bounded_subprocess_argument_lists(tmp_path: Path, monkeypatch) -> None:
     source = tmp_path / "source.pdf"
     source.write_bytes(make_pdf([None]))
-    monkeypatch.setattr(parsing.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
     run = Mock(
         side_effect=[
             subprocess.CompletedProcess([], 0, "", ""),
             subprocess.CompletedProcess([], 0, "Refund policy", ""),
         ]
     )
-    monkeypatch.setattr(parsing.subprocess, "run", run)
+    monkeypatch.setattr(subprocess, "run", run)
 
     result = parsing._ocr_pdf_page(
         source, page_number=1, ocr_languages="eng+chi_sim", ocr_timeout=3
@@ -243,9 +246,9 @@ def test_ocr_uses_bounded_subprocess_argument_lists(tmp_path: Path, monkeypatch)
 
 
 def test_ocr_timeout_is_actionable(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(parsing.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr(
-        parsing.subprocess, "run", Mock(side_effect=subprocess.TimeoutExpired("pdftoppm", 1))
+        subprocess, "run", Mock(side_effect=subprocess.TimeoutExpired("pdftoppm", 1))
     )
 
     with pytest.raises(ValidationError, match="page 3.*timed out"):
@@ -255,9 +258,9 @@ def test_ocr_timeout_is_actionable(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_ocr_failure_is_actionable(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(parsing.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
     monkeypatch.setattr(
-        parsing.subprocess,
+        subprocess,
         "run",
         Mock(side_effect=subprocess.CalledProcessError(1, "tesseract")),
     )

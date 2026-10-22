@@ -15,7 +15,7 @@ import base64
 import math
 from array import array
 from typing import Any
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from app.services.chat.answer_cache import CachedAnswer
 from app.services.chat.semantic_cache import SemanticCacheService
@@ -139,6 +139,36 @@ def _answer(intent: str = "chitchat") -> CachedAnswer:
 
 
 class TestSemanticCacheHits:
+    async def test_shared_cache_payload_retains_citation_snapshot(self):
+        service, _ = _make_service()
+        answer = CachedAnswer(
+            response="欢迎咨询售后服务。",
+            sources=["faq:welcome"],
+            intent="greeting",
+            citations=[
+                {
+                    "source_type": "faq",
+                    "faq_id": "welcome",
+                    "version_id": "sha256:old",
+                    "excerpt": "欢迎咨询售后服务。",
+                }
+            ],
+        )
+        await service.put("hello", answer)
+        answer.citations[0]["version_id"] = "sha256:new"
+        cached = await service.get("hello")
+        assert cached is not None
+        assert cached.citations[0]["version_id"] == "sha256:old"
+        assert cached.citations[0]["faq_id"] == "welcome"
+
+    async def test_legacy_payload_has_no_fabricated_citation(self):
+        redis = FakeRedis()
+        service, _ = _make_service(redis=redis)
+        await redis.hset("semantic_answers:e1", "hello", _entry(_answer(), [1.0, 0.0]))
+        cached = await service.get("hello")
+        assert cached is not None
+        assert cached.citations == []
+
     async def test_identical_message_replays(self):
         service, _ = _make_service()
         await service.put("七天无理由退货是多久", _answer())
@@ -195,8 +225,8 @@ class TestSemanticCacheBoundaries:
             service._epoch_provider = _epoch_provider("e2")
             return {"response": "old answer"}
 
-        factory._generate_direct = generate
-        result = await factory.direct_response_node({"message": "q", "intent": "chitchat"})
+        with patch.object(factory, "_generate_direct", generate):
+            result = await factory.direct_response_node({"message": "q", "intent": "chitchat"})
         assert result["response"] == "old answer"
         assert redis.hashes == {}
 

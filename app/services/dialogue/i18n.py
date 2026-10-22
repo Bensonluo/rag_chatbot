@@ -100,8 +100,11 @@ HANDOFF_EMOTION_PREFIX: dict[str, str] = {
 }
 
 HANDOFF_NO_TICKET: dict[str, str] = {
-    LANG_ZH: "正在为您转接人工客服，请稍候。",
-    LANG_EN: "Connecting you to a human agent, please hold on.",
+    LANG_ZH: "暂时未能确认转接人工客服成功。请稍后输入「转人工」重试。",
+    LANG_EN: (
+        "Sorry, I couldn't confirm your transfer to a human agent. "
+        'Please try again shortly by typing "human agent".'
+    ),
 }
 
 HANDOFF_ACK: dict[str, str] = {
@@ -110,8 +113,8 @@ HANDOFF_ACK: dict[str, str] = {
 }
 
 HANDOFF_QUEUE: dict[str, str] = {
-    LANG_ZH: "当前排队人数：{queue_position} 人",
-    LANG_EN: "people ahead of you in the queue: {queue_position}",
+    LANG_ZH: "当前排队位置：第 {queue_position} 位",
+    LANG_EN: "your position in the queue: {queue_position}",
 }
 
 HANDOFF_ALREADY_QUEUED: dict[str, str] = {

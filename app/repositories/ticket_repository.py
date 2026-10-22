@@ -6,15 +6,18 @@ queue listings for the agent workspace, claim/resolve transitions,
 and open-queue depth for position estimates.
 """
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database.message import Message
 from app.models.database.session import ChatSession
-from app.models.database.ticket import HandoffTicket
+from app.models.database.ticket import PRIORITY_HIGH, HandoffTicket
 from app.models.enums.message import MessageRole
 from app.repositories.base import BaseRepository
 
@@ -319,13 +322,102 @@ class TicketRepository(BaseRepository[HandoffTicket]):
             select(HandoffTicket)
             .where(
                 HandoffTicket.session_id == session_id,
-                HandoffTicket.status != TICKET_STATUS_RESOLVED,
+                HandoffTicket.status.in_((TICKET_STATUS_OPEN, TICKET_STATUS_CLAIMED)),
             )
             .order_by(HandoffTicket.id.desc())
             .limit(1)
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def create_or_reuse_active(
+        self,
+        *,
+        session_id: int,
+        user_id: int,
+        reason: str,
+        priority: int,
+        context: dict[str, Any],
+    ) -> tuple[HandoffTicket, bool]:
+        """Arbitrate concurrent handoffs at the database's unique active-session index.
+
+        Reuse preserves assignment and original context; later requests add a
+        bounded latest-request snapshot. Priority can only rise. Lock the reused
+        row while merging context so another request cannot overwrite escalation.
+        A concurrent close between conflict detection and the locked read may
+        remove the active row; retry insertion rather than reuse a closed ticket.
+        """
+        dialect = self.session.get_bind().dialect.name
+        if dialect not in {"postgresql", "sqlite"}:
+            raise RuntimeError(f"Unsupported handoff database dialect: {dialect}")
+        insert = sqlite_insert if dialect == "sqlite" else pg_insert
+        request = {
+            "reason": reason,
+            "context": context,
+            "requested_at": datetime.now(UTC).isoformat(),
+        }
+        initial_context = dict(context)
+        if priority == PRIORITY_HIGH:
+            initial_context["escalation_contexts"] = {reason: request}
+        for _ in range(3):
+            statement = (
+                insert(HandoffTicket)
+                .values(
+                    session_id=session_id,
+                    user_id=user_id,
+                    reason=reason,
+                    priority=priority,
+                    summary=json.dumps(initial_context, ensure_ascii=False, default=str),
+                    status=TICKET_STATUS_OPEN,
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[HandoffTicket.session_id],
+                    index_where=text("status IN ('open', 'claimed')"),
+                )
+                .returning(HandoffTicket)
+            )
+            result = await self.session.execute(statement)
+            ticket = result.scalar_one_or_none()
+            if ticket is not None:
+                await self.session.commit()
+                await self.session.refresh(ticket)
+                return ticket, False
+
+            result = await self.session.execute(
+                select(HandoffTicket)
+                .where(
+                    HandoffTicket.session_id == session_id,
+                    HandoffTicket.status.in_((TICKET_STATUS_OPEN, TICKET_STATUS_CLAIMED)),
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            ticket = result.scalar_one_or_none()
+            if ticket is None:
+                continue
+            try:
+                saved_context = json.loads(ticket.summary)
+            except (TypeError, ValueError):
+                saved_context = None
+            if not isinstance(saved_context, dict):
+                saved_context = {"original_summary": ticket.summary}
+            saved_context["latest_handoff_request"] = request
+            if priority < ticket.priority:
+                ticket.priority = priority
+                ticket.reason = reason
+            if priority == PRIORITY_HIGH:
+                # Keep each urgent reason even after a different escalation
+                # or routine retry. One snapshot per supported reason bounds
+                # growth without erasing why the case needs priority service.
+                escalations = saved_context.get("escalation_contexts")
+                if not isinstance(escalations, dict):
+                    escalations = {}
+                saved_context["escalation_contexts"] = {**escalations, reason: request}
+            ticket.summary = json.dumps(saved_context, ensure_ascii=False, default=str)
+            await self.session.commit()
+            await self.session.refresh(ticket)
+            return ticket, True
+        raise RuntimeError("Handoff ticket changed repeatedly; retry the request")
 
     async def claim(
         self,
@@ -346,22 +438,29 @@ class TicketRepository(BaseRepository[HandoffTicket]):
         Returns:
             HandoffTicket | None: The claimed ticket, or None on conflict
         """
-        stmt = select(HandoffTicket).where(
-            HandoffTicket.id == ticket_id,
-            HandoffTicket.status == TICKET_STATUS_OPEN,
+        # Check the state in the write, not in a preceding SELECT: competing
+        # agents must not both claim the same row or revive a resolved ticket.
+        stmt = (
+            update(HandoffTicket)
+            .where(
+                HandoffTicket.id == ticket_id,
+                HandoffTicket.status == TICKET_STATUS_OPEN,
+            )
+            .values(
+                status=TICKET_STATUS_CLAIMED,
+                assigned_to=agent_id,
+                # The queue-wait / agent-handling boundary is written only
+                # by the winning open -> claimed transition.
+                claimed_at=datetime.now(UTC),
+            )
+            .returning(HandoffTicket)
+            .execution_options(populate_existing=True)
         )
         result = await self.session.execute(stmt)
         ticket = result.scalar_one_or_none()
+        await self.session.commit()
         if ticket is None:
             return None
-
-        ticket.status = TICKET_STATUS_CLAIMED
-        ticket.assigned_to = agent_id
-        # AHT boundary: queue wait ends, agent handling begins (GB/T 47746
-        # 时效). Stamped here — not defaulted — so the open→claimed
-        # transition is the only writer.
-        ticket.claimed_at = datetime.now(UTC)
-        await self.session.commit()
         await self.session.refresh(ticket)
         return ticket
 
@@ -385,18 +484,25 @@ class TicketRepository(BaseRepository[HandoffTicket]):
         Returns:
             HandoffTicket | None: The resolved ticket, or None on conflict
         """
-        stmt = select(HandoffTicket).where(
-            HandoffTicket.id == ticket_id,
-            HandoffTicket.status != TICKET_STATUS_RESOLVED,
+        stmt = (
+            update(HandoffTicket)
+            .where(
+                HandoffTicket.id == ticket_id,
+                HandoffTicket.status.in_((TICKET_STATUS_OPEN, TICKET_STATUS_CLAIMED)),
+            )
+            .values(
+                status=TICKET_STATUS_RESOLVED,
+                # A concurrent claim may have assigned the ticket since this
+                # request began. Preserve that owner and its claimed_at.
+                assigned_to=func.coalesce(HandoffTicket.assigned_to, agent_id),
+            )
+            .returning(HandoffTicket)
+            .execution_options(populate_existing=True)
         )
         result = await self.session.execute(stmt)
         ticket = result.scalar_one_or_none()
+        await self.session.commit()
         if ticket is None:
             return None
-
-        ticket.status = TICKET_STATUS_RESOLVED
-        if ticket.assigned_to is None:
-            ticket.assigned_to = agent_id
-        await self.session.commit()
         await self.session.refresh(ticket)
         return ticket

@@ -13,7 +13,7 @@ Stats cross-tab (resolved/reopened among contained sessions) is
 pinned in app/tests/unit/repositories/test_containment_stats.py.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -23,6 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config.settings import get_settings
 from app.models.database.base import Base
 from app.models.database.session import ChatSession
+from app.repositories.session_repository import SessionRepository
+from app.repositories.ticket_repository import TicketRepository
 from app.services.chat.persistence import ChatMessagePersister
 from app.services.chat.resolution import is_resolution_confirmation
 
@@ -68,6 +70,16 @@ class TestResolutionPatterns:
             "all set",
             "Problem solved!",
             "Thanks, that worked.",
+            "It's fixed now, thank you!",
+            "My issue has been resolved.",
+            "Yes, everything is working now.",
+            "现在已经解决了，谢谢你的帮助！",
+            "谢谢问题解决了",
+            "  PROBLEM SOLVED!  ",
+            "问题解决了，非常感谢",
+            "好了，已经解决了，谢谢！",
+            "It’s fixed now",
+            "I'm all set",
         ],
     )
     def test_resolution_phrases_confirm(self, text: str):
@@ -84,6 +96,36 @@ class TestResolutionPatterns:
             "退货政策是什么",
             "What is your return policy?",
             "帮我查一下订单 ORD1001",
+            "It is not solved",
+            "nothing worked",
+            "not fixed",
+            "fixed?",
+            "That hasn't worked",
+            "It hasn’t been fixed yet",
+            "How can this be fixed?",
+            "Is it solved",
+            "I hope this is fixed soon",
+            "If this worked, I would be happy",
+            "It worked yesterday but fails now",
+            "Problem solved, but I still need help",
+            "That worked. Another issue remains.",
+            'You said "problem solved" but it is broken',
+            '"Problem solved"',
+            "The fixed shipping fee is too high",
+            "解决了吗？",
+            "问题解决了吗",
+            "能解决了吧",
+            "以为解决了，但还是报错",
+            "问题解决了？还是没有？",
+            "如果解决了就好了",
+            "你说解决了，实际没有",
+            "没有完全解决了",
+            "问题解决了，还有一个问题",
+            "问题解决了，帮我退款",
+            "没有问题了吗",
+            "搞定了吗",
+            "",
+            "   ",
         ],
     )
     def test_non_resolution_phrases_do_not_confirm(self, text: str):
@@ -94,6 +136,33 @@ class TestResolutionPatterns:
 
 
 class TestPersistTurnResolutionState:
+    @pytest.mark.parametrize(
+        "message", ["It is not solved", "解决了吗？", "以为解决了，但还是报错"]
+    )
+    @pytest.mark.parametrize("previously_resolved", [False, True])
+    async def test_unresolved_feedback_remains_visible_to_qa_and_stats(
+        self, session_maker, message: str, previously_resolved: bool
+    ):
+        await _seed_session(session_maker)
+        persister = ChatMessagePersister(session_maker=session_maker)
+        if previously_resolved:
+            await persister.persist_turn(1, 1, "Problem solved", "Glad to help.")
+
+        await persister.persist_turn(1, 1, message, "Let me help you further.")
+
+        row = await _get_session(session_maker)
+        assert row is not None
+        assert row.resolved_at is None
+        assert row.reopened_count == int(previously_resolved)
+        async with session_maker() as session:
+            since = datetime.now(UTC) - timedelta(hours=1)
+            stats = await TicketRepository(session).get_containment_stats(since)
+            queue = await SessionRepository(session).sample_review_queue(since)
+        assert stats["sessions_served"] == 1
+        assert stats["sessions_resolved"] == 0
+        assert stats["sessions_reopened"] == int(previously_resolved)
+        assert [candidate.id for candidate in queue] == [1]
+
     async def test_solve_phrase_marks_session_resolved(self, session_maker):
         await _seed_session(session_maker)
         persister = ChatMessagePersister(session_maker=session_maker)

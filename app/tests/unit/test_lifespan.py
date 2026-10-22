@@ -13,6 +13,7 @@ at call time, so each seam is monkeypatched at its home module.
 
 import asyncio
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -23,14 +24,13 @@ from sqlalchemy.pool import StaticPool
 import app.api.database as database_module
 import app.api.v1.chat as chat_api
 import app.api.v1.documents as documents_api
-import app.main as main_module
 import app.middleware.rate_limiter_redis as rate_limiter_module
 import app.services.dialogue.checkpointer as checkpointer_module
 import app.services.handoff.containment_metrics as containment_module
 import app.services.retrieval.keyword_refresh as keyword_refresh_module
+from app.config.settings import settings
 from app.main import lifespan
 from app.models.database.base import Base
-from app.models.database.document import Document, DocumentVersion
 from app.services.documents.jobs import DocumentJobService
 
 
@@ -79,7 +79,11 @@ async def document_jobs(monkeypatch):
     async with engine.begin() as connection:
         await connection.run_sync(
             lambda sync: Base.metadata.create_all(
-                sync, tables=[Document.__table__, DocumentVersion.__table__]
+                sync,
+                tables=[
+                    Base.metadata.tables["documents"],
+                    Base.metadata.tables["document_versions"],
+                ],
             )
         )
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -88,7 +92,7 @@ async def document_jobs(monkeypatch):
     await engine.dispose()
 
 
-async def _queue_document(jobs, document_id):
+async def _queue_document(jobs: DocumentJobService, document_id: str) -> dict[str, Any]:
     return await jobs.submit(
         data=b"Refunds are available within seven days.",
         title="Refund policy",
@@ -105,7 +109,7 @@ class TestLifespanShutdown:
         self, seams, document_jobs, monkeypatch
     ):
         """Exercise actual task scheduling, job commits, and awaited cleanup."""
-        monkeypatch.setattr(main_module.settings, "DOCUMENT_WORKER_ENABLED", True)
+        monkeypatch.setattr(settings, "DOCUMENT_WORKER_ENABLED", True)
         completed = await _queue_document(document_jobs, "complete-first")
         interrupted = await _queue_document(document_jobs, "interrupt-second")
         started = asyncio.Event()
@@ -142,7 +146,7 @@ class TestLifespanShutdown:
         seams.redis_close.side_effect = lambda: order.append("redis-closed")
         app = FastAPI()
 
-        async def serve():
+        async def serve() -> None:
             async with lifespan(app):
                 await begin_shutdown.wait()
 
@@ -187,7 +191,7 @@ class TestLifespanShutdown:
     async def test_disabled_worker_leaves_queued_jobs_unprocessed(
         self, seams, document_jobs, monkeypatch
     ):
-        monkeypatch.setattr(main_module.settings, "DOCUMENT_WORKER_ENABLED", False)
+        monkeypatch.setattr(settings, "DOCUMENT_WORKER_ENABLED", False)
         uploaded = await _queue_document(document_jobs, "remain-queued")
         factory = AsyncMock()
         monkeypatch.setattr(documents_api, "build_ingestion_service", factory)

@@ -7,6 +7,7 @@ Pins the three invariants from docs/cache-layering-plan.md:
   stateless turns (nothing personalized can ever be replayed).
 """
 
+import json
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, Mock
 
@@ -68,6 +69,50 @@ class TestNormalizeMessage:
 
 
 class TestAnswerCacheService:
+    async def test_citation_snapshot_roundtrip_keeps_old_version_and_excludes_private_fields(self):
+        svc, _ = _make_service()
+        citations = [
+            {
+                "source_type": "document",
+                "document_id": "policy",
+                "version_id": "v1",
+                "chunk_id": "chunk-v1",
+                "title": "退货政策",
+                "excerpt": "签收后七天内申请。",
+                "page_start": 2,
+                "page_end": 2,
+                "start_pos": 100,
+                "end_pos": 110,
+                "file_path": "/private/source.pdf",
+                "uploaded_by_email": "private@example.com",
+            }
+        ]
+        await svc.put(
+            "q", response="answer", sources=["policy"], intent="question", citations=citations
+        )
+        citations[0]["version_id"] = "v2"
+        hit = await svc.get("q")
+        assert hit is not None
+        assert hit.citations[0]["version_id"] == "v1"
+        assert hit.citations[0]["excerpt"] == "签收后七天内申请。"
+        assert hit.citations[0]["page_start"] == 2
+        assert "file_path" not in hit.citations[0]
+        assert "uploaded_by_email" not in hit.citations[0]
+
+    @pytest.mark.parametrize("raw_citations", [None, "bad", [None, 42, {"source_type": "invalid"}]])
+    async def test_legacy_or_malformed_citations_never_guess_a_current_version(self, raw_citations):
+        svc, fake = _make_service()
+        key, _ = await svc._key_and_epoch("q")
+        assert key is not None
+        payload = {"response": "legacy", "sources": ["policy"], "intent": "question"}
+        if raw_citations is not None:
+            payload["citations"] = raw_citations
+        fake.store[key] = json.dumps(payload)
+        hit = await svc.get("q")
+        assert hit is not None
+        assert hit.sources == ["policy"]
+        assert hit.citations == []
+
     async def test_rotation_during_lookup_discards_the_old_hit(self, monkeypatch):
         svc, _ = _make_service()
         await svc.put("q", response="old answer", sources=["d"], intent="question")
@@ -157,6 +202,7 @@ class _RecordingCache(AnswerCacheService):
         sources: list[str],
         intent: str,
         expected_epoch: str | None = None,
+        citations: list[dict[str, Any]] | None = None,
     ) -> None:
         self.puts.append(
             {
@@ -165,6 +211,7 @@ class _RecordingCache(AnswerCacheService):
                 "sources": sources,
                 "intent": intent,
                 "expected_epoch": expected_epoch,
+                "citations": citations or [],
             }
         )
 

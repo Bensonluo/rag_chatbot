@@ -185,8 +185,11 @@ class SessionRepository(BaseRepository[ChatSession]):
         an audit log) so the session leaves the review queue. A
         "resolved" verdict additionally stamps ``resolved_at`` with the
         same semantics as the user-confirmation path, feeding
-        sessions_resolved in the containment cross-tab. Read-modify-
-        write on the JSON column; concurrent double-verdicts collapse
+        sessions_resolved in the containment cross-tab. An unresolved
+        verdict clears that stamp, including when correcting a prior
+        verdict. QA corrections do not increment ``reopened_count``;
+        that counter tracks user follow-ups. Read-modify-write on the
+        JSON column; concurrent double-verdicts collapse
         to last-write-wins, acceptable for ops tooling.
         """
         session_row = await self.session.get(ChatSession, session_id)
@@ -201,8 +204,7 @@ class SessionRepository(BaseRepository[ChatSession]):
                 "reviewed_at": reviewed_at.isoformat(),
             },
         }
-        if resolved:
-            session_row.resolved_at = reviewed_at
+        session_row.resolved_at = reviewed_at if resolved else None
         await self.session.commit()
         await self.session.refresh(session_row)
         return session_row

@@ -1,248 +1,248 @@
 #!/bin/bash
-# ==========================================
-# RAG Chatbot Production Deployment Script
-# ==========================================
-# This script automates the deployment of the RAG chatbot to production
-# Usage: ./deploy.sh [environment]
-#   environment: dev (default) or prod
+# Deploy a Compose stack. Service replacement can interrupt requests.
+# Usage: ./deploy.sh [dev|prod] (default: dev)
+# An initial prod deployment without a DB container requires ALLOW_INITIAL_DEPLOY=1.
+# COMPOSE_FILE, ENV_FILE, DB_SERVICE and APP_SERVICE may select an explicit stack.
+# PROJECT_DIRECTORY is forwarded to backups to preserve Compose project identity.
+set -Eeuo pipefail
 
-set -e  # Exit on error
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
-
-# Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-ENV=${1:-dev}
-COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yml"
-ENV_FILE="$PROJECT_ROOT/.env"
+STATE_DIR=""
+PHASE="configuration"
 
-# Docker Compose v2 ships as a plugin (`docker compose`); v1 was a
-# standalone binary. Support both so the script works on modern hosts.
-if docker compose version >/dev/null 2>&1; then
-    COMPOSE_CMD=(docker compose)
-else
-    COMPOSE_CMD=(docker-compose)
-fi
-
-echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  RAG Chatbot Deployment Script${NC}"
-echo -e "${BLUE}========================================${NC}"
-echo ""
-
-# Function to print colored output
-print_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-print_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-print_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-print_error() { echo -e "${RED}[ERROR]${NC} $1"; }
-
-# Function to check if command exists
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-# Function to check prerequisites
-check_prerequisites() {
-    print_info "Checking prerequisites..."
-
-    # Check Docker
-    if ! command_exists docker; then
-        print_error "Docker is not installed. Please install Docker first."
-        exit 1
+configure_deployment() {
+    DEPLOY_ENV="$1"
+    case "$DEPLOY_ENV" in
+        dev)
+            COMPOSE_FILE="${COMPOSE_FILE:-$PROJECT_ROOT/docker-compose.yml}"
+            DB_SERVICE="${DB_SERVICE:-postgres}"
+            APP_SERVICE="${APP_SERVICE:-api}"
+            ;;
+        prod)
+            COMPOSE_FILE="${COMPOSE_FILE:-$PROJECT_ROOT/docker-compose.prod.yml}"
+            DB_SERVICE="${DB_SERVICE:-db}"
+            APP_SERVICE="${APP_SERVICE:-app}"
+            ;;
+        *) echo "Invalid environment: use dev or prod." >&2; return 2 ;;
+    esac
+    ENV_FILE="${ENV_FILE:-$PROJECT_ROOT/.env}"
+    PROJECT_DIRECTORY="${PROJECT_DIRECTORY:-$PROJECT_ROOT}"
+    READINESS_ATTEMPTS="${READINESS_ATTEMPTS:-60}"
+    READINESS_INTERVAL="${READINESS_INTERVAL:-2}"
+    if ! [[ "$READINESS_ATTEMPTS" =~ ^[1-9][0-9]*$ && "$READINESS_INTERVAL" =~ ^[0-9]+$ ]]; then
+        echo "Readiness attempts must be positive and interval nonnegative integers." >&2
+        return 2
     fi
-    print_success "Docker is installed"
-
-    # Check Docker Compose (plugin or standalone binary)
-    if ! docker compose version >/dev/null 2>&1 && ! command_exists docker-compose; then
-        print_error "Docker Compose is not installed. Please install Docker Compose first."
-        exit 1
-    fi
-    print_success "Docker Compose is installed"
-
-    # Check if .env file exists
-    if [ ! -f "$ENV_FILE" ]; then
-        print_warning ".env file not found. Creating from .env.example..."
-        if [ -f "$PROJECT_ROOT/.env.example" ]; then
-            cp "$PROJECT_ROOT/.env.example" "$ENV_FILE"
-            print_warning "Please edit .env file with your configuration before continuing"
-            print_warning "Run this script again after configuring .env"
-            exit 1
-        else
-            print_error ".env.example file not found. Please create .env file manually."
-            exit 1
-        fi
-    fi
-    print_success ".env file found"
-
-    echo ""
-}
-
-# Function to backup current deployment
-backup_deployment() {
-    print_info "Creating backup of current deployment..."
-
-    BACKUP_DIR="$PROJECT_ROOT/backups/$(date +%Y%m%d_%H%M%S)"
-    mkdir -p "$BACKUP_DIR"
-
-    # Backup database
-    if "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" ps postgres | grep -q "Up"; then
-        print_info "Backing up database..."
-        "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T postgres pg_dump -U "${POSTGRES_USER:-postgres}" "${POSTGRES_DB:-rag_chatbot}" > "$BACKUP_DIR/db_backup.sql" 2>/dev/null || print_warning "Database backup failed"
-        print_success "Database backed up to $BACKUP_DIR/db_backup.sql"
-    fi
-
-    # Backup .env file
-    cp "$ENV_FILE" "$BACKUP_DIR/.env"
-    print_success ".env file backed up"
-
-    echo ""
-}
-
-# Function to build and start services
-start_services() {
-    print_info "Building and starting services..."
-
-    # Use production compose file if prod environment
-    if [ "$ENV" = "prod" ]; then
-        COMPOSE_FILE="$PROJECT_ROOT/docker-compose.prod.yml"
-        print_info "Using production configuration"
-    fi
-
-    # Pull latest images
-    print_info "Pulling latest Docker images..."
-    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" pull
-
-    # Build images
-    print_info "Building Docker images..."
-    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" build --no-cache
-
-    # Start services
-    print_info "Starting services..."
-    "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" up -d
-
-    print_success "Services started"
-    echo ""
-}
-
-# Function to wait for services to be healthy
-wait_for_services() {
-    print_info "Waiting for services to be healthy..."
-
-    # Wait for PostgreSQL
-    print_info "Waiting for PostgreSQL..."
-    for i in {1..30}; do
-        if "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
-            print_success "PostgreSQL is ready"
-            break
-        fi
-        if [ $i -eq 30 ]; then
-            print_error "PostgreSQL did not become ready in time"
-            exit 1
-        fi
-        sleep 2
-    done
-
-    # Wait for Redis
-    print_info "Waiting for Redis..."
-    for i in {1..30}; do
-        if "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T redis redis-cli ping >/dev/null 2>&1; then
-            print_success "Redis is ready"
-            break
-        fi
-        if [ $i -eq 30 ]; then
-            print_error "Redis did not become ready in time"
-            exit 1
-        fi
-        sleep 2
-    done
-
-    # Wait for API
-    print_info "Waiting for API service..."
-    for i in {1..60}; do
-        if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
-            print_success "API service is ready"
-            break
-        fi
-        if [ $i -eq 60 ]; then
-            print_error "API service did not become ready in time"
-            print_warning "Check logs with: "${COMPOSE_CMD[@]}" -f $COMPOSE_FILE logs app"
-            exit 1
-        fi
-        sleep 2
-    done
-
-    echo ""
-}
-
-# Function to run health checks
-run_health_checks() {
-    print_info "Running health checks..."
-
-    # Check API health
-    if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
-        print_success "API health check passed"
+    [[ -f "$COMPOSE_FILE" && -f "$ENV_FILE" && -d "$PROJECT_DIRECTORY" ]] || {
+        echo "Compose configuration or environment file missing; configure them before deployment." >&2
+        return 1
+    }
+    # Resolve caller-relative selectors before switching to the checkout directory.
+    COMPOSE_FILE="$(cd "$(dirname "$COMPOSE_FILE")" && pwd)/$(basename "$COMPOSE_FILE")"
+    ENV_FILE="$(cd "$(dirname "$ENV_FILE")" && pwd)/$(basename "$ENV_FILE")"
+    PROJECT_DIRECTORY="$(cd "$PROJECT_DIRECTORY" && pwd)"
+    command -v docker >/dev/null
+    if docker compose version >/dev/null 2>&1; then
+        COMPOSE_CMD=(docker compose)
+    elif command -v docker-compose >/dev/null 2>&1; then
+        COMPOSE_CMD=(docker-compose)
     else
-        print_error "API health check failed"
-        exit 1
+        echo "Docker Compose is required." >&2
+        return 1
     fi
-
-    # Check database connection
-    if "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
-        print_success "Database health check passed"
-    else
-        print_error "Database health check failed"
-        exit 1
-    fi
-
-    # Check Redis connection
-    if "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" exec -T redis redis-cli ping >/dev/null 2>&1; then
-        print_success "Redis health check passed"
-    else
-        print_error "Redis health check failed"
-        exit 1
-    fi
-
-    echo ""
+    COMPOSE_ARGS=(--project-directory "$PROJECT_DIRECTORY" --env-file "$ENV_FILE" -f "$COMPOSE_FILE")
+    export COMPOSE_FILE DB_SERVICE ENV_FILE PROJECT_DIRECTORY
+    cd "$PROJECT_ROOT"
+    # Do not print the resolved configuration: it may contain credentials.
+    compose config --quiet
 }
 
-# Function to print deployment info
-print_deployment_info() {
-    echo -e "${GREEN}========================================${NC}"
-    echo -e "${GREEN}  Deployment Successful!${NC}"
-    echo -e "${GREEN}========================================${NC}"
-    echo ""
-    echo "Services:"
-    echo "  - API: http://localhost:8000"
-    echo "  - API Docs: http://localhost:8000/docs"
-    echo "  - Database: localhost:5432"
-    echo "  - Redis: localhost:6379"
-    echo "  - Qdrant: http://localhost:6333"
-    echo ""
-    echo "Useful commands:"
-    echo "  - View logs: "${COMPOSE_CMD[@]}" -f $COMPOSE_FILE logs -f"
-    echo "  - Stop services: "${COMPOSE_CMD[@]}" -f $COMPOSE_FILE down"
-    echo "  - Restart services: "${COMPOSE_CMD[@]}" -f $COMPOSE_FILE restart"
-    echo ""
+compose() { "${COMPOSE_CMD[@]}" "${COMPOSE_ARGS[@]}" "$@"; }
+
+record_failure() {
+    local code=$?
+    trap - ERR
+    if [[ -n "$STATE_DIR" ]]; then
+        printf 'failed\nphase=%s\nexit=%s\n' "$PHASE" "$code" > "$STATE_DIR/result.txt"
+        echo "Deployment failed during $PHASE. Protected recovery state: $STATE_DIR" >&2
+    else
+        echo "Deployment configuration failed." >&2
+    fi
+    echo "No automatic rollback or teardown performed. Inspect the failure before retrying." >&2
+    exit "$code"
 }
 
-# Main deployment flow
+save_deployment_state() {
+    PHASE="save-state"
+    umask 077
+    mkdir -p "$PROJECT_ROOT/backups"
+    STATE_DIR=$(mktemp -d "$PROJECT_ROOT/backups/deployment_${DEPLOY_ENV}_$(date +%Y%m%d_%H%M%S)_XXXXXX")
+    cp "$ENV_FILE" "$STATE_DIR/environment.env"
+    cp "$COMPOSE_FILE" "$STATE_DIR/compose.yml"
+    compose config > "$STATE_DIR/resolved-compose.yml"
+    compose images -q > "$STATE_DIR/image-ids.txt"
+    compose ps -a -q > "$STATE_DIR/container-ids.txt"
+    # Inspect records the prior containers' actual environment and immutable image IDs.
+    # These files contain credentials; the directory and all files are private.
+    local container
+    while IFS= read -r container; do
+        [[ -n "$container" ]] || continue
+        docker inspect "$container" > "$STATE_DIR/container_${container}.json"
+    done < "$STATE_DIR/container-ids.txt"
+    git -C "$PROJECT_ROOT" rev-parse HEAD > "$STATE_DIR/git-revision.txt" 2>/dev/null ||
+        printf 'unavailable\n' > "$STATE_DIR/git-revision.txt"
+    printf 'environment=%s\ncompose_file=%s\ndb_service=%s\napp_service=%s\n' \
+        "$DEPLOY_ENV" "$COMPOSE_FILE" "$DB_SERVICE" "$APP_SERVICE" > "$STATE_DIR/deployment-context.txt"
+    printf 'pending\n' > "$STATE_DIR/result.txt"
+    echo "Protected deployment state saved: $STATE_DIR"
+}
+
+verify_backup_target() {
+    PHASE="verify-backup-target"
+    local db_container="$1" metadata database port aliases addresses app_containers app_container match
+    if ! metadata=$(compose exec -T "$DB_SERVICE" sh -c '
+        user=${POSTGRES_USER:-postgres}
+        database=${POSTGRES_DB:-$user}
+        printf "%s\n" "$database"
+        exec psql -X -A -t -U "$user" -d "$database" -c "SHOW port"
+    ' 2> "$STATE_DIR/database-target.error.log"); then
+        echo "Cannot verify the selected database target; backup/update stopped." >&2
+        return 1
+    fi
+    database="${metadata%%$'\n'*}"
+    port="${metadata#*$'\n'}"
+    [[ -n "$database" && "$port" =~ ^[0-9]+$ ]] || return 1
+    aliases=$(docker inspect --format '{{println .Name}}{{range .NetworkSettings.Networks}}{{range .Aliases}}{{println .}}{{end}}{{end}}' "$db_container")
+    addresses=$(docker inspect --format '{{range .NetworkSettings.Networks}}{{println .IPAddress}}{{println .GlobalIPv6Address}}{{end}}' "$db_container")
+    aliases="$DB_SERVICE"$'\n'"$aliases"
+    app_containers=$(compose ps -a -q "$APP_SERVICE")
+    if [[ -z "$app_containers" ]]; then
+        printf 'local-database-only: no application container to verify\n' > "$STATE_DIR/backup-target.txt"
+        echo "No application container: only the selected local database backup can be verified."
+        return
+    fi
+    while IFS= read -r app_container; do
+        if [[ "$(docker inspect --format '{{.State.Running}}' "$app_container")" != true ]]; then
+            echo "Cannot read effective settings from a stopped application; backup/update stopped." >&2
+            return 1
+        fi
+        # Read effective settings inside each running application. Only a result
+        # marker leaves the container: DSNs and settings errors must not be logged.
+        if ! match=$(docker exec -i "$app_container" python -c '
+# BACKUP_TARGET_CHECK
+import contextlib
+import io
+import ipaddress
+import socket
+import sys
+from urllib.parse import parse_qs, unquote, urlsplit
+
+try:
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        from app.config.settings import get_settings
+        settings = get_settings()
+    database, port, aliases, addresses = sys.argv[1:]
+    aliases = {value.strip().lstrip("/").lower() for value in aliases.splitlines() if value.strip()}
+    addresses = {ipaddress.ip_address(value.strip()) for value in addresses.splitlines() if value.strip()}
+
+    def matches(value):
+        url = urlsplit(value)
+        if not (url.scheme == "postgresql" or url.scheme.startswith("postgresql+")):
+            return False
+        target_port = url.port if url.port is not None else 5432
+        if url.hostname not in aliases or unquote(url.path[1:]) != database or target_port != int(port):
+            return False
+        # Libpq/driver query parameters can override the authority target.
+        if {key.lower() for key in parse_qs(url.query, keep_blank_values=True)} & {"host", "hostaddr", "port", "dbname", "database", "service"}:
+            return False
+        resolved = {ipaddress.ip_address(item[4][0]) for item in socket.getaddrinfo(url.hostname, target_port, type=socket.SOCK_STREAM)}
+        return bool(resolved) and resolved <= addresses
+
+    valid = matches(settings.DATABASE_URL)
+    if settings.DIALOGUE_CHECKPOINTER_TYPE == "postgres":
+        valid = valid and matches(settings.DIALOGUE_CHECKPOINTER_DB_URL or settings.DATABASE_URL)
+    print("match" if valid else "mismatch")
+    sys.exit(0 if valid else 1)
+except Exception:
+    print("unverified")
+    sys.exit(1)
+' "$database" "$port" "$aliases" "$addresses" 2>/dev/null) || [[ "$match" != match ]]; then
+            echo "Application/database targets could not be matched. External or separate checkpoint databases require an independent consistent backup plan; deployment stopped." >&2
+            return 1
+        fi
+    done <<< "$app_containers"
+    printf 'matched-running-application-database-and-checkpoint\n' > "$STATE_DIR/backup-target.txt"
+}
+
+backup_current_database() {
+    PHASE="database-backup"
+    local existing running
+    existing=$(compose ps -a -q "$DB_SERVICE")
+    if [[ -z "$existing" ]]; then
+        if [[ "${1:-deploy}" == deploy && ( "$DEPLOY_ENV" == dev || "${ALLOW_INITIAL_DEPLOY:-0}" == 1 ) ]]; then
+            printf 'No database container; initial deployment explicitly selected.\n' > "$STATE_DIR/database-backup-skipped.txt"
+            echo "No database backup: initial deployment. Existing volumes have not been backed up."
+            return
+        fi
+        echo "No database container found. Updates require a backup; for first prod deployment set ALLOW_INITIAL_DEPLOY=1." >&2
+        return 1
+    fi
+    if [[ "$existing" == *$'\n'* ]]; then
+        echo "Multiple database containers found; select one database service before deployment." >&2
+        return 1
+    fi
+    running=$(docker inspect --format '{{.State.Running}}' "$existing")
+    if [[ "$running" != true ]]; then
+        echo "The database container is stopped. Start it and obtain a backup before deployment." >&2
+        return 1
+    fi
+    verify_backup_target "$existing"
+    PHASE="database-backup"
+    BACKUP_DIR="$STATE_DIR/database" "$SCRIPT_DIR/backup.sh"
+}
+
+wait_for_readiness() {
+    PHASE="readiness"
+    local attempt
+    for ((attempt=1; attempt<=READINESS_ATTEMPTS; attempt++)); do
+        # Use the selected DB container's own credentials, not host defaults.
+        # Redis credentials remain inside the selected application container.
+        # /ready confirms chat initialization; the separate probes test DB/Redis reachability.
+        if compose exec -T "$DB_SERVICE" sh -c \
+            'pg_isready -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-${POSTGRES_USER:-postgres}}"' >/dev/null 2>&1 &&
+            compose exec -T "$APP_SERVICE" python -c \
+            'import os; from redis import Redis; client = Redis.from_url(os.environ["REDIS_URL"], socket_connect_timeout=3, socket_timeout=3); assert client.ping()' >/dev/null 2>&1 &&
+            compose exec -T "$APP_SERVICE" curl --fail --silent --show-error --max-time 5 \
+            http://localhost:8000/ready >/dev/null 2>&1; then
+            echo "PostgreSQL/Redis probes passed; application chat initialization is ready."
+            return 0
+        fi
+        if ((attempt < READINESS_ATTEMPTS)); then sleep "$READINESS_INTERVAL"; fi
+    done
+    echo "Readiness timed out for the selected stack. Deployment is not successful." >&2
+    return 1
+}
+
+finish_deployment() {
+    printf 'successful\n' > "$STATE_DIR/result.txt"
+    echo "Deployment completed after readiness checks. Service replacement may have interrupted requests."
+    echo "Recovery state retained at $STATE_DIR. Rollback requires an explicit image/schema recovery plan."
+}
+
 main() {
-    check_prerequisites
-
-    if [ "$ENV" = "prod" ]; then
-        backup_deployment
-    fi
-
-    start_services
-    wait_for_services
-    run_health_checks
-    print_deployment_info
+    trap record_failure ERR
+    configure_deployment "${1:-dev}"
+    save_deployment_state
+    backup_current_database deploy
+    PHASE="build"
+    compose build --no-cache
+    PHASE="start-services"
+    # Compose pulls missing dependency images; do not pull the locally built app
+    # from a registry or silently upgrade all existing database/cache images.
+    compose up -d
+    wait_for_readiness
+    finish_deployment
 }
 
-# Run main function
-main
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi
