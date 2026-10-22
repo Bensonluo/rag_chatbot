@@ -11,27 +11,42 @@ is deliberately separate: observations contain its inputs but never its verdict.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, ClassVar, cast
 
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
 from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from sqlalchemy import event, select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from app.config.settings import settings
+from app.core.security import create_access_token
 from app.models.database.base import Base
 from app.models.database.message import Message
 from app.models.database.session import ChatSession
 from app.models.database.ticket import HandoffTicket
 from app.models.database.user import User
+from app.repositories.ticket_repository import TicketRepository
 from app.services.chat.chat_service import ChatService
-from app.services.chat.citations import citations_from_documents
+from app.services.chat.citations import citations_from_documents, normalize_citations
 from app.services.chat.persistence import ChatMessagePersister
 from app.services.dialogue.graph import build_dialogue_graph
-from app.services.dialogue.i18n import HANDOFF_NO_TICKET, NO_EVIDENCE, detect_language
+from app.services.dialogue.i18n import (
+    HANDOFF_ACK,
+    HANDOFF_ALREADY_QUEUED,
+    HANDOFF_CONTEXT_NOTE,
+    HANDOFF_EMOTION_PREFIX,
+    HANDOFF_NO_TICKET,
+    HANDOFF_QUEUE,
+    NO_EVIDENCE,
+    detect_language,
+)
 from app.services.dialogue.tools import ToolRegistry
 from app.services.guardrails.base import GuardrailService
 from app.services.guardrails.input_guard import DefaultInputGuardrail
@@ -94,6 +109,7 @@ class PipelineObservation:
     required_points: list[str]
     forbidden_promises: list[str]
     abstention: bool
+    operational_evidence: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -118,7 +134,9 @@ class PipelineEvalReport:
             "Temporary SQLite durability; not production PostgreSQL concurrency.",
             "MemorySaver checkpoints; no distributed checkpoint or cache evaluation.",
             "No FAQ, vector search, reranking, agent loop, or external business tools.",
-            "Response transport only; HTTP authentication and SSE framing are not evaluated.",
+            "Isolated JWT history-route probe only; production middleware and SSE are not evaluated.",
+            "Admin transcript access follows the configured demo/strict ownership posture.",
+            "Command probes show local capability, not current-turn success or agent availability.",
             "Contract pass does not establish semantic correctness or resolution quality.",
         ]
     )
@@ -332,16 +350,89 @@ def score_pipeline_observation(
             or records[0]["status"] not in {"open", "claimed"}
             or records[0]["session_id"] != observation.session_id
             or records[0]["user_id"] != observation.user_id
+            or (
+                records[0]["status"] == "claimed"
+                and (records[0].get("assigned_to") is None or not records[0].get("claimed_at"))
+            )
+            or (
+                records[0]["status"] == "open"
+                and (records[0].get("assigned_to") is not None or records[0].get("claimed_at"))
+            )
         ):
             artifacts.append("queued_handoff_invalid_ticket")
         if ticket and f"#{ticket}" not in observation.answer:
             artifacts.append("queued_handoff_missing_acknowledgement")
+        queue = observation.operational_evidence.get("queue_positions", [])
+        positions = [row for row in queue if row.get("ticket_id") == ticket]
+        open_ids = observation.operational_evidence.get("open_queue_ticket_ids", [])
+        actual_position = open_ids.index(ticket) + 1 if ticket in open_ids else None
+        if (
+            len(positions) != 1
+            or positions[0].get("position") != actual_position
+            or (
+                len(records) == 1
+                and (
+                    positions[0].get("status") != records[0]["status"]
+                    or (ticket in open_ids) != (records[0]["status"] == "open")
+                )
+            )
+        ):
+            artifacts.append("handoff_queue_read_mismatch")
+        language = detect_language(observation.utterance)
+        queue_pattern = (
+            r"当前排队位置：第 (\d+) 位"
+            if language == "zh"
+            else r"your position in the queue: (\d+)"
+        )
+        claims = re.findall(queue_pattern, observation.answer)
+        if any(int(value) != actual_position for value in claims):
+            artifacts.append("queued_handoff_queue_mismatch")
+        if len(records) == 1:
+            # This production branch has fixed copy. Only an independently
+            # read queue position can ground its optional numbered queue claim.
+            # A confirmed ticket never establishes that an agent picked it up.
+            prefix = HANDOFF_EMOTION_PREFIX[language] if records[0]["reason"] == "emotion" else ""
+            acknowledgement = f"{prefix}{HANDOFF_ACK[language].format(ticket_id=ticket)}"
+            alternatives = [[], [HANDOFF_ALREADY_QUEUED[language]]]
+            if actual_position is not None:
+                numbered = HANDOFF_QUEUE[language].format(queue_position=actual_position)
+                alternatives.extend([[numbered], [numbered, HANDOFF_ALREADY_QUEUED[language]]])
+            allowed = {
+                ("，" if language == "zh" else ", ").join(
+                    [acknowledgement, *parts, HANDOFF_CONTEXT_NOTE[language]]
+                )
+                + ("。" if language == "zh" else ".")
+                for parts in alternatives
+            }
+            if observation.answer not in allowed:
+                artifacts.append("queued_handoff_answer_contract")
     if any(
         value.casefold() in observation.answer.casefold() for value in expected.forbidden_promises
     ):
         artifacts.append("forbidden_promise")
     if observation.history_messages != observation.expected_history:
         artifacts.append("history_roundtrip_mismatch")
+    admin_history = observation.operational_evidence.get("admin_history", {})
+    if not isinstance(admin_history, dict):
+        admin_history = {}
+    demo_mode = admin_history.get("demo_mode")
+    if (
+        type(demo_mode) is not bool
+        or admin_history.get("http_status") != (200 if demo_mode else 404)
+        or admin_history.get("session_id") != observation.session_id
+        or admin_history.get("requester_is_admin") is not True
+        or admin_history.get("requester_user_id") == observation.user_id
+        or admin_history.get("requester_user_id") != 2
+        or admin_history.get("authentication") != "isolated_jwt"
+    ):
+        artifacts.append("admin_history_access_mismatch")
+    if admin_history.get("http_status") == 200 and (
+        admin_history.get("response_session_id") != observation.session_id
+        or admin_history.get("messages") != observation.expected_history
+    ):
+        artifacts.append("admin_history_roundtrip_mismatch")
+    if admin_history.get("invalid_jwt_http_status") != 401:
+        artifacts.append("admin_history_authentication_mismatch")
     persisted = observation.persisted_messages
     persisted_history = [
         {
@@ -365,6 +456,62 @@ def score_pipeline_observation(
             if metadata.get(key) != observation.metadata.get(key):
                 artifacts.append(f"persisted_{key}_mismatch")
     return PipelineTurnResult(observation, routing, artifacts)
+
+
+async def _history_http_evidence(
+    chat: ChatService, maker: async_sessionmaker[AsyncSession]
+) -> dict[str, Any]:
+    """Exercise actual JWT authentication and history ownership against SQLite.
+
+    Only the database and graph service are replaced, using app-local FastAPI
+    dependency overrides. Global auth dependencies/settings are never patched.
+    The non-owner administrator must still be refused in strict mode.
+    """
+    from app.api.deps import get_db
+    from app.api.v1 import chat as chat_api
+
+    async def isolated_db() -> AsyncGenerator[AsyncSession, None]:
+        async with maker() as session:
+            yield session
+
+    app = FastAPI()
+    app.include_router(chat_api.router, prefix="/api/v1")
+    app.dependency_overrides[get_db] = isolated_db
+    app.dependency_overrides[chat_api.get_chat_service] = lambda: chat
+    token = create_access_token({"sub": "admin@evaluation.invalid", "user_id": 2})
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://isolated-evaluation.invalid"
+    ) as client:
+        response = await client.get(
+            "/api/v1/chat/history",
+            params={"session_id": 1, "limit": 100},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        invalid = await client.get(
+            "/api/v1/chat/history",
+            params={"session_id": 1},
+            headers={"Authorization": "Bearer invalid-evaluation-token"},
+        )
+    body = response.json()
+    return {
+        "session_id": 1,
+        "requester_user_id": 2,
+        "requester_is_admin": True,
+        "demo_mode": settings.DEMO_MODE,
+        "http_status": response.status_code,
+        "response_session_id": body.get("session_id"),
+        "messages": [
+            {
+                "role": row["role"],
+                "content": row["content"],
+                "citations": normalize_citations(row["citations"]),
+            }
+            for row in body.get("messages", [])
+        ],
+        "invalid_jwt_http_status": invalid.status_code,
+        "source": "GET /api/v1/chat/history",
+        "authentication": "isolated_jwt",
+    }
 
 
 async def _run_case(case: PipelineCase, llm: LLMServiceBase) -> list[PipelineTurnResult]:
@@ -400,6 +547,9 @@ async def _run_case(case: PipelineCase, llm: LLMServiceBase) -> list[PipelineTur
                     )
             async with maker() as session:
                 session.add(User(id=1, email="pipeline@evaluation.invalid", hashed_password="!"))
+                session.add(
+                    User(id=2, email="admin@evaluation.invalid", hashed_password="!", is_admin=True)
+                )
                 await session.flush()
                 session.add(ChatSession(id=1, user_id=1, title="Isolated pipeline evaluation"))
                 await session.commit()
@@ -446,6 +596,26 @@ async def _run_case(case: PipelineCase, llm: LLMServiceBase) -> list[PipelineTur
                     tickets = (
                         await session.scalars(select(HandoffTicket).order_by(HandoffTicket.id))
                     ).all()
+                    queue_positions = [
+                        {
+                            "ticket_id": ticket.id,
+                            "position": await TicketRepository(session).position_in_queue(
+                                ticket.id
+                            ),
+                            "status": ticket.status,
+                            "source": "TicketRepository.position_in_queue",
+                        }
+                        for ticket in tickets
+                    ]
+                    # Independent snapshot order prevents a regression shared
+                    # by HandoffService and its queue repository from passing.
+                    open_queue_ids = [
+                        ticket.id
+                        for ticket in sorted(
+                            (ticket for ticket in tickets if ticket.status == "open"),
+                            key=lambda ticket: (ticket.priority, ticket.created_at, ticket.id),
+                        )
+                    ]
                     persisted = [
                         {
                             "role": row.role.value,
@@ -481,6 +651,10 @@ async def _run_case(case: PipelineCase, llm: LLMServiceBase) -> list[PipelineTur
                             "status": ticket.status,
                             "reason": ticket.reason,
                             "priority": ticket.priority,
+                            "assigned_to": ticket.assigned_to,
+                            "claimed_at": ticket.claimed_at.isoformat()
+                            if ticket.claimed_at
+                            else None,
                             "summary": json.loads(ticket.summary),
                         }
                         for ticket in tickets
@@ -493,12 +667,62 @@ async def _run_case(case: PipelineCase, llm: LLMServiceBase) -> list[PipelineTur
                     required_points=turn.required_points,
                     forbidden_promises=turn.forbidden_promises,
                     abstention=turn.abstention,
+                    operational_evidence={
+                        "queue_positions": queue_positions,
+                        "open_queue_ticket_ids": open_queue_ids,
+                        "admin_history": await _history_http_evidence(chat, maker),
+                    },
                 )
                 results.append(score_pipeline_observation(observation, turn))
             return results
         finally:
             await persister.drain()
             await engine.dispose()
+
+
+async def _probe_handoff_commands() -> list[dict[str, Any]]:
+    """Exercise command capability separately from the evaluated conversation.
+
+    These probes have their own temporary databases and compiled graphs. Their
+    ticket IDs cannot establish a ticket or staff assignment in an actual case.
+    No probe result is inferred from generator prose or golden expectations.
+    """
+    probes = []
+    for language, command in (("en", "human agent"), ("zh", "转人工")):
+        case = PipelineCase(
+            id=f"capability-probe-{language}",
+            category="capability_probe",
+            language=language,
+            documents=[],
+            turns=[PipelineTurn(utterance=command, expected_intent="handoff")],
+        )
+        observation = (await _run_case(case, RecordedPipelineLLM()))[0].observation
+        ticket_id = observation.metadata.get("handoff_ticket_id")
+        records = [ticket for ticket in observation.ticket_records if ticket["id"] == ticket_id]
+        confirmed = (
+            len(records) == 1
+            and records[0]["session_id"] == observation.session_id
+            and records[0]["user_id"] == observation.user_id
+            and records[0]["status"] in {"open", "claimed"}
+            and observation.handoff_outcome == "queued"
+        )
+        probes.append(
+            {
+                "command": command,
+                "language": language,
+                "intent": observation.intent,
+                "outcome": observation.handoff_outcome,
+                "ticket_confirmed": confirmed,
+                "ticket_id": ticket_id,
+                "session_id": observation.session_id,
+                "status": records[0]["status"] if len(records) == 1 else None,
+                "source": "compiled_dialogue_graph_probe",
+                "probe_id": case.id,
+                "database_scope": "separate_temporary_sqlite",
+                "scope": "request_ticket_only_no_agent_availability_guarantee",
+            }
+        )
+    return probes
 
 
 async def run_pipeline_eval(
@@ -510,9 +734,13 @@ async def run_pipeline_eval(
     if not selected:
         raise ValueError("Pipeline evaluation requires at least one case")
     llm = llm_service if llm_service is not None else RecordedPipelineLLM()
+    commands = await _probe_handoff_commands()
     results = []
     for case in selected:
-        results.extend(await _run_case(case, llm))
+        case_results = await _run_case(case, llm)
+        for result in case_results:
+            result.observation.operational_evidence["handoff_commands"] = commands
+        results.extend(case_results)
     return PipelineEvalReport(
         results=results,
         model_mode="recorded_fixture" if isinstance(llm, RecordedPipelineLLM) else "injected_llm",

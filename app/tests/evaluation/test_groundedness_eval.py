@@ -95,7 +95,27 @@ async def test_judge_receives_actual_evidence_and_failed_actions(sample):
     assert payload["observed_evidence"] == sample.evidence
     assert payload["observed_actions"] == {"handoff_outcome": "failed", "ticket_ids": []}
     assert payload["expected_language"] is None
+    assert payload["observed_operations"] == {}
     assert "NOT source evidence" in messages[0].content
+    assert not result.passed
+
+
+async def test_operational_observations_are_sent_without_becoming_actions(sample):
+    sample.operational_evidence = {
+        "handoff_commands": [
+            {"command": "human agent", "ticket_confirmed": True, "session_id": 99}
+        ],
+        "admin_history": {"session_id": 17, "http_status": 404},
+    }
+    judge = AsyncMock(spec=LLMServiceBase)
+    judge.generate.return_value = LLMResponse(verdict(action_claims_supported=False), "judge")
+    result = await judge_groundedness(sample, judge)
+    messages = judge.generate.call_args.args[0]
+    payload = json.loads(messages[1].content)
+    assert payload["observed_operations"] == sample.operational_evidence
+    assert payload["observed_actions"] == sample.actions
+    assert payload["observed_actions"]["handoff_outcome"] == "failed"
+    assert "NOT a connected agent" in messages[0].content
     assert not result.passed
     assert result.model == "judge"
 

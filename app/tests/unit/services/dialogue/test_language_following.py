@@ -199,7 +199,7 @@ class TestDeterministicBranchesFollowLanguage:
         assert "转接人工客服" not in response.content
         assert llm.calls == 0
 
-    async def test_chinese_handoff_acknowledgement_unchanged(self) -> None:
+    async def test_chinese_handoff_acknowledges_recorded_request(self) -> None:
         llm = _CountingLLM()
         handoff = Mock()
         handoff.create_ticket_for_session = AsyncMock(
@@ -218,7 +218,9 @@ class TestDeterministicBranchesFollowLanguage:
 
         response = await chat.process_message(1, "转人工", 0)
 
-        assert "已为您转接人工客服（工单号 #7）" in response.content
+        assert "您的人工客服请求已记录（工单号 #7）" in response.content
+        assert "已为您转接" not in response.content
+        assert "完整上下文" not in response.content
 
 
 class _RecordingLLM(LLMServiceBase):

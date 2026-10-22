@@ -256,7 +256,7 @@ class TestHandleHandoffNode:
         assert "未能" in updates["response"]
         assert updates["handoff_outcome"] == "failed"
 
-    async def test_reused_ticket_mentions_queue_membership(self):
+    async def test_reused_ticket_without_queue_position_only_confirms_record(self):
         handoff = Mock()
         handoff.create_ticket_for_session = AsyncMock(
             return_value={"ticket_id": 42, "queue_position": None, "reused": True}
@@ -266,7 +266,8 @@ class TestHandleHandoffNode:
         state: DialogueState = {"message": "怎么还没人理我", "session_id": 7}
         updates = await factory.handle_handoff_node(state)
 
-        assert "排队中" in updates["response"]
+        assert "已有您的人工客服请求记录" in updates["response"]
+        assert "排队中" not in updates["response"]
         assert "排队位置" not in updates["response"]
 
 

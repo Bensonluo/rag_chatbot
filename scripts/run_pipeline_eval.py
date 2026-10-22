@@ -133,7 +133,7 @@ async def _main(argv: list[str] | None = None) -> int:
     report: dict[str, Any] = {
         "mode": args.mode,
         "semantic_quality": "not_evaluated",
-        "rubric_version": "2-language-consistency",
+        "rubric_version": "3-operational-evidence",
     }
     generator: ObservedLLM | None = None
     judge: ObservedLLM | None = None
@@ -151,11 +151,16 @@ async def _main(argv: list[str] | None = None) -> int:
                         "id": name,
                         "expected_pass": control.expected_pass,
                         "expected_language_consistent": control.expected_language_consistent,
+                        "expected_flags": control.expected_flags,
                         "verdict": asdict(verdict),
                         "matched": (
                             verdict.error is None
                             and verdict.passed == control.expected_pass
                             and verdict.language_consistent == control.expected_language_consistent
+                            and all(
+                                getattr(verdict, key) == expected
+                                for key, expected in control.expected_flags.items()
+                            )
                         ),
                     }
                 )
@@ -200,6 +205,7 @@ async def _main(argv: list[str] | None = None) -> int:
                     forbidden_promises=obs.forbidden_promises,
                     expect_abstention=obs.abstention,
                     expected_language=obs.language,
+                    operational_evidence=obs.operational_evidence,
                 )
                 verdict = await judge_groundedness(sample, judge)
                 semantics.append(

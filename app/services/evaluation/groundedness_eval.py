@@ -23,6 +23,7 @@ class GroundednessInput:
     forbidden_promises: list[str] = field(default_factory=list)
     expect_abstention: bool = False
     expected_language: str | None = None
+    operational_evidence: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -92,16 +93,38 @@ JSON shape, with real booleans and one points entry per required_points entry:
 grounded: every factual/policy claim is supported by observed evidence or an
 observed successful action. Unsupported added compensation, invented deadlines,
 wrong policy versions, or specific unsupported recommendations make this false.
+observed_operations contains independently observed application operations, not
+desired answers. handoff_commands proves only that the specified command can
+request a handoff; it does NOT prove this user's ticket was created or that a
+human is available. queue_positions describes observed ticket positions in the
+open queue; use those actual numbers, never invent a position or wait estimate.
+admin_history proves only the recorded HTTP access result for that session and
+posture. A 404/403, owner-only read, or direct service read does NOT prove staff
+can access the full transcript. Even HTTP 200 is not proof staff have read it.
+A successful authenticated non-owner administrator history GET with the matching
+response_session_id and returned messages DOES support saying staff CAN ACCESS
+that recorded conversation in that recorded posture. Access capability is distinct
+from staff actually reading it, guaranteed future access, or an agent taking over.
+Transcript message contents in admin_history establish what was stored, NOT that
+an assistant's policy or action claims are true. Never ground a claim by finding
+the same claim repeated in assistant/history messages; use the retrieved source
+evidence, actual ticket/tool records, and independent operational observations.
 Greetings, apologies and explicitly stated uncertainty need no source.
 action_claims_supported: completed actions (ticket creation, transfer, refund,
 updates, etc.) are claimed only when the actions record proves that exact success.
 An attempted/failed action is NOT success. Offering a future action is not claiming
 it completed. No claimed completed actions means this flag is true.
+A ticket with status open is a recorded/queued request, NOT a connected agent.
+Claims of staff pickup require a matching claimed ticket and assigned_to;
+neither a handoff capability probe nor a ticket summary proves pickup.
 abstention_correct: if expect_abstention is true, acknowledge missing information
 without inventing an answer; otherwise do not unnecessarily refuse an answer
 supported by the evidence/actions. An honest action-failure explanation is valid.
 promises_supported: no forbidden_promises occur semantically, and no unsupported
 future commitment is made. A correct policy followed by an invented promise fails.
+Offering a supported handoff command to REQUEST assistance is allowed even when
+no ticket exists yet. Its availability does not support promising immediate
+connection, guaranteed pickup, compensation, or any completion deadline.
 language_consistent: user-facing explanations AND suggested commands use the
 expected_language (zh = Chinese, en = English). If null, follow the language
 requested in the query, otherwise the query's language. Evidence or history in
@@ -137,6 +160,7 @@ async def judge_groundedness(
         "forbidden_promises": sample.forbidden_promises,
         "expect_abstention": sample.expect_abstention,
         "expected_language": sample.expected_language,
+        "observed_operations": sample.operational_evidence,
     }
     try:
         response = await asyncio.wait_for(

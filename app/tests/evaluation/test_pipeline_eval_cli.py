@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from app.services.evaluation.groundedness_eval import GroundednessVerdict
-from app.services.evaluation.judge_calibration import calibration_samples
+from app.services.evaluation.judge_calibration import JudgeControl, calibration_samples
 from app.services.evaluation.pipeline_eval import (
     PipelineEvalReport,
     PipelineObservation,
@@ -50,6 +50,14 @@ def _verdict(passed: bool = True, *, error: str | None = None) -> GroundednessVe
         error=error,
         model="fixture-model",
     )
+
+
+def _control_verdict(control: JudgeControl) -> GroundednessVerdict:
+    result = _verdict(control.expected_pass)
+    result.language_consistent = control.expected_language_consistent
+    for key, expected in control.expected_flags.items():
+        setattr(result, key, expected)
+    return result
 
 
 def _pipeline() -> PipelineEvalReport:
@@ -94,13 +102,7 @@ def _live(
     generator.models.add("same-fixture-model")
     providers = Mock(side_effect=[judge, generator])
     monkeypatch.setattr(cli, "_provider", providers)
-    verdicts = [
-        replace(
-            _verdict(control.expected_pass),
-            language_consistent=control.expected_language_consistent,
-        )
-        for control in calibration_samples()
-    ]
+    verdicts = [_control_verdict(control) for control in calibration_samples()]
     grading = AsyncMock(side_effect=[*verdicts, final or _verdict()])
     monkeypatch.setattr(cli, "judge_groundedness", grading)
     return providers, grading
@@ -144,13 +146,7 @@ async def test_calibration_failure_prevents_generator_and_pipeline(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kind: str
 ) -> None:
     providers, grading = _live(monkeypatch)
-    verdicts = [
-        replace(
-            _verdict(control.expected_pass),
-            language_consistent=control.expected_language_consistent,
-        )
-        for control in calibration_samples()
-    ]
+    verdicts = [_control_verdict(control) for control in calibration_samples()]
     verdicts[0] = _verdict(False, error="TimeoutError" if kind == "judge_error" else None)
     grading.side_effect = verdicts
     pipeline = AsyncMock()
@@ -342,6 +338,7 @@ async def test_semantic_actions_preserve_ticket_ownership_and_status(
 
     sample = grading.await_args_list[-1].args[0]
     assert sample.expected_language == "en"
+    assert sample.operational_evidence == obs.operational_evidence
     assert sample.actions == {
         "handoff_outcome": "queued",
         "ticket_ids": [41],

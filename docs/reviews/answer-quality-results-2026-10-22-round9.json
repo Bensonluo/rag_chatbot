@@ -1,0 +1,1315 @@
+{
+  "date": "2026-10-22",
+  "round": 9,
+  "baseline_commit": "22571b0",
+  "scope": "Synthetic isolated BM25/SQLite/graph evaluation plus isolated JWT history probe; not overall product acceptance or real user resolution rate",
+  "failed_runs": [
+    {
+      "stage": "initial_controls",
+      "rubric_version": "3-operational-evidence",
+      "judge_controls_passed": false,
+      "judge": {
+        "actual_models": [
+          "MiniMax-M3"
+        ],
+        "calls": 22,
+        "provider_errors": 0
+      },
+      "exit_code": 1,
+      "failed_controls": [
+        {
+          "id": "observed_staff_history_access",
+          "expected_pass": true,
+          "expected_language_consistent": true,
+          "expected_flags": {},
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": true,
+            "language_consistent": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          },
+          "matched": false
+        }
+      ],
+      "semantic_failures": []
+    },
+    {
+      "stage": "intermediate_22",
+      "rubric_version": "3-operational-evidence",
+      "judge_controls_passed": true,
+      "contract_passed": true,
+      "turns": 14,
+      "semantic_pass_rate": 0.7857142857142857,
+      "point_total": 14,
+      "point_passed": 13,
+      "generator": {
+        "actual_models": [
+          "glm-5.3-flash"
+        ],
+        "calls": 8,
+        "provider_errors": 0
+      },
+      "judge": {
+        "actual_models": [
+          "MiniMax-M3"
+        ],
+        "calls": 36,
+        "provider_errors": 0
+      },
+      "same_model_judging": false,
+      "exit_code": 1,
+      "failed_controls": [],
+      "semantic_failures": [
+        {
+          "case_id": "knowledge-en",
+          "turn_index": 1,
+          "answer": "Hi there! 😊 Here's our return policy based on the available information:\n\n- **Timeframe:** Please request a return within **7 days of delivery**.\n- **Condition:** The item must be kept **intact** (in its original condition).\n- **Proof of purchase:** You'll need to provide your **proof of purchase** (e.g., order receipt).\n\nIf you'd like to start a return or have any other questions, feel free to let me know! If I can't resolve your issue, you can type **\"human agent\"** to be connected with a live customer service representative.",
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": false,
+            "language_consistent": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          }
+        },
+        {
+          "case_id": "empty-en",
+          "turn_index": 1,
+          "answer": "Sorry, I couldn't find anything about that in the knowledge base. You could rephrase and try again, or type \"human agent\" to reach one.",
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": false,
+            "language_consistent": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          }
+        },
+        {
+          "case_id": "switch-en",
+          "turn_index": 3,
+          "answer": "Hello! Here's our return policy:\n\n- **Return window**: You can request a return within **seven days of delivery**.\n- **Item condition**: Please keep the item **intact**.\n- **Proof of purchase**: Make sure to provide your **proof of purchase** when requesting the return.\n\nIf you need further assistance, feel free to ask, or type \"human agent\" to be connected with a human customer service representative.",
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "language_consistent": false,
+            "points": [
+              false
+            ],
+            "error": "invalid_verdict",
+            "model": "MiniMax-M3"
+          }
+        }
+      ]
+    },
+    {
+      "stage": "intermediate_23",
+      "rubric_version": "3-operational-evidence",
+      "judge_controls_passed": true,
+      "contract_passed": true,
+      "turns": 14,
+      "semantic_pass_rate": 0.7857142857142857,
+      "point_total": 14,
+      "point_passed": 12,
+      "generator": {
+        "actual_models": [
+          "glm-5.3-flash"
+        ],
+        "calls": 8,
+        "provider_errors": 0
+      },
+      "judge": {
+        "actual_models": [
+          "MiniMax-M3"
+        ],
+        "calls": 37,
+        "provider_errors": 0
+      },
+      "same_model_judging": false,
+      "exit_code": 1,
+      "failed_controls": [],
+      "semantic_failures": [
+        {
+          "case_id": "switch-zh",
+          "turn_index": 2,
+          "answer": "您的人工客服请求已记录（工单号 #1），当前排队位置：第 1 位，工单已关联本次会话，请稍候。",
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "language_consistent": false,
+            "points": [
+              false
+            ],
+            "error": "invalid_verdict",
+            "model": "MiniMax-M3"
+          }
+        },
+        {
+          "case_id": "empty-en",
+          "turn_index": 1,
+          "answer": "Sorry, I couldn't find anything about that in the knowledge base. You could rephrase and try again, or type \"human agent\" to reach one.",
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": false,
+            "abstention_correct": false,
+            "promises_supported": false,
+            "language_consistent": false,
+            "points": [
+              false
+            ],
+            "error": "invalid_verdict",
+            "model": "MiniMax-M3"
+          }
+        },
+        {
+          "case_id": "switch-en",
+          "turn_index": 3,
+          "answer": "Hi! Here's our return policy:\n\n- **Return window:** You can request a return within **seven days of delivery**.\n- **Condition:** Please keep the item intact.\n- **Proof of purchase:** A proof of purchase is required when making your return request.\n\nIf you need further assistance, feel free to ask, or type \"human agent\" to be connected with a human agent. 😊",
+          "verdict": {
+            "grounded": false,
+            "action_claims_supported": true,
+            "abstention_correct": true,
+            "promises_supported": false,
+            "language_consistent": true,
+            "points": [
+              true
+            ],
+            "error": null,
+            "model": "MiniMax-M3"
+          }
+        }
+      ]
+    }
+  ],
+  "diagnosis": {
+    "staff_access_control": "Explicitly distinguish verified authenticated nonowner HTTP access from actual staff reading or pickup; no parser or threshold relaxation.",
+    "invalid_verdicts": "Kept as failures. A single bounded replay of each of two affected samples returned stop with strict boolean verdicts; no stable parser root cause reproduced and no retry added to evaluation.",
+    "copy_fix": "Recorded ticket, linked conversation, neutral reuse, and requesting assistance. No promise of a connected agent or response time.",
+    "history_circularity": "Added a negative control showing an assistant compensation claim repeated in HTTP history is not source evidence."
+  },
+  "final_run": {
+    "rubric_version": "3-operational-evidence",
+    "judge_controls_passed": true,
+    "contract_passed": true,
+    "turns": 14,
+    "semantic_pass_rate": 1.0,
+    "point_total": 14,
+    "point_passed": 14,
+    "generator": {
+      "actual_models": [
+        "glm-5.3-flash"
+      ],
+      "calls": 8,
+      "provider_errors": 0
+    },
+    "judge": {
+      "actual_models": [
+        "MiniMax-M3"
+      ],
+      "calls": 37,
+      "provider_errors": 0
+    },
+    "same_model_judging": false,
+    "exit_code": 0,
+    "judge_controls": [
+      {
+        "id": "supported_policy",
+        "expected_pass": true,
+        "expected_language_consistent": true,
+        "expected_flags": {},
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "recorded_handoff_with_observed_queue",
+        "expected_pass": true,
+        "expected_language_consistent": true,
+        "expected_flags": {},
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "observed_staff_history_access",
+        "expected_pass": true,
+        "expected_language_consistent": true,
+        "expected_flags": {},
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "observed_claimed_ticket",
+        "expected_pass": true,
+        "expected_language_consistent": true,
+        "expected_flags": {},
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "wrong_queue_position",
+        "expected_pass": false,
+        "expected_language_consistent": true,
+        "expected_flags": {
+          "grounded": false
+        },
+        "verdict": {
+          "grounded": false,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "queued_is_not_staff_pickup",
+        "expected_pass": false,
+        "expected_language_consistent": true,
+        "expected_flags": {
+          "action_claims_supported": false
+        },
+        "verdict": {
+          "grounded": false,
+          "action_claims_supported": false,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            false
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "denied_staff_history_is_not_access",
+        "expected_pass": false,
+        "expected_language_consistent": true,
+        "expected_flags": {
+          "grounded": false
+        },
+        "verdict": {
+          "grounded": false,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "failed_handoff_with_available_retry",
+        "expected_pass": true,
+        "expected_language_consistent": true,
+        "expected_flags": {},
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "probe_success_is_not_current_ticket_success",
+        "expected_pass": false,
+        "expected_language_consistent": true,
+        "expected_flags": {
+          "action_claims_supported": false
+        },
+        "verdict": {
+          "grounded": false,
+          "action_claims_supported": false,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            false
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "capability_is_not_immediate_pickup",
+        "expected_pass": false,
+        "expected_language_consistent": true,
+        "expected_flags": {
+          "promises_supported": false
+        },
+        "verdict": {
+          "grounded": false,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": false,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "english_handoff_instruction",
+        "expected_pass": true,
+        "expected_language_consistent": true,
+        "expected_flags": {},
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "mixed_language_handoff_instruction",
+        "expected_pass": false,
+        "expected_language_consistent": false,
+        "expected_flags": {},
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": false,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "wrong_language_policy",
+        "expected_pass": false,
+        "expected_language_consistent": false,
+        "expected_flags": {},
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": false,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "wrong_language_failure",
+        "expected_pass": false,
+        "expected_language_consistent": false,
+        "expected_flags": {},
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": false,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "english_with_chinese_product_name",
+        "expected_pass": true,
+        "expected_language_consistent": true,
+        "expected_flags": {},
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "assistant_history_cannot_ground_its_own_claim",
+        "expected_pass": false,
+        "expected_language_consistent": true,
+        "expected_flags": {
+          "grounded": false,
+          "promises_supported": false
+        },
+        "verdict": {
+          "grounded": false,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": false,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "policy_plus_invented_compensation",
+        "expected_pass": false,
+        "expected_language_consistent": true,
+        "expected_flags": {
+          "promises_supported": false
+        },
+        "verdict": {
+          "grounded": false,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": false,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "wrong_policy_version",
+        "expected_pass": false,
+        "expected_language_consistent": true,
+        "expected_flags": {
+          "grounded": false
+        },
+        "verdict": {
+          "grounded": false,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            false
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "honest_failed_handoff",
+        "expected_pass": true,
+        "expected_language_consistent": true,
+        "expected_flags": {},
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "false_success_after_failure",
+        "expected_pass": false,
+        "expected_language_consistent": true,
+        "expected_flags": {
+          "action_claims_supported": false
+        },
+        "verdict": {
+          "grounded": false,
+          "action_claims_supported": false,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            false
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "honest_abstention",
+        "expected_pass": true,
+        "expected_language_consistent": true,
+        "expected_flags": {},
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "unsupported_answer_without_evidence",
+        "expected_pass": false,
+        "expected_language_consistent": true,
+        "expected_flags": {
+          "grounded": false,
+          "abstention_correct": false
+        },
+        "verdict": {
+          "grounded": false,
+          "action_claims_supported": true,
+          "abstention_correct": false,
+          "promises_supported": false,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      },
+      {
+        "id": "answer_injection",
+        "expected_pass": false,
+        "expected_language_consistent": true,
+        "expected_flags": {
+          "grounded": false
+        },
+        "verdict": {
+          "grounded": false,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            false
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "matched": true
+      }
+    ],
+    "semantic_results": [
+      {
+        "case_id": "knowledge-zh",
+        "turn_index": 1,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      },
+      {
+        "case_id": "empty-zh",
+        "turn_index": 1,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      },
+      {
+        "case_id": "handoff-success-zh",
+        "turn_index": 1,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      },
+      {
+        "case_id": "handoff-failure-zh",
+        "turn_index": 1,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      },
+      {
+        "case_id": "switch-zh",
+        "turn_index": 1,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      },
+      {
+        "case_id": "switch-zh",
+        "turn_index": 2,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      },
+      {
+        "case_id": "switch-zh",
+        "turn_index": 3,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      },
+      {
+        "case_id": "knowledge-en",
+        "turn_index": 1,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      },
+      {
+        "case_id": "empty-en",
+        "turn_index": 1,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      },
+      {
+        "case_id": "handoff-success-en",
+        "turn_index": 1,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      },
+      {
+        "case_id": "handoff-failure-en",
+        "turn_index": 1,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      },
+      {
+        "case_id": "switch-en",
+        "turn_index": 1,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      },
+      {
+        "case_id": "switch-en",
+        "turn_index": 2,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      },
+      {
+        "case_id": "switch-en",
+        "turn_index": 3,
+        "verdict": {
+          "grounded": true,
+          "action_claims_supported": true,
+          "abstention_correct": true,
+          "promises_supported": true,
+          "language_consistent": true,
+          "points": [
+            true
+          ],
+          "error": null,
+          "model": "MiniMax-M3"
+        },
+        "passed": true
+      }
+    ],
+    "limitations": [
+      "Temporary SQLite durability; not production PostgreSQL concurrency.",
+      "MemorySaver checkpoints; no distributed checkpoint or cache evaluation.",
+      "No FAQ, vector search, reranking, agent loop, or external business tools.",
+      "Isolated JWT history-route probe only; production middleware and SSE are not evaluated.",
+      "Admin transcript access follows the configured demo/strict ownership posture.",
+      "Command probes show local capability, not current-turn success or agent availability.",
+      "Contract pass does not establish semantic correctness or resolution quality."
+    ]
+  },
+  "final_handoff_observations": [
+    {
+      "case_id": "handoff-success-zh",
+      "turn_index": 1,
+      "answer": "您的人工客服请求已记录（工单号 #1），当前排队位置：第 1 位，工单已关联本次会话，请稍候。",
+      "ticket_records": [
+        {
+          "id": 1,
+          "session_id": 1,
+          "user_id": 1,
+          "status": "open",
+          "reason": "explicit",
+          "priority": 2,
+          "assigned_to": null,
+          "claimed_at": null,
+          "summary": {
+            "trigger": "explicit",
+            "user_message": "转人工",
+            "intent": "handoff",
+            "filled_slots": {},
+            "pending_slots": [],
+            "bot_executed_tools": [],
+            "last_tool_result": null,
+            "last_tool_turn_id": null
+          }
+        }
+      ],
+      "queue_positions": [
+        {
+          "ticket_id": 1,
+          "position": 1,
+          "status": "open",
+          "source": "TicketRepository.position_in_queue"
+        }
+      ],
+      "admin_history": {
+        "session_id": 1,
+        "requester_user_id": 2,
+        "requester_is_admin": true,
+        "demo_mode": true,
+        "http_status": 200,
+        "response_session_id": 1,
+        "invalid_jwt_http_status": 401,
+        "source": "GET /api/v1/chat/history",
+        "authentication": "isolated_jwt"
+      },
+      "admin_history_message_count": 2,
+      "handoff_commands": [
+        {
+          "command": "human agent",
+          "language": "en",
+          "intent": "handoff",
+          "outcome": "queued",
+          "ticket_confirmed": true,
+          "ticket_id": 1,
+          "session_id": 1,
+          "status": "open",
+          "source": "compiled_dialogue_graph_probe",
+          "probe_id": "capability-probe-en",
+          "database_scope": "separate_temporary_sqlite",
+          "scope": "request_ticket_only_no_agent_availability_guarantee"
+        },
+        {
+          "command": "转人工",
+          "language": "zh",
+          "intent": "handoff",
+          "outcome": "queued",
+          "ticket_confirmed": true,
+          "ticket_id": 1,
+          "session_id": 1,
+          "status": "open",
+          "source": "compiled_dialogue_graph_probe",
+          "probe_id": "capability-probe-zh",
+          "database_scope": "separate_temporary_sqlite",
+          "scope": "request_ticket_only_no_agent_availability_guarantee"
+        }
+      ]
+    },
+    {
+      "case_id": "handoff-success-en",
+      "turn_index": 1,
+      "answer": "Your request for a human agent is recorded (ticket #1), your position in the queue: 1, the ticket is linked to this conversation.",
+      "ticket_records": [
+        {
+          "id": 1,
+          "session_id": 1,
+          "user_id": 1,
+          "status": "open",
+          "reason": "explicit",
+          "priority": 2,
+          "assigned_to": null,
+          "claimed_at": null,
+          "summary": {
+            "trigger": "explicit",
+            "user_message": "human agent",
+            "intent": "handoff",
+            "filled_slots": {},
+            "pending_slots": [],
+            "bot_executed_tools": [],
+            "last_tool_result": null,
+            "last_tool_turn_id": null
+          }
+        }
+      ],
+      "queue_positions": [
+        {
+          "ticket_id": 1,
+          "position": 1,
+          "status": "open",
+          "source": "TicketRepository.position_in_queue"
+        }
+      ],
+      "admin_history": {
+        "session_id": 1,
+        "requester_user_id": 2,
+        "requester_is_admin": true,
+        "demo_mode": true,
+        "http_status": 200,
+        "response_session_id": 1,
+        "invalid_jwt_http_status": 401,
+        "source": "GET /api/v1/chat/history",
+        "authentication": "isolated_jwt"
+      },
+      "admin_history_message_count": 2,
+      "handoff_commands": [
+        {
+          "command": "human agent",
+          "language": "en",
+          "intent": "handoff",
+          "outcome": "queued",
+          "ticket_confirmed": true,
+          "ticket_id": 1,
+          "session_id": 1,
+          "status": "open",
+          "source": "compiled_dialogue_graph_probe",
+          "probe_id": "capability-probe-en",
+          "database_scope": "separate_temporary_sqlite",
+          "scope": "request_ticket_only_no_agent_availability_guarantee"
+        },
+        {
+          "command": "转人工",
+          "language": "zh",
+          "intent": "handoff",
+          "outcome": "queued",
+          "ticket_confirmed": true,
+          "ticket_id": 1,
+          "session_id": 1,
+          "status": "open",
+          "source": "compiled_dialogue_graph_probe",
+          "probe_id": "capability-probe-zh",
+          "database_scope": "separate_temporary_sqlite",
+          "scope": "request_ticket_only_no_agent_availability_guarantee"
+        }
+      ]
+    },
+    {
+      "case_id": "handoff-failure-en",
+      "turn_index": 1,
+      "answer": "Sorry, I couldn't confirm your transfer to a human agent. Please try again shortly by typing \"human agent\".",
+      "ticket_records": [],
+      "queue_positions": [],
+      "admin_history": {
+        "session_id": 1,
+        "requester_user_id": 2,
+        "requester_is_admin": true,
+        "demo_mode": true,
+        "http_status": 200,
+        "response_session_id": 1,
+        "invalid_jwt_http_status": 401,
+        "source": "GET /api/v1/chat/history",
+        "authentication": "isolated_jwt"
+      },
+      "admin_history_message_count": 2,
+      "handoff_commands": [
+        {
+          "command": "human agent",
+          "language": "en",
+          "intent": "handoff",
+          "outcome": "queued",
+          "ticket_confirmed": true,
+          "ticket_id": 1,
+          "session_id": 1,
+          "status": "open",
+          "source": "compiled_dialogue_graph_probe",
+          "probe_id": "capability-probe-en",
+          "database_scope": "separate_temporary_sqlite",
+          "scope": "request_ticket_only_no_agent_availability_guarantee"
+        },
+        {
+          "command": "转人工",
+          "language": "zh",
+          "intent": "handoff",
+          "outcome": "queued",
+          "ticket_confirmed": true,
+          "ticket_id": 1,
+          "session_id": 1,
+          "status": "open",
+          "source": "compiled_dialogue_graph_probe",
+          "probe_id": "capability-probe-zh",
+          "database_scope": "separate_temporary_sqlite",
+          "scope": "request_ticket_only_no_agent_availability_guarantee"
+        }
+      ]
+    },
+    {
+      "case_id": "switch-en",
+      "turn_index": 3,
+      "answer": "Here is our return policy:\n\n- **Request window:** You may request a return within **seven days of delivery**.\n- **Item condition:** Please keep the item **intact**.\n- **Proof of purchase:** A **proof of purchase** is required when submitting your return request.\n\nIf you need further assistance with a return, feel free to ask, or type **\"human agent\"** to submit a request for assistance (this creates a ticket only and does not guarantee an immediate connection).",
+      "ticket_records": [
+        {
+          "id": 1,
+          "session_id": 1,
+          "user_id": 1,
+          "status": "open",
+          "reason": "explicit",
+          "priority": 2,
+          "assigned_to": null,
+          "claimed_at": null,
+          "summary": {
+            "trigger": "explicit",
+            "user_message": "human agent",
+            "intent": "policy",
+            "filled_slots": {},
+            "pending_slots": [],
+            "bot_executed_tools": [],
+            "last_tool_result": null,
+            "last_tool_turn_id": null
+          }
+        }
+      ],
+      "queue_positions": [
+        {
+          "ticket_id": 1,
+          "position": 1,
+          "status": "open",
+          "source": "TicketRepository.position_in_queue"
+        }
+      ],
+      "admin_history": {
+        "session_id": 1,
+        "requester_user_id": 2,
+        "requester_is_admin": true,
+        "demo_mode": true,
+        "http_status": 200,
+        "response_session_id": 1,
+        "invalid_jwt_http_status": 401,
+        "source": "GET /api/v1/chat/history",
+        "authentication": "isolated_jwt"
+      },
+      "admin_history_message_count": 6,
+      "handoff_commands": [
+        {
+          "command": "human agent",
+          "language": "en",
+          "intent": "handoff",
+          "outcome": "queued",
+          "ticket_confirmed": true,
+          "ticket_id": 1,
+          "session_id": 1,
+          "status": "open",
+          "source": "compiled_dialogue_graph_probe",
+          "probe_id": "capability-probe-en",
+          "database_scope": "separate_temporary_sqlite",
+          "scope": "request_ticket_only_no_agent_availability_guarantee"
+        },
+        {
+          "command": "转人工",
+          "language": "zh",
+          "intent": "handoff",
+          "outcome": "queued",
+          "ticket_confirmed": true,
+          "ticket_id": 1,
+          "session_id": 1,
+          "status": "open",
+          "source": "compiled_dialogue_graph_probe",
+          "probe_id": "capability-probe-zh",
+          "database_scope": "separate_temporary_sqlite",
+          "scope": "request_ticket_only_no_agent_availability_guarantee"
+        }
+      ]
+    }
+  ],
+  "redis_fix": {
+    "baseline_commit": "22571b0",
+    "files": [
+      "app/middleware/rate_limiter_redis.py",
+      "app/tests/unit/middleware/test_rate_limiter_redis.py"
+    ],
+    "redis_version": "7.4.0",
+    "root_cause": "No socket/connect timeout or overall deadline; a TCP-connected Redis peer that never replies leaves rate-limit checks blocked indefinitely.",
+    "fix": {
+      "overall_deadline_seconds": 0.25,
+      "socket_connect_timeout_seconds": 0.25,
+      "socket_read_timeout_seconds": 0.25,
+      "retry_count": 0,
+      "fallback": "Existing per-client token bucket; quota enforcement and caller cancellation preserved."
+    },
+    "regression_red": {
+      "command": ".venv/bin/pytest app/tests/unit/middleware/test_rate_limiter_redis.py -k \"stalled or tcp_connected or external_cancellation\" --no-cov -q",
+      "before_fix": "3 failed (stalled middleware, stalled endpoint, loopback TCP no reply); 2 cancellation tests passed."
+    },
+    "validation": [
+      {
+        "command": ".venv/bin/pytest app/tests/unit/middleware/test_rate_limiter_redis.py app/tests/unit/api/v1/test_chat_rate_limit.py --no-cov -q",
+        "result": "22 passed in 1.37s"
+      },
+      {
+        "command": ".venv/bin/pytest app/tests/unit/middleware app/tests/unit/api/v1/test_chat_rate_limit.py --no-cov -q",
+        "result": "72 passed in 3.72s"
+      },
+      {
+        "command": ".venv/bin/ruff check app/middleware/rate_limiter_redis.py app/tests/unit/middleware/test_rate_limiter_redis.py",
+        "result": "All checks passed"
+      },
+      {
+        "command": ".venv/bin/ruff format --check app/middleware/rate_limiter_redis.py app/tests/unit/middleware/test_rate_limiter_redis.py",
+        "result": "2 files already formatted"
+      },
+      {
+        "command": ".venv/bin/mypy app/middleware/rate_limiter_redis.py app/tests/unit/middleware/test_rate_limiter_redis.py",
+        "result": "Success: no issues found in 2 source files"
+      },
+      {
+        "command": "git diff --check",
+        "result": "passed"
+      }
+    ],
+    "production_deadline_loopback_probe": {
+      "peer": "Ephemeral loopback-only TCP listener accepts but never sends Redis responses.",
+      "outcomes_allowed_remaining": [
+        [
+          true,
+          0
+        ],
+        [
+          false,
+          0
+        ]
+      ],
+      "elapsed_ms_per_check": [
+        251.29,
+        251.16
+      ],
+      "accepted_connections": 2,
+      "external_services_used": false
+    },
+    "independent_bug": {
+      "issue": "Lua used a millisecond sliding-window length as EXPIRE seconds, so a 60 second window retained its key for 60,000 seconds.",
+      "fix": "Pass a separate TTL argument in rounded-up seconds, minimum 1; millisecond pruning unchanged.",
+      "tests": "Captures actual Lua eval arguments and verifies 60s -> 60000ms/60s TTL; 1.001s -> 1000ms/2s TTL; 0.05s -> 50ms/1s TTL, and script reads the dedicated TTL argument.",
+      "limitation": "Lua TTL argument contract tested without live Redis server; no local redis-server binary installed."
+    }
+  },
+  "independent_review": {
+    "status": "passed-no-remaining-blockers",
+    "focused_tests": "160 passed in 15.61s",
+    "network_guard_scope": "2 independent capability probes and 1 main handoff case",
+    "external_connection_attempts": 0,
+    "fixed_artifact_gate": "Demo valid-token 401/500 and strict 200 bypasses, missing probe and identity mutations now rejected.",
+    "strict_authorization_finding": "Admin can list and claim a ticket but strict history ownership returns 404; owner history returns 200. No authorization expansion was made."
+  },
+  "final_validation": {
+    "pytest": "2664 passed, 2 skipped, 4 warnings in 176.30s",
+    "core_coverage_percent": 93.01,
+    "ruff": "lint and formatting passed, 436 files",
+    "mypy": "424 app files and CLI separately passed",
+    "deployment": "not deployed",
+    "new_round_commit": "included in this commit"
+  }
+}

@@ -49,7 +49,9 @@ GENERATION_LANG_DIRECTIVE: dict[str, str] = {
     LANG_EN: (
         "[Language requirement: Reply in English only — every sentence "
         "addressed to the user must be in English, including suggested commands. "
-        'If suggesting a human transfer, ask the user to type "human agent".]'
+        'If suggesting human help, ask the user to type "human agent" to request '
+        "assistance. This submits a request; do not promise a live connection, "
+        "pickup or response time.]"
     ),
     LANG_ZH: "[语言要求：请只用中文回答用户。]",
 }
@@ -63,19 +65,19 @@ GENERATION_LANG_DIRECTIVE: dict[str, str] = {
 NO_EVIDENCE: dict[str, str] = {
     LANG_ZH: (
         "抱歉，暂未在知识库中找到与您问题相关的信息。"
-        "您可以换个说法再试，或输入「转人工」联系人工客服。"
+        "您可以换个说法再试，或输入「转人工」请求人工协助。"
     ),
     LANG_EN: (
         "Sorry, I couldn't find anything about that in the knowledge base. "
-        'You could rephrase and try again, or type "human agent" to reach one.'
+        'You could rephrase and try again, or type "human agent" to request human assistance.'
     ),
 }
 
 RETRIEVAL_DEGRADED: dict[str, str] = {
-    LANG_ZH: "检索服务暂时不可用，请稍后再试，或输入「转人工」联系人工客服。",
+    LANG_ZH: "检索服务暂时不可用，请稍后再试，或输入「转人工」请求人工协助。",
     LANG_EN: (
         "Search is temporarily unavailable. Please try again shortly, "
-        'or type "human agent" to reach one.'
+        'or type "human agent" to request human assistance.'
     ),
 }
 
@@ -109,8 +111,8 @@ HANDOFF_NO_TICKET: dict[str, str] = {
 }
 
 HANDOFF_ACK: dict[str, str] = {
-    LANG_ZH: "已为您转接人工客服（工单号 #{ticket_id}）",
-    LANG_EN: "You're being transferred to a human agent (ticket #{ticket_id})",
+    LANG_ZH: "您的人工客服请求已记录（工单号 #{ticket_id}）",
+    LANG_EN: "Your request for a human agent is recorded (ticket #{ticket_id})",
 }
 
 HANDOFF_QUEUE: dict[str, str] = {
@@ -119,13 +121,13 @@ HANDOFF_QUEUE: dict[str, str] = {
 }
 
 HANDOFF_ALREADY_QUEUED: dict[str, str] = {
-    LANG_ZH: "您已在排队中，请耐心等待",
-    LANG_EN: "you're already in the queue, please hold on",
+    LANG_ZH: "已有您的人工客服请求记录，请稍候",
+    LANG_EN: "your request is already recorded",
 }
 
 HANDOFF_CONTEXT_NOTE: dict[str, str] = {
-    LANG_ZH: "人工客服可查看本次会话的完整上下文，请稍候",
-    LANG_EN: "the human agent can see this conversation's full context, one moment",
+    LANG_ZH: "工单已关联本次会话，请稍候",
+    LANG_EN: "the ticket is linked to this conversation",
 }
 
 # Irreversible-action confirmation gate (fixed template, never
