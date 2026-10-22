@@ -1,8 +1,10 @@
 """TicketRepository queue ordering (priority → FIFO) and claim/resolve guards."""
 
 from datetime import UTC
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import create_mock_engine, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.models.database.base import Base
@@ -141,6 +143,59 @@ class TestClaim:
         async with session_maker() as session:
             repo = TicketRepository(session)
             assert await repo.claim(999, agent_id=1) is None
+
+
+class TestTicketHistoryAuthorization:
+    async def test_history_lookup_locks_until_callers_transaction_ends(self, session_maker):
+        ticket_id = (await _seed(session_maker, 1))[0]
+        async with session_maker() as session:
+            await TicketRepository(session).claim(ticket_id, agent_id=42)
+
+        async with session_maker() as session, session.begin():
+            transaction = session.get_transaction()
+            original_execute = session.execute
+            statements = []
+
+            async def capture(statement, *args, **kwargs):
+                statements.append(statement)
+                return await original_execute(statement, *args, **kwargs)
+
+            with (
+                patch.object(session, "execute", side_effect=capture),
+                patch.object(session, "commit", new_callable=AsyncMock) as commit,
+            ):
+                ticket = await TicketRepository(session).get_claimed_for_history(ticket_id, 42)
+                assert ticket is not None
+                assert ticket.id == ticket_id
+                assert session.get_transaction() is transaction
+                commit.assert_not_awaited()
+
+            # SQLite does not implement row locks. Verify that PostgreSQL,
+            # the deployed dialect, receives the lock on the actual query.
+            dialect = create_mock_engine("postgresql://", lambda *_args, **_kwargs: None).dialect
+            compiled = str(statements[0].compile(dialect=dialect))
+            assert compiled.endswith(" FOR UPDATE")
+
+    async def test_server_derived_session_refreshes_stale_identity_map(self, session_maker):
+        ticket_id = (await _seed(session_maker, 1))[0]
+        async with session_maker() as session:
+            await TicketRepository(session).claim(ticket_id, agent_id=42)
+
+        async with session_maker() as reader:
+            stale = await TicketRepository(reader).get_by_id(ticket_id)
+            assert stale is not None
+            assert stale.session_id == 100
+            async with session_maker() as writer:
+                await writer.execute(
+                    update(HandoffTicket)
+                    .where(HandoffTicket.id == ticket_id)
+                    .values(session_id=200)
+                )
+                await writer.commit()
+
+            current = await TicketRepository(reader).get_claimed_for_history(ticket_id, 42)
+            assert current is stale
+            assert current.session_id == 200
 
 
 class TestResolve:

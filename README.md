@@ -82,7 +82,7 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 
 | 📈 Stats | | |
 |:---:|:---:|:---:|
-| **2664** passing tests | **3** LLM providers | **93.01%** core coverage |
+| **2701** passing tests | **3** LLM providers | **93.01%** core coverage |
 | **12** dialogue nodes | **5** data stores | **4** memory strategies |
 
 </div>
@@ -95,7 +95,7 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 4. **Claim-gated streaming** — sentence-buffered policy checks gate what leaves the stream; stream and persistence stay identical
 5. **GraphRAG (optional)** — Neo4j knowledge graph + Text-to-Cypher + community detection
 6. **Hybrid retrieval** — vector (Qdrant) + BM25 keyword → RRF fusion → Cross-Encoder rerank
-7. **Human handoff loop** — emotion/complexity-triggered tickets with queue position and AHT, plus knowledge-gap recording
+7. **Human handoff loop** — emotion/complexity-triggered tickets, queue/AHT, assigned-agent conversation history, and knowledge-gap recording. See the [staff context API](docs/operations/handoff-context.md).
 8. **Observable demo runtime** — `/metrics`, TTFT/duration/outcome metrics, SLA + policy-gate alert rules, tracing hooks
 9. **Epoch-scoped cache pyramid** — L0 answer / L1 semantic / L2 retrieval caches; every KB mutation rotates an epoch that invalidates all three wholesale — no stale entries, no per-key eviction
 10. **Containment KPI** — the share of served sessions with no handoff or downvote, served as a DB-bridged Prometheus gauge. Containment is not confirmed resolution; user confirmations, reopen counts, and human QA verdicts are tracked separately.
@@ -499,7 +499,7 @@ separately configured checkpoint databases require their own recovery plans.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 2664 passed + 2 opt-in skipped / 93.01%)
+# Maintained core suite (70% minimum; currently 2701 passed + 3 opt-in skipped / 93.01%)
 pytest
 
 # Targeted runs
@@ -509,13 +509,14 @@ pytest app/tests/unit/services/intent/ -v      # Intent detection
 pytest app/tests --no-cov
 ```
 
-Answer evaluation now separates given-context point coverage from evidence-grounded
-pipeline grading. The isolated real graph covers 14 bilingual turns with actual
-BM25 retrieval, citations, SQLite messages, and handoff outcomes. GLM generation
-and independent MiniMax judging passed these synthetic checks on 2026-10-17;
-manual review still found a Chinese handoff hint in English replies. This is not
-an overall product acceptance result. See the [evaluation runbook](docs/operations/answer-quality-evaluation.md)
-and [recorded results](docs/reviews/answer-quality-results-2026-10-17.json).
+Answer evaluation separates given-context point coverage from evidence-grounded
+pipeline grading. The last live run (2026-10-22, operational-evidence rubric) passed
+23 judge controls and 14 bilingual turns using GLM generation and MiniMax judging.
+This remains a synthetic isolated measurement, not overall product acceptance.
+See the [evaluation runbook](docs/operations/answer-quality-evaluation.md) and
+[recorded results](docs/reviews/answer-quality-results-2026-10-22-round9.json).
+A separate zero-LLM strict-mode route test now covers owner chat, handoff, claimed
+staff context with citations, and denial after resolution.
 
 ### Code Quality Gates
 
@@ -526,10 +527,11 @@ ruff format --check app/
 mypy app/
 ```
 
-Local verification on 2026-10-22: 2664 tests pass, with two opt-in scenarios
-skipped by default (PostgreSQL concurrency and the Docker recovery drill);
+Local verification on 2026-10-22: 2701 tests pass, with three opt-in scenarios
+skipped by default (PostgreSQL concurrency, assigned-transcript locking, and
+the Docker recovery drill);
 core coverage is 93.01%. Ruff and
-full strict Mypy pass (424 Python files).
+full strict Mypy pass (428 Python files).
 
 The following dependency and companion-frontend checks were verified in earlier
 iterations and were not rerun on October 22. All 8 PostgreSQL concurrency tests
@@ -545,10 +547,10 @@ dependency advisories remain documented in the iteration record.
 
 | Metric | Value |
 |--------|-------|
-| Maintained test results | **2664 passed, 2 opt-in skipped** |
+| Maintained test results | **2701 passed, 3 opt-in skipped** |
 | Maintained core coverage | **93.01%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
-| Python files (app/) | 424 |
-| Python files in app/tests/ | 214 (208 test_ modules) |
+| Python files (app/) | 428 |
+| Python files in app/tests/ | 217 (211 test_ modules) |
 
 ---
 
@@ -560,12 +562,12 @@ dependency advisories remain documented in the iteration record.
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 2664 passing core tests, 93.01% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
+- [x] 2701 passing core tests, 93.01% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)
 - [x] Cross-session user memory (user_facts + TTL recall cache)
-- [x] Human handoff: tickets, queue position, AHT, knowledge-gap closeout
+- [x] Human handoff: tickets, queue position, AHT, knowledge-gap closeout, assigned-agent paginated transcript
 - [x] Postgres checkpointer (AsyncPostgresSaver, MemorySaver fallback)
 - [x] Prometheus alert rules (SLA / TTFT / claim gate / handoff queue)
 - [x] Epoch-scoped cache pyramid (L0 answer / L1 semantic / L2 retrieval)

@@ -21,12 +21,16 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.models.database.ticket import PRIORITY_HIGH, PRIORITY_NORMAL, HandoffTicket
+from app.models.enums.message import MessageRole
+from app.models.schemas.citation import SourceCitation
+from app.models.schemas.handoff import HandoffHistoryMessage, HandoffHistoryResponse
 from app.repositories.ticket_repository import (
     TICKET_STATUS_CLAIMED,
     TICKET_STATUS_OPEN,
     TICKET_STATUS_RESOLVED,
     TicketRepository,
 )
+from app.services.chat.citations import normalize_citations
 from app.services.handoff.summarizer import SummaryLLM
 
 logger = logging.getLogger(__name__)
@@ -222,6 +226,68 @@ class HandoffService:
                 raise LookupError(f"Ticket {ticket_id} is not claimable")
             return _ticket_to_dict(ticket)
 
+    async def get_ticket_history(
+        self, ticket_id: int, agent_id: int, skip: int = 0, limit: int = 50
+    ) -> HandoffHistoryResponse:
+        """Read persisted turns only while this agent handles the claimed ticket.
+
+        Ticket state and assignment are checked anew for each request. The
+        ticket's session ID is derived on the server and the ticket row stays
+        locked through message serialization, so resolve cannot revoke access
+        halfway through an authorized read.
+        """
+        if (
+            not isinstance(skip, int)
+            or isinstance(skip, bool)
+            or not 0 <= skip <= 2_147_483_647
+            or not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not 1 <= limit <= 100
+        ):
+            raise ValueError(
+                "History pagination requires skip between 0 and 2147483647 and limit between 1 and 100"
+            )
+        if any(
+            not isinstance(identifier, int)
+            or isinstance(identifier, bool)
+            or not 1 <= identifier <= 2_147_483_647
+            for identifier in (ticket_id, agent_id)
+        ):
+            raise LookupError("Ticket history not found")
+        async with self._session_maker() as session, session.begin():
+            repo = TicketRepository(session)
+            ticket = await repo.get_claimed_for_history(ticket_id, agent_id)
+            if ticket is None:
+                raise LookupError("Ticket history not found")
+            total = await repo.count_history_messages(ticket.session_id)
+            rows = await repo.get_history_messages(ticket.session_id, skip=skip, limit=limit)
+            messages = []
+            for row in rows:
+                metadata = row.message_metadata
+                metadata = metadata if isinstance(metadata, dict) else {}
+                assistant = row.role == MessageRole.ASSISTANT
+                citations = normalize_citations(metadata.get("citations")) if assistant else []
+                messages.append(
+                    HandoffHistoryMessage(
+                        id=row.id,
+                        role="assistant" if assistant else "user",
+                        content=row.content,
+                        timestamp=_as_utc(row.created_at).isoformat(),
+                        sources=_history_sources(metadata.get("sources")) if assistant else None,
+                        citations=[
+                            SourceCitation.model_validate(citation) for citation in citations
+                        ],
+                    )
+                )
+            return HandoffHistoryResponse(
+                ticket_id=ticket.id,
+                session_id=ticket.session_id,
+                skip=skip,
+                limit=limit,
+                total=total,
+                messages=messages,
+            )
+
     async def resolve_ticket(self, ticket_id: int, agent_id: int) -> dict[str, Any]:
         """
         Resolve a claimed or open ticket.
@@ -284,6 +350,24 @@ class HandoffService:
         HANDOFF_PICKUP_AVG_SECONDS.set(stats["avg_pickup_seconds"] or 0.0)
         HANDOFF_HANDLE_AVG_SECONDS.set(stats["avg_handle_seconds"] or 0.0)
         return stats
+
+
+def _history_sources(value: object) -> list[str] | None:
+    """Keep only bounded legacy source identifiers from persisted metadata."""
+    if not isinstance(value, list):
+        return None
+    sources: list[str] = []
+    for source in value:
+        if (
+            isinstance(source, str)
+            and source.strip()
+            and len(source) <= 512
+            and source not in sources
+        ):
+            sources.append(source)
+            if len(sources) == 50:
+                break
+    return sources or None
 
 
 def _ticket_to_dict(ticket: HandoffTicket) -> dict[str, Any]:

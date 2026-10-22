@@ -9,10 +9,13 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models.database.base import Base
+from app.models.database.message import Message
 from app.models.database.session import ChatSession
 from app.models.database.ticket import HandoffTicket
 from app.models.database.user import User
+from app.models.enums.message import MessageRole
 from app.repositories.ticket_repository import TicketRepository
+from app.services.handoff.service import HandoffService
 
 
 @pytest.fixture
@@ -115,3 +118,60 @@ async def test_competing_transitions(
             assert persisted.claimed_at is not None
         else:
             assert persisted.claimed_at is None
+
+
+async def test_transcript_read_serializes_with_resolve_on_postgresql(ticket_database):
+    maker, ticket_id = ticket_database
+    engine = maker.kw["bind"]
+    if engine.dialect.name != "postgresql":
+        pytest.skip("SQLite does not support row-level FOR UPDATE locks")
+
+    async with maker() as session:
+        ticket = await TicketRepository(session).claim(ticket_id, agent_id=42)
+        assert ticket is not None
+        session.add(Message(session_id=ticket.session_id, role=MessageRole.USER, content="Help"))
+        await session.commit()
+
+    locked = asyncio.Event()
+    finish_read = asyncio.Event()
+    resolve_attempted = asyncio.Event()
+    original_read = TicketRepository.get_history_messages
+
+    async def pause_read(repo, *args, **kwargs):
+        rows = await original_read(repo, *args, **kwargs)
+        locked.set()
+        await finish_read.wait()
+        return rows
+
+    async with maker() as resolver:
+        original_execute = resolver.execute
+
+        async def observe_resolve(statement, *args, **kwargs):
+            resolve_attempted.set()
+            return await original_execute(statement, *args, **kwargs)
+
+        with (
+            patch.object(TicketRepository, "get_history_messages", pause_read),
+            patch.object(resolver, "execute", side_effect=observe_resolve),
+        ):
+            reading = asyncio.create_task(HandoffService(maker).get_ticket_history(ticket_id, 42))
+            resolving = None
+            try:
+                await asyncio.wait_for(locked.wait(), timeout=5)
+                resolving = asyncio.create_task(TicketRepository(resolver).resolve(ticket_id, 42))
+                await asyncio.wait_for(resolve_attempted.wait(), timeout=5)
+                # The UPDATE has started but cannot commit while the read
+                # holds its ticket lock. Shield keeps the pending write alive.
+                with pytest.raises(TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(resolving), timeout=0.1)
+            finally:
+                finish_read.set()
+                result = await asyncio.wait_for(reading, timeout=5)
+                if resolving is not None:
+                    resolved = await asyncio.wait_for(resolving, timeout=5)
+
+    assert result.messages[0].content == "Help"
+    assert resolved is not None
+    assert resolved.status == "resolved"
+    with pytest.raises(LookupError, match="^Ticket history not found$"):
+        await HandoffService(maker).get_ticket_history(ticket_id, 42)

@@ -1,0 +1,147 @@
+{
+  "date": "2026-10-22",
+  "round": 10,
+  "baseline_commit": "3a1d32f",
+  "pushed_branch": "origin/bugfix/customer-support-quality-20261022",
+  "endpoint": "GET /api/v1/handoff/tickets/{ticket_id}/history",
+  "scope": "Backend assigned-agent transcript API; isolated real JWT, database and dialogue route flow, not deployed frontend or production capacity verification",
+  "lifecycle_flow": {
+    "scope": "strict_customer_chat_to_assigned_agent_context_and_resolution",
+    "database": "isolated_sqlite_foreign_keys_enabled",
+    "authentication": "real_jwt_and_admin_dependency",
+    "demo_mode": false,
+    "llm_calls": 0,
+    "statuses": {
+      "owner_faq_chat": 200,
+      "owner_handoff_chat": 200,
+      "anonymous_history": 401,
+      "invalid_token_history": 401,
+      "customer_history": 403,
+      "unclaimed_history": 404,
+      "claim": 200,
+      "assigned_history": 200,
+      "other_agent_history": 404,
+      "assigned_generic_history": 404,
+      "owner_generic_history": 200,
+      "resolve": 200,
+      "resolved_history": 404
+    },
+    "ticket": {
+      "id": 1,
+      "user_id": 1,
+      "assigned_to": 2,
+      "status": "resolved"
+    },
+    "transcript": {
+      "total": 4,
+      "roles": [
+        "user",
+        "assistant",
+        "user",
+        "assistant"
+      ],
+      "citation_count": 1,
+      "citation_source_type": "faq",
+      "faq_id": "handoff_probe_returns",
+      "citation_roundtrip_matches": true,
+      "database_row_ids_match": true
+    }
+  },
+  "independent_security_checks": {
+    "forged_admin_claim_on_customer": 403,
+    "forged_assignment_claim": 404,
+    "valid_jwt_deleted_user": 401,
+    "six_non_dict_metadata_shapes": "200 safely projected",
+    "five_out_of_range_or_invalid_ticket_ids": "422",
+    "resolved_cache_replay": 404,
+    "reopen_history_permissions": [
+      {
+        "actor": 2,
+        "ticket_id": 1,
+        "status": 404
+      },
+      {
+        "actor": 3,
+        "ticket_id": 1,
+        "status": 404
+      },
+      {
+        "actor": 2,
+        "ticket_id": 2,
+        "status": 404
+      },
+      {
+        "actor": 3,
+        "ticket_id": 2,
+        "status": 200
+      }
+    ],
+    "assigned_admin_deactivated": 403
+  },
+  "authorization_contract": {
+    "requires": "Current active DB admin; current claimed ticket assigned to caller; nonnull claimed_at",
+    "unavailable_ticket": "Missing/open/resolved/other-agent return identical 404; no transcript read",
+    "session_scope": "Derived only from the authorized ticket, not caller query fields",
+    "projection": "Persisted user/assistant rows only; SQL filters precede pagination; allowlisted assistant sources and citations",
+    "cache_control": "private, no-store on 200 and access 404",
+    "customer_history": "No admin bypass on strict customer /chat/history",
+    "existing_ticket_summaries": "Existing admin summary-list visibility unchanged"
+  },
+  "network_guard": {
+    "test": "app/tests/evaluation/test_handoff_context_flow.py",
+    "external_connection_attempts": 0,
+    "llm_calls": 0,
+    "guard": "socket.connect and connect_ex both raise on use"
+  },
+  "service_validation": {
+    "task": "round10_scoped_staff_transcript_service",
+    "status": "implemented_and_verified",
+    "files": [
+      "app/services/handoff/service.py",
+      "app/repositories/ticket_repository.py",
+      "app/models/schemas/handoff.py",
+      "app/tests/unit/services/handoff/test_ticket_history.py",
+      "app/tests/unit/repositories/test_ticket_repository.py",
+      "app/tests/unit/repositories/test_ticket_concurrency.py"
+    ],
+    "schema": "app.models.schemas.handoff.HandoffHistoryResponse",
+    "service_signature": "get_ticket_history(ticket_id: int, agent_id: int, skip: int = 0, limit: int = 50) -> HandoffHistoryResponse",
+    "authorization": "Only claimed ticket assigned to the requesting agent with nonnull claimed_at; all unavailable ticket states raise identical LookupError before message access. Active-admin authentication is enforced by parent-owned route.",
+    "data_boundary": "Persisted user/assistant turns only; server-derived session ID; oldest-first stable created_at/id ordering; filtered total; bounded deduplicated assistant source IDs; normalized SourceCitation list; no arbitrary metadata/system rows.",
+    "transaction": "Explicit session.begin covers fresh FOR UPDATE ticket authorization, count/page reads and DTO serialization. No singleton ChatService/history cache used.",
+    "pagination": "Internal skip 0..2147483647 and limit 1..100; ticket/agent identifiers positive signed32 or identical LookupError without database access.",
+    "red": {
+      "command": ".venv/bin/python -m pytest app/tests/unit/services/handoff/test_ticket_history.py::test_returns_only_persisted_customer_turns_with_stable_pagination --no-cov -q",
+      "result": "1 failed: AttributeError HandoffService has no attribute get_ticket_history"
+    },
+    "verification": {
+      "focused_pytest": "101 passed, 2 skipped (PostgreSQL-only cases under SQLite)",
+      "ruff": "passed for all six changed service/repository/schema/test files",
+      "mypy": "Success: no issues found in 6 source files",
+      "diff_check": "passed",
+      "real_postgresql": "Not run locally: Docker daemon unavailable per parent. Opt-in RAG_TEST_DATABASE_URL test uses events and bounded blocking assertions to verify resolve waits for transcript lock; then later history is denied. Test is automatically discovered in existing test_ticket_concurrency.py. PostgreSQL FOR UPDATE compilation is verified locally."
+    },
+    "scope": "No customer-history auth, claim/resolve policy, env, Docker, docs, commits, or remote-model calls changed/performed."
+  },
+  "independent_review": {
+    "result": "No concrete security bypass or implementation blocker found",
+    "focused_tests": "37 passed, 1 skipped",
+    "findings": "PostgreSQL execution unverified locally; pagination total/page are live READ COMMITTED reads, not a fixed snapshot"
+  },
+  "final_validation": {
+    "pytest": "2701 passed, 3 skipped, 4 warnings in 199.21s",
+    "core_coverage_percent": 93.01,
+    "ruff": "lint/format passed, 440 files",
+    "mypy": "428 app files, zero errors",
+    "api_focused_tests": "26 passed in 0.49s",
+    "postgresql_lock_concurrency": "New opt-in test included in existing CI concurrency test file; not executed locally because Docker daemon socket is unavailable"
+  },
+  "limitations": [
+    "SQLite cannot prove PostgreSQL row locking.",
+    "No full application middleware/SSE, distributed cache or deployed staff UI verification.",
+    "Offset pages/count are live reads, not a point-in-time export.",
+    "Only recorded user/assistant messages are exposed; in-flight messages may not yet be persisted.",
+    "Existing generation/judge benchmarks were not rerun; this feature test used no LLM."
+  ],
+  "changes": "Included in this commit for the requested push; not deployed; previous baseline push completed."
+}

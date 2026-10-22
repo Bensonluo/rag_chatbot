@@ -68,6 +68,52 @@ class TicketRepository(BaseRepository[HandoffTicket]):
         """Get a ticket by ID without requiring callers to repeat the model."""
         return await super().get_by_id(id, model)
 
+    async def get_claimed_for_history(self, ticket_id: int, agent_id: int) -> HandoffTicket | None:
+        """Lock a ticket currently handled by this agent until the caller commits.
+
+        The service keeps this transaction open through transcript reads. On
+        PostgreSQL a concurrent resolve must wait for the read to complete;
+        a resolve that wins first makes this lookup return no ticket.
+        """
+        result = await self.session.execute(
+            select(HandoffTicket)
+            .where(
+                HandoffTicket.id == ticket_id,
+                HandoffTicket.status == TICKET_STATUS_CLAIMED,
+                HandoffTicket.assigned_to == agent_id,
+                HandoffTicket.claimed_at.is_not(None),
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_history_messages(self, session_id: int, skip: int, limit: int) -> list[Message]:
+        """Read a deterministically ordered page of customer-facing turns."""
+        result = await self.session.execute(
+            select(Message)
+            .where(
+                Message.session_id == session_id,
+                Message.role.in_((MessageRole.USER, MessageRole.ASSISTANT)),
+            )
+            .order_by(Message.created_at.asc(), Message.id.asc())
+            .offset(skip)
+            .limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def count_history_messages(self, session_id: int) -> int:
+        """Count only turns exposed by the handoff transcript."""
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(Message)
+            .where(
+                Message.session_id == session_id,
+                Message.role.in_((MessageRole.USER, MessageRole.ASSISTANT)),
+            )
+        )
+        return int(result.scalar_one())
+
     async def list_by_status(
         self,
         status: str,

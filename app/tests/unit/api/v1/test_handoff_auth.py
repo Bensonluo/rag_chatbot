@@ -26,6 +26,7 @@ ALL_PATHS = [
     ("/handoff/stats", "get"),
     ("/handoff/tickets/1/claim", "post"),
     ("/handoff/tickets/1/resolve", "post"),
+    ("/handoff/tickets/1/history", "get"),
 ]
 
 
