@@ -45,6 +45,7 @@ def _verdict(passed: bool = True, *, error: str | None = None) -> GroundednessVe
         action_claims_supported=True,
         abstention_correct=True,
         promises_supported=True,
+        language_consistent=True,
         points=[passed],
         error=error,
         model="fixture-model",
@@ -93,7 +94,13 @@ def _live(
     generator.models.add("same-fixture-model")
     providers = Mock(side_effect=[judge, generator])
     monkeypatch.setattr(cli, "_provider", providers)
-    verdicts = [_verdict(expected) for _, _, expected in calibration_samples()]
+    verdicts = [
+        replace(
+            _verdict(control.expected_pass),
+            language_consistent=control.expected_language_consistent,
+        )
+        for control in calibration_samples()
+    ]
     grading = AsyncMock(side_effect=[*verdicts, final or _verdict()])
     monkeypatch.setattr(cli, "judge_groundedness", grading)
     return providers, grading
@@ -137,7 +144,13 @@ async def test_calibration_failure_prevents_generator_and_pipeline(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kind: str
 ) -> None:
     providers, grading = _live(monkeypatch)
-    verdicts = [_verdict(expected) for _, _, expected in calibration_samples()]
+    verdicts = [
+        replace(
+            _verdict(control.expected_pass),
+            language_consistent=control.expected_language_consistent,
+        )
+        for control in calibration_samples()
+    ]
     verdicts[0] = _verdict(False, error="TimeoutError" if kind == "judge_error" else None)
     grading.side_effect = verdicts
     pipeline = AsyncMock()
@@ -328,6 +341,7 @@ async def test_semantic_actions_preserve_ticket_ownership_and_status(
     assert await cli.main(["--mode=live"]) == 0
 
     sample = grading.await_args_list[-1].args[0]
+    assert sample.expected_language == "en"
     assert sample.actions == {
         "handoff_outcome": "queued",
         "ticket_ids": [41],
@@ -337,3 +351,31 @@ async def test_semantic_actions_preserve_ticket_ownership_and_status(
         "executed_tools": [],
         "tool_result": {},
     }
+
+
+async def test_language_failure_cannot_pass_with_full_point_coverage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _live(monkeypatch, replace(_verdict(), language_consistent=False))
+    monkeypatch.setattr(cli, "run_pipeline_eval", AsyncMock(return_value=_pipeline()))
+    output = tmp_path / "language-failed.json"
+    assert await cli.main(["--mode=live", "--output", str(output)]) == 1
+    report = json.loads(output.read_text())
+    assert report["contract_passed"] is True
+    assert report["point_passed"] == report["point_total"] == 1
+    assert report["semantic_pass_rate"] == 0
+    assert report["semantic_results"][0]["verdict"]["language_consistent"] is False
+
+
+async def test_language_control_rejected_for_wrong_reason_does_not_calibrate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    providers, grading = _live(monkeypatch)
+    # This judge rejects the mixed-language answer for grounding alone while
+    # missing its language error. Overall rejection must not hide that gap.
+    grading.side_effect = [_verdict(control.expected_pass) for control in calibration_samples()]
+    pipeline = AsyncMock()
+    monkeypatch.setattr(cli, "run_pipeline_eval", pipeline)
+    assert await cli.main(["--mode=live"]) == 1
+    assert providers.call_count == 1
+    pipeline.assert_not_awaited()

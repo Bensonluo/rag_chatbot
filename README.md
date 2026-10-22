@@ -82,7 +82,7 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 
 | 📈 Stats | | |
 |:---:|:---:|:---:|
-| **2629** passing tests | **3** LLM providers | **93.01%** core coverage |
+| **2639** passing tests | **3** LLM providers | **93.01%** core coverage |
 | **12** dialogue nodes | **5** data stores | **4** memory strategies |
 
 </div>
@@ -499,7 +499,7 @@ separately configured checkpoint databases require their own recovery plans.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 2629 passed + 2 opt-in skipped / 93.01%)
+# Maintained core suite (70% minimum; currently 2639 passed + 2 opt-in skipped / 93.01%)
 pytest
 
 # Targeted runs
@@ -526,10 +526,13 @@ ruff format --check app/
 mypy app/
 ```
 
-Local verification on 2026-10-17: 2629 tests pass, with two opt-in scenarios
+Local verification on 2026-10-22: 2639 tests pass, with two opt-in scenarios
 skipped by default (PostgreSQL concurrency and the Docker recovery drill);
 core coverage is 93.01%. Ruff and
-full strict Mypy pass (424 Python files). All 8 PostgreSQL concurrency tests
+full strict Mypy pass (424 Python files).
+
+The following dependency and companion-frontend checks were verified in earlier
+iterations and were not rerun on October 22. All 8 PostgreSQL concurrency tests
 and the SQLite/PostgreSQL migration round trips pass in isolated databases.
 The new PostgreSQL backup/recovery drill also passes with explicit Docker opt-in.
 CI migration/recovery commands were verified locally; remote CI was not triggered.
@@ -542,7 +545,7 @@ dependency advisories remain documented in the iteration record.
 
 | Metric | Value |
 |--------|-------|
-| Maintained test results | **2629 passed, 2 opt-in skipped** |
+| Maintained test results | **2639 passed, 2 opt-in skipped** |
 | Maintained core coverage | **93.01%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
 | Python files (app/) | 424 |
 | Python files in app/tests/ | 214 (208 test_ modules) |
@@ -557,7 +560,7 @@ dependency advisories remain documented in the iteration record.
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 2629 passing core tests, 93.01% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
+- [x] 2639 passing core tests, 93.01% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)

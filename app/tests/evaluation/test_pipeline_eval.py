@@ -199,6 +199,15 @@ async def test_multiturn_generation_receives_actual_persisted_history() -> None:
         message.role == "assistant" and message.content == prior_handoff for message in last_prompt
     )
     assert report.results[-1].observation.evidence
+    # Both policy generations must offer the exact command that the middle
+    # turn successfully used to create a real SQLite handoff ticket.
+    assert case.turns[1].utterance == "human agent"
+    assert report.results[1].observation.ticket_ids
+    answer_prompts = [p for p in llm.prompts if "Reply in English only" in p[-1].content]
+    assert len(answer_prompts) == 2
+    for prompt in answer_prompts:
+        assert "回复「human agent」" in prompt[0].content
+        assert "回复「转人工」" not in prompt[0].content
 
 
 async def test_temporary_database_is_removed_when_graph_raises(

@@ -130,7 +130,11 @@ async def _main(argv: list[str] | None = None) -> int:
         parser.error("--calibration-only requires --mode live")
     # Providers may log raw error payloads; emit only our own safe status/report.
     logging.disable(logging.CRITICAL)
-    report: dict[str, Any] = {"mode": args.mode, "semantic_quality": "not_evaluated"}
+    report: dict[str, Any] = {
+        "mode": args.mode,
+        "semantic_quality": "not_evaluated",
+        "rubric_version": "2-language-consistency",
+    }
     generator: ObservedLLM | None = None
     judge: ObservedLLM | None = None
     code = 1
@@ -139,14 +143,20 @@ async def _main(argv: list[str] | None = None) -> int:
         if args.mode == "live":
             judge = _provider(args.judge_provider)
             controls: list[dict[str, Any]] = []
-            for name, sample, expected in calibration_samples():
-                verdict = await judge_groundedness(sample, judge)
+            for control in calibration_samples():
+                name = control.name
+                verdict = await judge_groundedness(control.sample, judge)
                 controls.append(
                     {
                         "id": name,
-                        "expected_pass": expected,
+                        "expected_pass": control.expected_pass,
+                        "expected_language_consistent": control.expected_language_consistent,
                         "verdict": asdict(verdict),
-                        "matched": verdict.error is None and verdict.passed == expected,
+                        "matched": (
+                            verdict.error is None
+                            and verdict.passed == control.expected_pass
+                            and verdict.language_consistent == control.expected_language_consistent
+                        ),
                     }
                 )
                 print(
@@ -189,6 +199,7 @@ async def _main(argv: list[str] | None = None) -> int:
                     required_points=obs.required_points,
                     forbidden_promises=obs.forbidden_promises,
                     expect_abstention=obs.abstention,
+                    expected_language=obs.language,
                 )
                 verdict = await judge_groundedness(sample, judge)
                 semantics.append(

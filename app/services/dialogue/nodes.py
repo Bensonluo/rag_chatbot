@@ -1966,7 +1966,8 @@ class NodeFactory:
         # Persona first: tone, grounding rules, and the handoff escape
         # hatch are policy, not per-turn context. Cross-session user
         # facts (Phase B2) extend the persona as bounded context.
-        persona = self._system_prompt or PromptTemplates.get_cs_system_prompt()
+        lang = _turn_lang(state, fallback_text=user_content)
+        persona = self._system_prompt or PromptTemplates.get_cs_system_prompt(lang)
         facts = await self._recall_user_facts(state)
         if facts:
             persona = f"{persona}\n\n已知用户信息（跨会话，仅供个性化参考）：{'；'.join(facts)}"
@@ -1991,7 +1992,6 @@ class NodeFactory:
         # turns is zh-scaffolded (用户意图/工具执行结果) and would detect
         # zh for an English user. Suffixing the user message keeps the
         # directive the last thing the model reads.
-        lang = _turn_lang(state, fallback_text=user_content)
         messages.append(
             LLMMessage(
                 role="user",

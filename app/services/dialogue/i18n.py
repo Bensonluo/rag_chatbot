@@ -48,7 +48,8 @@ def detect_language(text: str) -> str:
 GENERATION_LANG_DIRECTIVE: dict[str, str] = {
     LANG_EN: (
         "[Language requirement: Reply in English only — every sentence "
-        "addressed to the user must be in English.]"
+        "addressed to the user must be in English, including suggested commands. "
+        'If suggesting a human transfer, ask the user to type "human agent".]'
     ),
     LANG_ZH: "[语言要求：请只用中文回答用户。]",
 }

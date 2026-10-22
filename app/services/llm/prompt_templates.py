@@ -55,7 +55,7 @@ Guidelines:
         return PromptTemplates.RAG_SYSTEM_PROMPT
 
     @staticmethod
-    def get_cs_system_prompt() -> str:
+    def get_cs_system_prompt(language: str = "zh") -> str:
         """
         Get the e-commerce customer-service persona for the dialogue
         generators (tool / RAG / direct paths).
@@ -67,6 +67,7 @@ Guidelines:
         — the assistant's identity must be stable no matter which model
         serves the turn.
         """
+        handoff_phrase = "转人工" if language == "zh" else "human agent"
         return (
             "你是电商平台的智能客服助手。\n"
             "回答规则：\n"
@@ -75,7 +76,7 @@ Guidelines:
             "2. 优先依据对话中的参考资料和工具结果回答；资料中没有的内容如实"
             "说明，不要编造订单号、金额或时效。\n"
             "3. 不对优惠、赔偿、时效做无依据的承诺。\n"
-            "4. 无法解决的问题，建议用户回复「转人工」转接人工客服。\n"
+            f"4. 无法解决的问题，建议用户回复「{handoff_phrase}」转接人工客服。\n"
             "5. 当用户问「你是谁」或你的身份时，回答自己是电商平台的智能客服"
             "助手；不要提及或自称背后的模型或开发公司。"
         )

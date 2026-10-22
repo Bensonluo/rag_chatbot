@@ -22,6 +22,7 @@ def verdict(**changes: Any) -> str:
             "action_claims_supported": True,
             "abstention_correct": True,
             "promises_supported": True,
+            "language_consistent": True,
             "points": [True, True],
             **changes,
         }
@@ -38,6 +39,9 @@ def verdict(**changes: Any) -> str:
         verdict(points=[True]),
         verdict(points=[1, True]),
         verdict(grounded="true"),
+        verdict(language_consistent="true"),
+        verdict(language_consistent=1),
+        verdict().replace(', "language_consistent": true', ""),
         verdict(extra=True),
         verdict()[:-1] + ',"grounded":false}',
     ],
@@ -48,7 +52,14 @@ def test_rejects_ambiguous_or_incomplete_verdict(raw):
 
 
 @pytest.mark.parametrize(
-    "flag", ["grounded", "action_claims_supported", "abstention_correct", "promises_supported"]
+    "flag",
+    [
+        "grounded",
+        "action_claims_supported",
+        "abstention_correct",
+        "promises_supported",
+        "language_consistent",
+    ],
 )
 def test_coverage_alone_cannot_pass(flag):
     result = parse_groundedness_verdict(verdict(**{flag: False}), 2)
@@ -83,9 +94,22 @@ async def test_judge_receives_actual_evidence_and_failed_actions(sample):
     payload = json.loads(messages[1].content)
     assert payload["observed_evidence"] == sample.evidence
     assert payload["observed_actions"] == {"handoff_outcome": "failed", "ticket_ids": []}
+    assert payload["expected_language"] is None
     assert "NOT source evidence" in messages[0].content
     assert not result.passed
     assert result.model == "judge"
+
+
+async def test_explicit_language_is_sent_even_with_foreign_source(sample):
+    sample.expected_language = "en"
+    sample.evidence = [{"content": "七天内退货。"}]
+    judge = AsyncMock(spec=LLMServiceBase)
+    judge.generate.return_value = LLMResponse(verdict(language_consistent=False), "judge")
+    result = await judge_groundedness(sample, judge)
+    payload = json.loads(judge.generate.call_args.args[0][1].content)
+    assert payload["expected_language"] == "en"
+    assert not result.language_consistent
+    assert not result.passed
 
 
 @pytest.mark.asyncio

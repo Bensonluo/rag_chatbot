@@ -165,13 +165,23 @@ def sample_message():
 
 
 @pytest.fixture
-async def app_client(db_session):
+async def app_client(db_session, monkeypatch):
     """
     Create an async HTTP client for testing FastAPI endpoints.
 
     This fixture uses the real FastAPI app with a test database.
     """
     # Import here to avoid circular imports
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    from app.middleware.rate_limiter_redis import _RedisClientHolder
+
+    # API tests exercise the real fallback limiter without contacting Redis
+    # from the developer's .env. Redis-backed behavior has dedicated tests.
+    def unavailable_redis():
+        raise RedisConnectionError("isolated API test: Redis unavailable")
+
+    monkeypatch.setattr(_RedisClientHolder, "get", unavailable_redis)
 
     # Create app
     app = create_app()

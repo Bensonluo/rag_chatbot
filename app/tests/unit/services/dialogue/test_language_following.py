@@ -14,11 +14,15 @@ copy by the same detection (Chinese default); slot-collection and
 the irreversible-confirmation gate stay Chinese-only by design.
 """
 
+import asyncio
 import json
 import re
 from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import AsyncMock, Mock
+
+import pytest
+from langchain_core.runnables import RunnableConfig
 
 from app.models.enums.intent import Intent
 from app.services.agent.service import SYSTEM_PROMPT as AGENT_SYSTEM_PROMPT
@@ -283,6 +287,28 @@ class TestGenerationLanguageDirective:
             guardrail_service=None,
             graph_retrieval_service=None,
         )
+
+    @pytest.mark.parametrize("streaming", [False, True])
+    async def test_handoff_command_follows_current_turn_across_language_switches(self, streaming):
+        llm = _RecordingLLM()
+        factory = self._factory_with(llm)
+        config: RunnableConfig | None = (
+            {"configurable": {"stream_queue": asyncio.Queue()}} if streaming else None
+        )
+        for message, command in [
+            ("What is the return policy?", "human agent"),
+            ("退货政策是什么？", "转人工"),
+            ("And who pays for shipping?", "human agent"),
+        ]:
+            # The Chinese scaffold must not select the handoff command.
+            await factory._call_llm(
+                "参考资料：七天内退货", config=config, state={"message": message}
+            )
+            persona = llm.captures[-1][0].content
+            assert f"回复「{command}」" in persona
+            if command == "human agent":
+                assert "回复「转人工」" not in persona
+                assert 'type "human agent"' in llm.captures[-1][-1].content
 
     async def test_english_tool_turn_gets_english_directive(self) -> None:
         """The live "Okay okay" shape: zh-scaffolded composed prompt +
