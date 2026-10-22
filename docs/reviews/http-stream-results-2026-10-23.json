@@ -1,0 +1,897 @@
+{
+  "date": "2026-10-23",
+  "baseline_commit": "34f85d78af4788d05b4c595c997266b799c8b3d3",
+  "scope": "Isolated real JWT, FastAPI/Starlette routes, compiled LangGraph, in-memory checkpoint, guardrails, BM25, temporary SQLite; provider output is deterministic local fixture.",
+  "external_model_calls": 0,
+  "ownership": {
+    "before": {
+      "scope": "isolated_actual_jwt_http_compiled_graph_and_sqlite",
+      "revision": "34f85d78af4788d05b4c595c997266b799c8b3d3",
+      "chat_api_sha256": "b7f8853e8bf635538741505e7b663a44b60560576f2d0923a41c2add462bcec4",
+      "demo_mode": false,
+      "llm_calls": 0,
+      "external_services": false,
+      "requests": {
+        "owner_seed": {
+          "status": 200,
+          "owner_slot_extracted": true
+        },
+        "foreign_direct_history": {
+          "status": 404,
+          "detail": "Session not found"
+        },
+        "foreign_normal": {
+          "status": 200,
+          "owner_slot_leaked_in_response": true
+        },
+        "foreign_stream": {
+          "status": 200,
+          "sse_done": true
+        },
+        "foreign_admin": {
+          "status": 200
+        },
+        "missing_normal": {
+          "status": 200
+        },
+        "missing_stream": {
+          "status": 200,
+          "sse_done": true
+        }
+      },
+      "before_attack": {
+        "message_count": 2,
+        "message_session_ids": [
+          10,
+          10
+        ],
+        "foreign_turns_in_owner_sessions": 0,
+        "tickets": []
+      },
+      "after_attack": {
+        "message_count": 8,
+        "message_session_ids": [
+          10,
+          10,
+          10,
+          10,
+          20,
+          20,
+          30,
+          30
+        ],
+        "foreign_turns_in_owner_sessions": 3,
+        "tickets": [
+          {
+            "id": 1,
+            "session_id": 20,
+            "ticket_user_id": 2,
+            "session_owner_id": 1
+          },
+          {
+            "id": 2,
+            "session_id": 30,
+            "ticket_user_id": 3,
+            "session_owner_id": 1
+          }
+        ]
+      },
+      "checkpoints": {
+        "10": {
+          "exists": true,
+          "user_id": 2,
+          "owner_slot_retained": true
+        },
+        "20": {
+          "exists": true,
+          "user_id": 2,
+          "owner_slot_retained": false
+        },
+        "30": {
+          "exists": true,
+          "user_id": 3,
+          "owner_slot_retained": false
+        },
+        "998": {
+          "exists": true,
+          "user_id": 2,
+          "owner_slot_retained": false
+        },
+        "999": {
+          "exists": true,
+          "user_id": 2,
+          "owner_slot_retained": false
+        }
+      },
+      "finding": {
+        "classification": "Confirmed object-level authorization bypass with cross-user checkpoint disclosure and mutation",
+        "severity": "high",
+        "ordinary_customer_reproduced": true,
+        "live_or_customer_data_used": false,
+        "description": "Before the guard, a valid ordinary customer token received owner order_id from retained graph slots in REST metadata, appended its turns to owner sessions, and created a handoff whose ticket user differed from the session owner. Both missing-session entrypoints created orphan graph checkpoints and returned200 even with SQLite foreign keys enabled."
+      },
+      "session_access_contract": {
+        "service": "SessionService.get_session_by_id",
+        "missing": "raises NotFoundError(Session, session_id)",
+        "foreign": "raises the same NotFoundError(Session, session_id)",
+        "helper": "ensure_session_access catches only NotFoundError and maps both to404/detail Session not found",
+        "database_failure": "not caught or treated as authorized; propagates before graph execution",
+        "admin_bypass": false,
+        "demo": "explicitly skips ownership probe, preserving existing public demo behavior"
+      },
+      "remediation": {
+        "working_tree_probe": "/tmp/rag-round11-chat-ownership-after.json",
+        "persistent_regression_file": "app/tests/evaluation/test_strict_chat_ownership.py",
+        "result": "12 passed in0.79s",
+        "coverage": "2 endpoints x2 requester roles x2 inaccessible session cases =8 denied cases;2 owner allowed;2 demo compatibility",
+        "checks": "Ruff lint and format passed",
+        "status": "Before/after actual HTTP/JWT/compiled graph/SQLite evidence confirmed the guard prevents disclosure, durable writes, tickets, and checkpoint mutation."
+      }
+    },
+    "after": {
+      "scope": "isolated_actual_jwt_http_compiled_graph_and_sqlite",
+      "revision": "working_tree",
+      "chat_api_sha256": "3a8343555b16a3979fd3026810b10da24fa2aff2e00632fbab8e0dd92f732533",
+      "demo_mode": false,
+      "llm_calls": 0,
+      "external_services": false,
+      "requests": {
+        "owner_seed": {
+          "status": 200,
+          "owner_slot_extracted": true
+        },
+        "foreign_direct_history": {
+          "status": 404,
+          "detail": "Session not found"
+        },
+        "foreign_normal": {
+          "status": 404,
+          "owner_slot_leaked_in_response": false
+        },
+        "foreign_stream": {
+          "status": 404,
+          "sse_done": false
+        },
+        "foreign_admin": {
+          "status": 404
+        },
+        "missing_normal": {
+          "status": 404
+        },
+        "missing_stream": {
+          "status": 404,
+          "sse_done": false
+        }
+      },
+      "before_attack": {
+        "message_count": 2,
+        "message_session_ids": [
+          10,
+          10
+        ],
+        "foreign_turns_in_owner_sessions": 0,
+        "tickets": []
+      },
+      "after_attack": {
+        "message_count": 2,
+        "message_session_ids": [
+          10,
+          10
+        ],
+        "foreign_turns_in_owner_sessions": 0,
+        "tickets": []
+      },
+      "checkpoints": {
+        "10": {
+          "exists": true,
+          "user_id": 1,
+          "owner_slot_retained": true
+        },
+        "20": {
+          "exists": false,
+          "user_id": null,
+          "owner_slot_retained": false
+        },
+        "30": {
+          "exists": false,
+          "user_id": null,
+          "owner_slot_retained": false
+        },
+        "998": {
+          "exists": false,
+          "user_id": null,
+          "owner_slot_retained": false
+        },
+        "999": {
+          "exists": false,
+          "user_id": null,
+          "owner_slot_retained": false
+        }
+      }
+    },
+    "regression_cases": 12
+  },
+  "sse_content": {
+    "before": [
+      {
+        "case": "english_terminal_period",
+        "http_status": 200,
+        "model_chunks": [
+          "Hello there."
+        ],
+        "visible_text": "",
+        "events": [
+          {
+            "type": "citations",
+            "data": "{\"citations\": []}"
+          },
+          {
+            "type": "message",
+            "data": "[DONE]"
+          }
+        ],
+        "stream_persisted_rows": []
+      },
+      {
+        "case": "chinese_unpunctuated_tail",
+        "http_status": 200,
+        "model_chunks": [
+          "第一句。",
+          "最后一段没有标点"
+        ],
+        "visible_text": "第一句。",
+        "events": [
+          {
+            "type": "message",
+            "data": "第一句。"
+          },
+          {
+            "type": "citations",
+            "data": "{\"citations\": []}"
+          },
+          {
+            "type": "message",
+            "data": "[DONE]"
+          }
+        ],
+        "stream_persisted_rows": [
+          {
+            "role": "user",
+            "content": "你好",
+            "status": "completed"
+          },
+          {
+            "role": "assistant",
+            "content": "第一句。",
+            "status": "completed"
+          }
+        ]
+      },
+      {
+        "case": "newline_roundtrip",
+        "http_status": 200,
+        "model_chunks": [
+          "Line one\n",
+          "\n",
+          "Line two\n",
+          "Final sentence."
+        ],
+        "visible_text": "Line oneLine twoFinal sentence.",
+        "events": [
+          {
+            "type": "message",
+            "data": "Line one"
+          },
+          {
+            "type": "message",
+            "data": ""
+          },
+          {
+            "type": "message",
+            "data": "Line two"
+          },
+          {
+            "type": "message",
+            "data": "Final sentence."
+          },
+          {
+            "type": "citations",
+            "data": "{\"citations\": []}"
+          },
+          {
+            "type": "message",
+            "data": "[DONE]"
+          }
+        ],
+        "stream_persisted_rows": [
+          {
+            "role": "user",
+            "content": "你好",
+            "status": "completed"
+          },
+          {
+            "role": "assistant",
+            "content": "Line one\n\nLine two\nFinal sentence.",
+            "status": "completed"
+          }
+        ]
+      }
+    ],
+    "after": [
+      {
+        "case": "english_terminal_period",
+        "http_status": 200,
+        "model_chunks": [
+          "Hello there."
+        ],
+        "visible_text": "Hello there.",
+        "events": [
+          {
+            "type": "message",
+            "data": "Hello there."
+          },
+          {
+            "type": "citations",
+            "data": "{\"citations\": []}"
+          },
+          {
+            "type": "message",
+            "data": "[DONE]"
+          }
+        ],
+        "stream_persisted_rows": [
+          {
+            "role": "user",
+            "content": "你好",
+            "status": "completed"
+          },
+          {
+            "role": "assistant",
+            "content": "Hello there.",
+            "status": "completed"
+          }
+        ]
+      },
+      {
+        "case": "chinese_unpunctuated_tail",
+        "http_status": 200,
+        "model_chunks": [
+          "第一句。",
+          "最后一段没有标点"
+        ],
+        "visible_text": "第一句。最后一段没有标点",
+        "events": [
+          {
+            "type": "message",
+            "data": "第一句。"
+          },
+          {
+            "type": "message",
+            "data": "最后一段没有标点"
+          },
+          {
+            "type": "citations",
+            "data": "{\"citations\": []}"
+          },
+          {
+            "type": "message",
+            "data": "[DONE]"
+          }
+        ],
+        "stream_persisted_rows": [
+          {
+            "role": "user",
+            "content": "你好",
+            "status": "completed"
+          },
+          {
+            "role": "assistant",
+            "content": "第一句。最后一段没有标点",
+            "status": "completed"
+          }
+        ]
+      },
+      {
+        "case": "newline_roundtrip",
+        "http_status": 200,
+        "model_chunks": [
+          "Line one\n",
+          "\n",
+          "Line two\n",
+          "Final sentence."
+        ],
+        "visible_text": "Line one\n\nLine two\nFinal sentence.",
+        "events": [
+          {
+            "type": "message",
+            "data": "Line one\n"
+          },
+          {
+            "type": "message",
+            "data": "\n"
+          },
+          {
+            "type": "message",
+            "data": "Line two\n"
+          },
+          {
+            "type": "message",
+            "data": "Final sentence."
+          },
+          {
+            "type": "citations",
+            "data": "{\"citations\": []}"
+          },
+          {
+            "type": "message",
+            "data": "[DONE]"
+          }
+        ],
+        "stream_persisted_rows": [
+          {
+            "role": "user",
+            "content": "你好",
+            "status": "completed"
+          },
+          {
+            "role": "assistant",
+            "content": "Line one\n\nLine two\nFinal sentence.",
+            "status": "completed"
+          }
+        ]
+      }
+    ],
+    "regression_cases": 5,
+    "additional_cases": [
+      "Cross-chunk email remains redacted at final flush",
+      "RAG citation version matches persisted and restored history"
+    ],
+    "intermediate_after_tail_fix_before_frame_fix": {
+      "semantics": "This capture already includes the guarded-tail fix but precedes the SSE frame fix. The four durable rows include the later two-row REST reference, so they are not a stream-only snapshot.",
+      "observations": [
+        {
+          "case": "english_terminal_period",
+          "http_status": 200,
+          "model_chunks": [
+            "Hello there."
+          ],
+          "visible_text": "Hello there.",
+          "events": [
+            {
+              "type": "message",
+              "data": "Hello there."
+            },
+            {
+              "type": "citations",
+              "data": "{\"citations\": []}"
+            },
+            {
+              "type": "message",
+              "data": "[DONE]"
+            }
+          ],
+          "total_persisted_rows_after_rest_reference": [
+            {
+              "role": "user",
+              "content": "你好",
+              "status": "completed"
+            },
+            {
+              "role": "assistant",
+              "content": "Hello there.",
+              "status": "completed"
+            },
+            {
+              "role": "user",
+              "content": "你好",
+              "status": "completed"
+            },
+            {
+              "role": "assistant",
+              "content": "Hello there.",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "case": "chinese_unpunctuated_tail",
+          "http_status": 200,
+          "model_chunks": [
+            "第一句。",
+            "最后一段没有标点"
+          ],
+          "visible_text": "第一句。最后一段没有标点",
+          "events": [
+            {
+              "type": "message",
+              "data": "第一句。"
+            },
+            {
+              "type": "message",
+              "data": "最后一段没有标点"
+            },
+            {
+              "type": "citations",
+              "data": "{\"citations\": []}"
+            },
+            {
+              "type": "message",
+              "data": "[DONE]"
+            }
+          ],
+          "total_persisted_rows_after_rest_reference": [
+            {
+              "role": "user",
+              "content": "你好",
+              "status": "completed"
+            },
+            {
+              "role": "assistant",
+              "content": "第一句。最后一段没有标点",
+              "status": "completed"
+            },
+            {
+              "role": "user",
+              "content": "你好",
+              "status": "completed"
+            },
+            {
+              "role": "assistant",
+              "content": "第一句。最后一段没有标点",
+              "status": "completed"
+            }
+          ]
+        },
+        {
+          "case": "newline_roundtrip",
+          "http_status": 200,
+          "model_chunks": [
+            "Line one\n",
+            "\n",
+            "Line two\n",
+            "Final sentence."
+          ],
+          "visible_text": "Line oneLine twoFinal sentence.",
+          "events": [
+            {
+              "type": "message",
+              "data": "Line one"
+            },
+            {
+              "type": "message",
+              "data": ""
+            },
+            {
+              "type": "message",
+              "data": "Line two"
+            },
+            {
+              "type": "message",
+              "data": "Final sentence."
+            },
+            {
+              "type": "citations",
+              "data": "{\"citations\": []}"
+            },
+            {
+              "type": "message",
+              "data": "[DONE]"
+            }
+          ],
+          "total_persisted_rows_after_rest_reference": [
+            {
+              "role": "user",
+              "content": "你好",
+              "status": "completed"
+            },
+            {
+              "role": "assistant",
+              "content": "Line one\n\nLine two\nFinal sentence.",
+              "status": "completed"
+            },
+            {
+              "role": "user",
+              "content": "你好",
+              "status": "completed"
+            },
+            {
+              "role": "assistant",
+              "content": "Line one\n\nLine two\nFinal sentence.",
+              "status": "completed"
+            }
+          ]
+        }
+      ]
+    },
+    "before_capture": {
+      "revision": "34f85d78af4788d05b4c595c997266b799c8b3d3",
+      "method": "Fresh isolated process dynamically loads the three implementation files with git show 34f85d7; no checkout or repository source changes. Existing local HTTP/JWT/compiled-graph/SQLite probe then runs against those definitions.",
+      "source_sha256": {
+        "app/services/dialogue/nodes.py": "2d949ecfa458502af62125bd8ea9ed0aa04cfc4ec9e151aed2335fccf707a5d2",
+        "app/services/chat/chat_service.py": "f6188f8b91870f9b76b4f5533e6f205c4b6c4fa56d33cd357f8f18ee35f5ef26",
+        "app/api/v1/chat.py": "b7f8853e8bf635538741505e7b663a44b60560576f2d0923a41c2add462bcec4"
+      },
+      "scope": "Relevant dialogue, streaming service and chat API implementations are baseline; other supporting imports, including tracing, remain the current working tree. This probe measures baseline content/persistence behavior, not baseline tracing logs.",
+      "stream_row_snapshot": "Captured immediately after the streaming response and before issuing the REST reference. Later REST reference rows are excluded from stream_persisted_rows.",
+      "external_model_calls": 0,
+      "repository_mutation": false
+    },
+    "test_first_tail_regressions": {
+      "file": "app/tests/unit/services/dialogue/test_streaming.py",
+      "observed_before_fix_failed_cases": 4,
+      "cases": [
+        "English final period",
+        "Chinese unpunctuated tail",
+        "Split email redaction tail",
+        "Newline plus unpunctuated tail"
+      ],
+      "after_fix_streaming_file_passed_cases": 19,
+      "scope": "Observed targeted red/green test run in this iteration; baseline HTTP capture above independently confirms the English and Chinese losses."
+    }
+  },
+  "disconnect": {
+    "before": [
+      {
+        "case": "real_asgi_disconnect",
+        "http_status": 200,
+        "model_chunks": [
+          "部分回复。"
+        ],
+        "visible_text": "部分回复。",
+        "events": [
+          {
+            "type": "message",
+            "data": "部分回复。"
+          }
+        ],
+        "stream_persisted_rows": []
+      }
+    ],
+    "after_asgi23": [
+      {
+        "case": "real_asgi_disconnect",
+        "http_status": 200,
+        "model_chunks": [
+          "部分回复。"
+        ],
+        "visible_text": "部分回复。",
+        "events": [
+          {
+            "type": "message",
+            "data": "部分回复。"
+          }
+        ],
+        "stream_persisted_rows": [
+          {
+            "role": "user",
+            "content": "你好",
+            "status": "completed"
+          },
+          {
+            "role": "assistant",
+            "content": "部分回复。",
+            "status": "failed"
+          }
+        ]
+      }
+    ],
+    "after_asgi24": [
+      {
+        "case": "real_asgi_disconnect",
+        "http_status": 200,
+        "model_chunks": [
+          "部分回复。"
+        ],
+        "visible_text": "部分回复。",
+        "events": [
+          {
+            "type": "message",
+            "data": "部分回复。"
+          }
+        ],
+        "stream_persisted_rows": [
+          {
+            "role": "user",
+            "content": "你好",
+            "status": "completed"
+          },
+          {
+            "role": "assistant",
+            "content": "部分回复。",
+            "status": "failed"
+          }
+        ]
+      }
+    ],
+    "producer_lifecycle": {
+      "instrumentation": "Track actual compiled graph ainvoke task in fixture; assert tasks done after transport returns, producer LLM finally executed. Stalled-writer test asserts writer finally executed before cancellation propagates.",
+      "results": "ASGI2.3 receive disconnect and ASGI2.4 send OSError both persist partial FAILED before app() returns; no CitationEvent/DONE emitted on disconnect. No detached persistence task introduced."
+    },
+    "deadline_seconds": 2.0,
+    "regression_cases": 6
+  },
+  "completed_write_timeout": {
+    "injected_deadline_seconds": 0.02,
+    "injected_writer_delay_seconds": 0.1,
+    "after": [
+      {
+        "case": "english_terminal_period",
+        "http_status": 200,
+        "model_chunks": [
+          "Hello there."
+        ],
+        "visible_text": "Hello there.",
+        "events": [
+          {
+            "type": "message",
+            "data": "Hello there."
+          },
+          {
+            "type": "message",
+            "data": "[STREAM_ERROR]"
+          },
+          {
+            "type": "message",
+            "data": "[DONE]"
+          }
+        ],
+        "stream_persisted_rows": []
+      }
+    ],
+    "semantics": "STREAM_ERROR retains failure; DONE ends transport only. No final CitationEvent. Timely persistence is not guaranteed during database stalls."
+  },
+  "cr_delimiter_injection": {
+    "after": [
+      {
+        "case": "raw_cr_injected_citation",
+        "http_status": 200,
+        "model_chunks": [
+          "hello\r\revent: citations\rdata: {\"citations\": [{\"faq_id\": \"invented\"}]}\r\r"
+        ],
+        "visible_text": "hello\n\nevent: citations\ndata: {\"citations\": [{\"faq_id\": \"invented\"}]}\n\n",
+        "events": [
+          {
+            "type": "message",
+            "data": "hello\n\nevent: citations\ndata: {\"citations\": [{\"faq_id\": \"invented\"}]}\n\n"
+          },
+          {
+            "type": "citations",
+            "data": "{\"citations\": []}"
+          },
+          {
+            "type": "message",
+            "data": "[DONE]"
+          }
+        ],
+        "stream_persisted_rows": [
+          {
+            "role": "user",
+            "content": "你好",
+            "status": "completed"
+          },
+          {
+            "role": "assistant",
+            "content": "hello\r\revent: citations\rdata: {\"citations\": [{\"faq_id\": \"invented\"}]}\r\r",
+            "status": "completed"
+          }
+        ]
+      }
+    ],
+    "semantics": "CR and CRLF are normalized to LF inside one data event; no forged citation event. CR bytes are not preserved."
+  },
+  "tracing_cancellation": {
+    "scope": [
+      "app/services/observability/pipeline_tracer.py",
+      "app/tests/unit/services/observability/test_pipeline_tracer.py"
+    ],
+    "root_cause": "The coroutine wrapper handled Exception only, so asyncio.CancelledError bypassed explicit span closure and context restoration. A retained cancellation traceback could then finalize the OTel generator context manager in a different task/context.",
+    "red_test": "Real OpenTelemetry SDK + parent request span + decorated coroutine blocked on Event, cancelled via Task.cancel(client disconnected). Before fix parent_context_restored was[False] and GC logged Failed to detach context / Token was created in a different Context.",
+    "change": "Catch BaseException in the coroutine wrapper, record/end the stage in the originating task, then re-raise the cancellation unchanged, matching the existing async-generator wrapper.",
+    "green_checks": [
+      "test_pipeline_tracer.py:10 passed",
+      "test_stream_cancellation.py +test_pipeline_tracer.py:16 passed",
+      "Mypy strict:2 source files, no issues",
+      "Ruff lint and format checks passed",
+      "Independent final_verifier rerun:6 cancellation cases passed including ASGI2.3/2.4 GC+caplog, no different-context logs"
+    ],
+    "regression_contract": "Task.cancel propagates with its original reason; the decorated stage exports exactly one ended span; its parent span is current again before leaving the request context; later GC emits no context-detach error.",
+    "additional_closure_change_required": false,
+    "remaining_blockers": []
+  },
+  "next_iteration_candidate": {
+    "id": "l0-read-bypasses-user-and-session-context",
+    "severity": "medium/P2",
+    "path": "app/services/dialogue/nodes.py",
+    "line": 354,
+    "description": "L0 write eligibility rejects personalized generations, but read eligibility only checks pending slots/confirmation. An otherwise valid anonymous standard-plan entry is replayed into a current Premium customer/session without reading its explicit applicable context.",
+    "observed_effect": "The answer only describes standard-plan manufacturing-defect coverage after the session explicitly asks for Premium-plan coverage; cache-disabled control describes the Premium accidental-damage coverage. This suppresses applicable context; no cross-user disclosure was shown.",
+    "root_cause": "answer_cache_lookup_node globally gets by message before _call_llm can recall facts or history; AnswerCacheService key includes message, KB epoch, model and persona but no context.",
+    "evidence": {
+      "query": "What is the warranty coverage?",
+      "cold_anonymous_answer": "The standard plan covers manufacturing defects.",
+      "stored_l0_entries": 1,
+      "identified_user": {
+        "user_id": 42,
+        "known_fact": "Premium plan customer",
+        "cache_enabled_answer": "The standard plan covers manufacturing defects.",
+        "cache_disabled_answer": "Your Premium plan also covers accidental damage.",
+        "cache_route": "hit",
+        "facts_provider_skipped_on_hit": true,
+        "llm_skipped_on_hit": true,
+        "cached_citation_version": "warranty-v1"
+      },
+      "anonymous_session_history": {
+        "session_id": 30,
+        "prior_message": "I am a Premium plan customer. Answer for my Premium plan, not the standard plan.",
+        "cache_enabled_answer": "The standard plan covers manufacturing defects.",
+        "cache_disabled_answer": "Your Premium plan also covers accidental damage.",
+        "cache_route": "hit"
+      },
+      "network_attempts": []
+    },
+    "next_targeted_test": [
+      "Use real ChatService + compiled graph + AnswerCacheService and fake only external I/O. Seed L0 through an eligible anonymous first turn.",
+      "For an identified Premium customer and an anonymous session with explicit Premium-only history, assert the generic L0 entry is not served and the context reaches generation.",
+      "Keep anonymous context-free cache-hit control, and run same gates through streaming path."
+    ],
+    "limits": [
+      "The response fixture is deterministic and local; this demonstrates skipped application context, not a measured live-model hallucination rate.",
+      "No production database, Redis, Qdrant, paid model, Docker mutation, or network connection was used."
+    ]
+  },
+  "limitations": [
+    "No paid/live model semantic run in this round; prior model scores are unchanged.",
+    "No production PostgreSQL or PostgreSQL checkpoint, reverse proxy/browser, real Redis/Qdrant, full deployment middleware, or remote CI validation.",
+    "Cancelled writes have a bounded cleanup window; stalls/unavailable storage can still prevent durable persistence. Cancellation and writer shutdown evidence uses cooperative async producers/writers.",
+    "Local socket-blocked regression records external connection attempts separately; no production service or data was accessed."
+  ],
+  "verification": {
+    "socket_blocked_route_cases": {
+      "passed": 23,
+      "network_attempts": [],
+      "command": ".venv/bin/python with socket.connect/connect_ex forbidden; pytest --no-cov on the three new HTTP/stream files"
+    },
+    "ruff_check": "passed",
+    "ruff_format": {
+      "passed": true,
+      "files": 443
+    },
+    "mypy_app": {
+      "passed": true,
+      "source_files": 431
+    },
+    "mypy_pipeline_cli": "passed",
+    "packaging_and_cancellation_followup": {
+      "passed": 13,
+      "scope": "Declared AnyIO as a direct runtime dependency; existing lock already pins 4.15.1. Packaging/lock contracts and cancellation tests pass."
+    },
+    "git_diff_check": "passed",
+    "default_full_regression": {
+      "passed": 2750,
+      "skipped": 3,
+      "warnings": 4,
+      "duration_seconds": 186.33,
+      "exit_code": 0,
+      "core_coverage_percent": 93.04,
+      "covered_statements": 4462,
+      "total_statements": 4796,
+      "skips": [
+        "PostgreSQL ticket concurrency opt-in",
+        "PostgreSQL assigned-transcript locking opt-in",
+        "Docker backup/recovery drill opt-in"
+      ],
+      "warnings_scope": "Existing short JWT test signing keys"
+    },
+    "source_counts": {
+      "app_python_files": 431,
+      "test_python_files": 220,
+      "test_modules": 214
+    }
+  },
+  "repository_state": {
+    "pushed_commit": "34f85d7",
+    "remote_branch": "origin/bugfix/customer-support-quality-20261022",
+    "current_iteration": "committed after validation at user request; see containing commit",
+    "user_local_docker_compose": "left untouched"
+  }
+}

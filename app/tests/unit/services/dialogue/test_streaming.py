@@ -14,12 +14,14 @@ from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
+import pytest
 from langchain_core.runnables import RunnableConfig
 
 from app.services.chat.chat_service import HEARTBEAT, STREAM_ERROR, ChatService
 from app.services.dialogue.nodes import NodeFactory
 from app.services.dialogue.state import DialogueState
 from app.services.dialogue.tools import ToolRegistry
+from app.services.guardrails.factory import GuardrailFactory
 from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
 
 _FALLBACK = "抱歉，生成回复时出现错误，请稍后重试。"
@@ -84,6 +86,53 @@ def _factory(
         tool_registry=tool_registry or Mock(),
         llm_service=llm,
     )
+
+
+@pytest.mark.parametrize(
+    "tokens,expected",
+    [
+        (["Hello", " there."], "Hello there."),
+        (["第一句。", "最后一段没有标点"], "第一句。最后一段没有标点"),
+        (["Contact sample@", "example.invalid"], "Contact [REDACTED]"),
+        (["第一句。\n", "最后尾巴"], "第一句。\n最后尾巴"),
+    ],
+)
+async def test_guarded_stream_flushes_final_text_once(tokens: list[str], expected: str) -> None:
+    config, queue = _config_with_queue()
+    factory = NodeFactory(
+        intent_detector=Mock(),
+        slot_filler=None,
+        tool_registry=ToolRegistry(),
+        llm_service=_StreamLLM(tokens),
+        guardrail_service=GuardrailFactory.create(),
+    )
+
+    updates = await factory.generate_response_node(
+        {"message": "你好", "intent": "chitchat"}, config
+    )
+
+    assert "".join(_drain(queue)) == expected
+    assert updates["response"] == expected
+
+
+async def test_final_tail_passes_claim_and_pii_gates_before_emission() -> None:
+    config, queue = _config_with_queue()
+    factory = NodeFactory(
+        intent_detector=Mock(),
+        slot_filler=None,
+        tool_registry=ToolRegistry(),
+        llm_service=_StreamLLM(["退款将在 ", "10 个工作日内到账"]),
+        guardrail_service=GuardrailFactory.create(),
+    )
+
+    updates = await factory.generate_response_node(
+        {"message": "退款多久到账", "intent": "policy"}, config
+    )
+
+    text = "".join(_drain(queue))
+    assert text == updates["response"]
+    assert "1-3 个工作日" in text
+    assert "10 个工作日" not in text
 
 
 class TestChatServiceStreamBridge:

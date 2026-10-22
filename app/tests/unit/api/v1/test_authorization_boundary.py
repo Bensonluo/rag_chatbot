@@ -55,6 +55,11 @@ def _chat_service() -> Mock:
     )
     service.get_chat_history = AsyncMock(return_value=[])
     service.clear_chat_history = AsyncMock()
+
+    async def stream(**_kwargs: Any):
+        yield "好的。"
+
+    service.process_message_stream = Mock(side_effect=stream)
     return service
 
 
@@ -133,6 +138,32 @@ class TestStrictModePosture:
         client = _client(None, _chat_service(), _session_service(owned=True))
         response = client.post("/api/v1/chat/stream", json={"message": "你好", "session_id": 1})
         assert response.status_code == 401
+
+    @pytest.mark.parametrize("streaming", [False, True])
+    @pytest.mark.parametrize("admin", [False, True])
+    def test_foreign_or_missing_session_write_is_denied_before_processing(
+        self, streaming: bool, admin: bool
+    ) -> None:
+        chat = _chat_service()
+        sessions = _session_service(owned=False)
+        client = _client(_user(7, admin=admin), chat, sessions)
+        path = "/api/v1/chat/stream" if streaming else "/api/v1/chat"
+        response = client.post(path, json={"message": "human agent", "session_id": 1})
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Session not found"}
+        sessions.get_session_by_id.assert_awaited_once_with(1, 7)
+        chat.process_message.assert_not_awaited()
+        chat.process_message_stream.assert_not_called()
+
+    @pytest.mark.parametrize("streaming", [False, True])
+    def test_owned_session_write_checks_ownership(self, streaming: bool) -> None:
+        chat = _chat_service()
+        sessions = _session_service(owned=True)
+        client = _client(_user(7), chat, sessions)
+        path = "/api/v1/chat/stream" if streaming else "/api/v1/chat"
+        response = client.post(path, json={"message": "你好", "session_id": 1})
+        assert response.status_code == 200
+        sessions.get_session_by_id.assert_awaited_once_with(1, 7)
 
     def test_anonymous_history_read_rejected(self) -> None:
         client = _client(None, _chat_service(), _session_service(owned=True))

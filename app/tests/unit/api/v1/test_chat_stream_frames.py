@@ -9,8 +9,25 @@ execution-chain panel. These tests pin the frame encoding.
 
 import json
 
-from app.api.v1.chat import _sse_trace_frame
+import pytest
+
+from app.api.v1.chat import _sse_frame, _sse_trace_frame
 from app.services.observability.trace_events import TraceEvent
+
+
+@pytest.mark.parametrize(
+    "text", ["", "a", "\n", "\n\n", "a\n", "\na", "a\n\nb\n", "甲\n乙", "a\u2028b", "a\v b"]
+)
+def test_content_survives_sse_data_field_decoding(text: str) -> None:
+    frame = _sse_frame(text)
+    assert frame.endswith("\n\n")
+    data = []
+    for line in frame.split("\n"):
+        if line.startswith("data:"):
+            value = line[len("data:") :]
+            # SSE removes at most one optional space after the field colon.
+            data.append(value[1:] if value.startswith(" ") else value)
+    assert "\n".join(data) == text
 
 
 class TestSseTraceFrame:
@@ -40,3 +57,12 @@ class TestSseTraceFrame:
         event = TraceEvent(stage="cs.handoff", status="detail", detail={"reason": "情绪激动"})
         frame = _sse_trace_frame(event)
         assert "情绪激动" in frame
+
+
+@pytest.mark.parametrize("chunk", ["a\r\nb", "a\rb", "a\revent: citations\rdata: forged", "\r"])
+def test_sse_frame_canonicalizes_carriage_returns(chunk: str) -> None:
+    frame = _sse_frame(chunk)
+    assert "\r" not in frame
+    assert all(line.startswith("data: ") for line in frame[:-2].split("\n"))
+    payload = "\n".join(line[6:] for line in frame[:-2].split("\n"))
+    assert payload == chunk.replace("\r\n", "\n").replace("\r", "\n")

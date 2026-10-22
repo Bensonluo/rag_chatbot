@@ -123,7 +123,9 @@ def traced_stage(name: str) -> Callable[[_F], _F]:
             span = _StageSpan(name, kwargs)
             try:
                 result = await fn(*args, **kwargs)
-            except Exception as exc:
+            except BaseException as exc:
+                # Task cancellation must detach the active span in this
+                # task, before its traceback can be finalized elsewhere.
                 span.record_and_end(exc)
                 raise
             else:

@@ -2056,7 +2056,13 @@ class NodeFactory:
                 if gate is not None:
                     _release(gate.flush())
                 if pii_redactor is not None:
-                    _release(pii_redactor.flush())
+                    # The flushed tail is already redacted. Feeding it back
+                    # through _release would buffer any unfinished sentence
+                    # again and silently discard it at end of generation.
+                    pii_tail = pii_redactor.flush()
+                    if pii_tail:
+                        emitted.append(pii_tail)
+                        queue.put_nowait(pii_tail)
             except Exception:
                 logger.exception("LLM streaming generation failed")
                 fallback = GENERATION_FAILED[_turn_lang(state, user_content)]

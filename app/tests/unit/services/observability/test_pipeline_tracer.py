@@ -6,6 +6,8 @@ handoff) so latency regressions and error hotspots are attributable to
 a stage, not the pipeline blob. The legacy setup traced LLM calls only.
 """
 
+import asyncio
+import gc
 from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import patch
@@ -213,6 +215,59 @@ class _ListExporter(SpanExporter):
 
 
 class TestRealSDKCompatibility:
+    async def test_task_cancellation_ends_span_in_its_original_context(self, caplog):
+        """Disconnect cancellation must export the stage before task cleanup.
+
+        Leaving the stage open also leaves its ContextVar token active: a
+        retained cancellation traceback may later finalize it in another task.
+        """
+        from opentelemetry import trace
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+
+        provider = TracerProvider()
+        exporter = _ListExporter()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        tracer = provider.get_tracer("rag-chatbot.dialogue")
+        started = asyncio.Event()
+        parent_context_restored = []
+
+        @traced_stage("cs.cancelled")
+        async def cancelled_stage() -> None:
+            started.set()
+            await asyncio.Event().wait()
+
+        async def request() -> None:
+            with tracer.start_as_current_span("request") as parent_span:
+                try:
+                    await cancelled_stage()
+                finally:
+                    parent_context_restored.append(trace.get_current_span() is parent_span)
+
+        try:
+            with patch(
+                "app.services.observability.pipeline_tracer.get_tracer", return_value=tracer
+            ):
+                task = asyncio.create_task(request())
+                await asyncio.wait_for(started.wait(), timeout=1)
+                task.cancel("client disconnected")
+                with pytest.raises(asyncio.CancelledError, match="client disconnected"):
+                    await task
+                assert task.cancelled()
+                assert parent_context_restored == [True]
+                exported = [span for span in exporter.exported if span.name == "cs.cancelled"]
+                assert len(exported) == 1
+                assert exported[0].end_time is not None
+                assert any(event.name == "exception" for event in exported[0].events)
+                # Finalizing the completed task must have no deferred span
+                # detach in this test task's separate context.
+                del task
+                gc.collect()
+                await asyncio.sleep(0)
+                assert "Failed to detach context" not in caplog.text
+        finally:
+            provider.shutdown()
+
     async def test_decorated_calls_produce_real_exported_spans(self):
         """Regression: real OTel tracers return a context manager, not
         a span — the decorator must honor the CM protocol or spans are

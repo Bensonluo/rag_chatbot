@@ -10,12 +10,14 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
+from contextlib import aclosing
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.types import Send
 
 from app.api.deps import get_current_user
 from app.api.deps.authorization import ensure_session_access, resolve_chat_identity
@@ -371,6 +373,7 @@ async def chat(
     http_req: Request,
     current_user: User | None = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
+    session_service: SessionService = Depends(get_session_service),
 ) -> ChatResponse:
     """Process a chat message and generate response."""
     await _enforce_chat_rate_limit(http_req)
@@ -379,6 +382,7 @@ async def chat(
     # 401/403 must not be swallowed into a 500 by the handler below
     # (review 2026-09-26, #1).
     user_id = resolve_chat_identity(current_user, request.user_id)
+    await ensure_session_access(request.session_id, current_user, session_service)
 
     try:
         response = await chat_service.process_message(
@@ -428,7 +432,11 @@ async def chat(
 
 def _sse_frame(chunk: str) -> str:
     """Encode a text chunk as one SSE event (safe for embedded newlines)."""
-    lines = chunk.splitlines() or [""]
+    # Each SSE data field contributes a newline; the parser removes only the
+    # final separator. Keep empty trailing fields so a newline in the actual
+    # content, including a newline-only chunk, survives that decoding step.
+    # Canonicalize CR delimiters first so they cannot inject SSE fields.
+    lines = chunk.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     return "".join(f"data: {line}\n" for line in lines) + "\n"
 
 
@@ -443,53 +451,74 @@ def _sse_trace_frame(event: TraceEvent) -> str:
     return f"event: trace\ndata: {payload}\n\n"
 
 
+class _ClosingStreamingResponse(StreamingResponse):
+    """Close the body in the sending task, including ASGI send failures."""
+
+    async def stream_response(self, send: Send) -> None:
+        try:
+            await super().stream_response(send)
+        finally:
+            # ASGI 2.4 reports a disconnect by raising from send(), while
+            # the body generator is paused at yield. Close it here so its
+            # graph/persistence finalizer runs before the request returns.
+            close = getattr(self.body_iterator, "aclose", None)
+            if close is not None:
+                await close()
+
+
 @router.post("/stream")
 async def chat_stream(
     request: ChatRequest,
     http_req: Request,
     current_user: User | None = Depends(get_current_user),
     chat_service: ChatService = Depends(get_chat_service),
+    session_service: SessionService = Depends(get_session_service),
 ) -> StreamingResponse:
     """Process a chat message with a true token-streaming SSE response."""
     await _enforce_chat_rate_limit(http_req)
     # Same identity rule as the non-streaming entry (review 2026-09-26, #1):
     # token identity in strict mode, body id only under DEMO_MODE.
     user_id = resolve_chat_identity(current_user, request.user_id)
+    await ensure_session_access(request.session_id, current_user, session_service)
 
     try:
 
         async def generate() -> AsyncIterator[str]:
             citation_options = {"include_citations": True} if request.include_citations else {}
-            async for chunk in chat_service.process_message_stream(
-                session_id=request.session_id,
-                message=request.message,
-                user_id=user_id or 0,
-                stream_max_seconds=settings.CHAT_STREAM_MAX_SECONDS,
-                **citation_options,
-            ):
-                if isinstance(chunk, CitationEvent):
-                    if request.include_citations:
-                        payload = json.dumps(
-                            {"citations": normalize_citations(chunk.citations)}, ensure_ascii=False
-                        )
-                        yield f"event: citations\ndata: {payload}\n\n"
-                elif isinstance(chunk, TraceEvent):
-                    # Pipeline execution chain for the demo panel — a
-                    # named event, so content-only consumers never see it.
-                    yield _sse_trace_frame(chunk)
-                elif chunk == HEARTBEAT:
-                    # SSE comment keepalive — ignored by EventSource parsers,
-                    # keeps proxies from closing an idle connection.
-                    yield ": ping\n\n"
-                elif chunk == STREAM_ERROR:
-                    # Explicit failure frame so the client can surface an
-                    # error instead of waiting on a dropped connection.
-                    yield "data: [STREAM_ERROR]\n\n"
-                else:
-                    yield _sse_frame(chunk)
+            async with aclosing(
+                chat_service.process_message_stream(
+                    session_id=request.session_id,
+                    message=request.message,
+                    user_id=user_id or 0,
+                    stream_max_seconds=settings.CHAT_STREAM_MAX_SECONDS,
+                    **citation_options,
+                )
+            ) as stream:
+                async for chunk in stream:
+                    if isinstance(chunk, CitationEvent):
+                        if request.include_citations:
+                            payload = json.dumps(
+                                {"citations": normalize_citations(chunk.citations)},
+                                ensure_ascii=False,
+                            )
+                            yield f"event: citations\ndata: {payload}\n\n"
+                    elif isinstance(chunk, TraceEvent):
+                        # Pipeline execution chain for the demo panel — a
+                        # named event, so content-only consumers never see it.
+                        yield _sse_trace_frame(chunk)
+                    elif chunk == HEARTBEAT:
+                        # SSE comment keepalive — ignored by EventSource parsers,
+                        # keeps proxies from closing an idle connection.
+                        yield ": ping\n\n"
+                    elif chunk == STREAM_ERROR:
+                        # Explicit failure frame so the client can surface an
+                        # error instead of waiting on a dropped connection.
+                        yield "data: [STREAM_ERROR]\n\n"
+                    else:
+                        yield _sse_frame(chunk)
             yield "data: [DONE]\n\n"
 
-        return StreamingResponse(
+        return _ClosingStreamingResponse(
             generate(),
             media_type="text/event-stream",
         )

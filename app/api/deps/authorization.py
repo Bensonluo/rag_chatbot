@@ -8,8 +8,8 @@ One switch, ``DEMO_MODE``, selects the posture:
   owned by seeded users, so strict ownership would break it).
 - strict (``DEMO_MODE=false``): identity comes only from the
   authenticated context. Chat requires login, a body ``user_id``
-  contradicting the token is refused, and the history endpoints only
-  touch sessions owned by the caller — foreign and missing sessions
+  contradicting the token is refused, and history and message-processing
+  endpoints only touch sessions owned by the caller — foreign and missing sessions
   both answer 404 so existence is not leaked (OWASP BOLA guidance).
   Knowledge-base writes additionally require admin.
 
@@ -72,7 +72,7 @@ async def ensure_session_access(
     current_user: User | None,
     session_service: AnySessionService,
 ) -> None:
-    """Object-level check for chat history endpoints (strict posture).
+    """Object-level check before chat processing or history access (strict posture).
 
     Demo posture returns without touching the session service. Strict:
     the caller must be authenticated and own the session; a foreign or

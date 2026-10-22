@@ -9,11 +9,12 @@ history management and fallback use.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
+
+import anyio
 
 from app.config.settings import settings
 from app.models.enums.message import MessageStatus
@@ -48,6 +49,10 @@ HEARTBEAT = ""
 # budget exhausted) so the SSE layer can emit an explicit error frame
 # instead of dropping the connection.
 STREAM_ERROR = "[[STREAM_ERROR]]"
+
+# Disconnects cancel Starlette's AnyIO scope. Finalization must finish
+# outside that cancellation while keeping a stalled writer bounded.
+_STREAM_FINALIZE_TIMEOUT_SECONDS = 2.0
 
 
 class GraphUnavailableError(RuntimeError):
@@ -376,61 +381,73 @@ class ChatService:
             # disconnected turns return before this point, so partial
             # or truncated content is never stored for replay.
             await self._maybe_cache_answer(message, result, user_id, expected_epoch=cache_epoch)
-        except GeneratorExit:
+        except (GeneratorExit, asyncio.CancelledError):
             # Client disconnected mid-stream: record it, let the close
             # proceed (partial-content persistence still runs in finally).
             outcome = "client_disconnect"
             raise
         finally:
-            CHAT_STREAM_DURATION_SECONDS.observe(loop.time() - stream_started)
-            CHAT_STREAM_OUTCOMES.labels(outcome=outcome).inc()
-            if not invoke_task.done():
-                invoke_task.cancel()
-            with contextlib.suppress(BaseException):
-                await invoke_task
-            # Persist the full streamed turn (partial content if the client
-            # disconnected mid-stream) so history and memory stay accurate.
-            if budget is not None:
-                # After the task settles, the state carries this turn's
-                # real consumption (the scope only wrapped task creation).
-                record_budget_on_span(budget)
-            if self.persister is not None and streamed_content:
-                metadata: dict[str, Any] = {
-                    "llm_calls": budget.used if budget else 0,
-                    "llm_refused": budget.refused if budget else 0,
-                }
-                if result.get("turn_id"):
-                    metadata["turn_id"] = result["turn_id"]
-                citations = normalize_citations(result.get("citations"))
-                if citations:
-                    metadata["citations"] = citations
-                if result.get("handoff_outcome"):
-                    metadata["handoff_outcome"] = result["handoff_outcome"]
-                    if result.get("handoff_ticket_id"):
-                        metadata["handoff_ticket_id"] = result["handoff_ticket_id"]
-                # Durable audit trail of agent tool executions — parity
-                # with the non-stream path (review 2026-09-26, #8).
-                executed_tools = result.get("executed_tools") or []
-                if executed_tools:
-                    metadata["executed_tools"] = executed_tools
-                await self.persister.persist_turn(
-                    session_id=session_id,
-                    user_id=user_id,
-                    user_message=message,
-                    response="".join(streamed_content),
-                    intent=result.get("intent"),
-                    sources=result.get("sources"),
-                    # Abnormal exits (disconnect / graph error / budget
-                    # exhaustion) never reach the result assignment, so
-                    # intent and sources stay None and the status below
-                    # marks them FAILED — a cut-off turn must remain
-                    # distinguishable from a finished one in the audit
-                    # trail (review 2026-09-26, #8).
-                    status=(
-                        MessageStatus.COMPLETED if outcome == "completed" else MessageStatus.FAILED
-                    ),
-                    metadata=metadata,
-                )
+            # A plain finally is still inside Starlette's cancelled scope:
+            # every database await would be cancelled again on disconnect.
+            # Shield only this bounded cleanup, then propagate the original
+            # cancellation. No detached persistence task outlives the request.
+            try:
+                with anyio.move_on_after(
+                    _STREAM_FINALIZE_TIMEOUT_SECONDS, shield=True
+                ) as finalization:
+                    if not invoke_task.done():
+                        invoke_task.cancel()
+                    await asyncio.gather(invoke_task, return_exceptions=True)
+                    # Persist exactly the text emitted before termination.
+                    if budget is not None:
+                        record_budget_on_span(budget)
+                    if self.persister is not None and streamed_content:
+                        metadata: dict[str, Any] = {
+                            "llm_calls": budget.used if budget else 0,
+                            "llm_refused": budget.refused if budget else 0,
+                        }
+                        if result.get("turn_id"):
+                            metadata["turn_id"] = result["turn_id"]
+                        citations = (
+                            normalize_citations(result.get("citations"))
+                            if outcome == "completed"
+                            else []
+                        )
+                        if citations:
+                            metadata["citations"] = citations
+                        if result.get("handoff_outcome"):
+                            metadata["handoff_outcome"] = result["handoff_outcome"]
+                            if result.get("handoff_ticket_id"):
+                                metadata["handoff_ticket_id"] = result["handoff_ticket_id"]
+                        executed_tools = result.get("executed_tools") or []
+                        if executed_tools:
+                            metadata["executed_tools"] = executed_tools
+                        await self.persister.persist_turn(
+                            session_id=session_id,
+                            user_id=user_id,
+                            user_message=message,
+                            response="".join(streamed_content),
+                            intent=result.get("intent"),
+                            sources=result.get("sources") if outcome == "completed" else None,
+                            status=(
+                                MessageStatus.COMPLETED
+                                if outcome == "completed"
+                                else MessageStatus.FAILED
+                            ),
+                            metadata=metadata,
+                        )
+                if finalization.cancel_called:
+                    logger.warning("Chat stream finalization timed out (session=%s)", session_id)
+                    if outcome == "completed":
+                        outcome = "finalization_timeout"
+
+            finally:
+                CHAT_STREAM_DURATION_SECONDS.observe(loop.time() - stream_started)
+                CHAT_STREAM_OUTCOMES.labels(outcome=outcome).inc()
+
+        if outcome == "finalization_timeout":
+            yield STREAM_ERROR
+            return
 
         if include_citations and outcome == "completed":
             yield CitationEvent(citations=normalize_citations(result.get("citations")))

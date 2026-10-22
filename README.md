@@ -82,7 +82,7 @@ This project explores those problems with a **LangGraph StateGraph**. It is deli
 
 | 📈 Stats | | |
 |:---:|:---:|:---:|
-| **2701** passing tests | **3** LLM providers | **93.01%** core coverage |
+| **2750** passing tests | **3** LLM providers | **93.04%** core coverage |
 | **12** dialogue nodes | **5** data stores | **4** memory strategies |
 
 </div>
@@ -349,7 +349,7 @@ GUARDRAILS_HARDENING_ENABLED=true
 # Authorization posture (review 2026-09-26, #1): DEMO_MODE=true keeps the
 # public demo open (anonymous chat under a body user_id, history by bare
 # session id); false enforces token-only identity, session ownership on
-# history read/clear, and admin-only knowledge-base writes.
+# chat writes and history read/clear, and admin-only knowledge-base writes.
 DEMO_MODE=true
 ```
 
@@ -499,7 +499,7 @@ separately configured checkpoint databases require their own recovery plans.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 2701 passed + 3 opt-in skipped / 93.01%)
+# Maintained core suite (70% minimum; currently 2750 passed + 3 opt-in skipped / 93.04%)
 pytest
 
 # Targeted runs
@@ -527,14 +527,17 @@ ruff format --check app/
 mypy app/
 ```
 
-Local verification on 2026-10-22: 2701 tests pass, with three opt-in scenarios
+Local verification on 2026-10-23: 2750 tests pass, with three opt-in scenarios
 skipped by default (PostgreSQL concurrency, assigned-transcript locking, and
 the Docker recovery drill);
-core coverage is 93.01%. Ruff and
-full strict Mypy pass (428 Python files).
+core coverage is 93.04%. Ruff and
+full strict Mypy pass (431 Python files).
+Authenticated HTTP/SSE regressions also cover chat ownership, guarded text and
+citations, plus ASGI 2.3/2.4 disconnect persistence; all 23 isolated route cases
+pass with socket connections blocked. See the [boundary evidence](docs/reviews/http-stream-results-2026-10-23.json).
 
 The following dependency and companion-frontend checks were verified in earlier
-iterations and were not rerun on October 22. All 8 PostgreSQL concurrency tests
+iterations and were not rerun on October 23. All 8 PostgreSQL concurrency tests
 and the SQLite/PostgreSQL migration round trips pass in isolated databases.
 The new PostgreSQL backup/recovery drill also passes with explicit Docker opt-in.
 CI migration/recovery commands were verified locally; remote CI was not triggered.
@@ -547,10 +550,10 @@ dependency advisories remain documented in the iteration record.
 
 | Metric | Value |
 |--------|-------|
-| Maintained test results | **2701 passed, 3 opt-in skipped** |
-| Maintained core coverage | **93.01%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
-| Python files (app/) | 428 |
-| Python files in app/tests/ | 217 (211 test_ modules) |
+| Maintained test results | **2750 passed, 3 opt-in skipped** |
+| Maintained core coverage | **93.04%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
+| Python files (app/) | 431 |
+| Python files in app/tests/ | 220 (214 test_ modules) |
 
 ---
 
@@ -562,7 +565,7 @@ dependency advisories remain documented in the iteration record.
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 2701 passing core tests, 93.01% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
+- [x] 2750 passing core tests, 93.04% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)

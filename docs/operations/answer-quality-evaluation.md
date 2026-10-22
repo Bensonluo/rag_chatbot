@@ -13,6 +13,23 @@
 
 `recorded` 使用从模型提示中摘录资料的确定性替身，**通过只表示路由和产物契约通过，不是回答语义质量成绩**。不使用生产数据库、FAQ、向量检索、重排、Redis、Agent 外部工具或 PostgreSQL checkpoint；额外通过真实 JWT 请求隔离的历史 HTTP 路由，记录 demo/strict 下管理员读取他人会话的实际状态、会话内容和无效 token 的 401；这不覆盖完整应用中间件、聊天 HTTP/SSE 或部署配置。这些限制也写入 JSON 报告。不是完整生产配置的端到端评测。
 
+## HTTP/SSE 与会话写入契约
+
+独立的路由回归补充上述评测未覆盖的聊天 HTTP/SSE 边界：
+
+```bash
+.venv/bin/pytest --no-cov -q \
+  app/tests/evaluation/test_strict_chat_ownership.py \
+  app/tests/evaluation/test_http_stream_integrity.py \
+  app/tests/unit/services/chat/test_stream_cancellation.py
+```
+
+这些用例使用实际 JWT 校验、临时 SQLite、真实编译对话图和持久化服务；模型只在 provider 边界提供本地确定性输出。strict 模式下普通用户和管理员都只能向自己的会话发送消息，外部和不存在的会话在进入图、发送 SSE 头或写入 checkpoint 之前统一返回 404；身份冲突仍为 403，匿名仍为 401。demo 的匿名行为保留。
+
+正常流逐字比较消费端解码的正文、持久消息及历史，覆盖英文句号、中文无标点尾段、跨块 PII 脱敏、LF 换行/空行和版本引用。CR/CRLF 按 SSE 规则规范化为 LF，原始 CR 不能注入额外事件；不宣称保留 CR 字节。断连专项还使用实际 ASGI 2.3 `http.disconnect` 与 2.4 发送失败，检查已经发送的部分正文在请求结束前保存为 FAILED，取消继续传播，生产者关闭。流式收尾有两秒上限；正常流写入超时会发送 `[STREAM_ERROR]` 并抑制最终引用，断连清理超时只记录日志。数据库无法及时完成时不能保证持久化成功。`[DONE]` 只表示传输结束，客户端须保留此前的错误状态。没有把直接调用生成器的关闭测试冒充实际 HTTP 断连证据。
+
+结果记录见 [HTTP/SSE 边界结果](../reviews/http-stream-results-2026-10-23.json)。这些合成路由测试不测真实模型语义、生产 PostgreSQL checkpoint、反向代理、浏览器连接或全应用部署；也不会改变原有模型评测报告的覆盖范围。
+
 ## 真实模型与裁判
 
 ```bash
