@@ -19,7 +19,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from app.services.llm.base import LLMMessage
-from app.services.slot_filling.slot_types import INTENT_SLOT_SCHEMAS
+from app.services.slot_filling.slot_types import INTENT_SLOT_SCHEMAS, slot_value_is_canonical
 
 if TYPE_CHECKING:
     from app.services.llm.base import LLMServiceBase
@@ -107,6 +107,13 @@ def parse_slot_json(content: str, intent: str) -> dict[str, Any]:
             continue
         value = _coerce(raw, str(definition.get("type", "string")))
         if value is None or value == "":
+            continue
+        # Canonical-taxonomy slots accept only pattern-matching values:
+        # the model echoing a gibberish turn ("Yeah19 NormaYeah") as the
+        # complaint category would file the same garbage ticket one
+        # layer later than the wholesale fallback (live 2026-10-22).
+        if not slot_value_is_canonical(intent, name, str(value)):
+            logger.debug("Slot %s rejected non-canonical value %r", name, value)
             continue
         result[name] = value
     return result

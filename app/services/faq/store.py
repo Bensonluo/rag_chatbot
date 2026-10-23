@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.services.dialogue.i18n import detect_language
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_FAQ_FILE = Path(__file__).parent / "faqs.json"
@@ -121,9 +123,17 @@ class FAQService:
         if not self._vectors:
             return None
 
+        # Language scope: the multilingual embedder scores a zh question
+        # and its EN paraphrase near-identically, so without this filter
+        # the fast path could serve the Chinese answer to an English
+        # visitor (same cross-language replay class as the semantic
+        # cache, live 2026-10-22).
+        query_lang = detect_language(message)
         best_score = -1.0
         best_entry: FAQEntry | None = None
         for vector, entry in zip(self._vectors, self._vector_entries, strict=True):
+            if detect_language(entry.question) != query_lang:
+                continue
             score = _cosine(query_vec, vector)
             if score > best_score:
                 best_score = score

@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from app.services.chat.answer_cache import AnswerCacheService
     from app.services.chat.semantic_cache import SemanticCacheService
     from app.services.dialogue.tools import ToolDefinition, ToolRegistry
+    from app.services.facts.stream_gate import StreamClaimGate
+    from app.services.facts.tool_id_gate import ToolIdStreamGate
     from app.services.faq.store import FAQService
     from app.services.graph.base import GraphSearchResult
     from app.services.graph.retrieval.graph_retrieval_service import (
@@ -85,6 +87,7 @@ from app.services.dialogue.i18n import (
     HANDOFF_EMOTION_PREFIX,
     HANDOFF_NO_TICKET,
     HANDOFF_QUEUE,
+    LANG_EN,
     LANG_ZH,
     NO_EVIDENCE,
     RETRIEVAL_DEGRADED,
@@ -675,13 +678,25 @@ class NodeFactory:
                 )
             )
         ):
-            from app.services.slot_filling.slot_types import INTENT_SLOT_SCHEMAS
+            from app.services.slot_filling.slot_types import (
+                INTENT_SLOT_SCHEMAS,
+                slot_accepts_value,
+            )
 
             schema = INTENT_SLOT_SCHEMAS.get(intent, {})
             required = schema.get("required", [])
             for slot_name in required:
                 if slot_name not in merged:
-                    merged[slot_name] = message.strip()
+                    # Admission policy (live stress test 2026-10-22):
+                    # gibberish ("Yeah19 NormaYeah") and acknowledgments
+                    # ("Okay okay") used to land in the first missing
+                    # slot and complete a garbage complaint ticket.
+                    # A rejected value leaves the slot missing — the
+                    # flow re-prompts instead of filing garbage. The
+                    # refund reason「不好吃」stays admissible (free-form
+                    # slot, no floor).
+                    if slot_accepts_value(intent, slot_name, message.strip()):
+                        merged[slot_name] = message.strip()
                     break
 
         # Outage terminator for the free-form complaint description
@@ -1474,7 +1489,11 @@ class NodeFactory:
 
         context_note = ""
         filled = state.get("filled_slots") or {}
-        if filled:
+        if filled and not state.get("task_executed"):
+            # task_executed means the previous task already ran with
+            # these args — replaying them as「对话中已知信息」made the
+            # agent re-offer a finished refund as if it were pending
+            # (stale-banner resurrection family, live 2026-10-22).
             context_note = "对话中已知信息：" + "，".join(f"{k}={v}" for k, v in filled.items())
         facts = await self._recall_user_facts(state)
         if facts:
@@ -1739,15 +1758,37 @@ class NodeFactory:
         state: DialogueState,
         config: Optional[RunnableConfig] = None,
     ) -> dict[str, Any]:
-        """Generate response incorporating tool execution results."""
-        display_name = INTENT_DISPLAY_NAMES.get(intent, intent)
-        context = (
-            f"用户意图: {display_name}\n"
-            f"用户消息: {message}\n"
-            f"工具执行结果: {_safe_json(tool_result)}\n"
-            "请根据以上工具执行结果，用友好专业的语气回答用户。"
-        )
-        response_text = await self._call_llm(context, config, state)
+        """Generate response incorporating tool execution results.
+
+        The scaffold follows the turn language (an English turn got a
+        zh-scaffolded prompt whose drag defeated the language pin's
+        intent, live 2026-10-22), and the honesty rule plus the
+        deterministic ToolIdStreamGate (via ``tool_result_guard``) keep
+        ticket/order identifiers quotable only as the tool result states
+        them — the live failure invented「CP122245」and「客服专员-小李」.
+        """
+        lang = _turn_lang(state, fallback_text=message)
+        if lang == LANG_EN:
+            context = (
+                f"User intent: {intent}\n"
+                f"User message: {message}\n"
+                f"Tool result: {_safe_json(tool_result)}\n"
+                "Answer the user in a friendly, professional tone based on the tool "
+                "result above. Quote identifiers (ticket/order/refund numbers) exactly "
+                "as they appear in the tool result; never invent IDs, staff names, "
+                "queues, or timeframes the result does not state."
+            )
+        else:
+            display_name = INTENT_DISPLAY_NAMES.get(intent, intent)
+            context = (
+                f"用户意图: {display_name}\n"
+                f"用户消息: {message}\n"
+                f"工具执行结果: {_safe_json(tool_result)}\n"
+                "请根据以上工具执行结果，用友好专业的语气回答用户。"
+                "工单号、订单号等编号只能逐字引用工具执行结果中的值，"
+                "不得编造工具结果中不存在的编号、客服姓名、排队或时效信息。"
+            )
+        response_text = await self._call_llm(context, config, state, tool_result_guard=tool_result)
         response_text = _maybe_append_resume_hint(response_text, state)
         return {"response": response_text}
 
@@ -1763,11 +1804,19 @@ class NodeFactory:
         docs_text = "\n\n".join(
             f"[文档{i + 1}] {doc.get('content', '')}" for i, doc in enumerate(retrieved_docs)
         )
-        context = (
-            f"参考资料:\n{docs_text}\n\n"
-            f"用户问题: {message}\n"
-            "请根据以上参考资料回答用户的问题。如果资料中没有相关内容，请如实告知。"
-        )
+        if _turn_lang(state, fallback_text=message) == LANG_EN:
+            context = (
+                f"Reference documents:\n{docs_text}\n\n"
+                f"User question: {message}\n"
+                "Answer the user's question based on the reference documents above. "
+                "If the documents do not cover it, say so honestly."
+            )
+        else:
+            context = (
+                f"参考资料:\n{docs_text}\n\n"
+                f"用户问题: {message}\n"
+                "请根据以上参考资料回答用户的问题。如果资料中没有相关内容，请如实告知。"
+            )
         response_text = await self._call_llm(context, config, state)
         configurable = config.get("configurable", {}) if config else {}
         citations = (
@@ -1943,6 +1992,8 @@ class NodeFactory:
         user_content: str,
         config: Optional[RunnableConfig] = None,
         state: DialogueState | None = None,
+        *,
+        tool_result_guard: dict[str, Any] | None = None,
     ) -> str:
         """Call the LLM service with the recent turns plus this message.
 
@@ -2019,11 +2070,19 @@ class NodeFactory:
             # pass. Everything put on the queue is already gated and
             # redacted, and the returned text is the emitted text —
             # stream and persistence cannot diverge.
-            gate = None
-            if state is not None and not state.get("blocked") and not state.get("tool_result"):
-                from app.services.facts.stream_gate import make_stream_gate
+            gate: StreamClaimGate | ToolIdStreamGate | None = None
+            if state is not None and not state.get("blocked"):
+                if tool_result_guard is not None:
+                    # Tool turns gate identifiers instead of policy
+                    # claims: quoted ticket/order ids must exist in the
+                    # tool result (live 2026-10-22: invented CP122245).
+                    from app.services.facts.tool_id_gate import ToolIdStreamGate
 
-                gate = make_stream_gate(state.get("message", ""))
+                    gate = ToolIdStreamGate(tool_result_guard, lang)
+                elif not state.get("tool_result"):
+                    from app.services.facts.stream_gate import make_stream_gate
+
+                    gate = make_stream_gate(state.get("message", ""))
             pii_redactor = (
                 PIIStreamRedactor(self._guardrail_service)
                 if self._guardrail_service is not None
@@ -2106,7 +2165,14 @@ class NodeFactory:
             response = await self._llm_service.generate(messages)
             from app.services.llm.reasoning_filter import strip_reasoning
 
-            return strip_reasoning(response.content)
+            text = strip_reasoning(response.content)
+            if tool_result_guard is not None:
+                # Non-stream twin of the ToolIdStreamGate: identifiers
+                # may only be quoted as the tool result states them.
+                from app.services.facts.tool_id_gate import enforce_tool_id_honesty
+
+                return enforce_tool_id_honesty(text, tool_result_guard, lang)
+            return text
         except Exception:
             logger.exception("LLM generation failed")
             return GENERATION_FAILED[_turn_lang(state, user_content)]

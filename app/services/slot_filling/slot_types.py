@@ -141,8 +141,18 @@ INTENT_SLOT_SCHEMAS: dict[str, dict[str, Any]] = {
             # 2026-09-30) the complaint flow re-prompted forever. The
             # patterns have no capture group, so the slot value is the
             # canonical keyword itself (group(0)), not the sentence.
+            #
+            # canonical_only: this slot accepts ONLY values matching one
+            # of its patterns — at every fill layer, not just regex
+            # extraction. The whole-message fallback (collect_slots_node)
+            # and the LLM extractor (parse_slot_json) both consult the
+            # flag so gibberish ("Yeah19 NormaYeah", live 2026-10-22)
+            # can never become a filed complaint category; the LLM may
+            # still canonize a fuzzy answer ("质量"→"商品质量") but it
+            # lands on a taxonomy value, never on free text.
             "category": {
                 "type": "string",
+                "canonical_only": True,
                 "prompt": "请问您要投诉哪个方面？（如：商品质量、服务态度、物流配送等）",
                 "prompt_en": "What would you like to complain about? (e.g. product quality, service attitude, delivery)",
                 "patterns": [
@@ -231,6 +241,48 @@ def extract_slots_from_message(
                 break
 
     return extracted
+
+
+def slot_accepts_value(intent: str, slot_name: str, value: str) -> bool:
+    """Admission check for the whole-message fallback (collect_slots_node).
+
+    The fallback exists so bare answers that carry no pattern cues still
+    fill a slot — the refund reason「不好吃」is the canonical case. But
+    not every slot may accept any short reply: ``canonical_only`` slots
+    (keyword taxonomies like complaint.category) accept only values
+    matching one of their own patterns, and the complaint description
+    holds its free-form contract to the same ≥10-char /
+    not-an-order-reference floor as the terminator in
+    collect_slots_node — so a gibberish reply ("Yeah19 NormaYeah") or a
+    bare acknowledgment ("Okay okay") re-prompts instead of filing a
+    garbage ticket (live stress test, 2026-10-22).
+    """
+    schema = INTENT_SLOT_SCHEMAS.get(intent, {})
+    definition = schema.get("slots", {}).get(slot_name, {})
+    if definition.get("canonical_only"):
+        return any(
+            re.search(pattern, value, re.IGNORECASE) for pattern in definition.get("patterns", [])
+        )
+    if intent == "complaint" and slot_name == "description":
+        return len(value) >= 10 and not is_order_reference_only(value)
+    return True
+
+
+def slot_value_is_canonical(intent: str, slot_name: str, value: str) -> bool:
+    """True unless the slot is canonical_only with a non-matching value.
+
+    Used by the LLM-extraction validator (parse_slot_json): the model
+    may canonize a fuzzy answer ("质量"→"商品质量"), but the accepted
+    value must land on the taxonomy — the model echoing a gibberish
+    turn as the category is the same garbage ticket, one layer later.
+    """
+    schema = INTENT_SLOT_SCHEMAS.get(intent, {})
+    definition = schema.get("slots", {}).get(slot_name, {})
+    if not definition.get("canonical_only"):
+        return True
+    return any(
+        re.search(pattern, value, re.IGNORECASE) for pattern in definition.get("patterns", [])
+    )
 
 
 # Digit-bearing tokens (ORD1001, 12345) plus the connector words an

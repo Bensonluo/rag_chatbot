@@ -335,9 +335,12 @@ class TestGenerationLanguageDirective:
         prompt = llm.captures[-1][-1].content
         assert "Reply in English only" in prompt
         assert "请只用中文回答" not in prompt
-        # The composed context IS zh-scaffolded — the directive must key
-        # off the raw English turn, not off the scaffolded prompt.
-        assert "工具执行结果:" in prompt
+        # The scaffold localizes with the turn (2026-10-22 fix), but the
+        # directive still keys off the raw English turn — the two
+        # defenses stack: a localized scaffold reduces the drag, the pin
+        # decides the language regardless.
+        assert "Tool result:" in prompt
+        assert "工具执行结果:" not in prompt
         assert "where is my package now?" in prompt
 
     async def test_chinese_tool_turn_gets_chinese_directive(self) -> None:

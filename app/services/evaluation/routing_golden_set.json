@@ -91,7 +91,7 @@
             "submit_complaint"
           ],
           "prompt_contain": [
-            "工具执行结果"
+            "Tool result:"
           ]
         }
       }

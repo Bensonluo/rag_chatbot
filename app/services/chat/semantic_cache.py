@@ -38,6 +38,7 @@ from typing import Any, Protocol
 from app.services.chat.answer_cache import CachedAnswer, normalize_message
 from app.services.chat.cache_eviction import record_response_index
 from app.services.chat.citations import normalize_citations
+from app.services.dialogue.i18n import detect_language
 from app.services.retrieval.kb_epoch import EPOCH_UNAVAILABLE
 
 logger = logging.getLogger(__name__)
@@ -126,11 +127,20 @@ class SemanticCacheService:
                 return None
             query_vec = (await self._embeddings.embed([message])).embeddings[0]
             entries = await self._redis.hgetall(key)
+            # Language scope: BGE-M3 is multilingual, so a zh「你是谁」and
+            # an EN "who are you?" embed near-duplicates — without this
+            # check the cache served the Chinese canned identity to
+            # English visitors (live 2026-10-22). Entries written before
+            # the field existed default to zh (the dominant write
+            # language) instead of being invalidated wholesale.
+            turn_lang = detect_language(message)
             best: dict[str, Any] | None = None
             best_score = -1.0
             for raw in entries.values():
                 try:
                     entry = json.loads(raw)
+                    if str(entry.get("lang", "zh")) != turn_lang:
+                        continue
                     score = _cosine(query_vec, decode_vector(entry["vec"]))
                 except (ValueError, KeyError, TypeError, binascii.Error):
                     continue  # corrupt entry: skip, never fail the lookup
@@ -182,6 +192,7 @@ class SemanticCacheService:
                     "sources": answer.sources,
                     "intent": answer.intent,
                     "citations": normalize_citations(answer.citations),
+                    "lang": detect_language(message),
                     "vec": encode_vector(list(vec)),
                 },
                 ensure_ascii=False,

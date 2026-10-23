@@ -162,10 +162,13 @@ class TestSemanticCacheHits:
         assert cached.citations[0]["faq_id"] == "welcome"
 
     async def test_legacy_payload_has_no_fabricated_citation(self):
+        # zh message: entries written before the lang field existed
+        # default to zh on read (the dominant write language), so the
+        # language scope keeps serving them to zh queries.
         redis = FakeRedis()
         service, _ = _make_service(redis=redis)
-        await redis.hset("semantic_answers:e1", "hello", _entry(_answer(), [1.0, 0.0]))
-        cached = await service.get("hello")
+        await redis.hset("semantic_answers:e1", "你好呀", _entry(_answer(), [1.0, 0.0]))
+        cached = await service.get("你好呀")
         assert cached is not None
         assert cached.citations == []
 
