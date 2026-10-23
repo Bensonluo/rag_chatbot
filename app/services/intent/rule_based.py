@@ -10,6 +10,59 @@ from typing import Any
 from app.models.enums.intent import Intent
 from app.services.intent.base import IntentDetector, IntentResult
 
+# Human-handoff vocabulary, shared by the detector's HANDOFF arm and the
+# dialogue graph's intent-skip gate (should_skip_intent): a turn matching
+# here is an escalation request no matter what slot collection expects.
+# Both sites must recognize exactly the same set — the live 2026-10-23
+# failure (「那我要人工」 mid-complaint swallowed by slot capture) came
+# from the gate carrying a hand-copied subset that missed 要人工.
+HANDOFF_KEYWORDS: list[str] = [
+    "转人工",
+    "人工客服",
+    "人工服务",
+    "找人工",
+    "要人工",
+    "给我人工",
+    "叫人工",
+    "真人客服",
+    "找客服",
+    "真人来",
+    "human agent",
+    "human support",
+    "real person",
+    "real human",
+]
+
+# EN explicit-human-request verbs ("how do I talk to a human", "please
+# connect me to an agent", "human please"): a global audience escalates
+# with verb phrasings, not curated noun phrases.
+HANDOFF_PATTERNS: list[str] = [
+    r"\b(?:talk|speak)\s+(?:to|with)\s+(?:a\s+|an\s+|the\s+)?"
+    r"(?:human|person|real\s+person|someone|agent|"
+    r"representative|customer\s+service)\b",
+    r"\b(?:connect|transfer|pass|route)\s+me\s+to\s+"
+    r"(?:a\s+|an\s+|the\s+)?(?:human|person|agent|"
+    r"representative|customer\s+service|support)\b",
+    r"^(?:human|agent|real\s+person|representative)"
+    r"[,\s]*(?:please)?[.!]*$",
+]
+
+
+def looks_like_handoff(text: str) -> bool:
+    """True when the rule arm's handoff rules would match *text*.
+
+    Mirrors detect_with_confidence's matching (lowercase + strip,
+    _contains_any keyword semantics, IGNORECASE regexes) without scoring
+    the whole table. Used by the dialogue graph to decide that a
+    mid-collection turn must re-enter full intent detection.
+    """
+    normalized = text.lower().strip()
+    if not normalized:
+        return False
+    if RuleBasedIntentDetector._contains_any(normalized, HANDOFF_KEYWORDS):
+        return True
+    return any(re.search(pattern, normalized, re.IGNORECASE) for pattern in HANDOFF_PATTERNS)
+
 
 class RuleBasedIntentDetector(IntentDetector):
     """
@@ -318,22 +371,7 @@ class RuleBasedIntentDetector(IntentDetector):
             # task keywords + pattern peak at 2.7, so 3.0 always wins.
             Intent.HANDOFF: [
                 {
-                    "keywords": [
-                        "转人工",
-                        "人工客服",
-                        "人工服务",
-                        "找人工",
-                        "要人工",
-                        "给我人工",
-                        "叫人工",
-                        "真人客服",
-                        "找客服",
-                        "真人来",
-                        "human agent",
-                        "human support",
-                        "real person",
-                        "real human",
-                    ],
+                    "keywords": HANDOFF_KEYWORDS,
                     "weight": 3.0,
                 },
                 {
@@ -346,16 +384,7 @@ class RuleBasedIntentDetector(IntentDetector):
                     # co-occurring task intent (peak 2.8) and crosses the 0.7
                     # short-circuit, so the ticket is created without the
                     # LLM leg.
-                    "patterns": [
-                        r"\b(?:talk|speak)\s+(?:to|with)\s+(?:a\s+|an\s+|the\s+)?"
-                        r"(?:human|person|real\s+person|someone|agent|"
-                        r"representative|customer\s+service)\b",
-                        r"\b(?:connect|transfer|pass|route)\s+me\s+to\s+"
-                        r"(?:a\s+|an\s+|the\s+)?(?:human|person|agent|"
-                        r"representative|customer\s+service|support)\b",
-                        r"^(?:human|agent|real\s+person|representative)"
-                        r"[,\s]*(?:please)?[.!]*$",
-                    ],
+                    "patterns": HANDOFF_PATTERNS,
                     "weight": 3.0,
                 },
             ],

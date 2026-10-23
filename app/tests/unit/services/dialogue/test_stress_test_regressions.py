@@ -154,6 +154,81 @@ class TestHandoffKeywordCoverage:
         assert probe.confidence >= 0.7
 
 
+class TestSlotSkipHandoffEscape:
+    """Mid-collection escalation must re-enter full intent detection.
+
+    Live 2026-10-23: with complaint slots open, 「那我要人工」 hit the
+    intent-skip branch (should_skip_intent) whose hand-copied handoff
+    keyword subset missed 要人工 — the message was swallowed by slot
+    capture, rejected as a category value, and answered with the
+    category re-prompt, deterministically. The gate now reuses the
+    detector's handoff vocabulary, so the two cannot drift apart."""
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "那我要人工",
+            "我要人工",
+            "给我人工",
+            "叫人工",
+            "找人工",
+            "真人客服",
+            "real person please",
+            "can I talk to a human",
+        ],
+    )
+    def test_handoff_phrases_escape_the_skip_branch(self, message):
+        state: DialogueState = {
+            "message": message,
+            "intent": "complaint",
+            "filled_slots": {},
+            "pending_slots": ["category", "description"],
+        }
+        assert NodeFactory.should_skip_intent(state) == "full"
+
+    def test_plain_slot_answer_still_skips(self):
+        """The branch's reason for existing: an ordinary slot answer
+        mid-collection must not pay the full detection pipeline."""
+        state: DialogueState = {
+            "message": "商品质量问题，希望尽快处理",
+            "intent": "complaint",
+            "filled_slots": {},
+            "pending_slots": ["category", "description"],
+        }
+        assert NodeFactory.should_skip_intent(state) == "skip"
+
+    async def test_live_repro_complaint_then_handoff_creates_ticket(self):
+        """The deterministic 2-turn live repro through the compiled
+        graph: open complaint collection, then a colloquial handoff —
+        the turn must create a ticket, not re-prompt for category."""
+        llm = _RecordingLLM("好的，已收到您的反馈。")
+        handoff = Mock()
+        handoff.create_ticket_for_session = AsyncMock(
+            return_value={"ticket_id": 11, "queue_position": 3, "reused": False}
+        )
+        graph = build_dialogue_graph(
+            intent_detector=RuleBasedIntentDetector(),
+            slot_filler=None,
+            tool_registry=create_default_tool_registry(),
+            retrieval_pipeline={},
+            llm_service=llm,
+            guardrail_service=GuardrailService(input_guard=DefaultInputGuardrail()),
+            checkpointer=MemorySaver(),
+            handoff_service=handoff,
+        )
+        config: RunnableConfig = {"configurable": {"thread_id": "stress-p5-handoff"}}
+        base = {"session_id": 1, "user_id": 1}
+
+        opener = await graph.ainvoke({"message": "我要投诉", **base}, config)
+        assert opener["pending_slots"]  # sanity: collection in flight
+
+        handoff_turn = await graph.ainvoke({"message": "那我要人工", **base}, config)
+        assert "工单号 #11" in handoff_turn["response"]
+        # The complaint task was suspended, not left dangling.
+        snapshot = await graph.aget_state(config)
+        assert not snapshot.values.get("pending_slots")
+
+
 # ── Turn 15: cross-language cache/FAQ replay ─────────────────────────────
 
 

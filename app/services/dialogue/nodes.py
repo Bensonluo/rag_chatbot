@@ -102,6 +102,7 @@ from app.services.handoff.service import (
     REASON_EMOTION,
     REASON_EXPLICIT,
 )
+from app.services.intent.rule_based import looks_like_handoff
 from app.services.observability.pipeline_tracer import traced_stage
 from app.services.observability.trace_events import emit_trace
 from app.services.retrieval.metrics import (
@@ -1637,6 +1638,7 @@ class NodeFactory:
                 "取消",
                 "算了",
                 "不要了",
+                "不办了",
                 "不了",
                 "不想",
                 "不想退",
@@ -1646,19 +1648,13 @@ class NodeFactory:
             return "full"
 
         # Human-agent requests always go through full detection —
-        # mid-slot-collection “转人工” must never be captured as a slot
-        # value.
-        if any(
-            kw in message
-            for kw in (
-                "转人工",
-                "人工客服",
-                "人工服务",
-                "找客服",
-                "human agent",
-                "human support",
-            )
-        ):
+        # mid-slot-collection escalation phrasings must never be
+        # captured as slot values. The check reuses the rule detector's
+        # handoff vocabulary (looks_like_handoff) so this gate and the
+        # detector can never drift apart again: the live 2026-10-23
+        # failure was 「那我要人工」, whose 要人工 the detector knows
+        # but this gate's hand-copied keyword subset did not.
+        if looks_like_handoff(message):
             return "full"
 
         # Greeting / chitchat go through full detection.
