@@ -23,6 +23,7 @@ Testers hammered the live deployment and surfaced six failure families
 import asyncio
 import json
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
@@ -40,7 +41,7 @@ from app.services.dialogue.slot_extraction import parse_slot_json
 from app.services.dialogue.state import DialogueState
 from app.services.dialogue.tools import create_default_tool_registry
 from app.services.facts.tool_id_gate import ToolIdStreamGate, enforce_tool_id_honesty
-from app.services.faq.store import FAQEntry, FAQService
+from app.services.faq.store import FAQEntry, FAQService, load_faq_entries
 from app.services.guardrails.base import GuardrailService
 from app.services.guardrails.input_guard import DefaultInputGuardrail
 from app.services.intent.rule_based import RuleBasedIntentDetector
@@ -449,6 +450,64 @@ class TestPersonaIdentityScope:
     def test_agent_persona_covers_tech_questions(self):
         assert "技术实现类提问" in AGENT_SYSTEM_PROMPT
         assert "主动为其办理" in AGENT_SYSTEM_PROMPT
+
+    def test_named_capabilities_confirmed_at_product_level(self):
+        """The live bot once DENIED the knowledge graph the deployment
+        actually runs. Both personas must confirm a user-named capability
+        at product level (never deny) while keeping stack details out."""
+        for prompt in (PromptTemplates.get_cs_system_prompt(), AGENT_SYSTEM_PROMPT):
+            assert "如实确认" in prompt
+            assert "不否认" in prompt
+            # Stack/model selection stays out of the conversation.
+            assert "不展开技术栈" in prompt
+
+
+# ── Capability disclosure via the FAQ fast path (rag-routed probes) ──────
+
+
+class TestKnowledgeGraphFaqDisclosure:
+    """Curated capability answers for「你用了知识图谱吗」-family probes.
+
+    These cover the route where the intent leg classifies the probe as a
+    knowledge question (rag → faq_lookup): the curated entry answers
+    deterministically — no LLM leg to drift into denial."""
+
+    @staticmethod
+    def _faq() -> FAQService:
+        def _embed(texts: list[str]) -> Any:
+            # Two-bucket geometry: KG-family texts near the probe, the
+            # other 28 entries far away — ties among non-KG entries are
+            # irrelevant once the KG entry outscores them.
+            vectors = [
+                [1.0, 0.0] if ("图谱" in t or "knowledge graph" in t) else [0.1, 0.9] for t in texts
+            ]
+            return Mock(embeddings=vectors)
+
+        embeddings = Mock()
+        embeddings.embed = AsyncMock(side_effect=_embed)
+        return FAQService(
+            embedding_service=embeddings,
+            entries=load_faq_entries(Path("app/services/faq/faqs.json")),
+            threshold=0.75,
+        )
+
+    async def test_zh_probe_hits_curated_capability_answer(self):
+        entry = await self._faq().match("你用了知识图谱吗")
+        assert entry is not None
+        assert entry.faq_id == "knowledge_graph_capability"
+        assert "结构化" in entry.answer  # says WHERE it is used
+        assert "如实" not in entry.answer  # product voice, not meta voice
+
+    async def test_en_probe_hits_english_entry(self):
+        entry = await self._faq().match("do you use a knowledge graph")
+        assert entry is not None
+        assert entry.faq_id == "knowledge_graph_capability_en"
+        assert "cross-check" in entry.answer
+
+    async def test_colloquial_variant_matches(self):
+        entry = await self._faq().match("图谱开启了吗")
+        assert entry is not None
+        assert entry.faq_id == "knowledge_graph_capability"
 
 
 # ── Turn 9-family: post-execution state hygiene ─────────────────────────

@@ -326,5 +326,31 @@
       "what's the threshold coupon minimum"
     ],
     "answer": "Threshold coupons require a minimum order of 300 CNY and deduct up to 50 CNY; coupons are valid for 30 days after being claimed and expire after that. Coupons are automatically returned if the order is cancelled or fully refunded (expired ones are not reissued)."
+  },
+  {
+    "id": "knowledge_graph_capability",
+    "question": "你用了知识图谱吗",
+    "variants": [
+      "你有知识图谱吗",
+      "知识图谱开启了吗",
+      "图谱开启了吗",
+      "你是不是用了知识图谱",
+      "你们的知识是怎么组织的",
+      "你的知识库是怎么管理的",
+      "你们后台有知识图谱吗"
+    ],
+    "answer": "有的。平台的商品、售后政策和常见问题会整理成一张结构化的「知识网络」：您问到关系类问题时——比如「买这款还需要配什么」「这类商品适用哪条退换规则」——我会同时检索普通文档和这张关系网，两边互相印证后再回答，减少口径不一。更完整的技术方案欢迎到项目介绍页了解。请问现在有什么购物问题可以帮您？"
+  },
+  {
+    "id": "knowledge_graph_capability_en",
+    "question": "do you use a knowledge graph",
+    "variants": [
+      "do you have a knowledge graph",
+      "are you using a knowledge graph",
+      "is a knowledge graph enabled",
+      "how is your knowledge organized",
+      "do you use graph rag"
+    ],
+    "answer": "Yes. Product, after-sales policy and FAQ knowledge is organized into a structured knowledge network. When you ask relationship questions — \"what else do I need with this item\", \"which return rule applies here\" — I search both plain documents and that relationship network, cross-check the two, then answer, which keeps the story consistent. The full technical write-up is on the project page. Now, is there anything shopping-related I can help you with?"
   }
 ]
