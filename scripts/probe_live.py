@@ -95,8 +95,9 @@ def is_ticket(lang_ok_cjk_free: bool = False) -> Check:
     return _check
 
 
-def is_slot_prompt() -> Check:
-    """Task turn must collect slots: asks for the order, no ticket yet."""
+def is_order_slot_prompt() -> Check:
+    """Money/order task turn must collect slots: asks for the order id,
+    no ticket yet (the refund family's first slot is the order)."""
 
     def _check(reply: dict[str, Any]) -> str | None:
         content = str(reply.get("content") or "")
@@ -104,6 +105,24 @@ def is_slot_prompt() -> Check:
             return f"ticket created on a slot-collection turn: {content[:120]!r}"
         if not asks_for_order(content):
             return f"expected an order-id slot prompt, got: {content[:120]!r}"
+        return None
+
+    return _check
+
+
+def is_category_slot_prompt() -> Check:
+    """Complaint turn must collect slots: asks for the complaint category
+    (first slot is 方面/aspect, not the order), no ticket yet. Anchored
+    to the complaint flow's own vocabulary so a chitchat-shaped reply
+    cannot pass on shape alone."""
+
+    def _check(reply: dict[str, Any]) -> str | None:
+        content = str(reply.get("content") or "")
+        if has_ticket(content):
+            return f"ticket created on a slot-collection turn: {content[:120]!r}"
+        anchored = bool(re.search(r"投诉|complain", content, re.IGNORECASE))
+        if not (anchored and re.search(r"[？?]", content)):
+            return f"expected a complaint-category slot prompt, got: {content[:120]!r}"
         return None
 
     return _check
@@ -184,14 +203,16 @@ def build_cases() -> list[ProbeCase]:
         ProbeCase(
             name="mid-collection-handoff-zh",
             turns=[
-                Turn("我要投诉", is_slot_prompt(), "complaint opens slot collection"),
+                Turn("我要投诉", is_category_slot_prompt(), "complaint opens slot collection"),
                 Turn("那我要人工", is_ticket(), "handoff escapes the gate"),
             ],
         ),
         ProbeCase(
             name="mid-collection-handoff-en",
             turns=[
-                Turn("I want to file a complaint", is_slot_prompt(), "complaint opens slots"),
+                Turn(
+                    "I want to file a complaint", is_category_slot_prompt(), "complaint opens slots"
+                ),
                 Turn(
                     "then get me a human agent",
                     is_ticket(lang_ok_cjk_free=True),
@@ -203,11 +224,11 @@ def build_cases() -> list[ProbeCase]:
             # The 2026-10-03 residual this repo just closed: the polite
             # split must reach the money-moving task flow deterministically.
             name="polite-split-refund",
-            turns=[Turn("麻烦帮我退一下款", is_slot_prompt(), "polite split reaches refund")],
+            turns=[Turn("麻烦帮我退一下款", is_order_slot_prompt(), "polite split reaches refund")],
         ),
         ProbeCase(
             name="task-refund-guard",
-            turns=[Turn("我要退款", is_slot_prompt(), "plain refund collects slots")],
+            turns=[Turn("我要退款", is_order_slot_prompt(), "plain refund collects slots")],
         ),
         ProbeCase(
             name="knowledge-zh",
@@ -256,34 +277,58 @@ def build_cases() -> list[ProbeCase]:
     return cases
 
 
+RATE_LIMIT_RETRY_SECONDS = 15.0
+RATE_LIMIT_MAX_RETRIES = 6
+
+
+async def _post_turn(
+    client: httpx.AsyncClient, turn_payload: dict[str, Any]
+) -> httpx.Response | str:
+    """POST one turn, backing off on 429.
+
+    The chat endpoint runs a per-IP budget (CHAT_RATE_LIMIT_*): a probe
+    replaying 20+ turns from one address will outpace it. A 429 is
+    throttle behavior, not an invariant failure — wait and retry. Any
+    other outcome (response or transport-error string) is returned to
+    the caller for normal classification.
+    """
+    for _ in range(RATE_LIMIT_MAX_RETRIES + 1):
+        try:
+            response = await client.post("/api/v1/chat", json=turn_payload)
+        except httpx.HTTPError as e:
+            return f"transport error: {e}"
+        if response.status_code != 429:
+            return response
+        await asyncio.sleep(RATE_LIMIT_RETRY_SECONDS)
+    return f"rate-limited (429) after {RATE_LIMIT_MAX_RETRIES} retries"
+
+
 async def run_case(client: httpx.AsyncClient, case: ProbeCase, session_id: int) -> None:
     for i, turn in enumerate(case.turns):
-        try:
-            response = await client.post(
-                "/api/v1/chat",
-                json={"message": turn.send, "session_id": session_id},
-            )
-        except httpx.HTTPError as e:
-            case.failures.append(f"turn {i} ({turn.label}): transport error: {e}")
+        outcome = await _post_turn(client, {"message": turn.send, "session_id": session_id})
+        if isinstance(outcome, str):
+            case.failures.append(f"turn {i} ({turn.label}): {outcome}")
             return
-        if response.status_code != 200:
+        if outcome.status_code != 200:
             case.failures.append(
-                f"turn {i} ({turn.label}): HTTP {response.status_code}: {response.text[:200]}"
+                f"turn {i} ({turn.label}): HTTP {outcome.status_code}: {outcome.text[:200]}"
             )
             return
-        failure = turn.check(response.json())
+        failure = turn.check(outcome.json())
         if failure:
             case.failures.append(f"turn {i} ({turn.label}): {failure}")
             return  # later turns depend on earlier state; stop the case
 
 
-async def run_probes(client: httpx.AsyncClient) -> list[ProbeCase]:
+async def run_probes(client: httpx.AsyncClient, turn_pace_seconds: float = 0.0) -> list[ProbeCase]:
     """Sequential execution: the GLM free tier forbids concurrency."""
     cases = build_cases()
     # Distinct positive session ids per run; demo mode never verifies
     # ownership, so a time-based id is enough for isolation.
     base_session = int(time.time())
     for idx, case in enumerate(cases):
+        if idx and turn_pace_seconds:
+            await asyncio.sleep(turn_pace_seconds)
         await run_case(client, case, base_session + idx)
     return cases
 
@@ -306,13 +351,19 @@ async def main(argv: list[str] | None = None, client: httpx.AsyncClient | None =
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=float, default=TURN_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--pace",
+        type=float,
+        default=0.0,
+        help="seconds to sleep between cases (stay under the chat rate limit)",
+    )
     args = parser.parse_args(argv)
 
     if client is not None:
-        cases = await run_probes(client)
+        cases = await run_probes(client, turn_pace_seconds=args.pace)
     else:
         async with httpx.AsyncClient(base_url=args.base_url, timeout=args.timeout) as owned:
-            cases = await run_probes(owned)
+            cases = await run_probes(owned, turn_pace_seconds=args.pace)
     print(format_report(cases))
     return 1 if any(c.failures for c in cases) else 0
 

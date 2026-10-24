@@ -4,7 +4,10 @@ The probe replays the invariant families every live bug came from
 (mid-collection handoff, phrasing battery, polite-split refund, EN
 language purity). Here a MockTransport plays the server: a well-behaved
 one must yield all-PASS and exit 0; regressions (chitchat swallow, CJK
-leak, HTTP errors) must surface as FAIL and exit 1.
+leak, HTTP errors) must surface as FAIL and exit 1. The double mirrors
+the live-observed flows: complaints collect the category (方面) first,
+money tasks collect the order id, and a 429 is the chat rate budget
+throttling the probe — retried, not treated as an invariant failure.
 """
 
 import importlib.util
@@ -37,8 +40,12 @@ EN_TICKET = (
     "Your request for a human agent is recorded (ticket #12), "
     "your position in the queue: 2, the ticket is linked to this conversation."
 )
-ZH_SLOT = "好的，请提供您的订单号，我来帮您处理。"
-EN_SLOT = "Sure — could you share your order number so I can look into it?"
+ZH_ORDER_SLOT = "好的，请提供您的订单号，我来帮您处理。"
+EN_ORDER_SLOT = "Sure — could you share your order number so I can look into it?"
+# Complaints collect the category first, not the order — the probe's
+# category predicate anchors on the complaint vocabulary itself.
+ZH_CATEGORY_SLOT = "请问您要投诉哪个方面？（如：商品质量、服务态度、物流配送等）"
+EN_CATEGORY_SLOT = "What would you like to complain about? (e.g. product quality, service)"
 ZH_KB = "退货政策：签收后七天内可申请退货，商品须保持完好并保留购买凭证。"
 EN_KB = "Our return policy allows returns within 7 days of delivery in resaleable condition."
 
@@ -52,6 +59,7 @@ _TICKET_MESSAGES = frozenset(
 _KB_MESSAGES = frozenset(
     ["退货政策是什么", "what is the return policy", "and how long do refunds take"]
 )
+_CATEGORY_MESSAGES = frozenset(["我要投诉", "I want to file a complaint"])
 
 
 def _classify(message: str) -> str:
@@ -60,7 +68,9 @@ def _classify(message: str) -> str:
         return "ticket"
     if message in _KB_MESSAGES:
         return "kb"
-    return "slot"  # complaint / refund task turns
+    if message in _CATEGORY_MESSAGES:
+        return "category_slot"
+    return "order_slot"  # refund task turns
 
 
 def _well_behaved_handler(seen: list[tuple[int, str]]) -> Handler:
@@ -70,10 +80,12 @@ def _well_behaved_handler(seen: list[tuple[int, str]]) -> Handler:
         message = str(body["message"])
         seen.append((session_id, message))
         kind = _classify(message)
+        zh = probe.has_cjk(message)
         content = {
-            "ticket": ZH_TICKET if probe.has_cjk(message) else EN_TICKET,
-            "slot": ZH_SLOT if probe.has_cjk(message) else EN_SLOT,
-            "kb": ZH_KB if probe.has_cjk(message) else EN_KB,
+            "ticket": ZH_TICKET if zh else EN_TICKET,
+            "order_slot": ZH_ORDER_SLOT if zh else EN_ORDER_SLOT,
+            "category_slot": ZH_CATEGORY_SLOT if zh else EN_CATEGORY_SLOT,
+            "kb": ZH_KB if zh else EN_KB,
         }[kind]
         return httpx.Response(
             200, json={"content": content, "session_id": session_id, "intent": kind}
@@ -202,9 +214,72 @@ class TestPredicates:
         assert probe.has_ticket(EN_TICKET)
 
     def test_order_ask_matches_both_language_prompts(self) -> None:
-        assert probe.asks_for_order(ZH_SLOT)
-        assert probe.asks_for_order(EN_SLOT)
+        assert probe.asks_for_order(ZH_ORDER_SLOT)
+        assert probe.asks_for_order(EN_ORDER_SLOT)
         assert not probe.asks_for_order(ZH_KB)
+
+    def test_order_slot_prompt_rejects_ticket_and_category_replies(self) -> None:
+        """Money tasks must ask for the order — anything else is a failure."""
+        check = probe.is_order_slot_prompt()
+
+        assert check({"content": ZH_ORDER_SLOT}) is None
+        assert "slot-collection" in (check({"content": ZH_TICKET}) or "")
+        # A complaint-category prompt is the wrong slot for a refund turn.
+        assert check({"content": ZH_CATEGORY_SLOT}) is not None
+
+    def test_category_slot_prompt_anchors_on_complaint_vocabulary(self) -> None:
+        """The complaint flow collects 方面 first; the check must anchor on
+        that vocabulary so chitchat with a question mark cannot pass."""
+        check = probe.is_category_slot_prompt()
+
+        assert check({"content": ZH_CATEGORY_SLOT}) is None
+        assert check({"content": EN_CATEGORY_SLOT}) is None
+        # Friendly opener with a question mark: no complaint anchor → FAIL.
+        assert check({"content": "您好呀，今天想聊点什么呢？"}) is not None
+        assert "slot-collection" in (check({"content": ZH_TICKET}) or "")
+
+
+class TestRateLimitBackoff:
+    """429 is the per-IP chat budget throttling the probe, not an
+    invariant failure — the harness must wait it out, and only report
+    failure when the budget never recovers."""
+
+    async def test_transient_429_is_retried_and_still_passes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(probe, "RATE_LIMIT_RETRY_SECONDS", 0.0)
+        seen: list[tuple[int, str]] = []
+        inner = _well_behaved_handler(seen)
+        calls = {"count": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["count"] += 1
+            if calls["count"] == 1:  # only the very first turn is throttled
+                return httpx.Response(429, json={"detail": "rate limited"})
+            return inner(request)
+
+        async with _client(handler) as client:
+            exit_code = await probe.main([], client=client)
+
+        assert exit_code == 0
+        # The throttled turn was replayed: one request more than turns sent.
+        expected_turns = sum(len(c.turns) for c in probe.build_cases())
+        assert calls["count"] == expected_turns + 1
+
+    async def test_persistent_429_fails_with_rate_limit_reason(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(probe, "RATE_LIMIT_RETRY_SECONDS", 0.0)
+        monkeypatch.setattr(probe, "RATE_LIMIT_MAX_RETRIES", 0)
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, json={"detail": "rate limited"})
+
+        async with _client(handler) as client:
+            cases = await probe.run_probes(client)
+
+        assert all(c.failures for c in cases)
+        assert all("rate-limited (429)" in f for c in cases for f in c.failures)
 
 
 class TestMainExitCode:
