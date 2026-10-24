@@ -183,6 +183,113 @@ class TestEscalateTool:
         assert result.success is False
 
 
+class TestEscalateLanguage:
+    """The tool layer's reply copy must follow the user's turn language —
+    the EN zh-leak residual (review doc 2026-10-03): escalate_to_human
+    returned hardcoded zh strings, which both leaked 转人工 phrasing to
+    EN users and fed zh tool messages into the agent loop's context."""
+
+    async def test_execute_injects_language_as_server_truth(self) -> None:
+        def handler(args: dict[str, Any]) -> dict[str, Any]:
+            return {"seen_language": args.get("language")}
+
+        registry = ToolRegistry()
+        registry.register(
+            type(
+                "T",
+                (),
+                {
+                    "name": "probe",
+                    "intent": "probe_intent",
+                    "description": "",
+                    "required_slots": [],
+                    "handler": staticmethod(handler),
+                },
+            )()
+        )
+
+        # A forged language claim in model-supplied args must lose to
+        # the server-side detection, exactly like user_id/session_id.
+        result = await registry.execute(
+            "probe_intent", {"language": "en"}, user_id=1, language="zh"
+        )
+        assert result.data == {"seen_language": "zh"}
+
+        # No server-side detection → strip the claim entirely.
+        result = await registry.execute("probe_intent", {"language": "en"}, user_id=1)
+        assert result.data == {"seen_language": None}
+
+    async def test_en_escalation_message_has_no_cjk(self) -> None:
+        handoff = _handoff(ticket_id=7, queue_position=2)
+        registry = ToolRegistry()
+        registry.register(create_escalate_tool(handoff))
+
+        result = await registry.execute(
+            "agent_escalate", {}, user_id=9, session_id=42, language="en"
+        )
+
+        assert result.success is True
+        message = result.data["message"]
+        assert "#7" in message
+        assert "2" in message
+        # Language purity: no CJK may leak into an EN turn's tool copy.
+        assert not any("一" <= ch <= "鿿" for ch in message), message
+
+    async def test_zh_default_message_keeps_zh_copy(self) -> None:
+        handoff = _handoff(ticket_id=7, queue_position=2)
+        registry = ToolRegistry()
+        registry.register(create_escalate_tool(handoff))
+
+        # No language → zh default, and an args-smuggled garbage value
+        # must not change that.
+        result = await registry.execute(
+            "agent_escalate", {"language": "klingon"}, user_id=9, session_id=42
+        )
+
+        assert result.success is True
+        message = result.data["message"]
+        assert "工单号 #7" in message
+        assert "排队" in message
+
+    async def test_missing_position_drops_queue_clause(self) -> None:
+        handoff = _handoff(ticket_id=7, queue_position=None)
+        registry = ToolRegistry()
+        registry.register(create_escalate_tool(handoff))
+
+        result = await registry.execute(
+            "agent_escalate", {}, user_id=9, session_id=42, language="en"
+        )
+
+        message = result.data["message"]
+        assert "#7" in message
+        assert "queue" not in message
+
+    async def test_agent_run_en_message_yields_en_tool_copy(self) -> None:
+        """End-to-end wiring: detect_language(user_message) flows run →
+        _execute_call → execute → the tool's reply copy."""
+        from app.services.agent.service import AgentService
+
+        handoff = _handoff(ticket_id=5)
+        registry = ToolRegistry()
+        registry.register(create_escalate_tool(handoff))
+
+        tool_round = Mock()
+        tool_round.content = ""
+        tool_round.tool_calls = [{"id": "c1", "name": "escalate_to_human", "arguments": "{}"}]
+
+        llm = Mock()
+        llm.generate_with_tools = AsyncMock(return_value=tool_round)
+
+        result = await AgentService(llm, registry, max_steps=1).run(
+            "This is unresolvable, please hand me over", session_id=42
+        )
+
+        assert result.outcome == "handoff"
+        # The fixed-template ack (not the model) carries the response.
+        assert "#5" in result.response
+        assert not any("一" <= ch <= "鿿" for ch in result.response), result.response
+
+
 class TestAgentServiceSessionThreading:
     async def test_run_threads_session_id_into_tool_execution(self) -> None:
         """session_id flows run → execute; the escalate tool is the first

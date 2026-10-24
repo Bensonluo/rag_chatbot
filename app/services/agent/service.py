@@ -39,7 +39,7 @@ from app.services.agent.metrics import (
     record_agent_outcome,
 )
 from app.services.chat.citations import normalize_citations
-from app.services.dialogue.i18n import GENERATION_LANG_DIRECTIVE, detect_language
+from app.services.dialogue.i18n import GENERATION_LANG_DIRECTIVE, LANG_ZH, detect_language
 from app.services.dialogue.tools import ToolResult
 from app.services.llm.base import LLMMessage
 from app.services.llm.budget import LLMBudgetExceeded
@@ -258,7 +258,13 @@ class AgentService:
                     staged.tool_trace = trace
                     return staged
                 tool_result = await self._execute_call(
-                    call, messages, executed, trace, user_id, session_id
+                    call,
+                    messages,
+                    executed,
+                    trace,
+                    user_id,
+                    session_id,
+                    language=detect_language(user_message),
                 )
                 if (
                     call.get("name") == "search_knowledge_base"
@@ -326,6 +332,7 @@ class AgentService:
         trace: list[dict[str, Any]],
         user_id: int | None,
         session_id: int | None = None,
+        language: str = LANG_ZH,
     ) -> ToolResult | None:
         """Execute one tool call and append its result to the history."""
         tool = self._tools.get_tool_by_name(call.get("name", ""))
@@ -345,7 +352,7 @@ class AgentService:
 
         args = _parse_arguments(call)
         result: ToolResult = await self._tools.execute(
-            tool.intent, args, user_id=user_id, session_id=session_id
+            tool.intent, args, user_id=user_id, session_id=session_id, language=language
         )
         AGENT_TOOL_CALLS.labels(
             tool=tool.name, outcome="success" if result.success else "error"

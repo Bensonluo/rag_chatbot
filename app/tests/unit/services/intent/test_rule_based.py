@@ -774,3 +774,68 @@ class TestComplaintExplicitVerbArbitration:
         )
 
         assert result.intent == Intent.COMPLAINT
+
+
+class TestPoliteSplitRefund:
+    """礼貌拆分退款 — the review doc's last open probe family
+    (2026-10-03): inserting 一下/点/个 between 退 and 款/钱/费 defeats
+    both the substring keyword and the adjacency pattern, and the turn
+    fell to unknown→chitchat instead of the money-moving task flow."""
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "麻烦帮我退一下款",
+            "帮我退点钱",
+            "退个款吧",
+            "能帮我退一下钱吗",
+            "麻烦退个费",
+        ],
+    )
+    async def test_polite_split_forms_are_refund(self, message):
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        result = await detector.detect_with_confidence(message)
+
+        assert result.intent == Intent.REFUND, message
+        # 2.4-weight pattern arm alone must cross the 0.7 rule
+        # short-circuit (2.4/3.0 = 0.8) so no LLM leg is needed.
+        assert result.confidence >= 0.7, message
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "怎么退一下款",
+            "如何退点钱",
+            "退款退一下要多久",
+        ],
+    )
+    async def test_howto_polite_split_stays_faq(self, message):
+        """The how-to guard must survive the new arm: 怎么退一下款 scores
+        FAQ keyword 0.5 + forward pattern 2.4 = 2.9 > REFUND's 2.4."""
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        result = await detector.detect_with_confidence(message)
+
+        assert result.intent == Intent.FAQ, message
+
+    @pytest.mark.parametrize(
+        "message,expected",
+        [
+            ("我要退货", Intent.RETURN),
+            ("我要退款", Intent.REFUND),
+            ("查一下订单", Intent.QUERY_ORDER),
+        ],
+    )
+    async def test_adjacent_families_unchanged(self, message, expected):
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        detector = RuleBasedIntentDetector()
+
+        result = await detector.detect_with_confidence(message)
+
+        assert result.intent == expected, message

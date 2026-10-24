@@ -86,6 +86,20 @@ class RuleBasedIntentDetector(IntentDetector):
                     "weight": 1.5,
                 },
                 {"patterns": [r"退(款|钱|费)"], "weight": 1.2},
+                {
+                    # Polite-split forms — the review doc's last open
+                    # probe family (2026-10-03): inserting 一下/点/个
+                    # between 退 and 款/钱/费 ("麻烦帮我退一下款") defeats
+                    # both the substring keyword and the adjacency
+                    # pattern, and the turn fell to unknown→chitchat.
+                    # Weighted 2.4 so the rule layer alone carries the
+                    # money-moving intent (0.8 ≥ the 0.7 short-circuit,
+                    # no LLM leg). How-to phrasings stay FAQ: 怎么退一下款
+                    # scores FAQ keyword 0.5 + forward pattern 2.4 = 2.9,
+                    # still above this arm's 2.4.
+                    "patterns": [r"退(一下|点|个)(款|钱|费)"],
+                    "weight": 2.4,
+                },
             ],
             Intent.RETURN: [
                 {

@@ -97,6 +97,7 @@ class ToolRegistry:
         args: dict[str, Any],
         user_id: int | None = None,
         session_id: int | None = None,
+        language: str | None = None,
     ) -> ToolResult:
         """Run the handler for ``intent`` with per-user authorization.
 
@@ -104,7 +105,9 @@ class ToolRegistry:
         request body) is injected into the handler args so order-scoped
         tools can verify ownership; ``session_id`` follows the same
         server-truth doctrine for tools that scope work to the ongoing
-        conversation (e.g. the handoff ticket).
+        conversation (e.g. the handoff ticket). ``language`` too: reply
+        copy must follow the user's own message language (detected
+        server-side), never a model-supplied claim.
         """
         tool = self._tools.get(intent)
         if not tool:
@@ -126,6 +129,12 @@ class ToolRegistry:
             call_args["session_id"] = session_id
         else:
             call_args.pop("session_id", None)
+        if language is not None:
+            call_args["language"] = language
+        else:
+            # Strip model-supplied language claims — the caller decides
+            # the reply language from the user's own message.
+            call_args.pop("language", None)
         try:
             result = tool.handler(call_args)
             if inspect.isawaitable(result):
@@ -399,7 +408,20 @@ def create_escalate_tool(handoff_service: Any) -> ToolDefinition:
 
     async def _escalate(args: dict[str, Any]) -> ToolResult:
         from app.services.dialogue.funnel_metrics import LAYER_HANDOFF, record_funnel_layer
-        from app.services.dialogue.i18n import HANDOFF_NO_TICKET, LANG_ZH
+        from app.services.dialogue.i18n import (
+            HANDOFF_ACK,
+            HANDOFF_NO_TICKET,
+            HANDOFF_QUEUE,
+            LANG_EN,
+            LANG_ZH,
+        )
+
+        # Registry-injected server truth (see ToolRegistry.execute): zh
+        # unless the caller detected an EN turn. Anything else a model
+        # might smuggle into args falls back to zh.
+        lang = args.get("language")
+        if lang not in (LANG_ZH, LANG_EN):
+            lang = LANG_ZH
 
         session_id = args.get("session_id")
         if session_id is None:
@@ -408,7 +430,7 @@ def create_escalate_tool(handoff_service: Any) -> ToolDefinition:
             return ToolResult(
                 success=False,
                 data={"ticket_id": None, "queue_position": None, "reused": False},
-                message=HANDOFF_NO_TICKET[LANG_ZH],
+                message=HANDOFF_NO_TICKET[lang],
             )
         result = await handoff_service.create_ticket_for_session(
             session_id=session_id,
@@ -420,12 +442,23 @@ def create_escalate_tool(handoff_service: Any) -> ToolDefinition:
         # otherwise the handoff share (containment inverse) undercounts.
         record_funnel_layer(LAYER_HANDOFF)
         if result.get("ticket_id") is None:
-            return ToolResult(success=False, data=result, message=HANDOFF_NO_TICKET[LANG_ZH])
+            return ToolResult(success=False, data=result, message=HANDOFF_NO_TICKET[lang])
+        # Compose from the shared bilingual handoff pairs — the tool layer
+        # must never carry its own zh-only copy (an EN user's tool message
+        # leaked 转人工 phrasing into the agent loop, review-doc residual
+        # 2026-10-03). No new templates: ACK carries the ticket id, QUEUE
+        # the position; a missing position just drops the second clause.
+        ack = HANDOFF_ACK[lang].format(ticket_id=result.get("ticket_id"))
         position = result.get("queue_position")
-        queue_note = f"当前排队第 {position} 位" if position else "已进入人工队列"
-        return ToolResult(
-            success=True, data={**result, "message": f"已为您转接人工客服，{queue_note}"}
-        )
+        if position:
+            message = (
+                f"{ack}，{HANDOFF_QUEUE[lang].format(queue_position=position)}。"
+                if lang == LANG_ZH
+                else f"{ack}, {HANDOFF_QUEUE[lang].format(queue_position=position)}."
+            )
+        else:
+            message = f"{ack}。"
+        return ToolResult(success=True, data={**result, "message": message})
 
     return ToolDefinition(
         name="escalate_to_human",

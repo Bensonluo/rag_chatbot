@@ -771,7 +771,9 @@ class NodeFactory:
 
         # Reversible tools run immediately; clear any stale pending
         # confirmation so it cannot gate a later action.
-        result = await self._tool_registry.execute(intent, filled_slots, user_id=user_id)
+        result = await self._tool_registry.execute(
+            intent, filled_slots, user_id=user_id, language=_turn_lang(state)
+        )
 
         # Same audit-trail shape the meta-confirm branch (1525b69) and
         # the agent path record: a directly-run order query or complaint
@@ -1899,6 +1901,7 @@ class NodeFactory:
                     pending.get("intent", ""),
                     pending_args,
                     user_id=state.get("user_id"),
+                    language=_turn_lang(state),
                 )
                 tool_result = result.data if result.success else {"error": result.message}
                 # Same audit-trail shape the agent path records
