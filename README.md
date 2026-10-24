@@ -2,7 +2,7 @@
 
 # Agentic RAG Smart Customer Service
 
-**A personal technical demo powered by LangGraph — 12-node dialogue graph, Function Calling, agent tool loop, hybrid RAG, claim-gated streaming, and human handoff.**
+**An enterprise-grade Agentic RAG customer service system connecting multi-turn business tasks, versioned knowledge, evidence-backed answers, and human handoff. Built with FastAPI and LangGraph.**
 
 [![Live Demo](https://img.shields.io/badge/LIVE-DEMO-brightgreen?style=for-the-badge&logo=vercel)](https://benluo.art/projects/rag-chatbot/)
 [![GitHub stars](https://img.shields.io/github/stars/Bensonluo/rag_chatbot?style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/stargazers)
@@ -36,70 +36,34 @@
 
 ## 💡 Why This Project
 
-Most "RAG chatbot" tutorials stop at a single vector search call. **Real customer service is much harder**:
+Customer service needs to resolve business requests while keeping policy answers, task state, and staff handoffs consistent. Users interrupt a refund flow to ask a question; policies change after an answer was sent; human agents need the original context rather than a fresh conversation.
 
-- ❌ Users interrupt midway ("wait, what's the refund policy?") then expect to resume
-- ❌ Tasks need multi-turn slot collection (order ID, reason, amount...)
-- ❌ You need function calling to actually execute refunds, not just chat about them
-- ❌ Knowledge questions and task questions need different handling paths
-- ❌ PII leakage and prompt injection are real attack vectors
-- ❌ A streaming LLM can state numbers the policy never approved
-- ❌ Some turns need a human — the bot has to know when and how to hand off
+The system connects a 12-node LangGraph dialogue engine with hybrid retrieval, versioned document ingestion, claim-gated streaming, and assigned-agent handoff. Business actions use a ToolRegistry; completed actions remain terminal so task resumption cannot silently execute them twice.
 
-This project explores those problems with a **LangGraph StateGraph**. It is deliberately an architecture-focused personal demo: easy to read, run, modify, and discuss in an interview or technical review.
+### Enterprise architecture and delivery
 
-> 💬 **What you'll learn**: how to structure a multi-node dialogue graph, design intent routing with task resume, integrate hybrid retrieval (vector + GraphRAG), and expose useful runtime metrics.
+- **Knowledge lifecycle:** retain original documents, process immutable revisions asynchronously, recover interrupted ingestion, and preserve the answer-time citation snapshot.
+- **Access and continuity:** strict mode enforces authenticated identity and session ownership; assigned staff can read the handoff transcript and its citations. PostgreSQL checkpoints persist dialogue state.
+- **Operations:** epoch-scoped caches, Redis rate limiting, metrics and alert rules, tracing hooks, replica deployment templates, and a PostgreSQL backup/recovery runbook.
+- **Integration:** five bundled mock business-tool handlers define the refund/return/order/logistics/complaint interface; connect enterprise business APIs through the registry. Multi-tenant knowledge isolation remains on the roadmap.
 
-### Project scope
-
-- The maintained path is a single-instance technical demo, not a production SLA target.
-- PostgreSQL, Redis, Qdrant, and Neo4j data created by Compose can be treated as disposable demo data.
-- Authentication, Kubernetes, tracing, and community GraphRAG remain extension examples; they are not part of the default quality gate.
-- The core quality gate covers dialogue state, intent/slot processing, guardrails, document ingestion, retrieval, and the connected GraphRAG path.
+Deployment commands below start a single API instance. Replica templates, optional GraphRAG and monitoring are configured separately. Recorded verification results and their scope are listed under [Testing & Quality](#-testing--quality).
 
 ---
 
 ## ✨ Key Highlights
 
-<div align="center">
+| Capability | Implementation | Business purpose |
+|---|---|---|
+| Stateful task execution | 12-node StateGraph, five-way routing, slot collection, task stack, ToolRegistry | Complete requests across interruptions without repeating completed actions |
+| Versioned support knowledge | Retained sources, immutable revisions, retryable ingestion, stable passage IDs | Trace an answer back to the policy version used at the time |
+| Retrieval and answer control | Vector + BM25 + RRF + reranking, optional GraphRAG, sentence-level claim gates | Retrieve relevant evidence and check curated policy facts before streaming |
+| Human handoff | Tickets, queue/AHT, assigned-agent transcript, knowledge-gap records | Carry context into staff handling and feed knowledge maintenance |
+| Operational control | Epoch-scoped L0/L1/L2 cache, metrics/alerts, tracing, rate limits | Inspect latency, outcomes, cache consistency and load |
 
-| 🎯 Dialogue Engine | 🔧 Function Calling | 📚 RAG |
-|:---:|:---:|:---:|
-| **12-node** StateGraph | **5** mock tools | Hybrid + GraphRAG |
-| Intent switch & resume | ToolRegistry pattern | Vector + BM25 + RRF |
-| FAQ fast path + agent loop | Task → tool → response | Cross-Encoder reranking |
+**Recorded quality baseline (2026-10-23):** 2750 passing core tests, 3 opt-in scenarios skipped by default, 93.04% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately.
 
-| 🛡️ Safety | 📊 Observability | 🤝 Human in the loop |
-|:---:|:---:|:---:|
-| Input/Output guardrails | OpenTelemetry tracing | Handoff tickets + queue/AHT |
-| Claim-gated streaming | Prometheus + Grafana | Knowledge-gap closeout |
-| PII redaction + `<think>` filtering | TTFT/duration/outcome + alert rules | Cross-session user memory |
-
-| ⚡ Caching | 📈 Funnel KPI | 📦 Scaling |
-|:---:|:---:|:---:|
-| L0/L1/L2 epoch-scoped pyramid | Containment resolution rate | 2→N node template |
-| Answer / semantic / retrieval tiers | Downvote-aware aggregation | nginx upstream + dns_sd |
-
-| 📈 Stats | | |
-|:---:|:---:|:---:|
-| **2750** passing tests | **3** LLM providers | **93.04%** core coverage |
-| **12** dialogue nodes | **5** data stores | **4** memory strategies |
-
-</div>
-
-### 🧠 What makes it different
-
-1. **LangGraph StateGraph, not a chain** — 12 nodes with conditional edges, checkpointed for resume
-2. **Intent switch with state stack** — push/pop pattern to save & restore in-flight tasks; executed tasks are terminal (never suspended, never auto-resumed)
-3. **Five-way dispatch** — task → tool execution / faq → curated direct answer / rag → retrieval / agent → tool loop / direct → LLM
-4. **Claim-gated streaming** — sentence-buffered policy checks gate what leaves the stream; stream and persistence stay identical
-5. **GraphRAG (optional)** — Neo4j knowledge graph + Text-to-Cypher + community detection
-6. **Hybrid retrieval** — vector (Qdrant) + BM25 keyword → RRF fusion → Cross-Encoder rerank
-7. **Human handoff loop** — emotion/complexity-triggered tickets, queue/AHT, assigned-agent conversation history, and knowledge-gap recording. See the [staff context API](docs/operations/handoff-context.md).
-8. **Observable demo runtime** — `/metrics`, TTFT/duration/outcome metrics, SLA + policy-gate alert rules, tracing hooks
-9. **Epoch-scoped cache pyramid** — L0 answer / L1 semantic / L2 retrieval caches; every KB mutation rotates an epoch that invalidates all three wholesale — no stale entries, no per-key eviction
-10. **Containment KPI** — the share of served sessions with no handoff or downvote, served as a DB-bridged Prometheus gauge. Containment is not confirmed resolution; user confirmations, reopen counts, and human QA verdicts are tracked separately.
-11. **Scale-ready node template** — compose port range + nginx upstream template + dns_sd multi-replica scraping: one node today, N replicas without re-architecture
+[Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md)
 
 ---
 
@@ -173,7 +137,7 @@ cd rag_chatbot
 cp .env.example .env
 # Edit .env: set GLM_API_KEY (or OPENAI_API_KEY / ANTHROPIC_API_KEY)
 
-# Start the demo stack (API + PostgreSQL + Redis + Qdrant + Neo4j)
+# Start the service stack (API + PostgreSQL + Redis + Qdrant + Neo4j)
 docker-compose up -d
 
 # Or with monitoring stack (Prometheus + Grafana)
@@ -299,7 +263,7 @@ rag_chatbot/
 │   ├── models/              # ORM + Pydantic schemas
 │   ├── repositories/        # Async data access layer
 │   └── tests/               # Unit + integration + e2e
-├── deploy/deploy-server.sh  # One-command demo-box deploy (port-pinned, pre-flight gated)
+├── deploy/deploy-server.sh  # One-command service deploy (port-pinned, pre-flight gated)
 ├── deploy/k8s/              # Kubernetes manifests
 ├── deploy/prometheus/       # Alert rules (SLA / TTFT / claim gate / handoff queue)
 └── docker-compose*.yml
@@ -613,7 +577,7 @@ If this project helped you, please ⭐ star the repo — it helps others discove
 
 ## 🇨🇳 中文说明
 
-**Agentic RAG 智能客服** — 基于 LangGraph 构建的个人技术 Demo，重点展示对话状态、混合检索、可靠性与可观测链路。
+**Agentic RAG 企业级智能客服系统** — 面向企业知识服务与业务办理，连接多轮任务、版本化知识、可追溯回答与人工工单，覆盖对话编排、检索治理、安全门控和运维观测。
 
 ### 核心亮点
 
@@ -645,4 +609,4 @@ docker-compose up -d
 
 访问 http://localhost:8000/docs 查看 API 文档。
 
-> 项目口径：这是可运行、可扩展、适合技术交流的单实例 Demo；不把多租户、高可用、灾备等生产能力作为完成标准。
+> 部署与接入：默认启动单 API 实例；企业业务接口通过 ToolRegistry 接入，鉴权、数据留存、监控与副本按部署环境配置。多租户知识隔离列在路线图，当前验证结果见 Testing & Quality。
