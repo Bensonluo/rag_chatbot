@@ -73,6 +73,30 @@ jobs:
             coverage.xml
           retention-days: 7
 
+  prometheus-rules:
+    runs-on: ubuntu-latest
+    env:
+      # Match the deployed engine so newer PromQL cannot hide incompatibility.
+      PROMETHEUS_TEST_IMAGE: prom/prometheus:v2.47.2
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate Prometheus alert rules
+        run: >-
+          docker run --rm
+          --volume "$PWD/deploy/prometheus:/rules:ro"
+          --entrypoint /bin/promtool
+          "$PROMETHEUS_TEST_IMAGE"
+          check rules /rules/alerts.yml
+
+      - name: Exercise alert timing and missing-data scenarios
+        run: >-
+          docker run --rm
+          --volume "$PWD/deploy/prometheus:/rules:ro"
+          --entrypoint /bin/promtool
+          "$PROMETHEUS_TEST_IMAGE"
+          test rules /rules/containment-alerts.test.yml
+
   migrations:
     runs-on: ubuntu-latest
     services:

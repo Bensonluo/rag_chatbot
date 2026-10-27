@@ -78,7 +78,7 @@ class QualityMetricsService:
             logger.error("Quality metrics query failed: %s", exc)
             return {"error": str(exc.__class__.__name__), "containment_rate": None, "csat": None}
 
-        ratings = [value for (value,) in rating_rows]
+        ratings = [value for (value,) in rating_rows if value is not None]
         positive = sum(1 for value in ratings if value > 0)
         negative = sum(1 for value in ratings if value < 0)
 

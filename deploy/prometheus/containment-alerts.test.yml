@@ -1,0 +1,1737 @@
+# Native Prometheus 2.47.2 rule tests; run from any working directory:
+#   promtool test rules deploy/prometheus/containment-alerts.test.yml
+# These series are deterministic snapshots, not live DB/scrape/model evidence.
+# Expected states/labels are independent of production expressions. The shared
+# expected-alert anchors only avoid repeating annotation text.
+# Time starts at Unix epoch zero. Default fresh series first become valid at
+# minute 1; clock-offset cases explicitly test positive timestamps at minute 0.
+# The first eight cases preserve the independently reproduced before scenarios.
+rule_files:
+- alerts.yml
+evaluation_interval: 1m
+tests:
+- name: startup-never-refreshed
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 0+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+0x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 9m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - &id001
+      exp_labels: &id002
+        job: rag-chatbot-api
+        severity: warning
+      exp_annotations:
+        summary: 会话质量统计不可用或部分副本陈旧
+        description: At least one discovered API target has no valid containment snapshot,
+          or no API targets are discovered, for 10 minutes. Check scrape health, successful-refresh
+          timestamps, database access, refresher startup/configuration and clock alignment.
+          Zero served sessions with a fresh successful snapshot is valid. A disabled refresher
+          also leaves this KPI unavailable; this alert does not by itself prove a customer-facing
+          outage or low containment. A healthy replica does not hide another replica's unavailable
+          evidence.
+        runbook_url: https://github.com/Bensonluo/rag_chatbot/blob/main/docs/operations/containment-alerts.md
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: fresh-empty-window-retains-low-rate
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 0+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: stale-low-snapshot
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 60+0x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 16m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 16m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 16m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 26m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 26m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 26m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 27m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 27m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 27m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: fresh-low-positive-traffic-control
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 30m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 31m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - &id003
+      exp_labels: *id002
+      exp_annotations:
+        summary: 会话级自动处理代理率低于 70%
+        description: Fresh nonempty snapshots report containment 50% for 30 minutes. This
+          is the share of served sessions without a handoff ticket AND without an in-window
+          downvote, not confirmed problem resolution. Only successfully scraped replicas with
+          a successful refresh no more than 15 minutes old contribute to the mean. Empty,
+          uninitialized, stale or invalid snapshots are excluded. A future-clock tolerance
+          of 60 seconds avoids resetting pending alerts on small clock offsets; larger offsets
+          are reported by ContainmentStatsClockSkew; ContainmentStatsUnavailable reports missing
+          statistical evidence. Replicas can refresh at different instants; this is not an
+          atomic database snapshot. Inspect ticket mix, feedback and independent resolution/QA
+          evidence before drawing conclusions.
+        runbook_url: https://github.com/Bensonluo/rag_chatbot/blob/main/docs/operations/containment-alerts.md
+  - eval_time: 31m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 31m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - *id003
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: fresh-healthy-control
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: healthy-replica-plus-startup-zero
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="b"}
+    values: 0+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="b"}
+    values: 0+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="b"}
+    values: 0+0x90
+  - series: up{job="rag-chatbot-api",instance="b"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: stale-healthy-replica-masks-fresh-low
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="b"}
+    values: 1+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="b"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="b"}
+    values: 60+0x90
+  - series: up{job="rag-chatbot-api",instance="b"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 45m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 45m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 45m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 47m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - *id003
+  - eval_time: 47m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 47m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - *id003
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: absent-series-control
+  interval: 1m
+  input_series: []
+  alert_rule_test:
+  - eval_time: 9m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: other-job-invalid-replica-is-ignored
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  - series: chat_containment_rate{job="other-job",instance="b"}
+    values: 0+0x90
+  - series: chat_sessions_served{job="other-job",instance="b"}
+    values: 0+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="other-job",instance="b"}
+    values: 0+0x90
+  - series: up{job="other-job",instance="b"}
+    values: 0+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: only-other-job-does-not-satisfy-api-discovery
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="other-job",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="other-job",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="other-job",instance="a"}
+    values: 0+60x90
+  - series: up{job="other-job",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: same-instance-other-job-cannot-mask-invalid-api
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  - series: chat_containment_rate{job="other-job",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="other-job",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="other-job",instance="a"}
+    values: 0+60x90
+  - series: up{job="other-job",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: different-instance-metrics-cannot-complete-a-target
+  interval: 1m
+  input_series:
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="b"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="b"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="b"}
+    values: 0+60x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: fresh-empty-healthy-window-is-available
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 0+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: healthy-replica-does-not-hide-stale-low-replica
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="b"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="b"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="b"}
+    values: 60+0x90
+  - series: up{job="rag-chatbot-api",instance="b"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: two-invalid-replicas-produce-one-job-alert
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="b"}
+    values: 0+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="b"}
+    values: 0+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="b"}
+    values: 0+0x90
+  - series: up{job="rag-chatbot-api",instance="b"}
+    values: 1+0x90
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="c"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="c"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="c"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="c"}
+    values: 0+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: fresh-low-survives-invalid-replica-zero
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="b"}
+    values: 0+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="b"}
+    values: 0+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="b"}
+    values: 0+0x90
+  - series: up{job="rag-chatbot-api",instance="b"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - *id003
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: mean-of-fresh-replicas-not-a-sum-of-db-populations
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.4+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 100+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="b"}
+    values: 0.6+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="b"}
+    values: 1+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="b"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="b"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - *id003
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: missing-chat_containment_rate
+  interval: 1m
+  input_series:
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 9m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: missing-chat_sessions_served
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 9m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: missing-chat_containment_stats_last_success_timestamp_seconds
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 9m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: scrape-down-with-retained-low-metrics
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 0+0x90
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: metrics-without-discovered-up-target
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: target-discovery-disappears-after-stale-marker
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x5 stale
+  alert_rule_test:
+  - eval_time: 15m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 15m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 16m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 16m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 16m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: future-success-timestamp
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 3600+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - &id005
+      exp_labels: *id002
+      exp_annotations:
+        summary: 会话统计成功时间超过允许的时钟偏差
+        description: A scraped API replica reports a successful-refresh timestamp more than
+          60 seconds ahead of Prometheus. Check application and Prometheus clock synchronization
+          before trusting snapshot age. This warning fires immediately and stays active for
+          10 minutes after its expression first stops matching, so brief repeated clock errors
+          cannot silently reset the other pending timers. It does not by itself prove a customer-facing outage.
+        runbook_url: https://github.com/Bensonluo/rag_chatbot/blob/main/docs/operations/containment-alerts.md
+- name: nan-chat_containment_rate
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN
+      NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN
+      NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN
+      NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN
+      NaN NaN NaN NaN NaN NaN NaN NaN
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: nan-chat_sessions_served
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN
+      NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN
+      NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN
+      NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN
+      NaN NaN NaN NaN NaN NaN NaN NaN
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: nan-chat_containment_stats_last_success_timestamp_seconds
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN
+      NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN
+      NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN
+      NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN NaN
+      NaN NaN NaN NaN NaN NaN NaN NaN
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: negative-served-count
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: -1+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: negative-containment-rate
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: -0.1+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: above-one-containment-rate
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 1.1+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: zero-containment-is-valid-low-quality
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 31m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - &id004
+      exp_labels: *id002
+      exp_annotations:
+        summary: 会话级自动处理代理率低于 70%
+        description: Fresh nonempty snapshots report containment 0% for 30 minutes. This is
+          the share of served sessions without a handoff ticket AND without an in-window downvote,
+          not confirmed problem resolution. Only successfully scraped replicas with a successful
+          refresh no more than 15 minutes old contribute to the mean. Empty, uninitialized,
+          stale or invalid snapshots are excluded. A future-clock tolerance of 60 seconds
+          avoids resetting pending alerts on small clock offsets; larger offsets are reported
+          by ContainmentStatsClockSkew; ContainmentStatsUnavailable reports missing statistical
+          evidence. Replicas can refresh at different instants; this is not an atomic database
+          snapshot. Inspect ticket mix, feedback and independent resolution/QA evidence before
+          drawing conclusions.
+        runbook_url: https://github.com/Bensonluo/rag_chatbot/blob/main/docs/operations/containment-alerts.md
+  - eval_time: 31m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 31m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - *id004
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: exact-threshold-rate-is-not-low
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.7+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: one-containment-is-valid
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: default-five-minute-startup-then-refresh
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0+0x4 0.8+0x85
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 0+0x4 10+0x85
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0 0 0 0 0 300 300 300 300 300 600 600 600 600 600 900 900 900 900 900 1200 1200
+      1200 1200 1200 1500 1500 1500 1500 1500 1800 1800 1800 1800 1800 2100 2100 2100 2100
+      2100 2400 2400 2400 2400 2400 2700 2700 2700 2700 2700 3000 3000 3000 3000 3000 3300
+      3300 3300 3300 3300 3600 3600 3600 3600 3600 3900 3900 3900 3900 3900 4200 4200 4200
+      4200 4200 4500 4500 4500 4500 4500 4800 4800 4800 4800 4800 5100 5100 5100 5100 5100
+      5400
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: unavailable-recovers-and-restarts-grace
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+0x11 720+60x7 0+0x70
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 11m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 12m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 12m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 12m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 29m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 29m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 29m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 30m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: quality-recovers-and-restarts-thirty-minute-timer
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x34 0.8+0x4 0.5+0x50
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 31m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - *id003
+  - eval_time: 31m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 31m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 35m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 35m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 35m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 69m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 69m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 69m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 70m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - *id003
+  - eval_time: 70m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 70m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: refresh-at-ten-minute-grace-boundary
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+0x9 600+60x80
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 9m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: bad-replica-switch-does-not-reset-job-grace
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+0x4 300+60x85
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="b"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="b"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="b"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="b"}
+    values: 1+0x4 0+0x85
+  alert_rule_test:
+  - eval_time: 4m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 14m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 14m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 14m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: future-clock-exactly-sixty-seconds-is-tolerated
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 60+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 0m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 29m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 29m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 29m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - *id003
+  - eval_time: 30m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - *id003
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: future-clock-sixty-one-seconds-is-invalid
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 61+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 0m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+  - eval_time: 9m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 9m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+- name: five-second-periodic-clock-offset-does-not-reset-quality
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 5 5 5 5 5 305 305 305 305 305 605 605 605 605 605 905 905 905 905 905 1205 1205
+      1205 1205 1205 1505 1505 1505 1505 1505 1805 1805 1805 1805 1805 2105 2105 2105 2105
+      2105 2405 2405 2405 2405 2405 2705 2705 2705 2705 2705 3005 3005 3005 3005 3005 3305
+      3305 3305 3305 3305 3605 3605 3605 3605 3605 3905 3905 3905 3905 3905 4205 4205 4205
+      4205 4205 4505 4505 4505 4505 4505 4805 4805 4805 4805 4805 5105 5105 5105 5105 5105
+      5405
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 29m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 29m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 29m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - *id003
+  - eval_time: 30m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 30m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts:
+    - *id003
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: seventy-second-periodic-clock-offset-is-latched
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.5+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 70 70 70 70 70 370 370 370 370 370 670 670 670 670 670 970 970 970 970 970 1270
+      1270 1270 1270 1270 1570 1570 1570 1570 1570 1870 1870 1870 1870 1870 2170 2170 2170
+      2170 2170 2470 2470 2470 2470 2470 2770 2770 2770 2770 2770 3070 3070 3070 3070 3070
+      3370 3370 3370 3370 3370 3670 3670 3670 3670 3670 3970 3970 3970 3970 3970 4270 4270
+      4270 4270 4270 4570 4570 4570 4570 4570 4870 4870 4870 4870 4870 5170 5170 5170 5170
+      5170 5470
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 0m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+  - eval_time: 1m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 1m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+  - eval_time: 4m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 4m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+  - eval_time: 5m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 5m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+- name: clock-warning-clears-ten-minutes-after-nonmatching-evaluation
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 70 60+60x89
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 0m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+  - eval_time: 11m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: down-target-future-timestamp-cannot-start-clock-warning
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 3600+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 0+0x90
+  alert_rule_test:
+  - eval_time: 0m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: other-job-future-clock-is-ignored
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 0+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1+0x90
+  - series: chat_containment_rate{job="other-job",instance="b"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="other-job",instance="b"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="other-job",instance="b"}
+    values: 3600+60x90
+  - series: up{job="other-job",instance="b"}
+    values: 1+0x90
+  alert_rule_test:
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+- name: prior-clock-warning-keeps-grace-after-target-goes-down
+  interval: 1m
+  input_series:
+  - series: chat_containment_rate{job="rag-chatbot-api",instance="a"}
+    values: 0.8+0x90
+  - series: chat_sessions_served{job="rag-chatbot-api",instance="a"}
+    values: 10+0x90
+  - series: chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api",instance="a"}
+    values: 3600+60x90
+  - series: up{job="rag-chatbot-api",instance="a"}
+    values: 1 0+0x89
+  alert_rule_test:
+  - eval_time: 0m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts: []
+  - eval_time: 0m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+  - eval_time: 10m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 10m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 10m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts:
+    - *id005
+  - eval_time: 11m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 11m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 11m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentRateLow
+    exp_alerts: []
+  - eval_time: 60m
+    alertname: ContainmentStatsUnavailable
+    exp_alerts:
+    - *id001
+  - eval_time: 60m
+    alertname: ContainmentStatsClockSkew
+    exp_alerts: []

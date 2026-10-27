@@ -55,7 +55,7 @@ class OwnershipAPI:
                     )
                 )
             ).all()
-            return [tuple(row) for row in messages], [tuple(row) for row in tickets]
+            return [(row[0], row[1]) for row in messages], [(row[0], row[1]) for row in tickets]
 
     async def state(self, session_id: int) -> dict[str, Any]:
         snapshot = await self.service.graph.aget_state(

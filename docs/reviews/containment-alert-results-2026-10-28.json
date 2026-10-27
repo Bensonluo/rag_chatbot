@@ -1,0 +1,372 @@
+{
+  "date": "2026-10-28",
+  "baseline_commit": "2fcdbf8",
+  "working_baseline": "The verified round15 probe changes remain uncommitted. The containment rules at round16 start match HEAD2fcdbf8; existing pending product files were preserved.",
+  "status": "fixed_native_rule_engine_and_full_default_regression_passed",
+  "product_value": "Knowledge/QA operators and enterprise integrators can distinguish a low business proxy from unavailable or clock-invalid statistics, with real rule-engine checks required by CI.",
+  "selected_problem": "Raw avg(chat_containment_rate)<0.7 treats initial zeros and retained/frozen snapshots as current evidence, causing false low-containment alerts and masking valid low-rate replicas.",
+  "before": {
+    "expression": "avg(chat_containment_rate) < 0.7",
+    "for": "30m",
+    "actual_exporter_snapshots": {
+      "before_any_refresh": {
+        "chat_containment_rate": 0.0,
+        "chat_sessions_served": 0.0,
+        "chat_containment_stats_last_success_timestamp_seconds": 0.0
+      },
+      "successful_low": {
+        "chat_containment_rate": 0.4,
+        "chat_sessions_served": 100.0,
+        "chat_containment_stats_last_success_timestamp_seconds": 1000.0
+      },
+      "successful_zero_traffic_preserves_old_rate": {
+        "chat_containment_rate": 0.4,
+        "chat_sessions_served": 0.0,
+        "chat_containment_stats_last_success_timestamp_seconds": 1300.0
+      },
+      "successful_high": {
+        "chat_containment_rate": 0.95,
+        "chat_sessions_served": 100.0,
+        "chat_containment_stats_last_success_timestamp_seconds": 1600.0
+      },
+      "after_db_failure_preserves_all_three": {
+        "chat_containment_rate": 0.95,
+        "chat_sessions_served": 100.0,
+        "chat_containment_stats_last_success_timestamp_seconds": 1600.0
+      }
+    },
+    "initial_native_behavior_contrast": {
+      "fixture": "/tmp/rag-prometheus-2.47.2-tooling-20261028/before-expected-correct.test.yml",
+      "log": "/tmp/rag-prometheus-2.47.2-tooling-20261028/before-rule-tests.log",
+      "exit_code": 1,
+      "scenario_count": 8,
+      "contract_mismatches": [
+        "startup-never-refreshed",
+        "fresh-empty-window-retains-low-rate",
+        "stale-low-snapshot",
+        "healthy-replica-plus-startup-zero",
+        "stale-healthy-replica-masks-fresh-low"
+      ],
+      "passing_controls": [
+        "fresh-low-positive-traffic-control",
+        "fresh-healthy-control",
+        "absent-series-control"
+      ],
+      "evaluation": "1m steps through60m; actual alert for30m state, not a Python reimplementation of PromQL",
+      "zero_window_note": "The DB exporter deliberately retains a prior rate when served=0; last_success alone therefore cannot establish rate eligibility.",
+      "replica_note": "Replicas publish snapshots from the same shared database, so sums of served/rate values would not be independently additive populations."
+    },
+    "initial_native_timing": "Eight independent state-only scenarios ran before the first rule change: five mismatches and three controls. These are actual Prometheus alert states, not a Python approximation.",
+    "intermediate_clock_counterexample": "Strict future timestamp rejection can reset a 30-minute low-rate pending timer after each refresh with a 5-second app-clock lead, while the short invalid interval never reaches the 10-minute unavailable timer. A 70-second lead needs a separate clock signal even after a 60-second tolerance.",
+    "expanded_replay_method": "Later expanded cases replayed immutable old/intermediate snapshots after fixes existed. Old37 full-contract replay includes labels/annotations/new alerts; its31 scenarios/69 failed checks are not31 distinct bugs or literal pre-implementation authoring. Preclock two-scenario27-check replay had8 mismatches; original snapshot sources and logs remain in the independent report."
+  },
+  "contract": {
+    "scope": "Only job=rag-chatbot-api; match validity by(job,instance) before job-level aggregation. Same-job replicas must share data source and stats window; this is not tenant or arbitrary cluster isolation.",
+    "valid_snapshot": "up=1, served>=0, rate within[0,1], success timestamp>0, future offset<=60 seconds and age<=900 seconds. Missing/NaN/out-of-range/stale values do not qualify.",
+    "low_containment": "Mean of valid nonempty replica snapshots below0.7 continuously for30m, warning. It remains no-ticket/no-window-downvote containment, not resolution or a verified SLO. One session can satisfy the current sample rule.",
+    "unavailable": "A job continuously has at least one discovered invalid target, or no target up series, for10m, warning. Bad replica identity may rotate without resetting job timer; fresh zero traffic is valid. Healthy siblings do not hide bad ones.",
+    "clock_skew": "Maximum successful-scrape future offset over60s, warning immediately; keep_firing_for10m from the first nonmatching evaluation. This catches brief repeated skew that would reset other pending timers. Held firing does not prove current skew.",
+    "clock_boundary": "Exactly60s is accepted;61s is rejected and independently signaled. Match at0m, first nonmatch1m stays firing at10m and clears11m.",
+    "cadence": "Default refresh300s (sleep first), freshness900s, unavailable grace10m. These are static policy defaults, not automatically derived from app settings; changing cadence requires coordinated rules/fixtures updates.",
+    "disabled_bridge": "Refresh interval0 intentionally disables the task but leaves the KPI unavailable. The availability warning is not by itself proof of DB or chat outage.",
+    "not_atomic": "Replicas refresh independently and can still represent different valid instants. No sum of duplicated DB populations or atomic report snapshot is claimed.",
+    "copy_correction": "HandoffShareHigh now describes per-turn layer-touch traffic/routing trends; its ratio is not the session containment inverse or proof of unresolved demand."
+  },
+  "native_validation": {
+    "engine": "Official Prometheus promtool2.47.2, matching Compose deployment version; isolated Darwin arm64 CLI.",
+    "official_archive_sha256": "ea4095d213ddfc167f78abf08122b1979edc314e808e8c701fbd0a16ec12428d",
+    "official_checksum_matches": true,
+    "global_install": false,
+    "full_rules": 13,
+    "scenarios": 46,
+    "alert_assertions": 315,
+    "expected_states": "Handwritten synthetic input snapshots and expected states/labels; no copied production expression or Python PromQL emulator. Static shared annotations only avoid text repetition.",
+    "coverage": {
+      "business_duration": "Default fresh0+60xn first becomes valid at1m:30m not yet firing,31m firing. A timestamp60seconds ahead is valid at0m and low rate fires exactly30m.",
+      "availability_duration": "Never-initialized snapshots and missing discovery:9m quiet,10m firing. Default successful refresh at5m stays quiet; recovery clears/restarts the10m timer.",
+      "freshness": "Constant TS60:at16m age900 is eligible; first ineligible minute is17m, unavailable does not fire at26m and fires at27m. Fixture uses1m rule evaluations; it does not claim a901-second freshness-evaluation test.",
+      "clock_tolerance": "Exactly60s ahead valid/no clock warning;61s ahead invalid and immediate clock warning.",
+      "periodic_clock_offsets": "Five-second application lead with300s refresh preserves30m quality pending. Seventy-second lead periodically resets eligibility but triggers clock warning immediately, kept across repeated observations.",
+      "keep_firing_for": "Clock match at0m, first nonmatching evaluation1m:still firing10m, cleared11m. Warning starts from the expression match and retention starts at the first nonmatch, matching the final annotation.",
+      "target_down": "Retained future timestamp on an already down target cannot start clock warning; prior observed clock warning retains10m after the target goes down.",
+      "replica_timer": "Replica A invalid then recovers as B becomes invalid at5m:the job remains continuously unavailable and fires10m; a bad-replica identity switch does not reset the job timer.",
+      "job_and_instance_scope": "Other jobs and other instance metric series cannot satisfy API validity. Multiple invalid replicas produce one job alert; healthy replicas do not hide invalid siblings.",
+      "rate_populations": "Fresh empty windows are available but excluded from low-rate evidence. Fresh shared-DB replica rates are averaged as snapshots, not summed as independent populations. Existing containment/resolution formulas are unchanged."
+    },
+    "cases": [
+      {
+        "name": "startup-never-refreshed",
+        "alert_checks": 9
+      },
+      {
+        "name": "fresh-empty-window-retains-low-rate",
+        "alert_checks": 3
+      },
+      {
+        "name": "stale-low-snapshot",
+        "alert_checks": 12
+      },
+      {
+        "name": "fresh-low-positive-traffic-control",
+        "alert_checks": 9
+      },
+      {
+        "name": "fresh-healthy-control",
+        "alert_checks": 3
+      },
+      {
+        "name": "healthy-replica-plus-startup-zero",
+        "alert_checks": 3
+      },
+      {
+        "name": "stale-healthy-replica-masks-fresh-low",
+        "alert_checks": 9
+      },
+      {
+        "name": "absent-series-control",
+        "alert_checks": 9
+      },
+      {
+        "name": "other-job-invalid-replica-is-ignored",
+        "alert_checks": 3
+      },
+      {
+        "name": "only-other-job-does-not-satisfy-api-discovery",
+        "alert_checks": 6
+      },
+      {
+        "name": "same-instance-other-job-cannot-mask-invalid-api",
+        "alert_checks": 3
+      },
+      {
+        "name": "different-instance-metrics-cannot-complete-a-target",
+        "alert_checks": 3
+      },
+      {
+        "name": "fresh-empty-healthy-window-is-available",
+        "alert_checks": 3
+      },
+      {
+        "name": "healthy-replica-does-not-hide-stale-low-replica",
+        "alert_checks": 3
+      },
+      {
+        "name": "two-invalid-replicas-produce-one-job-alert",
+        "alert_checks": 3
+      },
+      {
+        "name": "fresh-low-survives-invalid-replica-zero",
+        "alert_checks": 3
+      },
+      {
+        "name": "mean-of-fresh-replicas-not-a-sum-of-db-populations",
+        "alert_checks": 3
+      },
+      {
+        "name": "missing-chat_containment_rate",
+        "alert_checks": 9
+      },
+      {
+        "name": "missing-chat_sessions_served",
+        "alert_checks": 9
+      },
+      {
+        "name": "missing-chat_containment_stats_last_success_timestamp_seconds",
+        "alert_checks": 9
+      },
+      {
+        "name": "scrape-down-with-retained-low-metrics",
+        "alert_checks": 6
+      },
+      {
+        "name": "metrics-without-discovered-up-target",
+        "alert_checks": 6
+      },
+      {
+        "name": "target-discovery-disappears-after-stale-marker",
+        "alert_checks": 9
+      },
+      {
+        "name": "future-success-timestamp",
+        "alert_checks": 3
+      },
+      {
+        "name": "nan-chat_containment_rate",
+        "alert_checks": 3
+      },
+      {
+        "name": "nan-chat_sessions_served",
+        "alert_checks": 3
+      },
+      {
+        "name": "nan-chat_containment_stats_last_success_timestamp_seconds",
+        "alert_checks": 3
+      },
+      {
+        "name": "negative-served-count",
+        "alert_checks": 3
+      },
+      {
+        "name": "negative-containment-rate",
+        "alert_checks": 3
+      },
+      {
+        "name": "above-one-containment-rate",
+        "alert_checks": 3
+      },
+      {
+        "name": "zero-containment-is-valid-low-quality",
+        "alert_checks": 6
+      },
+      {
+        "name": "exact-threshold-rate-is-not-low",
+        "alert_checks": 3
+      },
+      {
+        "name": "one-containment-is-valid",
+        "alert_checks": 3
+      },
+      {
+        "name": "default-five-minute-startup-then-refresh",
+        "alert_checks": 12
+      },
+      {
+        "name": "unavailable-recovers-and-restarts-grace",
+        "alert_checks": 15
+      },
+      {
+        "name": "quality-recovers-and-restarts-thirty-minute-timer",
+        "alert_checks": 12
+      },
+      {
+        "name": "refresh-at-ten-minute-grace-boundary",
+        "alert_checks": 9
+      },
+      {
+        "name": "bad-replica-switch-does-not-reset-job-grace",
+        "alert_checks": 12
+      },
+      {
+        "name": "future-clock-exactly-sixty-seconds-is-tolerated",
+        "alert_checks": 12
+      },
+      {
+        "name": "future-clock-sixty-one-seconds-is-invalid",
+        "alert_checks": 12
+      },
+      {
+        "name": "five-second-periodic-clock-offset-does-not-reset-quality",
+        "alert_checks": 9
+      },
+      {
+        "name": "seventy-second-periodic-clock-offset-is-latched",
+        "alert_checks": 18
+      },
+      {
+        "name": "clock-warning-clears-ten-minutes-after-nonmatching-evaluation",
+        "alert_checks": 12
+      },
+      {
+        "name": "down-target-future-timestamp-cannot-start-clock-warning",
+        "alert_checks": 9
+      },
+      {
+        "name": "other-job-future-clock-is-ignored",
+        "alert_checks": 3
+      },
+      {
+        "name": "prior-clock-warning-keeps-grace-after-target-goes-down",
+        "alert_checks": 12
+      }
+    ],
+    "final_log": "/tmp/rag-prometheus-2.47.2-tooling-20261028/final-native-rule-tests.log",
+    "independent_peer_artifact": "/tmp/rag-containment-alert-audit-20261028.json",
+    "engine_author_artifact": "/tmp/rag-containment-alert-verification-20261028.json",
+    "root_rerun": "13-rule syntax check and46/315 native suite passed on the same frozen files.",
+    "sampling_precision": "1-minute rule evaluations; freshness tests prove age900s eligible and next-minute ineligible, not a separate901-second evaluation."
+  },
+  "ci": {
+    "job": "prometheus-rules",
+    "image": "prom/prometheus:v2.47.2",
+    "required_steps": [
+      "promtool check rules /rules/alerts.yml",
+      "promtool test rules /rules/containment-alerts.test.yml"
+    ],
+    "container_entrypoint": "/bin/promtool confirmed in the official fixed-version Dockerfile.",
+    "static_contract": "Default pytest requires native test invocation, no optional job/continue-on-error, deployed image match and an existing linked runbook.",
+    "remote_run": "not triggered; local engine execution is not remote CI/container execution"
+  },
+  "application_validation": {
+    "focused": {
+      "passed": 59,
+      "duration_seconds": 0.8,
+      "log": "/tmp/rag-containment-alert-focused-20261028.log",
+      "scope": "alert/CI contract plus actual failed-reply SQLite/JWT/exporter and repository/dashboard suites"
+    },
+    "full_default": {
+      "passed": 3010,
+      "skipped": 3,
+      "warnings": 5,
+      "duration_seconds": 139.91,
+      "core_coverage_percent": 93.29,
+      "core_statements": 4994,
+      "core_missed_statements": 335,
+      "exit_code": 0,
+      "log": "/tmp/rag-containment-alert-full-pytest-20261028.log"
+    },
+    "ruff_format_files": 453,
+    "mypy_app_files": 440,
+    "mypy_cli_files": 2,
+    "pip_check": "No broken requirements found; package environment unchanged in round16.",
+    "diff_check": "passed",
+    "source_freeze": {
+      "files": 445,
+      "sha256_matches_final_run": true,
+      "manifest": "/tmp/rag-containment-alert-source-freeze-20261028.json"
+    },
+    "warnings": "Four existing short JWT test-signing-key warnings and one existing Starlette422 alias deprecation; not filtered.",
+    "source_counts": {
+      "app_python": 440,
+      "test_python": 228,
+      "test_modules": 222
+    }
+  },
+  "limits": [
+    "No live Prometheus server, target scrape/discovery, production traffic, database operation, clock synchronization, Grafana browser, deployment, remote CI or Alertmanager delivery exercised in this round.",
+    "No Alertmanager targets/receiver are configured by the repository monitoring stack; firing in the engine/UI is not proof of email/Slack/on-call delivery.",
+    "The existing Grafana panel uses initialization/traffic filters, not the full freshness/up/job gates. Its displayed average may differ; the runbook diagnoses raw per-instance series.",
+    "DNS removal does not prove expected replica capacity recovered; a remaining valid target can make the discovered set available.",
+    "The full product goal remains ongoing: these are operational evidence improvements, not production readiness, verified resolution or completion of enterprise integration."
+  ],
+  "primary_sources": [
+    {
+      "url": "https://prometheus.io/docs/prometheus/latest/configuration/unit_testing_rules/",
+      "use": "Native rule fixture execution; actual schema compatibility validated by2.47.2."
+    },
+    {
+      "url": "https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/",
+      "use": "Pending/for and keep-firing semantics, tested at explicit evaluation times."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/prometheus/prometheus/v2.47.2/model/rulefmt/rulefmt.go",
+      "use": "Fixed deployment version supports keep_firing_for."
+    },
+    {
+      "url": "https://raw.githubusercontent.com/prometheus/prometheus/v2.47.2/Dockerfile",
+      "use": "CI image binary path and explicit promtool entrypoint."
+    }
+  ],
+  "repository_state": {
+    "last_commit": "2fcdbf8",
+    "round15_and_round16": "uncommitted",
+    "pushed": false,
+    "deployed": false,
+    "user_local_compose": "untouched",
+    "planning_notes": "local only"
+  },
+  "source_hashes": {
+    "deploy/prometheus/alerts.yml": "c591afd7d1d4a69c06e818d44a59b5217412e274d394436ad2de36316b7a45c7",
+    "deploy/prometheus/containment-alerts.test.yml": "077401648f9153b608d50ff9195b147330d0bbb412ec535e82343fd274cd973d",
+    ".github/workflows/ci.yml": "55e77b07585670f7cf73ca8fcd0b770f0dec36828e1100fdcb59d95b615f427b"
+  }
+}

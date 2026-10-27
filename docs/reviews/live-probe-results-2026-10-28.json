@@ -1,0 +1,204 @@
+{
+  "date": "2026-10-28",
+  "baseline_commit": "2fcdbf8",
+  "baseline_description": "The failed-reply visibility iteration was committed at the user request before this iteration; no push or deployment.",
+  "status": "fixed_final_environment_full_regression_and_independent_reviews_passed",
+  "selected_problem": "The live probe judged content keywords only, so failed handoff metadata, wrong sessions and missing evidence could still produce 21/21 PASS; malformed responses could abort the entire runner.",
+  "before": {
+    "probe_sha256": "cda310fe6bb3bd7a3fc437b72b9679748e0e0c4b1b17150b2749ff3527e04a70",
+    "independent_mock_mutations_all_passed_21_of_21": [
+      "failed handoff metadata with ticket prose",
+      "invented ticket with no independently observed row",
+      "policy anchor without sources/citations",
+      "wrong response session",
+      "content array coerced to string",
+      "text ticket ID different from metadata",
+      "queued outcome on refund slot prompt",
+      "empty English followup"
+    ],
+    "malformed_response_note": "Invalid JSON and a top-level list aborted with uncaught exceptions; these were crashes, not false greens.",
+    "root_regression_red": {
+      "failed": 10,
+      "log": "/tmp/rag-20261028-probe-unit-red.log"
+    },
+    "security_red": {
+      "failed": 19,
+      "passed": 4,
+      "note": "Four configuration negatives already passed because old argparse rejected unknown flags; stronger identity tests require actual me/session requests.",
+      "artifact": "/tmp/rag-probe-security-tests-20261028.json"
+    },
+    "actual_route_red": {
+      "failed": 1,
+      "passed": 2,
+      "log": "/tmp/rag-probe-actual-route-red-20261028.log",
+      "failure": "Uncited locally generated 7-day answer passed the old runner despite no knowledge source."
+    },
+    "secondary_review": "Independent initial implementation audit found history reference loss, wrong known ticket owner and negative citation page accepted. Before observations retained in /tmp/rag-probe-review-20261028.json; its 11 new tests first ran after root fixes, not claimed as a separate red run."
+  },
+  "contract": {
+    "envelope": "HTTP 200 JSON object, nonempty string content/intent, exact positive non-boolean 31-bit session ID and metadata object; malformed results fail their case and later cases continue.",
+    "handoff": "handoff intent + queued outcome + positive integer ticket ID agreeing with numeric acknowledgement; server response alone is a reported contract, not independent persistence proof.",
+    "slots": "Expected refund/complaint intent and first pending slot; no ticket or unexpected handoff outcome.",
+    "knowledge": "faq/policy intent, source identities, usable versioned citations/excerpts and bounded field/location shape; answer and excerpt must contain selected seed-policy anchors. EN return policy and refund followup both require nonempty evidence and CJK-free prose.",
+    "knowledge_limits": "Anchors are seeded policy checks, not arbitrary entailment. Document snapshots without versions are legal DTO values but intentionally fail this stricter policy-probe contract.",
+    "anonymous": "Random positive 31-bit IDs avoid duplicates within one run; cross-run/database collision and ownership remain explicitly NOT VERIFIED.",
+    "owned_sessions": "Optional credential via env variable name; me identity, server session allocation and owner checks, then per-case history readback compares role/content/sources/citations.",
+    "ticket_observation": "Optional separate staff client performs only bounded GET lists over open/claimed/resolved, matches ticket/session plus known authenticated owner. At most 10 pages of 200 per status; missing observation, malformed pages or permissions fail required evidence. No claim or resolve.",
+    "reports": "Separate reply-contract/history/ticket evidence; no staff observer explicitly leaves persistence NOT VERIFIED. require-ticket-evidence prevents missing observer configuration. No semantic/human-acceptance claim.",
+    "cli_safety": "Finite numeric timeout/pace; no raw body, model prose, exception text or tokens in stdout. Reject aliased clients before mutation; restore injected Authorization headers.",
+    "retry": "Only explicit chat 429 is retried, maximum 6 retries/7 attempts; bounded Retry-After seconds or HTTP-date with 15s fallback and 60s cap; no terminal sleep. Other POST errors are not automatically replayed."
+  },
+  "targeted_validation": {
+    "joint": {
+      "passed": 82,
+      "duration_seconds": 2.84,
+      "log": "/tmp/rag-20261028-probe-joint-final.log"
+    },
+    "modules": {
+      "test_probe_live_script.py": 30,
+      "test_probe_live_security.py": 35,
+      "test_probe_live_evidence.py": 11,
+      "test_live_probe_outcomes.py": 6
+    },
+    "actual_route_components": [
+      "Actual FastAPI chat/session/auth/handoff routes",
+      "Real JWT user and admin checks in strict posture",
+      "Compiled LangGraph with MemorySaver and real intent/slot/tool dispatch",
+      "Actual FAQService with deterministic local embedding seam and checked-in FAQ answers",
+      "Foreign-key SQLite with persisted messages/tickets and insert-trigger refusal",
+      "Independent database queries and read-only staff API observations"
+    ],
+    "actual_route_healthy": {
+      "cases": 21,
+      "chat_turns": 24,
+      "owned_sessions": 21,
+      "messages": 48,
+      "open_unclaimed_tickets": 17,
+      "owner_history_reads": 21,
+      "observed_ticket_pairs": 17
+    },
+    "actual_route_negative_controls": [
+      "Real SQLite ticket insert refusal: 17 handoff cases fail, 0 tickets",
+      "No FAQ/retrieval, local numeric prose without citations: both knowledge cases fail",
+      "Non-admin observer: 403 and 17 handoff evidence failures, even while all 21 owner histories read back"
+    ],
+    "independent_review_controls": [
+      "History source/citation loss rejected",
+      "Foreign/bool known owner rejected",
+      "Missing ticket, wrong session, scan-truncated but existing ticket never marked verified",
+      "Negative citation page rejected; versioned FAQ/document accepted; unknown document version fails stricter contract"
+    ],
+    "external_model_calls": 0,
+    "socket_attempts_in_actual_route_fixture": 0,
+    "scope": "Local FAQ embeddings and ungrounded provider are deterministic seams, not measured live-model quality. Staff observation is a separate route, not a physically independent database system.",
+    "latest_independent_actual_route": {
+      "passed": 6,
+      "duration_seconds": 2.02,
+      "log": "/tmp/rag-probe-actual-route-final-20261028.log",
+      "artifact": "/tmp/rag-probe-actual-route-verification-20261028.json"
+    }
+  },
+  "typing_compatibility": "After restoring locked SQLAlchemy, retain separately typed three-column reply Result, explicitly narrow already SQL-non-null ratings, and preserve fixed tuple arity in an existing ownership test. No type ignores, coverage exclusions or dependency file changes.",
+  "verification": {
+    "ruff_files": 453,
+    "mypy_app_files": 440,
+    "mypy_cli_files": 2,
+    "interim_full": {
+      "passed": 3008,
+      "skipped": 3,
+      "warnings": 5,
+      "duration_seconds": 150.94,
+      "core_coverage_percent": 93.29,
+      "log": "/tmp/rag-20261028-probe-full-pytest.log",
+      "limit": "Before final three minor typing-expression changes; final full run has a separate log."
+    },
+    "final_full": {
+      "passed": 3008,
+      "skipped": 3,
+      "warnings": 5,
+      "duration_seconds": 139.9,
+      "core_coverage_percent": 93.29,
+      "core_statements": 4994,
+      "core_missed_statements": 335,
+      "exit_code": 0,
+      "log": "/tmp/rag-20261028-probe-full-pytest-verified.log"
+    },
+    "source_hashes_match_frozen_final_run": true,
+    "source_counts": {
+      "app_python": 440,
+      "test_python": 228,
+      "test_modules": 222
+    },
+    "warnings": [
+      "4 existing short test signing-key warnings in GLM embedding tests",
+      "1 Starlette HTTP_422_UNPROCESSABLE_ENTITY deprecation warning exposed under restored locked runtime; not silenced"
+    ],
+    "static_checks": {
+      "ruff_check": "passed",
+      "ruff_format_files": 453,
+      "mypy_app_files": 440,
+      "mypy_cli_files": 2,
+      "diff_check": "passed"
+    },
+    "before_local_build_tool_repair_full": {
+      "passed": 3008,
+      "skipped": 3,
+      "warnings": 5,
+      "duration_seconds": 146.02,
+      "core_coverage_percent": 93.29,
+      "core_statements": 4994,
+      "core_missed_statements": 335,
+      "exit_code": 0,
+      "log": "/tmp/rag-20261028-probe-full-pytest-final.log"
+    }
+  },
+  "environment_incident": {
+    "incident": "A verifier accidentally used uv run, synchronizing .venv and creating uv.lock; a recovery subprocess then mistakenly resolved the venv interpreter symlink and wrote to base pyenv. Both were corrected before final validation.",
+    "venv": "Current state: 99 runtime-lock pins match exactly; setuptools is deliberately 81.0.0 for installed optional torch 2.11.0 (<82). Before that local compatibility repair, all 100 pins were aligned offline. The pre-turn venv setuptools version is unknown. Generated uv.lock removed; product dependency files unchanged.",
+    "base_pyenv": "37 changed packages restored to explicit prior uninstall-log versions, and 8 proven newly installed packages removed. No complete initial global snapshot; conclusion limited to these affected packages.",
+    "network": "Official PyPI supplied the exact prior setuptools 81 wheel for base recovery; package-manager/research network access is separate from socket-blocked route tests.",
+    "local_evidence": "/tmp/rag-probe-base-env-recovery-20261028.json",
+    "local_build_tool_compatibility": {
+      "reason": "Lock-aligned setuptools 84.0.0 conflicted with installed optional torch 2.11.0 metadata. Both 81.0.0 and 84.0.0 satisfy this project build-system setuptools>=68 requirement.",
+      "setuptools": "81.0.0",
+      "pip_check": "No broken requirements found.",
+      "mypy_app_files": 440,
+      "mypy_cli_files": 2,
+      "install_log": "/tmp/rag-probe-venv-setuptools-compatibility-20261028.log",
+      "network": "Used the existing officially downloaded local wheel, no new resolution or network.",
+      "lock_comparison": {
+        "pins": 100,
+        "exact_matches": 99,
+        "differences": {
+          "setuptools": {
+            "lock": "84.0.0",
+            "installed": "81.0.0"
+          }
+        }
+      }
+    }
+  },
+  "limits": [
+    "No production probe, deployment, live model call, remote CI, PostgreSQL runtime, real vector service, browser or SSE measurement in this iteration.",
+    "A forged but internally consistent response can only be challenged for ticket persistence when the separate observer is enabled; default output explicitly states that limitation.",
+    "Dynamic offset pagination can miss a ticket; FAIL means not observed under this bounded scan, not proven absent.",
+    "Readback and ticket presence do not prove restart durability, semantic correctness, customer resolution or human acceptance.",
+    "Probe execution creates real messages and tickets on its target; this iteration ran only isolated local instances.",
+    "The full north-star product goal remains ongoing; multi-tenant isolation, real business API integration, production recovery and capacity remain outside this round."
+  ],
+  "primary_references": [
+    {
+      "url": "https://www.rfc-editor.org/rfc/rfc9110.html#section-10.2.3",
+      "use": "Retry-After supports HTTP-date and nonnegative delay seconds; local caps/fallback are probe policy."
+    }
+  ],
+  "repository_state": {
+    "committed_checkpoint": "2fcdbf8",
+    "this_iteration": "uncommitted",
+    "pushed": false,
+    "deployed": false,
+    "compose_override": "untouched",
+    "planning_notes": "local only"
+  },
+  "probe_sha256": "116d2c7ad2a9a59573bfa8afb9d7f847f8d3dda8067427b2ade1f6458577d15e"
+}

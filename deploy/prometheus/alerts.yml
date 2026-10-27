@@ -50,13 +50,12 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "转人工占漏斗流量超过 25%（自动处理率在劣化）"
+          summary: "转人工层触达占比超过 25%"
           description: >-
             Handoff layer touches made up {{ $value | humanizePercentage }} of
-            all funnel layer traffic over 15m. Handoff share is the operational
-            inverse of the containment north star — a sustained rise
-            means the upper layers (L0 cache, FAQ, RAG, agent loop) stopped
-            resolving demand. The 25% threshold is a starting point: tune it
+            all funnel layer traffic over 15m. A sustained rise can indicate
+            a traffic-mix or routing change; inspect customer requests
+            and handoff outcomes. The 25% threshold is a starting point: tune it
             against the observed baseline once real traffic exists. Layer
             touches are counted per turn and are not mutually exclusive, so
             treat the ratio as a trend signal, not an exact session rate.
@@ -154,24 +153,99 @@ groups:
             observed baseline once real traffic exists. Zero traffic
             yields NaN and simply does not fire.
 
+      # Default bridge interval is 300s. Allow three intervals of snapshot
+      # age; keep these 900s bounds and the availability grace aligned with
+      # CONTAINMENT_STATS_REFRESH_SECONDS if operators change the cadence.
       - alert: ContainmentRateLow
-        expr: avg(chat_containment_rate) < 0.7
+        expr: |
+          avg by (job) (
+            (chat_containment_rate{job="rag-chatbot-api"} >= 0)
+            and (chat_containment_rate{job="rag-chatbot-api"} <= 1)
+            and on (job, instance) (chat_sessions_served{job="rag-chatbot-api"} > 0)
+            and on (job, instance) (chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api"} > 0)
+            and on (job, instance) (chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api"} <= time() + 60)
+            and on (job, instance) ((time() - chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api"}) <= 900)
+            and on (job, instance) (up{job="rag-chatbot-api"} == 1)
+          ) < 0.7
         for: 30m
         labels:
           severity: warning
         annotations:
-          summary: "会话级自动处理率低于 70%（北极星在失血）"
+          summary: "会话级自动处理代理率低于 70%"
           description: >-
-            Session-level containment over the stats window is
-            {{ $value | humanizePercentage }} — fewer than 7 in 10 served
-            sessions end without pulling in a human. This is the north
-            star's highest-weighted metric at its honest granularity
-            (turn-level handoff share understates failure: a 5-turn
-            session with one handoff reads 20% there, 0% here). The
-            gauge is DB-bridged and refreshed periodically; a DB outage
-            freezes it at the last value rather than dropping it, so a
-            firing alert reflects real escalation volume, not scrape
-            loss. Absent gauge (no refresh ever ran) does not fire.
+            Fresh nonempty snapshots report containment
+            {{ $value | humanizePercentage }} for 30 minutes. This is the
+            share of served sessions without a handoff ticket AND without
+            an in-window downvote, not confirmed problem resolution.
+            Only successfully scraped replicas with a successful refresh
+            no more than 15 minutes old contribute to the mean. Empty,
+            uninitialized, stale or invalid snapshots are excluded. A
+            future-clock tolerance of 60 seconds avoids resetting pending
+            alerts on small clock offsets; larger offsets are reported by
+            ContainmentStatsClockSkew;
+            ContainmentStatsUnavailable reports missing statistical evidence.
+            Replicas can refresh at different instants; this is not an
+            atomic database snapshot. Inspect ticket mix, feedback and
+            independent resolution/QA evidence before drawing conclusions.
+          runbook_url: "https://github.com/Bensonluo/rag_chatbot/blob/main/docs/operations/containment-alerts.md"
+
+      - alert: ContainmentStatsUnavailable
+        expr: |
+          (
+            count by (job) (
+              up{job="rag-chatbot-api"}
+              unless on (job, instance) (
+                (up{job="rag-chatbot-api"} == 1)
+                and on (job, instance) (chat_sessions_served{job="rag-chatbot-api"} >= 0)
+                and on (job, instance) (chat_containment_rate{job="rag-chatbot-api"} >= 0)
+                and on (job, instance) (chat_containment_rate{job="rag-chatbot-api"} <= 1)
+                and on (job, instance) (chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api"} > 0)
+                and on (job, instance) (chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api"} <= time() + 60)
+                and on (job, instance) ((time() - chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api"}) <= 900)
+              )
+            ) > 0
+          )
+          or absent(up{job="rag-chatbot-api"})
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "会话质量统计不可用或部分副本陈旧"
+          description: >-
+            At least one discovered API target has no valid containment
+            snapshot, or no API targets are discovered, for 10 minutes.
+            Check scrape health, successful-refresh timestamps, database
+            access, refresher startup/configuration and clock alignment.
+            Zero served sessions with a fresh successful snapshot is valid.
+            A disabled refresher also leaves this KPI unavailable; this
+            alert does not by itself prove a customer-facing outage or
+            low containment. A healthy replica does not hide another
+            replica's unavailable evidence.
+          runbook_url: "https://github.com/Bensonluo/rag_chatbot/blob/main/docs/operations/containment-alerts.md"
+
+      # A brief future timestamp after every refresh can otherwise reset
+      # both pending timers indefinitely. Latch the observed clock error.
+      - alert: ContainmentStatsClockSkew
+        expr: |
+          max by (job) (
+            (chat_containment_stats_last_success_timestamp_seconds{job="rag-chatbot-api"} - time())
+            and on (job, instance) (up{job="rag-chatbot-api"} == 1)
+          ) > 60
+        for: 0m
+        keep_firing_for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "会话统计成功时间超过允许的时钟偏差"
+          description: >-
+            A scraped API replica reports a successful-refresh timestamp
+            more than 60 seconds ahead of Prometheus. Check application
+            and Prometheus clock synchronization before trusting snapshot
+            age. This warning fires immediately and stays active for
+            10 minutes after its expression first stops matching, so brief
+            repeated clock errors cannot silently reset the other pending timers.
+            It does not by itself prove a customer-facing outage.
+          runbook_url: "https://github.com/Bensonluo/rag_chatbot/blob/main/docs/operations/containment-alerts.md"
 
   - name: cs-chat-latency
     rules:

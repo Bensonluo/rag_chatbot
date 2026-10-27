@@ -48,6 +48,7 @@ ZH_CATEGORY_SLOT = "请问您要投诉哪个方面？（如：商品质量、服
 EN_CATEGORY_SLOT = "What would you like to complain about? (e.g. product quality, service)"
 ZH_KB = "退货政策：签收后七天内可申请退货，商品须保持完好并保留购买凭证。"
 EN_KB = "Our return policy allows returns within 7 days of delivery in resaleable condition."
+EN_REFUND = "Approved refunds return to Alipay/WeChat within 1-3 business days."
 
 
 _TICKET_MESSAGES = frozenset(
@@ -73,6 +74,41 @@ def _classify(message: str) -> str:
     return "order_slot"  # refund task turns
 
 
+def _reply(kind: str, content: str, session_id: int = 1) -> dict[str, Any]:
+    intent = {
+        "ticket": "handoff",
+        "order_slot": "refund",
+        "category_slot": "complaint",
+        "kb": "faq",
+    }[kind]
+    metadata: dict[str, Any] = {"pending_slots": []}
+    if kind == "ticket":
+        metadata.update(handoff_outcome="queued", handoff_ticket_id=12)
+    elif kind in {"order_slot", "category_slot"}:
+        metadata["pending_slots"] = (
+            ["order_id"] if kind == "order_slot" else ["category", "description"]
+        )
+    result: dict[str, Any] = {
+        "content": content,
+        "session_id": session_id,
+        "intent": intent,
+        "metadata": metadata,
+        "sources": [],
+        "citations": [],
+    }
+    if kind == "kb":
+        result["sources"] = ["faq:policy"]
+        result["citations"] = [
+            {
+                "source_type": "faq",
+                "faq_id": "policy",
+                "version_id": "sha256:" + "a" * 64,
+                "excerpt": content,
+            }
+        ]
+    return result
+
+
 def _well_behaved_handler(seen: list[tuple[int, str]]) -> Handler:
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
@@ -85,11 +121,11 @@ def _well_behaved_handler(seen: list[tuple[int, str]]) -> Handler:
             "ticket": ZH_TICKET if zh else EN_TICKET,
             "order_slot": ZH_ORDER_SLOT if zh else EN_ORDER_SLOT,
             "category_slot": ZH_CATEGORY_SLOT if zh else EN_CATEGORY_SLOT,
-            "kb": ZH_KB if zh else EN_KB,
+            "kb": EN_REFUND
+            if message == "and how long do refunds take"
+            else (ZH_KB if zh else EN_KB),
         }[kind]
-        return httpx.Response(
-            200, json={"content": content, "session_id": session_id, "intent": kind}
-        )
+        return httpx.Response(200, json=_reply(kind, content, session_id))
 
     return handler
 
@@ -161,7 +197,7 @@ class TestProbeFailureDetection:
             body = json.loads(request.content)
             return httpx.Response(
                 200,
-                json={"content": ZH_TICKET, "session_id": body["session_id"], "intent": "handoff"},
+                json=_reply("ticket", ZH_TICKET, body["session_id"]),
             )
 
         async with _client(handler) as client:
@@ -194,7 +230,7 @@ class TestProbeFailureDetection:
             body = json.loads(request.content)
             return httpx.Response(
                 200,
-                json={"content": ZH_TICKET, "session_id": body["session_id"], "intent": "handoff"},
+                json=_reply("ticket", ZH_TICKET, body["session_id"]),
             )
 
         async with _client(handler) as client:
@@ -222,21 +258,78 @@ class TestPredicates:
         """Money tasks must ask for the order — anything else is a failure."""
         check = probe.is_order_slot_prompt()
 
-        assert check({"content": ZH_ORDER_SLOT}) is None
+        assert check(_reply("order_slot", ZH_ORDER_SLOT)) is None
         assert "slot-collection" in (check({"content": ZH_TICKET}) or "")
         # A complaint-category prompt is the wrong slot for a refund turn.
-        assert check({"content": ZH_CATEGORY_SLOT}) is not None
+        assert check(_reply("category_slot", ZH_CATEGORY_SLOT)) is not None
 
     def test_category_slot_prompt_anchors_on_complaint_vocabulary(self) -> None:
         """The complaint flow collects 方面 first; the check must anchor on
         that vocabulary so chitchat with a question mark cannot pass."""
         check = probe.is_category_slot_prompt()
 
-        assert check({"content": ZH_CATEGORY_SLOT}) is None
-        assert check({"content": EN_CATEGORY_SLOT}) is None
+        assert check(_reply("category_slot", ZH_CATEGORY_SLOT)) is None
+        assert check(_reply("category_slot", EN_CATEGORY_SLOT)) is None
         # Friendly opener with a question mark: no complaint anchor → FAIL.
         assert check({"content": "您好呀，今天想聊点什么呢？"}) is not None
         assert "slot-collection" in (check({"content": ZH_TICKET}) or "")
+
+
+class TestStructuredOutcomes:
+    @pytest.mark.parametrize(
+        "fault",
+        [
+            "failed_ticket",
+            "bool_ticket_id",
+            "wrong_ticket_id",
+            "wrong_session",
+            "array_content",
+            "no_citations",
+            "wrong_excerpt",
+            "empty_followup",
+            "queued_slot",
+        ],
+    )
+    async def test_plausible_text_cannot_hide_a_broken_outcome(self, fault: str) -> None:
+        healthy = _well_behaved_handler([])
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            reply = healthy(request).json()
+            kind = _classify(body["message"])
+            if fault == "failed_ticket" and kind == "ticket":
+                reply["metadata"]["handoff_outcome"] = "failed"
+            elif fault == "bool_ticket_id" and kind == "ticket":
+                reply["metadata"]["handoff_ticket_id"] = True
+            elif fault == "wrong_ticket_id" and kind == "ticket":
+                reply["metadata"]["handoff_ticket_id"] = 99
+            elif fault == "wrong_session":
+                reply["session_id"] += 1
+            elif fault == "array_content":
+                reply["content"] = [reply["content"]]
+            elif fault == "no_citations" and kind == "kb":
+                reply["sources"], reply["citations"] = [], []
+            elif fault == "wrong_excerpt" and kind == "kb":
+                reply["citations"][0]["excerpt"] = "An unrelated billing policy."
+            elif fault == "empty_followup" and body["message"] == "and how long do refunds take":
+                reply["content"] = ""
+            elif fault == "queued_slot" and kind == "order_slot":
+                reply["metadata"].update(handoff_outcome="queued", handoff_ticket_id=12)
+            return httpx.Response(200, json=reply)
+
+        async with _client(handler) as client:
+            cases = await probe.run_probes(client)
+        assert any(c.failures for c in cases), fault
+
+    async def test_consecutive_runs_do_not_reuse_timestamp_sessions(self) -> None:
+        seen: list[tuple[int, str]] = []
+        async with _client(_well_behaved_handler(seen)) as client:
+            await probe.run_probes(client)
+            first_ids = {sid for sid, _ in seen}
+            seen.clear()
+            await probe.run_probes(client)
+        assert first_ids.isdisjoint(sid for sid, _ in seen)
+        assert all(0 < sid <= 2_147_483_647 for sid, _ in seen)
 
 
 class TestRateLimitBackoff:
@@ -281,6 +374,58 @@ class TestRateLimitBackoff:
         assert all(c.failures for c in cases)
         assert all("rate-limited (429)" in f for c in cases for f in c.failures)
 
+    @pytest.mark.parametrize(
+        "retry_after,expected_delay",
+        [("1", 1.0), ("999999", 60.0), ("nan", 15.0), ("invalid", 15.0)],
+    )
+    async def test_server_retry_after_is_honored_and_bounded(
+        self, monkeypatch: pytest.MonkeyPatch, retry_after: str, expected_delay: float
+    ) -> None:
+        waits: list[float] = []
+
+        async def sleep(seconds: float) -> None:
+            waits.append(seconds)
+
+        calls = 0
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return httpx.Response(429, headers={"Retry-After": retry_after})
+            return httpx.Response(200, json=_reply("ticket", ZH_TICKET))
+
+        monkeypatch.setattr(probe.asyncio, "sleep", sleep)
+        async with _client(handler) as client:
+            result = await probe._post_turn(client, {"message": "转人工", "session_id": 1})
+        assert isinstance(result, httpx.Response) and result.status_code == 200
+        assert calls == 2 and waits == [expected_delay]
+
+    async def test_exhausted_retry_does_not_sleep_or_repeat_other_http_errors(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        waits: list[float] = []
+
+        async def sleep(seconds: float) -> None:
+            waits.append(seconds)
+
+        calls: list[int] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            status = int(request.headers["test-status"])
+            calls.append(status)
+            return httpx.Response(status)
+
+        monkeypatch.setattr(probe.asyncio, "sleep", sleep)
+        monkeypatch.setattr(probe, "RATE_LIMIT_MAX_RETRIES", 0)
+        async with _client(handler) as client:
+            client.headers["test-status"] = "429"
+            assert isinstance(await probe._post_turn(client, {}), str)
+            client.headers["test-status"] = "503"
+            result = await probe._post_turn(client, {})
+        assert isinstance(result, httpx.Response) and result.status_code == 503
+        assert calls == [429, 503] and waits == []
+
 
 class TestMainExitCode:
     async def test_main_exit_code_follows_failures(
@@ -292,7 +437,7 @@ class TestMainExitCode:
             body = json.loads(request.content)
             return httpx.Response(
                 200,
-                json={"content": ZH_TICKET, "session_id": body["session_id"], "intent": "handoff"},
+                json=_reply("ticket", ZH_TICKET, body["session_id"]),
             )
 
         async with _client(handler) as client:

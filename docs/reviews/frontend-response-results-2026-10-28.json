@@ -1,0 +1,132 @@
+{
+  "date": "2026-10-28",
+  "round": 17,
+  "status": "clean_install_gates_passed_browser_unverified",
+  "backend_base": "2fcdbf8",
+  "frontend_base": "1ee9371f452284314894418297df401c0d027f5e",
+  "problem": "Actual customer UI replaced failures with canned business replies, concurrent streams could overwrite the latest assistant, and EOF without DONE appeared complete.",
+  "before": {
+    "actual_component_api_repro_cases": 4,
+    "baseline_real_component_api_integration_failed": 11,
+    "stop_control_note": "Two later stop-receiving cases also fail on baseline because the control is absent.",
+    "trace_render": {
+      "failed": 18,
+      "positive_control": 1
+    },
+    "protocol_audit": {
+      "mismatches": 19,
+      "controls": 6,
+      "note": "Final 36-case audit is expanded, not 36 identical pre-fix cases."
+    }
+  },
+  "changes": [
+    "No automatic canned business fallback; partial text retained with fixed bilingual failure reason",
+    "Synchronous single-flight and stable local IDs bind callbacks to their request",
+    "Only nonempty body plus complete DONE frame indicates received-complete, not business success",
+    "Stop aborts reception without promising business cancellation; no automatic POST retry",
+    "Busy voice enters editable draft for manual send; unmount aborts and ignores late callbacks",
+    "SSE MIME, UTF-8, CR/LF, comments and metadata validation; malformed trace cannot crash React",
+    "UI-index feedback path removed; real server identity and status remain pending"
+  ],
+  "validation": {
+    "environment": "macOS arm64 / Node26.0.0 / npm12.2.0",
+    "clean_install": {
+      "passed": true,
+      "command": "npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org",
+      "initial_failure": "EALLOWREMOTE on mirror URLs; no security settings relaxed",
+      "log": "/tmp/rag-round17-frontend-clean-install-official.log"
+    },
+    "tests": {
+      "jest": 148,
+      "jest_suites": 7,
+      "node_protocol": 29,
+      "total": 177,
+      "new_jest": {
+        "component": 30,
+        "real_component_api": 13,
+        "trace_render": 19
+      },
+      "log": "/tmp/rag-round17-frontend-full-tests-clean.log"
+    },
+    "lint": {
+      "passed": true,
+      "log": "/tmp/rag-round17-frontend-lint-clean.log"
+    },
+    "strict_types": {
+      "passed": true,
+      "log": "/tmp/rag-round17-frontend-tsc-clean.log"
+    },
+    "static_build": {
+      "passed": true,
+      "pages_including_not_found": 11,
+      "log": "/tmp/rag-round17-frontend-build-clean.log"
+    },
+    "runtime_audit": {
+      "advisories": 0,
+      "development_dependencies_excluded": true,
+      "log": "/tmp/rag-round17-frontend-runtime-audit-clean.json"
+    },
+    "independent_protocol": {
+      "cases": 36,
+      "typed_kind_status_assertions": 21,
+      "passed": true
+    },
+    "browser": {
+      "verified": false,
+      "reason": "No browser inventory; native browser cgWindowNotFound",
+      "local_http_ssr": 200,
+      "scope": "Before framework upgrade only, not visual/hydration/interaction proof; owned temporary servers stopped"
+    },
+    "backend": {
+      "full_suite_rerun_this_round": false,
+      "previous_round": {
+        "passed": 3010,
+        "skipped": 3,
+        "warnings": 5,
+        "coverage_percent": 93.29
+      },
+      "source_and_config_sha_matched": 445
+    }
+  },
+  "dependencies": {
+    "next_from": "16.3.8",
+    "next_to": "16.4.3",
+    "eslint_config_next": "16.4.3",
+    "scope": "same major, cross minor",
+    "changed_version_package_records": 12,
+    "packages_added": 0,
+    "packages_removed": 0,
+    "source_host_only_changes": 663,
+    "normalization_version_changes": 0,
+    "normalization_integrity_changes": 0,
+    "resolved_host": "registry.npmjs.org",
+    "python_or_global_package_changes_this_round": false,
+    "deployment": "Static export and unoptimized images; no proven exploitation/exposure claim",
+    "official_sources": [
+      "https://github.com/vercel/next.js/releases/tag/v16.4.1",
+      "https://github.com/vercel/next.js/releases/tag/v16.4.3",
+      "https://github.com/advisories/GHSA-2464-fhr4-w9xw",
+      "https://github.com/advisories/GHSA-p3m5-59mp-jv5r",
+      "https://github.com/advisories/GHSA-673q-mjm6-r5xr",
+      "https://docs.npmjs.com/cli/v12/using-npm/config/#allow-remote"
+    ]
+  },
+  "source_sha256": {
+    "components/projects/ChatInterfaceUpdated.tsx": "191596cb2e9969278321aef8946e74906466dc41ebea79318a300270db0520a9",
+    "components/projects/ExecutionChainPanel.tsx": "b23f357d86fd42f3fa5a8fe58e92a3b614a86feb92eb55c7dd51d393af33553e",
+    "lib/api.ts": "923cb9f10d766fe14568a7c801ff24c93cc2f170b97f83a94f379d22f66bb25c",
+    "lib/__tests__/api-citations.test.mjs": "d4b97aa92f2fb6b8ec97c1e61cd17e32297e939c4c9ff5ceb24105f8e0a6dc42",
+    "components/__tests__/chat-turn-state.test.tsx": "c5d73492ad9d7d1c64de6919e295e03ed67decf60a5286d3ed73ae30f1d6dc10",
+    "components/__tests__/chat-response-integration.test.tsx": "bddebbb1a6f0714c79dbffc81cb6f894702c37f9422893b1879ae7b02009783a",
+    "components/__tests__/trace-render-integrity.test.tsx": "150b0dbeebb44022d056851bd229698bc6e6c56412653f85ec6ea9558e7820a0",
+    "package.json": "2eed24fefe139a702e7436f2548f329e492bc4d34c72174b3229372548db57e5",
+    "package-lock.json": "7b0296c14da823a47e60e7f3df998fc9338827aa421d25dbd630e97b639039c7"
+  },
+  "limits": [
+    "No real backend/model/microphone or production business operation in frontend validation",
+    "No browser visual/interaction acceptance or remote Node22/Ubuntu CI",
+    "Real feedback IDs/status, staff-customer messaging, claimed-ticket bot coordination, knowledge publication consistency and tenant isolation remain open",
+    "No push/deployment; user Compose and local planning excluded from commit"
+  ],
+  "next": "Complete real message identity/status propagation and ownership-safe feedback without guessing IDs."
+}

@@ -399,8 +399,8 @@ class TicketRepository(BaseRepository[HandoffTicket]):
         resolved_n = result.scalar() or 0
         result = await self.session.execute(reopened)
         reopened_n = result.scalar() or 0
-        result = await self.session.execute(reply_populations)
-        failed_replies_n, completed_replies_n, latest_reply_failed_n = result.one()
+        reply_result = await self.session.execute(reply_populations)
+        failed_replies_n, completed_replies_n, latest_reply_failed_n = reply_result.one()
         return {
             "window_start": since.isoformat(),
             "sessions_served": total,

@@ -41,16 +41,17 @@ _PINNED_ALERTS = {
     "EmbeddingCacheFailuresRising",
     "FeedbackNegativeShareHigh",
     "ContainmentRateLow",
+    "ContainmentStatsUnavailable",
+    "ContainmentStatsClockSkew",
     "ChatTTFTSlow",
     "ChatStreamErrorRateHigh",
     "ClaimGateViolationsRising",
 }
 
-# DB-bridged replica-invariant gauges (handoff/metrics.py +
-# handoff/containment_metrics.py): every replica's refresher sets its own
-# copy from the same DB aggregate, and dns_sd scrapes them all
-# (test_scale_readiness) — a raw reference evaluates once per replica
-# (duplicate alert instances) instead of once for the truth.
+# DB-bridged gauges are independently refreshed copies of a shared DB
+# aggregate. Other queue rules retain their existing avg strategy.
+# Containment uses validated replicas and a separate unavailable count;
+# timing/missing-data behavior is exercised by the deployed PromQL engine.
 _DB_BRIDGED_GAUGES = (
     "chat_containment_rate",
     "chat_sessions_served",
@@ -93,12 +94,14 @@ def _referenced_metrics(expr: str, known: set[str]) -> set[str]:
 
 class TestAlertRulesContract:
     def test_db_bridged_gauges_are_replica_aggregated(self):
-        """A DB-bridged gauge holds replica-invariant truth, but each
-        scraped replica contributes its own series — reference it
-        through avg() so an alert evaluates the truth once, not N
-        times (and a single fail-open frozen replica cannot alone page
-        or alone silence the alert)."""
+        """Keep queue aggregation; test containment's new contract separately."""
         for rule in _rules():
+            if rule["alert"] in {
+                "ContainmentRateLow",
+                "ContainmentStatsUnavailable",
+                "ContainmentStatsClockSkew",
+            }:
+                continue
             expr = str(rule.get("expr", ""))
             for gauge in _DB_BRIDGED_GAUGES:
                 if gauge in expr:
@@ -151,3 +154,40 @@ class TestAlertRulesContract:
         assert any("alerts.yml" in v for v in volumes), (
             "prometheus service must mount deploy/prometheus/alerts.yml"
         )
+
+    def test_containment_quality_and_data_availability_are_separate(self):
+        rules = {rule["alert"]: rule for rule in _rules()}
+        quality = rules["ContainmentRateLow"]
+        availability = rules["ContainmentStatsUnavailable"]
+        clock = rules["ContainmentStatsClockSkew"]
+        assert quality["for"] == "30m"
+        assert availability["for"] == "10m"
+        assert clock["for"] == "0m"
+        assert clock["keep_firing_for"] == "10m"
+        assert "avg by (job)" in quality["expr"]
+        assert "count by (job)" in availability["expr"]
+        scrape = yaml.safe_load(_PROM_CONFIG_PATH.read_text())["scrape_configs"]
+        assert "rag-chatbot-api" in {job["job_name"] for job in scrape}
+        for rule in (quality, availability, clock):
+            assert 'job="rag-chatbot-api"' in rule["expr"]
+            assert "chat_containment_stats_last_success_timestamp_seconds" in rule["expr"]
+            assert "up{" in rule["expr"]
+            assert rule["labels"]["severity"] == "warning"
+            runbook = rule["annotations"]["runbook_url"]
+            assert runbook.endswith("/docs/operations/containment-alerts.md")
+            assert (_REPO_ROOT / "docs/operations/containment-alerts.md").is_file()
+
+    def test_promql_timing_tests_are_required_in_ci_with_the_deployed_engine(self):
+        ci = yaml.safe_load((_REPO_ROOT / ".github/workflows/ci.yml").read_text())
+        job = ci["jobs"]["prometheus-rules"]
+        assert job.get("continue-on-error") is not True
+        assert job.get("if") is None
+        compose = yaml.safe_load(_COMPOSE_PATH.read_text())
+        assert job["env"]["PROMETHEUS_TEST_IMAGE"] == compose["services"]["prometheus"]["image"]
+        steps = [step for step in job["steps"] if "run" in step]
+        assert len(steps) == 2
+        assert all(step.get("continue-on-error") is not True for step in steps)
+        commands = "\n".join(step["run"] for step in steps)
+        assert "check rules /rules/alerts.yml" in commands
+        assert "test rules /rules/containment-alerts.test.yml" in commands
+        assert (_ALERTS_PATH.parent / "containment-alerts.test.yml").is_file()

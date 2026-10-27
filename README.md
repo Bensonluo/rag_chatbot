@@ -61,7 +61,7 @@ Deployment commands below start a single API instance. Replica templates, option
 | Human handoff | Tickets, queue/AHT, assigned-agent transcript, knowledge-gap records | Carry context into staff handling and feed knowledge maintenance |
 | Operational control | Epoch-scoped L0/L1/L2 cache, metrics/alerts, tracing, rate limits | Inspect latency, outcomes, cache consistency and load |
 
-**Recorded quality baseline (2026-10-28):** 2941 passing core tests, 3 opt-in scenarios skipped by default, 93.19% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
+**Recorded quality baseline (2026-10-28):** 3010 passing core tests, 3 opt-in scenarios skipped by default, 93.29% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
 
 [Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md)
 
@@ -463,7 +463,7 @@ separately configured checkpoint databases require their own recovery plans.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 2941 passed + 3 opt-in skipped / 93.19%)
+# Maintained core suite (70% minimum; currently 3010 passed + 3 opt-in skipped / 93.29%)
 pytest
 
 # Targeted runs
@@ -471,6 +471,10 @@ pytest app/tests/unit/services/dialogue/ -v    # LangGraph tests
 pytest app/tests/unit/services/intent/ -v      # Intent detection
 # Legacy audit only (contains superseded contracts; not expected to be all green)
 pytest app/tests --no-cov
+
+# Use promtool from the deployed Prometheus 2.47.2 release
+promtool check rules deploy/prometheus/alerts.yml
+promtool test rules deploy/prometheus/containment-alerts.test.yml
 ```
 
 Answer evaluation separates given-context point coverage from evidence-grounded
@@ -482,6 +486,14 @@ See the [evaluation runbook](docs/operations/answer-quality-evaluation.md) and
 A separate zero-LLM strict-mode route test now covers owner chat, handoff, claimed
 staff context with citations, and denial after resolution.
 
+The live probe checks response/session identity, queued-ticket IDs and policy citation
+anchors. Optional authenticated mode allocates owned sessions and reads their history;
+a separate staff client can observe ticket/session/owner pairs without claiming tickets.
+Default anonymous PASS without a staff observer leaves ticket persistence unverified;
+random IDs provide best-effort session isolation.
+See the [probe runbook](docs/operations/live-probe.md) for credential configuration,
+side effects, bounded queue scans and evidence limits.
+
 ### Code Quality Gates
 
 ```bash
@@ -491,11 +503,11 @@ ruff format --check app/
 mypy app/
 ```
 
-Local verification on 2026-10-28: 2941 tests pass, with three opt-in scenarios
+Local verification on 2026-10-28: 3010 tests pass, with three opt-in scenarios
 skipped by default (PostgreSQL concurrency, assigned-transcript locking, and
 the Docker recovery drill);
-core coverage is 93.19%. Ruff and
-full strict Mypy pass (437 Python files).
+core coverage is 93.29%. Ruff and
+full strict Mypy pass (440 Python files).
 Authenticated HTTP/SSE regressions cover chat ownership, guarded text and
 citations, plus ASGI 2.3/2.4 disconnect persistence; the earlier socket-blocked
 run is recorded in the [boundary evidence](docs/reviews/http-stream-results-2026-10-23.json).
@@ -509,25 +521,37 @@ write. See the [cache-context evidence](docs/reviews/context-cache-results-2026-
 Persisted reply failures now remain visible beside containment: 15 real SQLite/JWT HTTP
 cases verify cohort counts, latest-reply ordering, Prometheus output and outage handling.
 Grafana separates counts, ratios and refresh age; see the [metric contract](docs/operations/session-quality-metrics.md).
+The probe revision passes 82 focused cases, including six real route scenarios with
+SQLite/FAQ/JWT: owned histories and separate staff ticket observation, database refusal,
+uncited answers and denied observer access. No live model or production service was used.
+See the [probe evidence](docs/reviews/live-probe-results-2026-10-28.json).
+Containment alerts now separate fresh business snapshots, unavailable statistics and
+clock skew. Native Prometheus timing tests are required by a dedicated CI job configured with
+the same engine version as deployment; see the [alert runbook](docs/operations/containment-alerts.md).
+Rule evaluation tests do not prove external notification delivery.
 
-The following dependency and companion-frontend checks were verified in earlier
-iterations and were not rerun on October 28. All 8 PostgreSQL concurrency tests
+The following database checks were verified in earlier iterations and were not
+rerun on October 28. All 8 PostgreSQL concurrency tests
 and the SQLite/PostgreSQL migration round trips pass in isolated databases.
 The new PostgreSQL backup/recovery drill also passes with explicit Docker opt-in.
 CI migration/recovery commands were verified locally; remote CI was not triggered.
 See the [iteration record](docs/reviews/product-quality-2026-10-16.md) for evidence
-and migration precautions. The companion `portfolio-fe` now passes all 86
-tests (79 Jest + 7 citation protocol tests), lint, strict TypeScript checks, and
-a static build of 11 pages. Its legacy test configuration and 125 type errors
-are resolved. Runtime npm audit reports zero vulnerabilities; development-tool
-dependency advisories remain documented in the iteration record.
+and migration precautions. On October 28, the companion `portfolio-fe` passed
+177 tests (148 Jest + 29 citation/stream protocol tests), lint, strict TypeScript
+checks and an 11-page static build after a clean install. Failed or interrupted
+chat replies retain their partial text and cannot become canned business replies;
+completion requires the stream's explicit terminator. Next and its ESLint config
+were upgraded from 16.3.8 to 16.4.3; runtime npm audit reports zero advisories
+(development dependencies excluded). Browser visual/interaction verification was
+unavailable. Real feedback message IDs and staff-to-customer messaging remain
+open product gaps; see the [frontend evidence](docs/reviews/frontend-response-results-2026-10-28.json).
 
 | Metric | Value |
 |--------|-------|
-| Maintained test results | **2941 passed, 3 opt-in skipped** |
-| Maintained core coverage | **93.19%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
-| Python files (app/) | 437 |
-| Python files in app/tests/ | 225 (219 test_ modules) |
+| Maintained test results | **3010 passed, 3 opt-in skipped** |
+| Maintained core coverage | **93.29%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
+| Python files (app/) | 440 |
+| Python files in app/tests/ | 228 (222 test_ modules) |
 
 ---
 
@@ -539,7 +563,7 @@ dependency advisories remain documented in the iteration record.
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 2941 passing core tests, 93.19% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
+- [x] 3010 passing core tests, 93.29% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)

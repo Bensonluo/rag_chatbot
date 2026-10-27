@@ -52,7 +52,7 @@ class FeedbackRepository:
         result = await self._db.execute(
             select(Message.user_rating).where(Message.user_rating.isnot(None))
         )
-        ratings = [r for (r,) in result.fetchall()]
+        ratings = [r for (r,) in result.fetchall() if r is not None]
         if not ratings:
             return {"total": 0, "positive": 0, "negative": 0, "average": 0.0}
         return {
