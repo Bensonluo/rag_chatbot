@@ -299,3 +299,20 @@
 后续已确认的测量缺口仍在：只有 FAILED 回复的会话会按当前“无工单/无差评”公式计作 containment，缺少独立失败人群维度；现有 live probe 的文本锚点也可接受错误转接或政策形状。它们作为后续独立迭代，未在本轮改动 KPI 口径或声称产品整体验收完成。
 
 最终默认完整回归：**2918 passed, 3 skipped, 4 warnings in 150.09s**，核心覆盖 **93.19%**。Ruff lint/format **449 文件通过**，严格 Mypy app **436 文件零错误**，两个评测/probe CLI 类型检查通过，`git diff --check` 通过。三个既有 opt-in 跳过与四条既有短 JWT 测试密钥警告未变；首轮失败日志保留，没有降低覆盖率要求或调整测试发现排除路径。README 更新当前结果与文件数；第十二轮结果仍保留其独立快照，不将本轮成绩写回历史。本轮验证后按用户要求提交，未推送或部署；用户本地 Compose 文件未动。
+
+
+## 第十四轮：失败回复会话不再藏在代理指标中（2026-10-28）
+
+先按用户要求将第十二/十三轮提交为 `f237a16`，再继续本轮，未推送。真实 SQLite/JWT HTTP/刷新器复现了已确认缺口：唯一 assistant 消息为 FAILED、没有工单或差评时，既有统计为 served=1、containment=1.0、resolved=0，Prometheus 与 Grafana 没有失败人群。这符合原“无升级/无差评”公式，修复应补充可见证据，不能悄悄改分母或把 containment 改叫解决率。
+
+本轮新增三个加法会话计数：`sessions_with_failed_replies`、`sessions_with_completed_replies`、`sessions_latest_reply_failed`。前两集合可重叠；最新仅按窗口内 assistant 的 created_at DESC/id DESC，后续 user/system 不覆盖。PENDING/PROCESSING/未知/NULL 不当作成功，resolved/reopened 与失败信号独立。三维在一个窗口 SQL 聚合中计算，旧六个聚合保持原定义；完整报告仍不是并发写入下的原子快照。
+
+统计沿用现有 `/sessions/containment-stats`，新增同名 `chat_` Gauge，并导出最后成功刷新时间戳。DB/缺合同字段故障保留全部旧值；成功空窗口将计数归零、刷新时间前进，比例不被伪造成 0%。Grafana 将比例与绝对会话数拆分，说明配置窗口与“完成不等于解决”，删除不存在的 window 标签；零流量过滤旧比例，最近刷新年龄只代表最近成功副本。
+
+收尾发现新 Gauge 的初始化零值还不能当作 DB 已读取证据：首次刷新前无失败数据、有副本未初始化时也不应被平均成零。保留初始 Gauge 全 0/时间戳 0 与旧查询证据，按 PromQL 同标签过滤为比例与计数加上“本副本已有成功刷新”条件；成功后的真实零计数仍可显示。只修改仪表盘配置与现有合同断言，未改应用统计、Exporter 或告警。
+
+验证先红包括根因 repo 5 项、真实 JWT HTTP 最小 1 项，以及 exporter/仪表盘 7 项；初始化展示再先红 2 项。新实际链路 **15 项通过**，从真实外键 SQLite 经 JWT HTTP、实际刷新器到 Prometheus 文本解析逐项比较，覆盖失败/完成先后、同时间戳 ID、窗口微秒边界、重复消息去重、其他角色、未知状态、解决/重开、旧票据/差评 UNION 与真实 DROP TABLE 故障冻结。跨六模块 **66 项通过**；独立 legacy SQLite 矩阵 served=9、失败=5、完成=4、最新失败=3、containment=7/9，扩到 59 个 served 会话仍为固定 7 条 SELECT；仅证明无按会话 N+1，不作为容量成绩。
+
+结果见[失败回复可见性证据](failed-reply-visibility-results-2026-10-28.json)，操作口径见[会话质量统计](../operations/session-quality-metrics.md)。SQL 已 PostgreSQL 编译，本机 Docker daemon 不可连接，未执行 PostgreSQL；PromQL 依据官方语义与配置合同检查，未运行查询引擎或浏览器 Grafana。没有付费模型、外部业务服务、生产写入、部署或远程 CI。本轮验证后按用户要求提交；先前检查点为 `f237a16`。
+
+完整默认回归为 **2941 passed, 3 skipped, 4 warnings in 156.66s**，核心覆盖 **93.19%**。最后的首次刷新展示门控仅改 Grafana JSON 和既有合同断言，测试数量不变；随后 exporter/仪表盘 **19 项定向复验通过**，应用代码与全量快照一致。最终 Ruff lint/format **450 文件通过**、strict Mypy app **437 文件零错误**、CLI **2 文件通过**，`git diff --check` 通过。三个 opt-in 和四条既有短 JWT 测试密钥警告不变，没有降低门禁。README 更新最新结果；本轮验证后按用户要求提交，未推送或部署，本地 Compose 与工作规划日志保留。

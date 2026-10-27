@@ -3,10 +3,10 @@
 The session-level containment rate lives in Postgres (a repo aggregate),
 so Prometheus cannot see it until something bridges the two. This
 module runs the query on a refresh loop and sets process-level Gauges
-— same doctrine as the BM25 refresher it mirrors: every replica reads
-the same DB rows so their gauges agree, and a DB outage leaves the
-last value in place (fail-open, logged) instead of scraping the
-metric to zero.
+— same doctrine as the BM25 refresher it mirrors. Replicas refresh
+independently from the same database and can disagree while an older
+value is retained. A DB outage leaves the last value in place
+(fail-open, logged) instead of scraping the metric to zero.
 
 Undefined-rate note: when the window has no served sessions the rate
 is None and the gauge is deliberately left untouched — publishing 0
@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 CONTAINMENT_RATE = Gauge(
     "chat_containment_rate",
     "Session-level containment rate over the stats window "
-    "(served sessions with no handoff ticket / served sessions)",
+    "(served sessions with no handoff ticket and no downvote / served sessions); "
+    "a proxy, not verified problem resolution",
     registry=REGISTRY,
 )
 SESSIONS_SERVED = Gauge(
@@ -47,6 +48,27 @@ SESSIONS_SERVED = Gauge(
 SESSIONS_ESCALATED = Gauge(
     "chat_sessions_escalated",
     "Served sessions with a handoff ticket over the stats window",
+    registry=REGISTRY,
+)
+SESSIONS_WITH_FAILED_REPLIES = Gauge(
+    "chat_sessions_with_failed_replies",
+    "Sessions with >=1 FAILED assistant reply over the configured stats window",
+    registry=REGISTRY,
+)
+SESSIONS_WITH_COMPLETED_REPLIES = Gauge(
+    "chat_sessions_with_completed_replies",
+    "Sessions with >=1 COMPLETED assistant reply over the configured stats window; "
+    "may also have failed replies, and not proof of resolution",
+    registry=REGISTRY,
+)
+SESSIONS_LATEST_REPLY_FAILED = Gauge(
+    "chat_sessions_latest_reply_failed",
+    "Sessions whose latest assistant reply in the configured stats window is FAILED",
+    registry=REGISTRY,
+)
+CONTAINMENT_STATS_LAST_SUCCESS_TIMESTAMP_SECONDS = Gauge(
+    "chat_containment_stats_last_success_timestamp_seconds",
+    "Unix timestamp of this replica's last successful containment stats refresh",
     registry=REGISTRY,
 )
 CONTAINMENT_REFRESH_SECONDS = Histogram(
@@ -74,16 +96,28 @@ async def refresh_containment_stats(
         since = datetime.now(UTC) - timedelta(days=window_days)
         async with session_maker() as db:
             stats = await TicketRepository(db).get_containment_stats(since=since)
+        # Resolve the complete repository contract before publishing values.
+        # Missing fields must not silently masquerade as zero failed sessions.
+        served = stats["sessions_served"]
+        escalated = stats["sessions_escalated"]
+        failed = stats["sessions_with_failed_replies"]
+        completed = stats["sessions_with_completed_replies"]
+        latest_failed = stats["sessions_latest_reply_failed"]
+        rate = stats["containment_rate"]
     except Exception:
         CONTAINMENT_REFRESH_SECONDS.labels(outcome="error").observe(time.monotonic() - started)
         logger.exception("Containment stats refresh failed; gauges keep last values")
         return None
 
+    SESSIONS_SERVED.set(served)
+    SESSIONS_ESCALATED.set(escalated)
+    SESSIONS_WITH_FAILED_REPLIES.set(failed)
+    SESSIONS_WITH_COMPLETED_REPLIES.set(completed)
+    SESSIONS_LATEST_REPLY_FAILED.set(latest_failed)
+    if rate is not None:
+        CONTAINMENT_RATE.set(rate)
     CONTAINMENT_REFRESH_SECONDS.labels(outcome="ok").observe(time.monotonic() - started)
-    SESSIONS_SERVED.set(stats["sessions_served"])
-    SESSIONS_ESCALATED.set(stats["sessions_escalated"])
-    if stats["containment_rate"] is not None:
-        CONTAINMENT_RATE.set(stats["containment_rate"])
+    CONTAINMENT_STATS_LAST_SUCCESS_TIMESTAMP_SECONDS.set(time.time())
     return stats
 
 

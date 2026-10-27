@@ -44,11 +44,15 @@ async def get_containment_stats(
     """Session-level containment rate (north-star KPI).
 
     Denominator: sessions the bot served (≥1 assistant message) in
-    the window. Numerator: served sessions with no handoff ticket —
+    the window. Numerator: served sessions with no handoff ticket and
+    no downvoted assistant reply in the window —
     any ticket status counts as "a human was pulled in", so the rate
-    is the honest complement of the handoff share at session
-    granularity. Containment is the no-escalation share, not a
+    excludes both escalation and explicit downvote at session
+    granularity. Containment is an operational proxy, not a
     verified problem-resolution rate (review 2026-09-26, #11).
+    Additive counts expose sessions with FAILED/COMPLETED assistant
+    replies and those whose latest in-window reply is FAILED. The two
+    populations can overlap and neither implies confirmed resolution.
     Registered before the ``/{session_id}`` route:
     a path-param route would otherwise swallow this literal path.
     """

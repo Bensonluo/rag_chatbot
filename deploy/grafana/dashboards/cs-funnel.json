@@ -8,7 +8,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-1h",
@@ -441,8 +441,8 @@
     {
       "id": 11,
       "type": "timeseries",
-      "title": "自动处理率（会话级，真实口径）",
-      "description": "服务过的会话（窗口内≥1条assistant消息）中无任何转人工工单的占比——北极星最高权重指标的真实口径。与第2面板的轮级 handoff 占比互补：5轮+1次转人工在轮级读 20%，会话级读 0%。数值来自 DB 桥接 Gauge，周期刷新；DB 故障时冻结在上次值而非跌零。窗口内零流量时曲线断开（未定义，非 0%）。",
+      "title": "自动处理率（会话级代理）",
+      "description": "配置滚动窗口内服务过的会话（≥1条 assistant 消息，包含失败回复）中无转人工工单且无差评的占比；没有工单或差评并不构成问题解决证据。窗口由 CONTAINMENT_STATS_WINDOW_DAYS 配置，默认7天，不随 Grafana 时间选择器改变。DB Gauge 周期刷新，错误保留旧值；逐副本以 served>0 且成功刷新时间戳>0 过滤后取 avg；无流量或尚未成功初始化时不显示旧率。配合刷新年龄面板识别陈旧值；各副本可能错时刷新，不保证同一数据库快照。",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -469,18 +469,188 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg(chat_containment_rate)",
-          "legendFormat": "containment (sessions, {{window}}d)"
+          "expr": "avg(chat_containment_rate and (chat_sessions_served > 0) and (chat_containment_stats_last_success_timestamp_seconds > 0))",
+          "legendFormat": "containment（配置滚动窗口）"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "服务与转人工会话数",
+      "description": "统计窗口由 CONTAINMENT_STATS_WINDOW_DAYS 配置（默认7天），不是 Grafana 选定时间范围。各副本查询同一数据库，延续 avg 聚合策略避免副本重复相加；副本可能错时刷新或保留旧值。 served含窗口内任何 assistant 回复；escalated为其中存在人工工单的会话。 仅纳入成功刷新时间戳>0的副本；全部尚未成功刷新时无数据，已成功刷新的零流量仍显示0。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
         },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
         {
-          "refId": "B",
-          "expr": "avg(chat_sessions_served)",
+          "refId": "A",
+          "expr": "avg(chat_sessions_served and (chat_containment_stats_last_success_timestamp_seconds > 0))",
           "legendFormat": "served sessions"
         },
         {
-          "refId": "C",
-          "expr": "avg(chat_sessions_escalated)",
+          "refId": "B",
+          "expr": "avg(chat_sessions_escalated and (chat_containment_stats_last_success_timestamp_seconds > 0))",
           "legendFormat": "escalated sessions"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "出现失败回复的会话数",
+      "description": "统计窗口由 CONTAINMENT_STATS_WINDOW_DAYS 配置（默认7天），不是 Grafana 选定时间范围。各副本查询同一数据库，延续 avg 聚合策略避免副本重复相加；副本可能错时刷新或保留旧值。 窗口内至少一条 assistant FAILED；与完成回复会话数可重叠，同一会话仅计一次。 仅纳入成功刷新时间戳>0的副本；全部尚未成功刷新时无数据，已成功刷新的零流量仍显示0。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 48
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(chat_sessions_with_failed_replies and (chat_containment_stats_last_success_timestamp_seconds > 0))",
+          "legendFormat": "sessions with failed replies"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "出现完成回复的会话数",
+      "description": "统计窗口由 CONTAINMENT_STATS_WINDOW_DAYS 配置（默认7天），不是 Grafana 选定时间范围。各副本查询同一数据库，延续 avg 聚合策略避免副本重复相加；副本可能错时刷新或保留旧值。 窗口内至少一条 assistant COMPLETED；技术状态完成不是问题解决证据，且可与失败会话重叠。 仅纳入成功刷新时间戳>0的副本；全部尚未成功刷新时无数据，已成功刷新的零流量仍显示0。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 48
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(chat_sessions_with_completed_replies and (chat_containment_stats_last_success_timestamp_seconds > 0))",
+          "legendFormat": "sessions with completed replies"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "最新回复失败的会话数",
+      "description": "统计窗口由 CONTAINMENT_STATS_WINDOW_DAYS 配置（默认7天），不是 Grafana 选定时间范围。各副本查询同一数据库，延续 avg 聚合策略避免副本重复相加；副本可能错时刷新或保留旧值。 只看窗口内最新 assistant，按 created_at DESC、id DESC 排序；后续 user 消息不改变这个状态。 仅纳入成功刷新时间戳>0的副本；全部尚未成功刷新时无数据，已成功刷新的零流量仍显示0。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 56
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(chat_sessions_latest_reply_failed and (chat_containment_stats_last_success_timestamp_seconds > 0))",
+          "legendFormat": "sessions with latest reply failed"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "最近成功刷新距今（秒）",
+      "description": "取各副本成功刷新时间戳的 max，显示最近成功副本距今秒数；不代表全部副本均新鲜。尚未有成功刷新时不显示数据。数据库错误保留旧时间戳，成功刷新即使零流量也更新时间；系统时间偏差会影响年龄。",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 56
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - max(chat_containment_stats_last_success_timestamp_seconds > 0)",
+          "legendFormat": "age of most recent successful replica"
         }
       ]
     }

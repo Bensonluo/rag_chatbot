@@ -30,7 +30,7 @@ from app.models.database.base import Base
 from app.models.database.message import Message
 from app.models.database.session import ChatSession
 from app.models.database.ticket import HandoffTicket
-from app.models.enums.message import MessageRole
+from app.models.enums.message import MessageRole, MessageStatus
 from app.repositories.ticket_repository import TicketRepository
 
 _NOW = datetime(2026, 9, 25, 0, 0, tzinfo=UTC)
@@ -313,3 +313,38 @@ class TestResolutionCrossTab:
         assert stats["sessions_resolved"] == 0
         assert stats["sessions_reopened"] == 0
         assert stats["containment_rate"] is None
+
+
+@pytest.mark.parametrize(
+    "statuses, failed, completed, latest_failed",
+    [
+        ([MessageStatus.FAILED], 1, 0, 1),
+        ([MessageStatus.FAILED, MessageStatus.FAILED], 1, 0, 1),
+        ([MessageStatus.FAILED, MessageStatus.COMPLETED], 1, 1, 0),
+        ([MessageStatus.COMPLETED, MessageStatus.FAILED], 1, 1, 1),
+        ([MessageStatus.FAILED, MessageStatus.PROCESSING], 1, 0, 0),
+    ],
+)
+async def test_reply_status_populations_are_distinct_and_latest_is_tie_broken_by_id(
+    session_maker, statuses, failed, completed, latest_failed
+):
+    await _seed(session_maker, sessions=[1], assistant_turns={}, ticket_sessions=[])
+    async with session_maker() as db:
+        for status in statuses:
+            db.add(
+                Message(
+                    session_id=1,
+                    role=MessageRole.ASSISTANT,
+                    status=status,
+                    content="isolated reply status",
+                    created_at=_NOW,
+                )
+            )
+        await db.commit()
+    stats = await _stats(session_maker)
+    assert stats["sessions_with_failed_replies"] == failed
+    assert stats["sessions_with_completed_replies"] == completed
+    assert stats["sessions_latest_reply_failed"] == latest_failed
+    assert stats["sessions_served"] == 1
+    assert stats["containment_rate"] == 1.0
+    assert stats["sessions_resolved"] == 0

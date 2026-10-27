@@ -1,0 +1,643 @@
+{
+  "date": "2026-10-28",
+  "baseline_commit": "f237a16",
+  "baseline_change": "The preceding refund-review and shared-cache iterations were committed before starting this iteration. That commit has not been pushed.",
+  "status": "fixed_full_application_regression_and_final_dashboard_contract_passed",
+  "selected_problem": "A served session with only a persisted FAILED assistant reply still has containment=100% under the documented no-ticket/no-downvote proxy, with no independent failed-population visibility.",
+  "contract": {
+    "sessions_with_failed_replies": "Distinct sessions with >=1 in-window assistant FAILED row.",
+    "sessions_with_completed_replies": "Distinct sessions with >=1 in-window assistant COMPLETED row; completion is a reply record state, not a resolution verdict.",
+    "sessions_latest_reply_failed": "Distinct sessions whose newest in-window assistant row, ordered by created_at DESC then id DESC, is FAILED.",
+    "overlap": "A FAILED then COMPLETED session belongs to both occurrence cohorts but latest_failed is0. The reverse ordering has latest_failed1. Pending/processing/unknown latest rows do not count as completed or latest_failed.",
+    "not_added": "This iteration does not add a strict all-replies-failed cohort or row-count metrics; those were initial audit alternatives, not the selected contract."
+  },
+  "before": {
+    "minimal_red": "1 failed in0.13s",
+    "test_log": "/tmp/rag-20261028-failed-replies-minimal-red.log",
+    "snapshot": "/tmp/rag-20261028-failed-replies-before-results.json",
+    "http": {
+      "status": 200,
+      "body": {
+        "window_start": "2026-10-20T17:37:17.492974+00:00",
+        "sessions_served": 1,
+        "sessions_escalated": 0,
+        "sessions_downvoted": 0,
+        "sessions_resolved": 0,
+        "sessions_reopened": 0,
+        "containment_rate": 1.0
+      }
+    },
+    "observed_assistant_rows": [
+      {
+        "session_id": 1,
+        "status": "failed",
+        "rating": null,
+        "content": "Partial interrupted response."
+      }
+    ],
+    "existing_gauges": {
+      "chat_containment_rate": 1.0,
+      "chat_sessions_served": 1.0,
+      "chat_sessions_escalated": 0.0,
+      "chat_sessions_with_failed_replies": null,
+      "chat_sessions_with_completed_replies": null,
+      "chat_assistant_replies_failed": null,
+      "chat_assistant_replies_completed": null
+    }
+  },
+  "after_functional_chain": {
+    "test_result": "15 passed in0.53s",
+    "test_log": "/tmp/rag-20261028-failed-replies-after.log",
+    "snapshot": "/tmp/rag-20261028-failed-replies-after-results.json",
+    "http": {
+      "status": 200,
+      "body": {
+        "window_start": "2026-10-20T17:49:59.946228+00:00",
+        "sessions_served": 1,
+        "sessions_escalated": 0,
+        "sessions_downvoted": 0,
+        "sessions_resolved": 0,
+        "sessions_reopened": 0,
+        "sessions_with_failed_replies": 1,
+        "sessions_with_completed_replies": 0,
+        "sessions_latest_reply_failed": 1,
+        "containment_rate": 1.0
+      }
+    },
+    "gauge_samples": {
+      "chat_containment_rate": 1.0,
+      "chat_sessions_served": 1.0,
+      "chat_sessions_escalated": 0.0,
+      "chat_sessions_with_failed_replies": 1.0,
+      "chat_sessions_with_completed_replies": 0.0,
+      "chat_sessions_latest_reply_failed": 1.0,
+      "chat_containment_stats_last_success_timestamp_seconds": 1793123399.9529622
+    },
+    "intermediate_dashboard_config_before_initialization_guard": [
+      {
+        "id": 11,
+        "title": "自动处理率（会话级代理）",
+        "targets": [
+          "avg(chat_containment_rate and (chat_sessions_served > 0))"
+        ]
+      },
+      {
+        "id": 12,
+        "title": "服务与转人工会话数",
+        "targets": [
+          "avg(chat_sessions_served)",
+          "avg(chat_sessions_escalated)"
+        ]
+      },
+      {
+        "id": 13,
+        "title": "出现失败回复的会话数",
+        "targets": [
+          "avg(chat_sessions_with_failed_replies)"
+        ]
+      },
+      {
+        "id": 14,
+        "title": "出现完成回复的会话数",
+        "targets": [
+          "avg(chat_sessions_with_completed_replies)"
+        ]
+      },
+      {
+        "id": 15,
+        "title": "最新回复失败的会话数",
+        "targets": [
+          "avg(chat_sessions_latest_reply_failed)"
+        ]
+      },
+      {
+        "id": 16,
+        "title": "最近成功刷新距今（秒）",
+        "targets": [
+          "time() - max(chat_containment_stats_last_success_timestamp_seconds > 0)"
+        ]
+      }
+    ]
+  },
+  "functional_case_matrix": [
+    "FAILED-only population is now visible as(1,0,1), while sessions_served1, sessions_resolved0 and the existing containment proxy1.0 are unchanged.",
+    "FAILED then COMPLETED and COMPLETED then FAILED count overlapping occurrence cohorts correctly while selecting latest status.",
+    "PENDING, PROCESSING and a raw SQLite future/unknown status remain neither completed nor latest-failed; an older failed row still counts in its occurrence cohort.",
+    "Equal timestamps select the higher message ID even when that row was inserted first.",
+    "Newer USER/SYSTEM failed rows do not influence assistant cohorts/latest or the existing assistant-downvote scope.",
+    "The lower cutoff is inclusive at microsecond precision; older completion/failed rows are excluded consistently, including a session with only old traffic.",
+    "Repeated failed messages count the session once.",
+    "A healthy empty window zeros the three new gauges and returns containmentNone; the old rate gauge retains its previous valid value as before.",
+    "Ticketed and downvoted session overlap is still subtracted once. Historical ticket status/date semantics remain unchanged, and resolved_at/reopened_count evidence can coexist with failed replies without being mutated.",
+    "HTTP window_days1 and7 select the corresponding reply populations and match the real refresh/export values.",
+    "After actual DROP TABLE messages, the refresher returnsNone and preserves all existing/new count gauges plus last-success timestamp."
+  ],
+  "real_components": [
+    "SQLite with PRAGMA foreign_keys=ON",
+    "Actual TicketRepository aggregate",
+    "FastAPI sessions router and real JWT authentication/user lookup",
+    "Actual containment_metrics.refresh_containment_stats",
+    "Real Prometheus registry and generate_latest text exposition parsed independently"
+  ],
+  "new_gauges": [
+    "chat_sessions_with_failed_replies",
+    "chat_sessions_with_completed_replies",
+    "chat_sessions_latest_reply_failed",
+    "chat_containment_stats_last_success_timestamp_seconds"
+  ],
+  "exporter_and_dashboard": {
+    "scope": "Exporter and static Grafana dashboard contract; mocked repository results through real refresh function and Prometheus registry. SQL aggregation and actual JWT route are validated separately by parent/evaluation agent.",
+    "test_first": {
+      "red": {
+        "failed": 7,
+        "passed": 12,
+        "log": "/tmp/rag-failed-reply-metrics-red.log"
+      },
+      "green": {
+        "passed": 19,
+        "failed": 0,
+        "log": "/tmp/rag-failed-reply-metrics-final.log"
+      }
+    },
+    "exporter_observations": {
+      "success": {
+        "chat_containment_rate": 0.8,
+        "chat_sessions_served": 10.0,
+        "chat_sessions_escalated": 2.0,
+        "chat_sessions_with_failed_replies": 3.0,
+        "chat_sessions_with_completed_replies": 9.0,
+        "chat_sessions_latest_reply_failed": 1.0,
+        "chat_containment_stats_last_success_timestamp_seconds": 1000.0
+      },
+      "success_no_traffic": {
+        "chat_containment_rate": 0.8,
+        "chat_sessions_served": 0.0,
+        "chat_sessions_escalated": 0.0,
+        "chat_sessions_with_failed_replies": 0.0,
+        "chat_sessions_with_completed_replies": 0.0,
+        "chat_sessions_latest_reply_failed": 0.0,
+        "chat_containment_stats_last_success_timestamp_seconds": 2000.0
+      },
+      "database_failure": {
+        "chat_containment_rate": 0.8,
+        "chat_sessions_served": 0.0,
+        "chat_sessions_escalated": 0.0,
+        "chat_sessions_with_failed_replies": 0.0,
+        "chat_sessions_with_completed_replies": 0.0,
+        "chat_sessions_latest_reply_failed": 0.0,
+        "chat_containment_stats_last_success_timestamp_seconds": 2000.0
+      },
+      "missing_contract_field": {
+        "chat_containment_rate": 0.8,
+        "chat_sessions_served": 0.0,
+        "chat_sessions_escalated": 0.0,
+        "chat_sessions_with_failed_replies": 0.0,
+        "chat_sessions_with_completed_replies": 0.0,
+        "chat_sessions_latest_reply_failed": 0.0,
+        "chat_containment_stats_last_success_timestamp_seconds": 2000.0
+      }
+    },
+    "semantics": {
+      "new_counts": "Window-level distinct sessions; failed and completed counts can overlap. Latest-reply failure follows latest assistant within configured window, not later user messages.",
+      "undefined_rate": "Keep old rate gauge value, but dashboard filters each replica using both served>0 and successful-refresh timestamp>0 before avg.",
+      "staleness": "DB errors retain all old values and last-success timestamp. Successful zero traffic clears absolute counts and advances timestamp.",
+      "publication": "All required repository fields resolved before gauge writes; successful timestamp set last. This does not promise an atomic SQL or scrape snapshot.",
+      "replicas": "Count/rate panels retain avg strategy over successfully initialized replicas; age uses max timestamp for most recent successful replica, not evidence every replica is fresh."
+    },
+    "promql_primary_sources": [
+      "https://prometheus.io/docs/prometheus/2.55/querying/operators/",
+      "https://prometheus.io/docs/prometheus/2.55/querying/functions/"
+    ],
+    "promql_validation": "Official primary docs confirm comparison filters and set-intersection preserves left values; static tests require the chosen expressions and exported metric inventory. No Prometheus engine/promtool execution claimed.",
+    "checks": {
+      "ruff_lint": "passed",
+      "ruff_format": "passed",
+      "mypy": "3 source files, no issues",
+      "git_diff_check": "passed"
+    },
+    "limits": [
+      "No production DB or SQL snapshot claim.",
+      "No production Grafana browser rendering or PromQL execution.",
+      "No summation of per-replica DB counts; independent/frozen replica observations may disagree."
+    ],
+    "owned_files": [
+      "app/services/handoff/containment_metrics.py",
+      "app/tests/unit/services/handoff/test_containment_metrics.py",
+      "deploy/grafana/dashboards/cs-funnel.json",
+      "app/tests/unit/deploy/test_grafana_dashboards.py"
+    ],
+    "dashboard_panels_before_initialization_guard": [
+      {
+        "id": 11,
+        "title": "自动处理率（会话级代理）",
+        "unit": "percentunit",
+        "queries": [
+          "avg(chat_containment_rate and (chat_sessions_served > 0))"
+        ]
+      },
+      {
+        "id": 12,
+        "title": "服务与转人工会话数",
+        "unit": "short",
+        "queries": [
+          "avg(chat_sessions_served)",
+          "avg(chat_sessions_escalated)"
+        ]
+      },
+      {
+        "id": 13,
+        "title": "出现失败回复的会话数",
+        "unit": "short",
+        "queries": [
+          "avg(chat_sessions_with_failed_replies)"
+        ]
+      },
+      {
+        "id": 14,
+        "title": "出现完成回复的会话数",
+        "unit": "short",
+        "queries": [
+          "avg(chat_sessions_with_completed_replies)"
+        ]
+      },
+      {
+        "id": 15,
+        "title": "最新回复失败的会话数",
+        "unit": "short",
+        "queries": [
+          "avg(chat_sessions_latest_reply_failed)"
+        ]
+      },
+      {
+        "id": 16,
+        "title": "最近成功刷新距今（秒）",
+        "unit": "s",
+        "queries": [
+          "time() - max(chat_containment_stats_last_success_timestamp_seconds > 0)"
+        ]
+      }
+    ],
+    "dashboard_panels": [
+      {
+        "id": 11,
+        "title": "自动处理率（会话级代理）",
+        "unit": "percentunit",
+        "queries": [
+          "avg(chat_containment_rate and (chat_sessions_served > 0) and (chat_containment_stats_last_success_timestamp_seconds > 0))"
+        ]
+      },
+      {
+        "id": 12,
+        "title": "服务与转人工会话数",
+        "unit": "short",
+        "queries": [
+          "avg(chat_sessions_served and (chat_containment_stats_last_success_timestamp_seconds > 0))",
+          "avg(chat_sessions_escalated and (chat_containment_stats_last_success_timestamp_seconds > 0))"
+        ]
+      },
+      {
+        "id": 13,
+        "title": "出现失败回复的会话数",
+        "unit": "short",
+        "queries": [
+          "avg(chat_sessions_with_failed_replies and (chat_containment_stats_last_success_timestamp_seconds > 0))"
+        ]
+      },
+      {
+        "id": 14,
+        "title": "出现完成回复的会话数",
+        "unit": "short",
+        "queries": [
+          "avg(chat_sessions_with_completed_replies and (chat_containment_stats_last_success_timestamp_seconds > 0))"
+        ]
+      },
+      {
+        "id": 15,
+        "title": "最新回复失败的会话数",
+        "unit": "short",
+        "queries": [
+          "avg(chat_sessions_latest_reply_failed and (chat_containment_stats_last_success_timestamp_seconds > 0))"
+        ]
+      },
+      {
+        "id": 16,
+        "title": "最近成功刷新距今（秒）",
+        "unit": "s",
+        "queries": [
+          "time() - max(chat_containment_stats_last_success_timestamp_seconds > 0)"
+        ]
+      }
+    ],
+    "initialization_guard": {
+      "before": {
+        "scope": "Fresh isolated process before initialization-gating change; no repository query or refresh performed.",
+        "initial_registry_gauges": {
+          "chat_containment_rate": 0.0,
+          "chat_sessions_served": 0.0,
+          "chat_sessions_escalated": 0.0,
+          "chat_sessions_with_failed_replies": 0.0,
+          "chat_sessions_with_completed_replies": 0.0,
+          "chat_sessions_latest_reply_failed": 0.0,
+          "chat_containment_stats_last_success_timestamp_seconds": 0.0
+        },
+        "before_panel_queries": {
+          "11": [
+            "avg(chat_containment_rate and (chat_sessions_served > 0))"
+          ],
+          "12": [
+            "avg(chat_sessions_served)",
+            "avg(chat_sessions_escalated)"
+          ],
+          "13": [
+            "avg(chat_sessions_with_failed_replies)"
+          ],
+          "14": [
+            "avg(chat_sessions_with_completed_replies)"
+          ],
+          "15": [
+            "avg(chat_sessions_latest_reply_failed)"
+          ],
+          "16": [
+            "time() - max(chat_containment_stats_last_success_timestamp_seconds > 0)"
+          ]
+        },
+        "finding": "Uninitialized exporter gauges are0 and last_success_timestamp is0. Ungated avg(count) displays0 before any successful refresh and averages an uninitialized replica into a valid count.",
+        "illustrative_two_replica_values": {
+          "successful_replica": {
+            "count": 10,
+            "last_success": 1000
+          },
+          "uninitialized_replica": {
+            "count": 0,
+            "last_success": 0
+          },
+          "ungated_average": 5,
+          "timestamp_positive_filtered_average": 10
+        },
+        "limits": "Numeric two-replica example applies official PromQL and/comparison filtering semantics; this process did not execute PromQL."
+      },
+      "after_panel_queries": {
+        "11": [
+          "avg(chat_containment_rate and (chat_sessions_served > 0) and (chat_containment_stats_last_success_timestamp_seconds > 0))"
+        ],
+        "12": [
+          "avg(chat_sessions_served and (chat_containment_stats_last_success_timestamp_seconds > 0))",
+          "avg(chat_sessions_escalated and (chat_containment_stats_last_success_timestamp_seconds > 0))"
+        ],
+        "13": [
+          "avg(chat_sessions_with_failed_replies and (chat_containment_stats_last_success_timestamp_seconds > 0))"
+        ],
+        "14": [
+          "avg(chat_sessions_with_completed_replies and (chat_containment_stats_last_success_timestamp_seconds > 0))"
+        ],
+        "15": [
+          "avg(chat_sessions_latest_reply_failed and (chat_containment_stats_last_success_timestamp_seconds > 0))"
+        ],
+        "16": [
+          "time() - max(chat_containment_stats_last_success_timestamp_seconds > 0)"
+        ]
+      },
+      "red_tests": {
+        "failed": 2,
+        "passed": 9,
+        "log": "/tmp/rag-failed-reply-initialization-red.log"
+      },
+      "green_tests": {
+        "passed": 19,
+        "failed": 0,
+        "log": "/tmp/rag-failed-reply-initialization-green.log",
+        "test_case_count_changed": false
+      },
+      "checks": {
+        "ruff_lint": "passed",
+        "ruff_format": "passed",
+        "mypy_dashboard_test": "passed, 1 source file",
+        "git_diff_check": "passed"
+      },
+      "semantics": "Each count/rate series is filtered against that replica last-success timestamp>0 before avg. Rate also requires served>0. No bool modifier is used, so timestamp comparison drops uninitialized series while and preserves the count/rate value. A successful zero count remains0; an all-uninitialized deployment has no resulting series. Previously successful but stale replicas remain included by existing policy.",
+      "official_sources": [
+        "https://prometheus.io/docs/prometheus/2.55/querying/operators/"
+      ],
+      "limits": "PromQL filtering follows official semantics; no Prometheus execution, browser render or all-replica freshness claim. Exporter code and alert rules were not changed for this follow-up."
+    }
+  },
+  "final_dashboard_panels": [
+    {
+      "id": 11,
+      "title": "自动处理率（会话级代理）",
+      "description": "配置滚动窗口内服务过的会话（≥1条 assistant 消息，包含失败回复）中无转人工工单且无差评的占比；没有工单或差评并不构成问题解决证据。窗口由 CONTAINMENT_STATS_WINDOW_DAYS 配置，默认7天，不随 Grafana 时间选择器改变。DB Gauge 周期刷新，错误保留旧值；逐副本以 served>0 且成功刷新时间戳>0 过滤后取 avg；无流量或尚未成功初始化时不显示旧率。配合刷新年龄面板识别陈旧值；各副本可能错时刷新，不保证同一数据库快照。",
+      "unit": "percentunit",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(chat_containment_rate and (chat_sessions_served > 0) and (chat_containment_stats_last_success_timestamp_seconds > 0))",
+          "legendFormat": "containment（配置滚动窗口）"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "服务与转人工会话数",
+      "description": "统计窗口由 CONTAINMENT_STATS_WINDOW_DAYS 配置（默认7天），不是 Grafana 选定时间范围。各副本查询同一数据库，延续 avg 聚合策略避免副本重复相加；副本可能错时刷新或保留旧值。 served含窗口内任何 assistant 回复；escalated为其中存在人工工单的会话。 仅纳入成功刷新时间戳>0的副本；全部尚未成功刷新时无数据，已成功刷新的零流量仍显示0。",
+      "unit": "short",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(chat_sessions_served and (chat_containment_stats_last_success_timestamp_seconds > 0))",
+          "legendFormat": "served sessions"
+        },
+        {
+          "refId": "B",
+          "expr": "avg(chat_sessions_escalated and (chat_containment_stats_last_success_timestamp_seconds > 0))",
+          "legendFormat": "escalated sessions"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "出现失败回复的会话数",
+      "description": "统计窗口由 CONTAINMENT_STATS_WINDOW_DAYS 配置（默认7天），不是 Grafana 选定时间范围。各副本查询同一数据库，延续 avg 聚合策略避免副本重复相加；副本可能错时刷新或保留旧值。 窗口内至少一条 assistant FAILED；与完成回复会话数可重叠，同一会话仅计一次。 仅纳入成功刷新时间戳>0的副本；全部尚未成功刷新时无数据，已成功刷新的零流量仍显示0。",
+      "unit": "short",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(chat_sessions_with_failed_replies and (chat_containment_stats_last_success_timestamp_seconds > 0))",
+          "legendFormat": "sessions with failed replies"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "出现完成回复的会话数",
+      "description": "统计窗口由 CONTAINMENT_STATS_WINDOW_DAYS 配置（默认7天），不是 Grafana 选定时间范围。各副本查询同一数据库，延续 avg 聚合策略避免副本重复相加；副本可能错时刷新或保留旧值。 窗口内至少一条 assistant COMPLETED；技术状态完成不是问题解决证据，且可与失败会话重叠。 仅纳入成功刷新时间戳>0的副本；全部尚未成功刷新时无数据，已成功刷新的零流量仍显示0。",
+      "unit": "short",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(chat_sessions_with_completed_replies and (chat_containment_stats_last_success_timestamp_seconds > 0))",
+          "legendFormat": "sessions with completed replies"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "最新回复失败的会话数",
+      "description": "统计窗口由 CONTAINMENT_STATS_WINDOW_DAYS 配置（默认7天），不是 Grafana 选定时间范围。各副本查询同一数据库，延续 avg 聚合策略避免副本重复相加；副本可能错时刷新或保留旧值。 只看窗口内最新 assistant，按 created_at DESC、id DESC 排序；后续 user 消息不改变这个状态。 仅纳入成功刷新时间戳>0的副本；全部尚未成功刷新时无数据，已成功刷新的零流量仍显示0。",
+      "unit": "short",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg(chat_sessions_latest_reply_failed and (chat_containment_stats_last_success_timestamp_seconds > 0))",
+          "legendFormat": "sessions with latest reply failed"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "最近成功刷新距今（秒）",
+      "description": "取各副本成功刷新时间戳的 max，显示最近成功副本距今秒数；不代表全部副本均新鲜。尚未有成功刷新时不显示数据。数据库错误保留旧时间戳，成功刷新即使零流量也更新时间；系统时间偏差会影响年龄。",
+      "unit": "s",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - max(chat_containment_stats_last_success_timestamp_seconds > 0)",
+          "legendFormat": "age of most recent successful replica"
+        }
+      ]
+    }
+  ],
+  "independent_sql_review": {
+    "scope": "isolated_legacy_SQLite_aggregation_and_PostgreSQL_compile_only",
+    "cases": [
+      "latest user does not clear latest assistant failure",
+      "same timestamp ID tie break both directions",
+      "failed outside window and completed at exact since",
+      "pending/processing excluded from both status sets",
+      "unknown enum and NULL still served but not classified completed/failed",
+      "resolved_at does not erase FAILED",
+      "system/user-only failure excluded",
+      "newer timestamp beats larger ID",
+      "handoff/downvote containment union preserved"
+    ],
+    "expected": {
+      "sessions_served": 9,
+      "sessions_with_failed_replies": 5,
+      "sessions_with_completed_replies": 4,
+      "sessions_latest_reply_failed": 3,
+      "sessions_resolved": 1,
+      "sessions_escalated": 1,
+      "sessions_downvoted": 1
+    },
+    "actual": {
+      "window_start": "2026-10-21T12:00:00+00:00",
+      "sessions_served": 9,
+      "sessions_escalated": 1,
+      "sessions_downvoted": 1,
+      "sessions_resolved": 1,
+      "sessions_reopened": 0,
+      "sessions_with_failed_replies": 5,
+      "sessions_with_completed_replies": 4,
+      "sessions_latest_reply_failed": 3,
+      "containment_rate": 0.7778
+    },
+    "select_statements": {
+      "9_served_sessions": 7,
+      "59_served_sessions": 7
+    },
+    "single_reply_aggregate_query": true,
+    "postgresql_compilation_artifact": "/tmp/rag-failed-replies-query.pg.sql",
+    "postgresql_runtime_executed": false,
+    "capacity_benchmark": false
+  },
+  "source_sha256": {
+    "app/repositories/ticket_repository.py": "d05002b2fab4c306cf23606506afba2461a5abe06dcba4d2d53c1d4beec6c5fa",
+    "app/services/handoff/containment_metrics.py": "4eaf88b15ec193ad74192d1f48bdb0ec884408e8a6e24f8ddd9cf7b7855eedb2",
+    "app/api/v1/sessions.py": "c9a606f16c088e85d7f062914773074b1e3a0236cd4384d3286f4b5ec52d5005"
+  },
+  "verification": {
+    "repo_first_red": {
+      "failed": 5,
+      "log": "/tmp/rag-20261028-failed-population-unit-before.log"
+    },
+    "http_first_red": "1 failed in0.13s",
+    "real_http_sql_exposition_cases": {
+      "passed": 15,
+      "log": "/tmp/rag-20261028-failed-replies-after.log"
+    },
+    "related_joint_suite": {
+      "passed": 66,
+      "duration_seconds": 1.06,
+      "log": "/tmp/rag-20261028-failed-replies-focused-final.log"
+    },
+    "default_full_regression": {
+      "passed": 2941,
+      "skipped": 3,
+      "warnings": 4,
+      "duration_seconds": 156.66,
+      "core_coverage_percent": 93.19,
+      "core_statements": 4994,
+      "core_missed_statements": 340,
+      "exit_code": 0,
+      "log": "/tmp/rag-20261028-failed-replies-full-pytest.log"
+    },
+    "post_full_changes": "Only Grafana JSON expressions and its existing contract assertions changed after the full suite. Application code is unchanged; the 19-test exporter/dashboard suite was rerun successfully for the final initialization filter. Test case count is unchanged.",
+    "final_dashboard_contract_cases": {
+      "passed": 19,
+      "log": "/tmp/rag-failed-reply-initialization-green.log"
+    },
+    "ruff_format_files": 450,
+    "mypy_app_files": 437,
+    "mypy_cli_files": 2,
+    "source_counts": {
+      "app_python": 437,
+      "test_python": 225,
+      "test_modules": 219
+    },
+    "diff_check": "passed",
+    "final_static_checks": {
+      "ruff_check": "passed",
+      "ruff_format_files": 450,
+      "mypy_app_files": 437,
+      "mypy_cli_files": 2,
+      "diff_check": "passed"
+    }
+  },
+  "limits": [
+    "This is persisted-message status visibility, not a customer resolution rate or proof that a session with any failure is unresolved.",
+    "No production database, PostgreSQL native-enum migration/concurrency test, Prometheus server scrape, live Grafana/browser validation or deployment was performed.",
+    "Dashboard evidence is configuration only; the independent exporter owner tests its expressions and last-success timestamp policy.",
+    "The new aggregate and the older aggregate statements are not claimed to form a fixed snapshot under concurrent database writes.",
+    "Metrics classify persisted assistant-row processing status. A zero-token or unpersisted failure remains outside these cohorts and needs separate stream/request telemetry.",
+    "The failed/completed cohorts overlap; latest failed is neither customer-resolution evidence nor a global current service-error rate.",
+    "The new three cohorts share one SQL aggregate; the overall report still has seven statements and is not a fixed snapshot under concurrent writes.",
+    "The independent SQLite query-count probe proves constant statement count, not database capacity or latency.",
+    "A read-only Docker probe found the daemon unavailable. PostgreSQL was compiled but not executed; no production DB, Prometheus query engine, live Grafana/browser, remote CI or deployment was used.",
+    "Dashboard replica averages are not sums and may mix refresh instants; freshness age is for the most recently successful replica, not all replicas.",
+    "Existing alert rules were not changed by this iteration.",
+    "This evidence was captured before committing; the user subsequently requested a commit. Local Compose overrides and working planning notes are kept local."
+  ],
+  "external_connection_attempts": [],
+  "external_model_calls": 0,
+  "primary_references": [
+    {
+      "url": "https://prometheus.io/docs/prometheus/latest/querying/operators/",
+      "use": "Comparison default filtering and logical-and left-hand values/matching for valid-data and zero-traffic conditions."
+    },
+    {
+      "url": "https://prometheus.io/docs/practices/instrumentation/",
+      "use": "Export a successful-event timestamp and compute elapsed age in queries."
+    }
+  ],
+  "next_candidates": [
+    "Strengthen live-probe result checks beyond text anchors.",
+    "Review alert validity under zero traffic and stale stats separately; the dashboard changes do not fix the existing rules."
+  ],
+  "repository_state": {
+    "committed_previous_iterations": "f237a16",
+    "current_iteration": "validated_then_committed_at_user_request",
+    "pushed": false,
+    "deployed": false,
+    "local_compose": "untouched",
+    "planning_notes": "local only"
+  }
+}

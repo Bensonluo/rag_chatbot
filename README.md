@@ -61,7 +61,7 @@ Deployment commands below start a single API instance. Replica templates, option
 | Human handoff | Tickets, queue/AHT, assigned-agent transcript, knowledge-gap records | Carry context into staff handling and feed knowledge maintenance |
 | Operational control | Epoch-scoped L0/L1/L2 cache, metrics/alerts, tracing, rate limits | Inspect latency, outcomes, cache consistency and load |
 
-**Recorded quality baseline (2026-10-28):** 2918 passing core tests, 3 opt-in scenarios skipped by default, 93.19% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately.
+**Recorded quality baseline (2026-10-28):** 2941 passing core tests, 3 opt-in scenarios skipped by default, 93.19% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
 
 [Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md)
 
@@ -463,7 +463,7 @@ separately configured checkpoint databases require their own recovery plans.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 2918 passed + 3 opt-in skipped / 93.19%)
+# Maintained core suite (70% minimum; currently 2941 passed + 3 opt-in skipped / 93.19%)
 pytest
 
 # Targeted runs
@@ -491,11 +491,11 @@ ruff format --check app/
 mypy app/
 ```
 
-Local verification on 2026-10-28: 2918 tests pass, with three opt-in scenarios
+Local verification on 2026-10-28: 2941 tests pass, with three opt-in scenarios
 skipped by default (PostgreSQL concurrency, assigned-transcript locking, and
 the Docker recovery drill);
 core coverage is 93.19%. Ruff and
-full strict Mypy pass (436 Python files).
+full strict Mypy pass (437 Python files).
 Authenticated HTTP/SSE regressions cover chat ownership, guarded text and
 citations, plus ASGI 2.3/2.4 disconnect persistence; the earlier socket-blocked
 run is recorded in the [boundary evidence](docs/reviews/http-stream-results-2026-10-23.json).
@@ -506,6 +506,9 @@ Context-aware L0/L1 replay also passes 12 real service/graph cases plus a separa
 14-contrast actual semantic-cache audit using local I/O seams. Anonymous stateless
 hits remain available; applicable or unavailable history blocks shared replay and
 write. See the [cache-context evidence](docs/reviews/context-cache-results-2026-10-28.json).
+Persisted reply failures now remain visible beside containment: 15 real SQLite/JWT HTTP
+cases verify cohort counts, latest-reply ordering, Prometheus output and outage handling.
+Grafana separates counts, ratios and refresh age; see the [metric contract](docs/operations/session-quality-metrics.md).
 
 The following dependency and companion-frontend checks were verified in earlier
 iterations and were not rerun on October 28. All 8 PostgreSQL concurrency tests
@@ -521,10 +524,10 @@ dependency advisories remain documented in the iteration record.
 
 | Metric | Value |
 |--------|-------|
-| Maintained test results | **2918 passed, 3 opt-in skipped** |
+| Maintained test results | **2941 passed, 3 opt-in skipped** |
 | Maintained core coverage | **93.19%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
-| Python files (app/) | 436 |
-| Python files in app/tests/ | 224 (218 test_ modules) |
+| Python files (app/) | 437 |
+| Python files in app/tests/ | 225 (219 test_ modules) |
 
 ---
 
@@ -536,7 +539,7 @@ dependency advisories remain documented in the iteration record.
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 2918 passing core tests, 93.19% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
+- [x] 2941 passing core tests, 93.19% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)
@@ -545,7 +548,7 @@ dependency advisories remain documented in the iteration record.
 - [x] Postgres checkpointer (AsyncPostgresSaver, MemorySaver fallback)
 - [x] Prometheus alert rules (SLA / TTFT / claim gate / handoff queue)
 - [x] Epoch-scoped cache pyramid (L0 answer / L1 semantic / L2 retrieval)
-- [x] Containment resolution KPI (downvote-aware, DB-bridged gauge)
+- [x] Containment proxy and reply-status cohorts (separate from confirmed resolution, DB-bridged gauges)
 - [x] 2→N scaling readiness (nginx upstream template + dns_sd multi-replica metrics)
 - [x] Graceful shutdown choreography (background refreshers stop before pools close)
 - [ ] Fine-tuned intent classifier (replace LLM-based with small specialized model)

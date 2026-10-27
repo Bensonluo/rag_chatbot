@@ -44,14 +44,21 @@ _PINNED_PANEL_TITLES = {
     "知识缺口占比",
 }
 _FUNNEL_METRIC = "chat_funnel_layers_total"
+_INITIALIZED_REPLICA_FILTER = "(chat_containment_stats_last_success_timestamp_seconds > 0)"
+_CONTAINMENT_RATE_QUERY = (
+    f"avg(chat_containment_rate and (chat_sessions_served > 0) and {_INITIALIZED_REPLICA_FILTER})"
+)
 
-# DB-bridged replica-invariant gauges (handoff/containment_metrics.py,
-# handoff/metrics.py): every replica's refresher sets its own copy and
+# DB-bridged gauges (handoff/containment_metrics.py, handoff/metrics.py):
+# each replica's independent refresher sets its own observation and
 # dns_sd scrapes them all — a raw expr renders one series per replica.
 _DB_BRIDGED_GAUGES = (
     "chat_containment_rate",
     "chat_sessions_served",
     "chat_sessions_escalated",
+    "chat_sessions_with_failed_replies",
+    "chat_sessions_with_completed_replies",
+    "chat_sessions_latest_reply_failed",
     "handoff_pickup_avg_seconds",
     "handoff_handle_avg_seconds",
 )
@@ -145,10 +152,11 @@ class TestGrafanaDashboardContract:
         )
 
     def test_db_bridged_gauges_are_replica_aggregated(self):
-        """A DB-bridged gauge holds replica-invariant truth, but each
-        scraped replica contributes its own series — reference it
-        through avg() so a panel shows one truth line, not one line
-        per replica (nor a frozen-outlier line)."""
+        """Preserve avg() for independently refreshed DB observations.
+
+        This avoids adding one database's count for every scraped
+        replica. It does not make stale and fresh replicas a snapshot.
+        """
         for doc in _dashboards():
             exprs = [
                 str(target["expr"])
@@ -158,6 +166,16 @@ class TestGrafanaDashboardContract:
             for expr in exprs:
                 for gauge in _DB_BRIDGED_GAUGES:
                     if gauge in expr:
+                        if "chat_containment_rate" in expr:
+                            assert expr == _CONTAINMENT_RATE_QUERY, (
+                                "undefined or uninitialized rates must be filtered before averaging"
+                            )
+                            continue
+                        if gauge.startswith("chat_sessions_"):
+                            assert expr == f"avg({gauge} and {_INITIALIZED_REPLICA_FILTER})", (
+                                "uninitialized replica counts must be excluded before averaging"
+                            )
+                            continue
                         assert f"avg({gauge})" in expr, (
                             f"panel expr {expr!r} references DB-bridged gauge "
                             f"{gauge} without avg(): under dns_sd it renders one "
@@ -175,6 +193,36 @@ class TestGrafanaDashboardContract:
         assert any("chat_containment_rate" in expr for expr in exprs), (
             "funnel dashboard has no expression using chat_containment_rate"
         )
+
+    def test_containment_rate_and_absolute_counts_have_separate_units(self):
+        doc = next(d for d in _dashboards() if d["uid"] == "cs-funnel")
+        rate = next(panel for panel in _panels(doc) if panel["id"] == 11)
+        assert rate["fieldConfig"]["defaults"]["unit"] == "percentunit"
+        assert len(rate["targets"]) == 1
+        assert rate["targets"][0]["expr"] == _CONTAINMENT_RATE_QUERY
+        assert "{{window}}" not in rate["targets"][0]["legendFormat"]
+        assert "差评" in rate["description"] and "解决" in rate["description"]
+        assert "CONTAINMENT_STATS_WINDOW_DAYS" in rate["description"]
+        for metric in _DB_BRIDGED_GAUGES[1:6]:
+            matching = [
+                panel
+                for panel in _panels(doc)
+                if any(metric in target["expr"] for target in panel.get("targets", []))
+                and "chat_containment_rate"
+                not in " ".join(target["expr"] for target in panel.get("targets", []))
+            ]
+            assert matching, f"missing count panel for {metric}"
+            assert all(panel["fieldConfig"]["defaults"]["unit"] == "short" for panel in matching)
+
+    def test_freshness_reports_the_most_recent_successful_replica(self):
+        doc = next(d for d in _dashboards() if d["uid"] == "cs-funnel")
+        panel = next(panel for panel in _panels(doc) if panel["id"] == 16)
+        assert panel["fieldConfig"]["defaults"]["unit"] == "s"
+        assert panel["targets"][0]["expr"] == (
+            "time() - max(chat_containment_stats_last_success_timestamp_seconds > 0)"
+        )
+        assert "最近成功" in panel["description"]
+        assert "全部副本" in panel["description"]
 
     def test_pyramid_panel_covers_every_cache_layer(self):
         """The 缓存金字塔命中率 panel is the load-bearing cache view; each

@@ -10,7 +10,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import and_, case, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.database.message import Message
 from app.models.database.session import ChatSession
 from app.models.database.ticket import PRIORITY_HIGH, HandoffTicket
-from app.models.enums.message import MessageRole
+from app.models.enums.message import MessageRole, MessageStatus
 from app.repositories.base import BaseRepository
 
 # Ticket lifecycle: open (waiting in queue) → claimed (an agent is on it)
@@ -301,12 +301,62 @@ class TicketRepository(BaseRepository[HandoffTicket]):
         independent of the failure signals (a session can be both
         resolved and escalated; each signal answers a different
         question).
+
+        Reply-status populations are additive evidence, not resolution
+        labels. A session can contain both FAILED and COMPLETED replies;
+        its latest in-window assistant reply is ordered by timestamp and
+        id. Other roles and pending/unknown statuses are never success.
+        These three counts share one SQL aggregate. The existing overall
+        report still uses multiple statements, not an atomic snapshot.
         """
         in_window = (
             Message.role == MessageRole.ASSISTANT,
             Message.created_at >= since.replace(tzinfo=None),
         )
         served_sessions = select(func.distinct(Message.session_id)).where(*in_window)
+        ranked_replies = (
+            select(
+                Message.session_id,
+                Message.status.label("reply_status"),
+                func.row_number()
+                .over(
+                    partition_by=Message.session_id,
+                    order_by=(Message.created_at.desc(), Message.id.desc()),
+                )
+                .label("reply_rank"),
+            )
+            .where(*in_window)
+            .subquery("windowed_assistant_replies")
+        )
+        reply_populations = select(
+            func.count(
+                case(
+                    (
+                        ranked_replies.c.reply_status == MessageStatus.FAILED,
+                        ranked_replies.c.session_id,
+                    )
+                ).distinct()
+            ),
+            func.count(
+                case(
+                    (
+                        ranked_replies.c.reply_status == MessageStatus.COMPLETED,
+                        ranked_replies.c.session_id,
+                    )
+                ).distinct()
+            ),
+            func.count(
+                case(
+                    (
+                        and_(
+                            ranked_replies.c.reply_rank == 1,
+                            ranked_replies.c.reply_status == MessageStatus.FAILED,
+                        ),
+                        ranked_replies.c.session_id,
+                    )
+                ).distinct()
+            ),
+        )
         ticketed = select(func.distinct(HandoffTicket.session_id).label("session_id")).where(
             HandoffTicket.session_id.in_(served_sessions)
         )
@@ -349,6 +399,8 @@ class TicketRepository(BaseRepository[HandoffTicket]):
         resolved_n = result.scalar() or 0
         result = await self.session.execute(reopened)
         reopened_n = result.scalar() or 0
+        result = await self.session.execute(reply_populations)
+        failed_replies_n, completed_replies_n, latest_reply_failed_n = result.one()
         return {
             "window_start": since.isoformat(),
             "sessions_served": total,
@@ -356,6 +408,9 @@ class TicketRepository(BaseRepository[HandoffTicket]):
             "sessions_downvoted": rejected_n,
             "sessions_resolved": resolved_n,
             "sessions_reopened": reopened_n,
+            "sessions_with_failed_replies": failed_replies_n,
+            "sessions_with_completed_replies": completed_replies_n,
+            "sessions_latest_reply_failed": latest_reply_failed_n,
             "containment_rate": round((total - failed_n) / total, 4) if total else None,
         }
 
