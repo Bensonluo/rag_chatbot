@@ -839,3 +839,22 @@ class TestPoliteSplitRefund:
         result = await detector.detect_with_confidence(message)
 
         assert result.intent == expected, message
+
+
+@pytest.mark.parametrize("message", ["confirm", "Confirm", " confirm! ", "CONFIRM."])
+async def test_literal_english_confirmation_matches_the_displayed_command(message: str) -> None:
+    from app.services.intent.rule_based import RuleBasedIntentDetector
+
+    result = await RuleBasedIntentDetector().detect_with_confidence(message)
+    assert result.intent == Intent.CONFIRM
+    assert result.confidence >= 0.7  # The explicit command needs no model arbitration.
+
+
+@pytest.mark.parametrize(
+    "message", ["do not confirm", "don't confirm", "confirm?", "unconfirmed", "confirmation"]
+)
+async def test_confirmation_mentions_are_not_the_literal_action_command(message: str) -> None:
+    from app.services.intent.rule_based import RuleBasedIntentDetector
+
+    result = await RuleBasedIntentDetector().detect_with_confidence(message)
+    assert result.intent != Intent.CONFIRM

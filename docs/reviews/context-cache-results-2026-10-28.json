@@ -1,0 +1,569 @@
+{
+  "date": "2026-10-28",
+  "status": "fixed_and_final_full_regression_passed",
+  "baseline": {
+    "head": "70da2f6",
+    "working_tree_parent": "Validated, uncommitted refund-review iteration, 2863 passed/3 skipped/core93.26%.",
+    "parent_evidence": "refund-review-results-2026-10-28.json",
+    "note": "The head commit alone does not include the already-validated refund fix; cache work follows that saved source snapshot."
+  },
+  "issue": "Shared L0 and L1 answer replay skipped applicable user/session context; unavailable history could be mistaken for empty and allow shared writes.",
+  "implementation_contract": {
+    "read_and_write": "Anonymous with no active task context and, when configured, a successful empty history read. Unconfigured history feature is distinct from failed configured history.",
+    "sticky_veto": "shared_cache_blocked propagates context/unknown-history denial through the turn and write gates; begin_turn resets it but false does not prove history empty.",
+    "strict_history_api": {
+      "signature": "(self, session_id: 'int', limit: 'int' = 50, include_summary: 'bool' = False, *, raise_on_error: 'bool' = False) -> 'list[ChatMessage]'",
+      "new_keyword_only_parameter": "raise_on_error: bool = False",
+      "legacy_positional_arguments_preserved": [
+        "session_id",
+        "limit",
+        "include_summary"
+      ],
+      "return_contract": "list[ChatMessage], unchanged; factory maps to list[LLMMessage], unchanged; no tuple protocol",
+      "default_database_failure": "warning and [], unchanged",
+      "strict_database_failure": "original exception re-raised, preserving its type and identity",
+      "factory_context_provider": "limit=6, include_summary=True, raise_on_error=True"
+    },
+    "summary": "Only nonempty valid summaries replace covered raw turns; invalid summary-only history raises unknown on strict reads.",
+    "memo": "Memo only for nonempty turn_id and keyed by (session_id,turn_id); one entry can be evicted by concurrent turns, so no at-most-once snapshot claim.",
+    "optional_config": "Public generation/direct nodes normalize absent configurable data locally, preserving failure markers without mutating input state."
+  },
+  "l0_real_graph": {
+    "status": "passed-independent-L0-context-cache-verification",
+    "owned_file": "app/tests/evaluation/test_contextual_answer_cache.py",
+    "before": {
+      "result": "12 failed in1.10s",
+      "log": "/tmp/rag-20261028-context-cache-before.log",
+      "classification": {
+        "unsafe_replays": 10,
+        "context_free_controls_missing_eligibility_history_read": 2
+      },
+      "observed": "Facts, raw history, summary history, provider exception and actual strict database OperationalError all returned route_after_cache=hit in normal/stream. Anonymous context-free responses already hit correctly, but never consulted history to prove eligibility."
+    },
+    "after": {
+      "result": "12 passed in1.00s",
+      "log": "/tmp/rag-20261028-context-cache-after.log",
+      "joint_compatibility_result": "36 passed in2.63s (new cache12 + unchanged refund24)",
+      "joint_log": "/tmp/rag-20261028-cache-refund-joint.log",
+      "lint": "Ruff check and format passed"
+    },
+    "case_matrix": {
+      "transports": [
+        "ChatService.process_message",
+        "ChatService.process_message_stream(include_citations=True)"
+      ],
+      "scenarios": [
+        "Cold anonymous grounded standard answer, followed by a fresh context-free anonymous cache hit",
+        "Identified Premium customer using durable UserFactRecord, compared with cache-disabled service",
+        "Anonymous existing Premium raw message history, compared with cache-disabled service",
+        "Anonymous existing nonempty system summary history, compared with cache-disabled service",
+        "History provider raises RuntimeError: skip replay and shared write, while fresh generation stays available",
+        "Actual SQLite history SELECT raises OperationalError through strict ChatMessagePersister read: skip replay and shared write"
+      ]
+    },
+    "independent_evidence": {
+      "healthy_cold": "1 local provider generation; history provider read once; real grounded answer populates one AnswerCacheService Redis entry.",
+      "anonymous_hit": "0 local provider generations, 1 cache backend GET, 1 history provider read, no user-fact lookup; same source-version citation snapshot returned and persisted.",
+      "known_context": "Cache route miss; no cache backend GET or SET; exactly1 local generation as in the uncached control. Original model prompt contains Premium context, and healthy history is read once per turn. Identified-user facts are read through real SQLite persister.",
+      "summary": "The actual generated prompt includes a system message beginning Previous conversation:, supplied by real get_history(include_summary=True,raise_on_error=True).",
+      "unavailable_context": "Actual exception type is recorded for cached and uncached session IDs. Fresh generation is independently observed rather than inferred from equal response prose; no shared cache write occurs after the failure.",
+      "durability_and_citations": "Every turn is read back from SQLite. Durable assistant content equals visible normal/stream content; metadata citations equal the returned snapshot with document warranty-policy, version warranty-v1, chunk warranty-chunk-1, original excerpt and page2.",
+      "shared_answer_integrity": "Context-aware output never replaces the shared standard answer; Redis SET calls are independently counted and forbidden on contextual/unknown-history turns."
+    },
+    "real_components": [
+      "Compiled LangGraph + MemorySaver",
+      "ChatService",
+      "AnswerCacheService",
+      "KeywordSearch BM25",
+      "ChatMessagePersister",
+      "SQLite users/sessions/messages/user_facts with foreign keys enabled",
+      "Default guardrail service"
+    ],
+    "local_IO_seams": [
+      "In-memory Redis command surface and fixed KB epoch",
+      "LLMServiceBase provider fixture recording original prompts and deterministic streamed chunks"
+    ],
+    "fault_injection": "SQLAlchemy before_cursor_execute raises OperationalError only inside the real strict history read; persistence/readback remain available outside that read.",
+    "limits": [
+      "This file covers L0 only. Actual SemanticCacheService/L1 fixture validation is delegated to root/independent audit; root unit tests cover the common gate.",
+      "No HTTP/SSE framing, production database, real Redis TTL/concurrency, vector embedding/reranking, or live-model semantic quality is claimed.",
+      "QUERY_REWRITE_ENABLED is disabled only in this test fixture to isolate generation counts from the optional extra rewrite call.",
+      "Nonempty summaries are covered here; empty/whitespace-summary strict-read behavior is separately verified by the history-contract owner in /tmp/rag-20261028-cache-history-contract.json."
+    ],
+    "external_network_attempts": 0,
+    "external_model_calls": 0,
+    "repository_edits_outside_owned_file": false,
+    "command": ".venv/bin/pytest -q --no-cov app/tests/evaluation/test_contextual_answer_cache.py"
+  },
+  "l1_real_service": {
+    "scope": "actual_SemanticCacheService_with_deterministic_embeddings_and_inmemory_Redis_NodeFactory_direct_response",
+    "components": "Actual SemanticCacheService + deterministic embedding + local Redis command seam + actual NodeFactory.direct_response_node + synthetic local LLM",
+    "before_cases": {
+      "context_free_anonymous": {
+        "seeded": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 0,
+          "history_calls": 0,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": false
+        },
+        "empty": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 1,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 1,
+          "shared_cache_blocked": false
+        }
+      },
+      "provider_disabled": {
+        "seeded": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 0,
+          "history_calls": 0,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": false
+        },
+        "empty": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 0,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 1,
+          "shared_cache_blocked": false
+        }
+      },
+      "identified_facts": {
+        "seeded": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 0,
+          "history_calls": 0,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": false
+        },
+        "empty": {
+          "response": "FACT_CONTEXT_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 1,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": false
+        }
+      },
+      "anon_history": {
+        "seeded": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 0,
+          "history_calls": 0,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": false
+        },
+        "empty": {
+          "response": "HISTORY_CONTEXT_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 1,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": false
+        }
+      },
+      "anon_summary": {
+        "seeded": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 0,
+          "history_calls": 0,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": false
+        },
+        "empty": {
+          "response": "HISTORY_CONTEXT_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 1,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": false
+        }
+      },
+      "history_failure": {
+        "seeded": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 0,
+          "history_calls": 0,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": false
+        },
+        "empty": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 1,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 1,
+          "shared_cache_blocked": false
+        }
+      },
+      "flaky_history": {
+        "seeded": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 0,
+          "history_calls": 0,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": false
+        },
+        "empty": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 1,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 1,
+          "shared_cache_blocked": false
+        }
+      }
+    },
+    "after_cases": {
+      "context_free_anonymous": {
+        "seeded": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 0,
+          "history_calls": 1,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": false
+        },
+        "empty": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 1,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 1,
+          "shared_cache_blocked": false
+        }
+      },
+      "provider_disabled": {
+        "seeded": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 0,
+          "history_calls": 0,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": false
+        },
+        "empty": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 0,
+          "l1_store_lookups": 1,
+          "l1_answer_writes": 1,
+          "shared_cache_blocked": false
+        }
+      },
+      "identified_facts": {
+        "seeded": {
+          "response": "FACT_CONTEXT_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 1,
+          "l1_store_lookups": 0,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": true
+        },
+        "empty": {
+          "response": "FACT_CONTEXT_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 1,
+          "l1_store_lookups": 0,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": true
+        }
+      },
+      "anon_history": {
+        "seeded": {
+          "response": "HISTORY_CONTEXT_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 1,
+          "l1_store_lookups": 0,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": true
+        },
+        "empty": {
+          "response": "HISTORY_CONTEXT_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 1,
+          "l1_store_lookups": 0,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": true
+        }
+      },
+      "anon_summary": {
+        "seeded": {
+          "response": "HISTORY_CONTEXT_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 1,
+          "l1_store_lookups": 0,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": true
+        },
+        "empty": {
+          "response": "HISTORY_CONTEXT_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 1,
+          "l1_store_lookups": 0,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": true
+        }
+      },
+      "history_failure": {
+        "seeded": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 2,
+          "l1_store_lookups": 0,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": true
+        },
+        "empty": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 2,
+          "l1_store_lookups": 0,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": true
+        }
+      },
+      "flaky_history": {
+        "seeded": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 2,
+          "l1_store_lookups": 0,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": true
+        },
+        "empty": {
+          "response": "GENERIC_PUBLIC_RESPONSE",
+          "llm_calls": 1,
+          "history_calls": 2,
+          "l1_store_lookups": 0,
+          "l1_answer_writes": 0,
+          "shared_cache_blocked": true
+        }
+      }
+    },
+    "scenario_count": 7,
+    "variants_per_scenario": [
+      "seeded",
+      "empty"
+    ],
+    "total_contrasts": 14,
+    "verification_note": "Root froze code; only optional-config probe rerun after its isolated wrapper normalization patch, as requested. Earlier14 actual L1 contrasts remain the recorded scoped verification."
+  },
+  "history_contract": {
+    "date": "2026-10-28",
+    "scope": "History-read availability contract in ChatMessagePersister and its ChatServiceFactory binding; real SQLite regression tests, no change to node routing or graph history memo.",
+    "api": {
+      "signature": "(self, session_id: 'int', limit: 'int' = 50, include_summary: 'bool' = False, *, raise_on_error: 'bool' = False) -> 'list[ChatMessage]'",
+      "new_keyword_only_parameter": "raise_on_error: bool = False",
+      "legacy_positional_arguments_preserved": [
+        "session_id",
+        "limit",
+        "include_summary"
+      ],
+      "return_contract": "list[ChatMessage], unchanged; factory maps to list[LLMMessage], unchanged; no tuple protocol",
+      "default_database_failure": "warning and [], unchanged",
+      "strict_database_failure": "original exception re-raised, preserving its type and identity",
+      "factory_context_provider": "limit=6, include_summary=True, raise_on_error=True"
+    },
+    "real_sqlite_assertions_exercised": [
+      "A successful empty read returns [] in strict and default modes.",
+      "A valid summary is prepended and only covered raw turns are removed; both legacy invocation and strict mode tested.",
+      "After DROP TABLE messages, default reads return [], strict reads raise OperationalError rather than claiming successful empty history.",
+      "Empty and whitespace-only summaries cannot hide available raw customer turns, in legacy or strict reads.",
+      "If an invalid summary is the only readable history, default returns [] and strict include_summary raises RuntimeError containing history unavailable.",
+      "Factory-bound provider is invoked against actual SQLite: normal empty/summarized histories preserve list contents, missing messages table raises OperationalError, and invalid-summary-only history raises RuntimeError."
+    ],
+    "exception_identity_assertion": {
+      "case": "session maker raises one RuntimeError instance",
+      "default_result": [],
+      "strict_raises_same_instance": true
+    },
+    "test_first": {
+      "history_error_policy_red": {
+        "failed": 5,
+        "passed": 3,
+        "log": "/tmp/rag-20261028-cache-history-red.log"
+      },
+      "invalid_summary_red": {
+        "failed": 7,
+        "passed": 1,
+        "log": "/tmp/rag-20261028-cache-invalid-summary-red.log"
+      },
+      "final_existing_test_modules": {
+        "passed": 47,
+        "failed": 0,
+        "duration_seconds": 0.61,
+        "log": "/tmp/rag-20261028-cache-history-contract-final.log",
+        "command": ".venv/bin/pytest app/tests/unit/services/chat/test_persistence.py app/tests/unit/services/chat/test_chat_factory.py --no-cov -q"
+      }
+    },
+    "checks": {
+      "ruff_lint": "passed (4 owned files)",
+      "ruff_format": "passed (4 owned files)",
+      "mypy": "passed, no issues in 4 source files"
+    },
+    "compatibility_notes": [
+      "API history calls keep default fail-open reads and default include_summary=False.",
+      "Invalid empty/whitespace summaries are intentionally ignored rather than suppressing readable raw turns.",
+      "Generators already catch unavailable context and can continue; a cache guard can now conservatively miss instead of treating read failure as proof of no history.",
+      "No changes to compressor output, node/history memo, global test discovery or shared-cache eligibility in these files."
+    ],
+    "files_owned": [
+      "app/services/chat/persistence.py",
+      "app/services/chat/factory.py",
+      "app/tests/unit/services/chat/test_persistence.py",
+      "app/tests/unit/services/chat/test_chat_factory.py"
+    ],
+    "type_issues": []
+  },
+  "independent_review": {
+    "verdict": "PASS: no remaining blocker in reviewed shared-cache context contract. Existing PII/output guards and cache allowlists remain necessary; this is not a full semantic-cache privacy audit.",
+    "remaining_blockers": [],
+    "limits": [
+      "No prior context is not proof that arbitrary anonymous first-turn message or generated text contains no personal information. This targeted fix does not constitute a complete anonymous semantic-cache privacy audit.",
+      "Live model answer quality, production dependency recovery, distributed session serialization and cache capacity are outside this review."
+    ],
+    "summary_memo_probe": {
+      "invalid_summary_retains_raw_turn_count": 1,
+      "invalid_summary_only_strict_raises_unknown": true,
+      "valid_summary_only_context_count": 1,
+      "memo_provider_calls": [
+        1,
+        2,
+        1,
+        2
+      ],
+      "no_turn_id_refetches_and_session_id_is_part_of_key": true,
+      "begin_turn_clears_cache_block_marker": true
+    },
+    "optional_config_before": {
+      "scope": "optional_config_None_and_missing_turn_id_direct_NodeFactory_call_not_compiled_graph",
+      "history_read_sequence": [
+        "empty",
+        "exception",
+        "empty"
+      ],
+      "history_reads": 3,
+      "l1_writes": 1,
+      "flag": false
+    },
+    "optional_config_after": {
+      "scope": "optional_config_None_or_empty_dict_and_missing_turn_id_direct_NodeFactory_call_not_compiled_graph",
+      "history_read_sequence": [
+        "empty",
+        "exception",
+        "empty_if_writer_retries"
+      ],
+      "cases": {
+        "none": {
+          "history_reads": 2,
+          "l1_writes": 0,
+          "flag": true,
+          "input_state_unchanged": true
+        },
+        "empty_dict": {
+          "history_reads": 2,
+          "l1_writes": 0,
+          "flag": true,
+          "input_state_unchanged": true
+        }
+      },
+      "verdict": "fixed"
+    }
+  },
+  "unit_red_evidence": {
+    "initial_shared_cache": {
+      "failed": 23,
+      "passed": 56,
+      "log": "/tmp/rag-20261028-context-cache-unit-before.log"
+    },
+    "optional_config": {
+      "failed": 2,
+      "log": "/tmp/rag-20261028-context-optional-config-before.log"
+    }
+  },
+  "first_full_run": {
+    "passed": 2914,
+    "failed": 2,
+    "skipped": 3,
+    "warnings": 4,
+    "duration_seconds": 151.02,
+    "core_coverage_percent": 93.19,
+    "log": "/tmp/rag-20261028-cache-full-pytest.log",
+    "failure_reason": "Two old lifecycle assertions required an identified user after a business action to hit a shared answer. New contract correctly bypasses replay.",
+    "remediation": "Retain cross-turn cleanup checks and assert context bypass; add separate anonymous stateless cache-hit cleanup controls. No skipped path, lowered threshold or disabled guard."
+  },
+  "verification": {
+    "targeted_history_cache_units_passed": 128,
+    "lifecycle_cache_refund_joint_passed": 59,
+    "l0_graph": 12,
+    "l1_actual_contrasts": 14,
+    "strict_history_and_factory": 47,
+    "overlap_note": "These counts overlap; they are not added into a fabricated suite total.",
+    "ruff_format_files": 449,
+    "mypy_app_source_files": 436,
+    "mypy_cli_source_files": 2,
+    "final_default_full_suite": {
+      "command": ".venv/bin/pytest -q",
+      "passed": 2918,
+      "skipped": 3,
+      "warnings": 4,
+      "duration_seconds": 150.09,
+      "core_coverage_percent": 93.19,
+      "core_statements": 4994,
+      "core_missed_statements": 340,
+      "exit_code": 0,
+      "log": "/tmp/rag-20261028-cache-full-final-pytest.log",
+      "notes": "Original PostgreSQL concurrency/locking and Docker recovery opt-in skips; existing short JWT test signing-key warnings. No lowered gates or removed discovery paths."
+    },
+    "source_counts": {
+      "app_python": 436,
+      "test_python": 224,
+      "test_modules": 218
+    },
+    "diff_check": "passed"
+  },
+  "source_sha256_at_final_code_freeze": {
+    "app/services/dialogue/nodes.py": "5f22932112b6485c46fe397e6d46874c286b9527dd0fef75bff67d5338aeef14",
+    "app/services/dialogue/state.py": "31766c5c869a169f0d2db6fe4c99da5673e2198af17459cf39583b0d91e917c8",
+    "app/services/chat/chat_service.py": "c2ae5f884323ba2371d6ca2983118805ab89bf60861b476459bae945d008c884",
+    "app/services/chat/persistence.py": "cd646fc480e66ddd5228ef2f9fb15372870847d0e8b6e9f60026d8693cf55993",
+    "app/services/chat/factory.py": "17393a0ebd1fe8516f5fe00fe9a118e0fc69eb018087e5d734710c4d71ac14d9"
+  },
+  "limits": [
+    "No HTTP, paid/live model, external Redis/vector service or production database in the new L0 cache fixture; the prior refund fixture independently covers two strict HTTP final-confirmation cases.",
+    "The Redis command and model/embedding boundaries are deterministic local seams; this is application cache eligibility evidence, not measured live-model answer quality.",
+    "Absence of prior context does not prove arbitrary anonymous first-turn input/output is safe for all shared-cache privacy concerns. Existing PII, output guards, intent allowlists, citation and epoch contracts remain required.",
+    "Generation remains best-effort when history is unavailable; blocking shared cache replay/write does not guarantee personalized accuracy during storage failure.",
+    "Concurrent session serialization, stable cross-node history snapshots, production dependency recovery, capacity and latency are not verified.",
+    "Validation used no deployment or production requests. Changes were committed afterwards at the user request; no push."
+  ],
+  "design_references": [
+    {
+      "url": "https://docs.langchain.com/oss/python/concepts/memory",
+      "use": "Separate thread-scoped conversation history and cross-session user facts."
+    },
+    {
+      "url": "https://www.anthropic.com/research/demystifying-evals-for-ai-agents",
+      "use": "Grade actual state, provider calls, cache I/O and persisted artifacts, rather than matching response shape alone."
+    }
+  ],
+  "next_candidates": [
+    "Add explicit failed/interrupted-session visibility beside the unchanged containment proxy.",
+    "Strengthen live probe result checks so handoff failure and unsupported policy prose cannot pass on text anchors alone."
+  ],
+  "commit_state": "Committed after validation at the user request; see the containing commit. Not pushed."
+}

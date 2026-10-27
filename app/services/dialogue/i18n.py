@@ -102,6 +102,11 @@ HANDOFF_EMOTION_PREFIX: dict[str, str] = {
     LANG_EN: "We're very sorry about the experience, ",
 }
 
+HANDOFF_REFUND_REVIEW_PREFIX: dict[str, str] = {
+    LANG_ZH: "这笔退款需要人工审核，尚未执行退款。",
+    LANG_EN: "This refund requires human review; no refund has been issued. ",
+}
+
 HANDOFF_NO_TICKET: dict[str, str] = {
     LANG_ZH: "暂时未能确认转接人工客服成功。请稍后输入「转人工」重试。",
     LANG_EN: (

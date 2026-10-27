@@ -209,23 +209,70 @@ async def test_suspended_task_survives_policy_and_smalltalk(
     assert (await _state(chat))["state_stack"] == suspended
 
 
-async def test_cache_hit_also_starts_with_clean_turn(llm: _PromptLLM, streaming: bool) -> None:
+async def test_contextual_turn_after_tool_bypasses_cache_and_starts_clean(
+    llm: _PromptLLM, streaming: bool
+) -> None:
     cache = Mock()
     cache.capture_epoch = AsyncMock(return_value="epoch-test")
     cache.get = AsyncMock(
-        side_effect=[
-            None,
-            CachedAnswer(response="缓存政策答复。", sources=["policy"], intent="policy"),
-        ]
+        return_value=CachedAnswer(response="缓存政策答复。", sources=["policy"], intent="policy")
     )
     chat = _chat(llm, answer_cache=cache)
     await _turn(chat, "查询订单 ORD1001", streaming)
     answer = await _turn(chat, "退货政策是什么", streaming)
 
+    assert answer == llm.policy_answer
+    cache.get.assert_not_awaited()
+    current = await _state(chat)
+    assert current["tool_result"] == {}
+    assert current["executed_tools"] == []
+    assert current["shared_cache_blocked"] is True
+    assert len(llm.prompts) == 2
+
+
+async def test_anonymous_cache_hit_also_starts_with_clean_turn(
+    llm: _PromptLLM, streaming: bool
+) -> None:
+    cache = Mock()
+    cache.get = AsyncMock(
+        return_value=CachedAnswer(response="缓存政策答复。", sources=["policy"], intent="policy")
+    )
+    chat = _chat(llm, answer_cache=cache)
+    # Only stale per-turn outputs are seeded; this graph has no history
+    # provider, and persistent user/task context is deliberately empty.
+    await chat.graph.aupdate_state(
+        {"configurable": {"thread_id": "1"}},
+        {
+            "session_id": 1,
+            "user_id": 0,
+            "intent": "policy",
+            "tool_result": {"order_id": "OLD"},
+            "executed_tools": [{"tool": "old-query"}],
+            "sources": ["old-source"],
+            "response": "old response",
+            "handoff_outcome": "failed",
+            "handoff_ticket_id": 99,
+            "shared_cache_blocked": True,
+        },
+        as_node="generate_response",
+    )
+    if streaming:
+        chunks = [chunk async for chunk in chat.process_message_stream(1, "退货政策是什么", 0)]
+        assert STREAM_ERROR not in chunks
+        answer = "".join(chunk for chunk in chunks if isinstance(chunk, str))
+    else:
+        answer = (await chat.process_message(1, "退货政策是什么", 0)).content
+
     assert answer == "缓存政策答复。"
-    assert (await _state(chat))["tool_result"] == {}
-    assert (await _state(chat))["executed_tools"] == []
-    assert len(llm.prompts) == 1
+    cache.get.assert_awaited_once_with("退货政策是什么")
+    current = await _state(chat)
+    assert current["tool_result"] == {}
+    assert current["executed_tools"] == []
+    assert current["handoff_outcome"] == ""
+    assert current["handoff_ticket_id"] == 0
+    assert current["shared_cache_blocked"] is False
+    assert current["sources"] == ["policy"]
+    assert llm.prompts == []
 
 
 async def test_handoff_keeps_prior_tool_context_separate_from_current_turn(

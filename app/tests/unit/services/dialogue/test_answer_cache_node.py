@@ -10,8 +10,8 @@ Pins the node contract from docs/cache-layering-plan.md:
 """
 
 import asyncio
-from typing import Any
-from unittest.mock import Mock
+from typing import Any, cast
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -101,7 +101,7 @@ class TestAnswerCacheLookupNode:
             {"message": "12345", "intent": "refund", "pending_slots": ["order_id"]}
         )
 
-        assert updates == {"route_after_cache": "miss"}
+        assert updates == {"route_after_cache": "miss", "shared_cache_blocked": True}
         assert cache.looked_up == []
 
     async def test_hit_ends_turn_with_replayed_answer(self):
@@ -138,7 +138,7 @@ class TestAnswerCacheLookupNode:
             {"message": "退货", "pending_confirmation": {"intent": "refund", "args": {}}}
         )
 
-        assert updates == {"route_after_cache": "miss"}
+        assert updates == {"route_after_cache": "miss", "shared_cache_blocked": True}
         assert cache.looked_up == []
 
 
@@ -159,3 +159,69 @@ class TestRouteAfterCache:
     def test_plain_message_routes_full(self):
         state: DialogueState = {"route_after_cache": "miss", "message": "退货政策是什么"}
         assert NodeFactory.route_after_cache(state) == "full"
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"user_id": 42},
+        {"filled_slots": {"order_id": "ORD1001"}},
+        {"state_stack": [{"intent": "refund"}]},
+        {"task_executed": True},
+        {"pending_refund_review": {"trigger": "refund_threshold"}},
+        {"shared_cache_blocked": True},
+    ],
+)
+async def test_l0_replay_never_overrides_current_context(extra: DialogueState) -> None:
+    cache = _FakeCache(_cached_answer())
+    factory = _make_factory(cache)
+    updates = await factory.answer_cache_lookup_node({"message": "coverage?", **extra})
+    assert updates["route_after_cache"] == "miss"
+    assert updates["shared_cache_blocked"] is True
+    assert cache.looked_up == []
+
+
+@pytest.mark.parametrize("unavailable", [False, True], ids=["existing-history", "unknown-history"])
+async def test_l0_context_read_must_prove_history_empty(unavailable: bool) -> None:
+    from app.services.llm.base import LLMMessage
+
+    cache = _FakeCache(_cached_answer())
+    factory = _make_factory(cache)
+    history = AsyncMock(
+        side_effect=RuntimeError("isolated history unavailable") if unavailable else None,
+        return_value=[LLMMessage(role="user", content="My plan is Premium")],
+    )
+    factory._history_provider = history
+    updates = await factory.answer_cache_lookup_node(
+        {"message": "coverage?", "session_id": 7, "turn_id": "context-turn"}
+    )
+    assert updates["route_after_cache"] == "miss"
+    assert updates["shared_cache_blocked"] is True
+    assert cache.looked_up == []
+    history.assert_awaited_once_with(7)
+
+
+async def test_l0_history_failure_stays_blocked_if_generation_recovers_empty() -> None:
+    from app.services.llm.base import LLMResponse
+
+    cache = _FakeCache(_cached_answer())
+    factory = _make_factory(cache)
+    factory._history_provider = AsyncMock(side_effect=[RuntimeError("isolated outage"), []])
+    factory._llm_service = Mock()
+    factory._llm_service.generate = AsyncMock(
+        return_value=LLMResponse(content="fresh", model="local")
+    )
+    semantic = Mock()
+    semantic.get = AsyncMock(return_value=_cached_answer())
+    semantic.put = AsyncMock()
+    semantic.capture_epoch = AsyncMock(return_value="test-epoch")
+    factory._semantic_cache = semantic
+    state: DialogueState = {"message": "coverage?", "session_id": 7, "turn_id": "sticky-turn"}
+    updates = await factory.answer_cache_lookup_node(state)
+    state = cast(DialogueState, {**state, **updates})
+    response = await factory.direct_response_node(state, {"configurable": {}})
+    assert response["response"] == "fresh"
+    assert response["shared_cache_blocked"] is True
+    assert factory._history_provider.await_count == 2
+    semantic.get.assert_not_awaited()
+    semantic.put.assert_not_awaited()

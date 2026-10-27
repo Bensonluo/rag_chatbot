@@ -217,7 +217,7 @@ def mock_refund(args: dict[str, Any]) -> dict[str, Any]:
             "status": "escalated",
             "order_id": order.get("order_id", args.get("order_id", "")),
             "amount": amount,
-            "message": "Refund above the auto-processing limit (¥1000); escalated to a human agent for review.",
+            "message": "Refund above the auto-processing limit (¥1000); human review is required and no refund has been issued.",
         }
     return {
         "status": "success",

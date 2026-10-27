@@ -1,0 +1,540 @@
+{
+  "date": "2026-10-28",
+  "baseline_commit": "70da2f6",
+  "branch": "bugfix/refund-handoff-20261028",
+  "status": "selected_iteration_fixed_and_full_regression_passed",
+  "product_decision": {
+    "target_users": [
+      "ecommerce support customers",
+      "assigned human staff",
+      "knowledge and QA operators",
+      "enterprise integration teams"
+    ],
+    "current_delivery": "Single-instance public demo with mock business tools; enterprise product target does not certify production readiness.",
+    "selected_issue": "A completed high-value refund confirmation claimed human review without a durable staff work item. Prioritized over context cache and measurement gaps."
+  },
+  "scope": {
+    "real_components": [
+      "FastAPI strict JWT final-confirmation routes",
+      "ChatService normal/stream",
+      "compiled LangGraph with MemorySaver",
+      "default refund registry and staged confirmation",
+      "HandoffService",
+      "ChatMessagePersister",
+      "temporary SQLite with foreign keys ON"
+    ],
+    "external_model_calls": 0,
+    "external_connections": [],
+    "fault_injection": "SQLite trigger aborts actual ticket INSERT; not a fabricated handoff result."
+  },
+  "before": {
+    "turns": [
+      {
+        "user": "我要退款",
+        "answer": "请提供您的订单号",
+        "intent": "refund",
+        "metadata": {
+          "confidence": 0.9,
+          "pending_slots": [
+            "order_id",
+            "reason"
+          ],
+          "filled_slots": {},
+          "llm_calls": 0,
+          "llm_refused": 0
+        }
+      },
+      {
+        "user": "ORD3001",
+        "answer": "May I ask the reason for the refund?",
+        "intent": "refund",
+        "metadata": {
+          "confidence": 0.0,
+          "pending_slots": [
+            "reason"
+          ],
+          "filled_slots": {
+            "order_id": "ORD3001"
+          },
+          "llm_calls": 0,
+          "llm_refused": 0
+        }
+      },
+      {
+        "user": "商品存在质量问题",
+        "answer": "⚠️ 即将为您执行「退款」：order_id=ORD3001，reason=质量问题。\n该操作不可自动撤销。请回复「确认」执行，或回复「取消」放弃。",
+        "intent": "refund",
+        "metadata": {
+          "confidence": 0.0,
+          "pending_slots": [],
+          "filled_slots": {
+            "order_id": "ORD3001",
+            "reason": "质量问题"
+          },
+          "llm_calls": 0,
+          "llm_refused": 0
+        }
+      },
+      {
+        "user": "确认",
+        "answer": "用户意图: 退款\n用户消息: 确认\n工具执行结果: {\"status\": \"escalated\", \"order_id\": \"ORD3001\", \"amount\": 1299.0, \"message\": \"Refund above the auto-processing limit (¥1000); escalated to a human agent for review.\"}\n请根据以上工具执行结果，用友好专业的语气回答用户。工单号、订单号等编号只能逐字引用工具执行结果中的值，不得编造工具结果中不存在的编号、客服姓名、排队或时效信息。",
+        "intent": "refund",
+        "metadata": {
+          "confidence": 0.9333333333333332,
+          "pending_slots": [],
+          "filled_slots": {
+            "order_id": "ORD3001",
+            "reason": "质量问题"
+          },
+          "llm_calls": 0,
+          "llm_refused": 0,
+          "executed_tools": [
+            {
+              "tool": "process_refund",
+              "ok": true,
+              "args": {
+                "order_id": "ORD3001",
+                "reason": "质量问题"
+              },
+              "summary": "{\"status\": \"escalated\", \"order_id\": \"ORD3001\", \"amount\": 1299.0, \"message\": \"Refund above the auto-processing limit (¥1000); escalated to a human agent for review.\"}"
+            }
+          ]
+        }
+      }
+    ],
+    "tool_result": {
+      "status": "escalated",
+      "order_id": "ORD3001",
+      "amount": 1299.0,
+      "message": "Refund above the auto-processing limit (¥1000); escalated to a human agent for review."
+    },
+    "task_executed": true,
+    "executed_tools": [
+      {
+        "tool": "process_refund",
+        "ok": true,
+        "args": {
+          "order_id": "ORD3001",
+          "reason": "质量问题"
+        },
+        "summary": "{\"status\": \"escalated\", \"order_id\": \"ORD3001\", \"amount\": 1299.0, \"message\": \"Refund above the auto-processing limit (¥1000); escalated to a human agent for review.\"}"
+      }
+    ],
+    "handoff_outcome": "",
+    "handoff_ticket_id": 0,
+    "persisted_handoff_ticket_count": 0
+  },
+  "after": {
+    "turns": [
+      {
+        "user": "我要退款",
+        "answer": "请提供您的订单号",
+        "intent": "refund",
+        "metadata": {
+          "confidence": 0.9,
+          "pending_slots": [
+            "order_id",
+            "reason"
+          ],
+          "filled_slots": {},
+          "llm_calls": 0,
+          "llm_refused": 0
+        }
+      },
+      {
+        "user": "ORD3001",
+        "answer": "May I ask the reason for the refund?",
+        "intent": "refund",
+        "metadata": {
+          "confidence": 0.0,
+          "pending_slots": [
+            "reason"
+          ],
+          "filled_slots": {
+            "order_id": "ORD3001"
+          },
+          "llm_calls": 0,
+          "llm_refused": 0
+        }
+      },
+      {
+        "user": "商品存在质量问题",
+        "answer": "⚠️ 即将为您执行「退款」：order_id=ORD3001，reason=质量问题。\n该操作不可自动撤销。请回复「确认」执行，或回复「取消」放弃。",
+        "intent": "refund",
+        "metadata": {
+          "confidence": 0.0,
+          "pending_slots": [],
+          "filled_slots": {
+            "order_id": "ORD3001",
+            "reason": "质量问题"
+          },
+          "llm_calls": 0,
+          "llm_refused": 0
+        }
+      },
+      {
+        "user": "确认",
+        "answer": "这笔退款需要人工审核，尚未执行退款。您的人工客服请求已记录（工单号 #1），当前排队位置：第 1 位，工单已关联本次会话，请稍候。",
+        "intent": "handoff",
+        "metadata": {
+          "confidence": 0.9333333333333332,
+          "pending_slots": [],
+          "filled_slots": {},
+          "llm_calls": 0,
+          "llm_refused": 0,
+          "handoff_outcome": "queued",
+          "handoff_ticket_id": 1,
+          "executed_tools": [
+            {
+              "tool": "process_refund",
+              "ok": true,
+              "args": {
+                "order_id": "ORD3001",
+                "reason": "质量问题"
+              },
+              "summary": "{\"status\": \"escalated\", \"order_id\": \"ORD3001\", \"amount\": 1299.0, \"message\": \"Refund above the auto-processing limit (¥1000); human review is required and no refund has been issued.\"}"
+            }
+          ]
+        }
+      }
+    ],
+    "tool_result": {
+      "status": "escalated",
+      "order_id": "ORD3001",
+      "amount": 1299.0,
+      "message": "Refund above the auto-processing limit (¥1000); human review is required and no refund has been issued."
+    },
+    "task_executed": true,
+    "executed_tools": [
+      {
+        "tool": "process_refund",
+        "ok": true,
+        "args": {
+          "order_id": "ORD3001",
+          "reason": "质量问题"
+        },
+        "summary": "{\"status\": \"escalated\", \"order_id\": \"ORD3001\", \"amount\": 1299.0, \"message\": \"Refund above the auto-processing limit (¥1000); human review is required and no refund has been issued.\"}"
+      }
+    ],
+    "handoff_outcome": "queued",
+    "handoff_ticket_id": 1,
+    "persisted_handoff_ticket_count": 1
+  },
+  "targeted_regression": {
+    "file": "app/tests/evaluation/test_refund_manual_review.py",
+    "baseline": {
+      "full_graph_test_result": "11 failed, 2 passed in 1.00s (English yes confirmation, low-value controls passed)",
+      "log": "/tmp/rag-20261028-refund-graph-before.log",
+      "snapshot": "/tmp/rag-20261028-product-repro-results.json",
+      "observed_ticket_count": 0,
+      "observed_handoff_outcome": "",
+      "tool_claim": "Refund above the auto-processing limit (¥1000); escalated to a human agent for review.",
+      "task_terminal": true,
+      "additional_literal_confirm_gap": "English template requested confirm, but detector did not recognize literal confirm; parent added anchored handling in the selected iteration."
+    },
+    "final": {
+      "result": "24 passed in 1.76s",
+      "service_cases": 22,
+      "http_cases": 2,
+      "log": "/tmp/rag-20261028-refund-graph-api-final.log",
+      "snapshot": "/tmp/rag-20261028-product-repro-after-results.json",
+      "observed_ticket_count": 1,
+      "observed_handoff_outcome": "queued",
+      "observed_customer_copy": "这笔退款需要人工审核，尚未执行退款。您的人工客服请求已记录（工单号 #1），当前排队位置：第 1 位，工单已关联本次会话，请稍候。",
+      "observed_metadata": {
+        "confidence": 0.9333333333333332,
+        "pending_slots": [],
+        "filled_slots": {},
+        "llm_calls": 0,
+        "llm_refused": 0,
+        "turn_id": "df248a41422044f68c80752d9d354210",
+        "handoff_outcome": "queued",
+        "handoff_ticket_id": 1,
+        "executed_tools": [
+          {
+            "tool": "process_refund",
+            "ok": true,
+            "args": {
+              "order_id": "ORD3001",
+              "reason": "质量问题"
+            },
+            "summary": "{\"status\": \"escalated\", \"order_id\": \"ORD3001\", \"amount\": 1299.0, \"message\": \"Refund above the auto-processing limit (¥1000); human review is required and no refund has been issued.\"}"
+          }
+        ]
+      },
+      "lint": "Ruff check and format passed"
+    },
+    "verified_contracts": [
+      "Chinese/English normal and streaming service paths perform collection and explicit confirmation before a real high-priority refund_threshold ticket is created for ORD3001 amount1299.",
+      "The ticket retains order, amount, original reason and process_refund audit context; durable assistant metadata and body name the same actual ticket.",
+      "Copy explicitly says no refund has been issued; it does not claim an agent picked up or invent a refund receipt.",
+      "SQLite trigger refusal yields honest failed handoff with no ticket ID/queue claim; a later order-status tool can run before explicit staff retry without losing the original refund review snapshot or repeating refund execution.",
+      "A successful retry retains high priority/refund_threshold; after resolving that ticket a future unrelated staff request is explicit/normal priority.",
+      "Active open or claimed tickets are reused; current assignment is preserved, an existing emotion reason stays intact and refund_threshold is retained in escalation_contexts.",
+      "Missing handoff service cannot confirm review; ordinary ORD1001 low-value refunds still require confirmation and do not escalate (normal/stream, English yes remains accepted).",
+      "An Agent-style staged pending_confirmation contract in the actual checkpointer reaches the same confirmed review path; this is not a test of an LLM Agent selecting that contract.",
+      "Two strict JWT HTTP cases stage through the real service, then confirm through /api/v1/chat or /api/v1/chat/stream. Independent SSE decoding sees one complete ticket acknowledgement and persisted text exactly matches visible text.",
+      "The manual-review terminal branch clears active slot collections only after saving ticket/retry context; queries for a different same-owner order use the new order ID and foreign-order queries cannot be replaced by the old authorized order.",
+      "Abandoning a failed manual review with cancel or no clears its retry meaning; a future ordinary staff request is not classified as an urgent refund escalation. Both normal and streaming service paths are covered."
+    ],
+    "additional_red_green_regressions": {
+      "slot_contamination": {
+        "before": "6 failed,14 deselected in0.73s",
+        "log": "/tmp/rag-20261028-refund-slots-before.log",
+        "observed": "After failed refund handoff, querying same-owner ORD3002 or foreign ORD1001 actually executed stale ORD3001 due active filled_slots surviving terminal handoff.",
+        "after": "Same-owner ORD3002 is queried with its own args; foreign ORD1001 is refused. Explicit review retry still uses the original ORD3001 refund context, without another refund call."
+      },
+      "abandoned_retry_context": {
+        "before": "4 failed,20 deselected in0.58s",
+        "log": "/tmp/rag-20261028-refund-abandon-before.log",
+        "observed": "After failed review, cancel/no left pending review context active and reclassified a future ordinary human-agent request as refund_threshold/high.",
+        "after": "cancel/no normal/stream produces a later ordinary explicit/normal ticket, with original refund handler still called only once."
+      }
+    },
+    "literal_confirm_before": {
+      "failed": 4,
+      "negative_controls_passed": 5,
+      "reason": "The exact command printed by the English confirmation template classified UNKNOWN.",
+      "log": "/tmp/rag-20261028-confirm-command-before.log"
+    },
+    "node_before": {
+      "failed": 6,
+      "scope": "created/failed/unwired handoff, Chinese/English",
+      "log": "/tmp/rag-20261028-refund-unit-before.log"
+    }
+  },
+  "independent_review": {
+    "review_and_slot_probe": {
+      "intermediate_with_review_hook_before_slot_cleanup": {
+        "scope": "Read-only independent scenarios using real compiled graph, registry, SQLite FK, handoff service and persistence; reused verifier setup only, assertions and edge-case sequence independent. No LLM or network; socket connect/connect_ex forbidden in fixture.",
+        "cases": [
+          {
+            "case": "failed_review_stream_then_repeat_confirm_foreign_tool_emotion_retry_and_future_explicit",
+            "sse_text_chunks": 1,
+            "initial_ticket_count": 0,
+            "refund_tool_calls": 1,
+            "retry_ticket": {
+              "reason": "refund_threshold",
+              "priority": 1,
+              "original_order": "ORD3001",
+              "original_amount": 1299.0,
+              "original_refund_audit_preserved": true
+            },
+            "pending_cleared_after_success": true,
+            "future_ticket": {
+              "reason": "explicit",
+              "priority": 2
+            }
+          },
+          {
+            "case": "human_request_before_confirmation",
+            "refund_tool_calls": 0,
+            "ticket_reason": "explicit",
+            "priority": 2,
+            "pending_review": null
+          },
+          {
+            "case": "foreign_order_confirm_denied",
+            "refund_tool_attempts": 1,
+            "audit_ok": false,
+            "ticket_count": 0,
+            "pending_review": null
+          },
+          {
+            "case": "nonliteral_confirmation_cannot_execute",
+            "utterance": "do not confirm",
+            "refund_tool_calls": 0,
+            "ticket_count": 0
+          },
+          {
+            "case": "nonliteral_confirmation_cannot_execute",
+            "utterance": "confirm?",
+            "refund_tool_calls": 0,
+            "ticket_count": 0
+          },
+          {
+            "case": "nonliteral_confirmation_cannot_execute",
+            "utterance": "unconfirmed",
+            "refund_tool_calls": 0,
+            "ticket_count": 0
+          },
+          {
+            "case": "nonliteral_confirmation_cannot_execute",
+            "utterance": "confirmation",
+            "refund_tool_calls": 0,
+            "ticket_count": 0
+          }
+        ],
+        "findings": [
+          {
+            "case": "new_order_query_after_terminal_refund_handoff",
+            "requested_order": "ORD1001",
+            "actual_tool": "query_order_status",
+            "actual_order": "ORD3001",
+            "actual_ok": true,
+            "root_cause": "handoff intent prevents handle_switch from consuming terminal task slots; existing order_id overrides new request"
+          }
+        ],
+        "result": "concrete_regression_found",
+        "repository_source_changed": false
+      },
+      "after_final_fix": {
+        "scope": "Read-only independent scenarios using real compiled graph, registry, SQLite FK, handoff service and persistence; reused verifier setup only, assertions and edge-case sequence independent. No LLM or network; socket connect/connect_ex forbidden in fixture.",
+        "cases": [
+          {
+            "case": "failed_review_stream_then_repeat_confirm_foreign_tool_emotion_retry_and_future_explicit",
+            "sse_text_chunks": 1,
+            "initial_ticket_count": 0,
+            "refund_tool_calls": 1,
+            "retry_ticket": {
+              "reason": "refund_threshold",
+              "priority": 1,
+              "original_order": "ORD3001",
+              "original_amount": 1299.0,
+              "original_refund_audit_preserved": true
+            },
+            "pending_cleared_after_success": true,
+            "intervening_requested_order": "ORD1001",
+            "intervening_query_ok": false,
+            "future_ticket": {
+              "reason": "explicit",
+              "priority": 2
+            }
+          },
+          {
+            "case": "human_request_before_confirmation",
+            "refund_tool_calls": 0,
+            "ticket_reason": "explicit",
+            "priority": 2,
+            "pending_review": null
+          },
+          {
+            "case": "foreign_order_confirm_denied",
+            "refund_tool_attempts": 1,
+            "audit_ok": false,
+            "ticket_count": 0,
+            "pending_review": null
+          },
+          {
+            "case": "nonliteral_confirmation_cannot_execute",
+            "utterance": "do not confirm",
+            "refund_tool_calls": 0,
+            "ticket_count": 0
+          },
+          {
+            "case": "nonliteral_confirmation_cannot_execute",
+            "utterance": "confirm?",
+            "refund_tool_calls": 0,
+            "ticket_count": 0
+          },
+          {
+            "case": "nonliteral_confirmation_cannot_execute",
+            "utterance": "unconfirmed",
+            "refund_tool_calls": 0,
+            "ticket_count": 0
+          },
+          {
+            "case": "nonliteral_confirmation_cannot_execute",
+            "utterance": "confirmation",
+            "refund_tool_calls": 0,
+            "ticket_count": 0
+          }
+        ],
+        "findings": [],
+        "result": "passed",
+        "repository_source_changed": false
+      },
+      "verification": "Independent original scenario rerun after the targeted fixes; original observation retained unchanged. Repository source not modified."
+    },
+    "cancel_lifecycle_probe": {
+      "intermediate_with_pending_review_before_cancel_cleanup": {
+        "case": "cancel_after_failed_review_then_human_request",
+        "pending_before_cancel": true,
+        "cancel_reply": "已取消当前操作。",
+        "pending_after_cancel": true,
+        "later_ticket_reason": "refund_threshold",
+        "later_reply": "This refund requires human review; no refund has been issued. Your request for a human agent is recorded (ticket #1), your position in the queue: 1, the ticket is linked to this conversation.",
+        "refund_tool_calls": 1
+      },
+      "after_final_fix": {
+        "case": "cancel_after_failed_review_then_human_request",
+        "pending_before_cancel": true,
+        "cancel_reply": "已取消当前操作。",
+        "pending_after_cancel": false,
+        "later_ticket_reason": "explicit",
+        "later_ticket_priority": 2,
+        "later_reply": "Your request for a human agent is recorded (ticket #1), your position in the queue: 1, the ticket is linked to this conversation.",
+        "refund_tool_calls": 1,
+        "result": "passed"
+      },
+      "verification": "Independent original scenario rerun after the targeted fixes; original observation retained unchanged. Repository source not modified."
+    }
+  },
+  "limits": [
+    "No paid/external model, vector service, Redis, production database, deployment or live production probe was used.",
+    "All database state is temporary SQLite with foreign keys ON. No claim is made about new PostgreSQL concurrency coverage.",
+    "HTTP cases cover successful final confirmation; database-refusal/missing-service/retry failures are tested through actual service normal/stream paths.",
+    "The business refund handler remains the documented bundled mock. This iteration verifies durable staff review work, not a real payment integration.",
+    "HTTP coverage is limited to final successful confirmation; refusal/retry/cancel/foreign-order cases run through real normal/stream service methods.",
+    "The Agent case starts from an Agent-style staged checkpoint contract; it does not measure a live LLM Agent deciding to stage it.",
+    "Failed review retry context depends on checkpoint availability and is scoped to the current unsubmitted review in the session. It is not a payment transaction ledger or durable outbox.",
+    "Validation used no deployment, production traffic or remote CI. Changes were committed afterwards at the user request; no push."
+  ],
+  "next_candidates": [
+    "Shared L0 read eligibility still bypasses applicable user/session context.",
+    "Known FAILED-only assistant populations still appear as100% containment under the current no-ticket/no-downvote proxy; additive failure visibility is a separate metric-design iteration.",
+    "Live probe remains routing smoke and accepts locally demonstrated failure/unsupported-policy text shapes."
+  ],
+  "design_references": [
+    {
+      "url": "https://www.anthropic.com/research/demystifying-evals-for-ai-agents",
+      "use": "Check final environment state as well as output claims."
+    },
+    {
+      "url": "https://docs.langchain.com/oss/python/concepts/memory",
+      "use": "Distinguish session history from cross-session user facts for the next cache-eligibility iteration."
+    }
+  ],
+  "implementation_sha256": {
+    "app/services/dialogue/nodes.py": "29cebcc6f0e9049c7321ebcd00a59547f11a45c8d811ffcee1ce18bb88de6d79",
+    "app/services/dialogue/tools.py": "4af8d3fee5e1f56257ad34f1ae277e39721aac13b3b597b5310b76fc6294042b",
+    "app/services/dialogue/state.py": "d76ed95209be7e2c85aaf8e4dcd6481a04f21ffa198c966e75928042a3187c06",
+    "app/services/dialogue/i18n.py": "cd39126edec251a50578fee10ed66a57057da07b773b27525e4d60471fbc359b",
+    "app/services/intent/rule_based.py": "2ea0cf65945bd80d7b5e0aa074dc6c1d867cd0b2a75c5d8aacf804314ef6521e"
+  },
+  "verification": {
+    "ruff_check": "passed",
+    "ruff_format_files": 448,
+    "mypy_app_files": 435,
+    "mypy_cli_files": 2,
+    "targeted_workflow_cases_passed": 24,
+    "targeted_workflow_case_breakdown": {
+      "service": 22,
+      "http": 2
+    },
+    "related_service_cases": {
+      "passed": 194,
+      "skipped": 1
+    },
+    "confirmation_handoff_detector_cases_passed": 124,
+    "default_full_suite": {
+      "command": ".venv/bin/pytest -q",
+      "passed": 2863,
+      "skipped": 3,
+      "warnings": 4,
+      "duration_seconds": 164.75,
+      "exit_code": 0,
+      "core_coverage_percent": 93.26,
+      "core_statements": 4959,
+      "core_missed_statements": 334,
+      "scope": "Maintained default suite; existing PostgreSQL concurrency/locking and Docker recovery opt-ins skipped, existing short JWT test-key warnings retained."
+    },
+    "source_counts": {
+      "app_python": 435,
+      "test_python": 223,
+      "test_modules": 217
+    }
+  },
+  "implementation_snapshot_note": "Hashes describe the validated refund-review iteration before any subsequent cache-context work; the worktree was uncommitted at that checkpoint.",
+  "commit_state": "Committed after validation at the user request; see the containing commit. Not pushed."
+}

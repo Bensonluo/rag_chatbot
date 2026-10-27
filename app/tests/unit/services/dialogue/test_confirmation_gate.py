@@ -9,6 +9,8 @@ import time
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
 from app.config.settings import settings
 from app.services.dialogue.nodes import NodeFactory
 from app.services.dialogue.state import DialogueState
@@ -449,3 +451,88 @@ class TestConfirmationExpiry:
 
         registry.execute.assert_not_awaited()
         assert "expired" in updates["response"]
+
+
+@pytest.mark.parametrize("message", ["确认", "confirm"], ids=["zh", "en"])
+@pytest.mark.parametrize("ticket_state", ["created", "failed", "unwired"])
+async def test_large_refund_confirmation_records_actual_handoff_before_reply(
+    message: str, ticket_state: str
+) -> None:
+    """A review decision is not a recorded request until the ticket exists."""
+    import asyncio
+
+    registry = create_default_tool_registry()
+    factory = _make_factory(tool_registry=registry)
+    handoff = Mock()
+    handoff.create_ticket_for_session = AsyncMock(
+        return_value={
+            "ticket_id": 42 if ticket_state == "created" else None,
+            "queue_position": 1 if ticket_state == "created" else None,
+            "reused": False,
+        }
+    )
+    factory._handoff_service = None if ticket_state == "unwired" else handoff
+    factory._call_llm = AsyncMock(  # type: ignore[method-assign]
+        side_effect=AssertionError("A model must not invent the refund review outcome")
+    )
+    queue: asyncio.Queue[str] = asyncio.Queue()
+    state: DialogueState = {
+        "turn_id": "refund-review-turn",
+        "intent": "confirm",
+        "prev_intent": "refund",
+        "message": message,
+        "session_id": 7,
+        "user_id": 3,
+        "pending_confirmation": {
+            "intent": "refund",
+            "args": {"order_id": "ORD3001", "reason": "damaged"},
+        },
+    }
+    updates = await factory.generate_response_node(state, {"configurable": {"stream_queue": queue}})
+    assert updates["pending_confirmation"] is None
+    assert updates["task_executed"] is True
+    assert updates["tool_result"]["status"] == "escalated"
+    assert "refund_id" not in updates["tool_result"]
+    assert updates["executed_tools"][0]["args"]["order_id"] == "ORD3001"
+    assert updates["filled_slots"] == {}
+    assert updates["pending_slots"] == []
+    assert updates["handoff_reason"] == "refund_threshold"
+    assert updates["handoff_outcome"] == ("queued" if ticket_state == "created" else "failed")
+    assert updates["intent"] == "handoff"
+    if ticket_state != "unwired":
+        call = handoff.create_ticket_for_session.await_args
+        assert call is not None
+        assert call.kwargs["reason"] == "refund_threshold"
+        assert call.kwargs["session_id"] == 7
+        assert call.kwargs["user_id"] == 3
+        context = call.kwargs["context"]
+        assert context["filled_slots"]["order_id"] == "ORD3001"
+        assert context["last_tool_result"]["amount"] == 1299
+        assert context["bot_executed_tools"] == updates["executed_tools"]
+    if ticket_state == "created":
+        assert updates["handoff_ticket_id"] == 42
+        assert "#42" in updates["response"]
+    else:
+        assert not updates.get("handoff_ticket_id")
+        assert "#" not in updates["response"]
+    expected = "尚未执行退款" if message == "确认" else "no refund has been issued"
+    assert expected in updates["response"]
+    assert queue.get_nowait() == updates["response"]
+    assert queue.empty()
+
+
+@pytest.mark.parametrize("intent", ["cancel", "deny"])
+async def test_cancelling_an_unsubmitted_refund_review_discards_its_retry_context(intent: str):
+    factory = _make_factory(tool_registry=create_default_tool_registry())
+    updates = await factory._handle_meta_intent(
+        {
+            "intent": intent,
+            "message": "cancel" if intent == "cancel" else "no",
+            "pending_refund_review": {
+                "trigger": "refund_threshold",
+                "filled_slots": {"order_id": "ORD3001"},
+                "last_tool_result": {"status": "escalated", "amount": 1299},
+            },
+        }
+    )
+    assert updates["pending_refund_review"] is None

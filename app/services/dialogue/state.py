@@ -59,6 +59,10 @@ class TurnState(TypedDict, total=False):
     # and must never enter a shared (cross-session) cache — see the
     # L0/L1 write gates in chat_service / nodes.
     personalized: bool
+    # Sticky for this turn once context or unavailable history makes a
+    # shared answer unsafe. False is not proof of an empty conversation;
+    # L0/L1 must still check their history provider before replaying.
+    shared_cache_blocked: bool
 
 
 class DialogueState(TurnState, total=False):
@@ -86,6 +90,11 @@ class DialogueState(TurnState, total=False):
     # Historical context is deliberately separate from current results:
     # only the handoff node consumes it, never response generation.
     last_tool_execution: ToolExecutionContext
+    # A refund review whose ticket could not be recorded. Keep its
+    # structured context until an explicit handoff retry succeeds, even
+    # if a later tool call replaces last_tool_execution in the meantime.
+    # This is retry context only; it must never execute the refund again.
+    pending_refund_review: dict[str, Any] | None
     # Set while an irreversible tool is staged awaiting explicit user
     # confirmation: {"intent": ..., "args": {...}}
     pending_confirmation: dict[str, Any] | None
@@ -132,6 +141,7 @@ def begin_turn(state: DialogueState) -> DialogueState:
         "blocked": False,
         "blocked_reason": "",
         "personalized": False,
+        "shared_cache_blocked": False,
     }
     if state.get("tool_result") or state.get("executed_tools"):
         updates["last_tool_execution"] = {

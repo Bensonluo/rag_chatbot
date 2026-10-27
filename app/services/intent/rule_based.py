@@ -341,6 +341,10 @@ class RuleBasedIntentDetector(IntentDetector):
                     "weight": 1.5,
                 },
                 {"patterns": [r"^(是的|对|好的|确认|没错|可以|继续|要的)[！!。]*$"], "weight": 1.3},
+                # The irreversible-action template asks for this exact
+                # command. Anchor it so mentions, questions and negations
+                # cannot approve a staged action or need LLM arbitration.
+                {"patterns": [r"^confirm[.!！。]*$"], "weight": 3.0},
             ],
             Intent.DENY: [
                 {

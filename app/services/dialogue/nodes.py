@@ -87,6 +87,7 @@ from app.services.dialogue.i18n import (
     HANDOFF_EMOTION_PREFIX,
     HANDOFF_NO_TICKET,
     HANDOFF_QUEUE,
+    HANDOFF_REFUND_REVIEW_PREFIX,
     LANG_EN,
     LANG_ZH,
     NO_EVIDENCE,
@@ -101,6 +102,7 @@ from app.services.guardrails.stream_redactor import PIIStreamRedactor
 from app.services.handoff.service import (
     REASON_EMOTION,
     REASON_EXPLICIT,
+    REASON_REFUND_THRESHOLD,
 )
 from app.services.intent.rule_based import looks_like_handoff
 from app.services.observability.pipeline_tracer import traced_stage
@@ -208,6 +210,11 @@ def _used_history(config: Optional[RunnableConfig]) -> bool:
     return bool((config.get("configurable") or {}).get("generation_used_history"))
 
 
+def _shared_cache_blocked(config: Optional[RunnableConfig]) -> bool:
+    """Whether generation observed unavailable history in this turn."""
+    return bool(config and (config.get("configurable") or {}).get("shared_cache_blocked"))
+
+
 def _emit_response(text: str, config: Optional[RunnableConfig]) -> None:
     """Push a complete response to the stream queue.
 
@@ -276,7 +283,7 @@ class NodeFactory:
         # One history fetch per turn: the retrieval-side condense and
         # generation read the same snapshot (turn_id-keyed single-slot
         # memo; interleaved turns just refetch on a key miss).
-        self._turn_history_memo: tuple[str, list[Any]] | None = None
+        self._turn_history_memo: tuple[tuple[int, str], list[Any]] | None = None
         self._system_prompt = system_prompt
         self._user_facts_provider = user_facts_provider
         self._slot_filler = slot_filler
@@ -351,15 +358,15 @@ class NodeFactory:
         re-run on every serve — near-zero-cost freshness insurance this
         verify-everything skeleton gets for free.
 
-        Turns with in-flight user state (pending slots, staged
-        irreversible actions) skip the lookup: a cached answer cannot
-        know about them.
+        Identified users, task state and sessions with history skip
+        replay. Unavailable history is unknown, not an empty session;
+        the resulting shared-cache veto also applies to this turn's write.
         """
         if self._answer_cache is None or state.get("blocked"):
             return {"route_after_cache": "miss"}
 
-        if state.get("pending_slots") or state.get("pending_confirmation"):
-            return {"route_after_cache": "miss"}
+        if not await self._can_share_answer(state):
+            return {"route_after_cache": "miss", "shared_cache_blocked": True}
 
         cached = await self._answer_cache.get(state.get("message", ""))
         if cached is None:
@@ -1042,20 +1049,48 @@ class NodeFactory:
             return results
 
     async def _turn_history(self, state: DialogueState) -> list[Any]:
-        """Session history for this turn, fetched at most once.
+        """Reuse this turn's available session-history snapshot.
 
         The retrieval-side condense and the generation prompt need the
-        same snapshot; fetching twice would double the provider cost
-        and could race a concurrent persist between the two reads.
+        same snapshot. This bounded memo has one entry; concurrent turns
+        may evict it and read again, but cannot reuse another session's
+        history. Callers without a turn id must always read afresh.
         Raises whatever the provider raises — callers own the policy.
         """
         assert self._history_provider is not None
         turn_id = state.get("turn_id", "")
-        if self._turn_history_memo is not None and self._turn_history_memo[0] == turn_id:
+        key = (state.get("session_id", 0), turn_id)
+        if turn_id and self._turn_history_memo is not None and self._turn_history_memo[0] == key:
             return self._turn_history_memo[1]
         history = list(await self._history_provider(state.get("session_id", 0)))
-        self._turn_history_memo = (turn_id, history)
+        if turn_id:
+            self._turn_history_memo = (key, history)
         return history
+
+    async def _can_share_answer(self, state: DialogueState) -> bool:
+        """Read/write eligibility for cross-session L0 and L1 answers."""
+        if (
+            state.get("shared_cache_blocked")
+            or state.get("user_id")
+            or state.get("blocked")
+            or state.get("personalized")
+            or state.get("filled_slots")
+            or state.get("pending_slots")
+            or state.get("pending_confirmation")
+            or state.get("state_stack")
+            or state.get("task_executed")
+            or state.get("pending_refund_review")
+        ):
+            return False
+        if self._history_provider is None:
+            # This graph has no session-history feature. Generation also
+            # cannot use history, so anonymous stateless replay remains valid.
+            return True
+        try:
+            return not await self._turn_history(state)
+        except Exception:  # noqa: BLE001 - miss on uncertainty, keep chat available
+            logger.warning("History unavailable; bypassing shared answer caches")
+            return False
 
     async def _condense_query(self, message: str, state: DialogueState) -> str | None:
         """Best-effort standalone-question rewrite for retrieval (review #6).
@@ -1193,12 +1228,20 @@ class NodeFactory:
         leaves the graph, and emits the final text to the stream queue
         when it was not already streamed token-by-token.
         """
+        # Public node calls without LangGraph's config still need a place
+        # to retain context-read failures through generation and cache writes.
+        if config is None:
+            config = {"configurable": {}}
+        elif "configurable" not in config:
+            config = {**config, "configurable": {}}
         updates = await self._generate_response_logic(state, config)
         # Shared-cache eligibility: when the generation folded in history
         # or user facts, flag it so the L0 write gate in ChatService can
         # refuse to store a dialogue-personal answer.
         if _used_history(config):
             updates["personalized"] = True
+        if _shared_cache_blocked(config):
+            updates["shared_cache_blocked"] = True
         updates = self._apply_claim_gate(state, updates)
         updates["citations"] = self._safe_citations(updates.get("citations"))
 
@@ -1286,10 +1329,9 @@ class NodeFactory:
         output guardrail) exactly like the L0 and FAQ fast paths: a
         cached serve is never trusted blindly.
 
-        Lookup is intentionally NOT gated on pending task state: direct
-        answers are persona + message only (anonymous writes only), so
-        a replay cannot smuggle in another user's context. The write
-        side is gated — see ``_maybe_put_semantic``.
+        Generation can use session history and user facts, including
+        on direct turns. Both replay and write therefore require a
+        context-free anonymous turn, just like the L0 tier.
 
         When a task is suspended, the answer carries a visible resume
         hint: the direct tier answers unrecognized input instead of
@@ -1297,9 +1339,16 @@ class NodeFactory:
         ``_detect_intent_logic``). The hint is appended after the cache
         write/read so cached bodies stay state-free.
         """
+        if config is None:
+            config = {"configurable": {}}
+        elif "configurable" not in config:
+            config = {**config, "configurable": {}}
         message = state.get("message", "")
+        cache_state: DialogueState = {**state}
         cache_epoch = None
         if self._semantic_cache is not None:
+            cache_state["shared_cache_blocked"] = not await self._can_share_answer(state)
+        if self._semantic_cache is not None and not cache_state.get("shared_cache_blocked"):
             cache_epoch = await self._semantic_cache.capture_epoch()
             cached = await self._semantic_cache.get(message)
             if cached is not None:
@@ -1330,7 +1379,11 @@ class NodeFactory:
                 return updates
 
         record_funnel_layer(LAYER_DIRECT)
-        response = await self._generate_direct(message, config, state)
+        response = await self._generate_direct(message, config, cache_state)
+        if _shared_cache_blocked(config):
+            cache_state["shared_cache_blocked"] = True
+        if cache_state.get("shared_cache_blocked"):
+            response["shared_cache_blocked"] = True
         # Output guardrail (review 2026-09-26, #4): the direct tier's
         # fresh generations pass the same output check as every other
         # LLM branch — PII is redacted before the answer leaves the
@@ -1344,7 +1397,7 @@ class NodeFactory:
                 response["response"] = check.sanitized_content
         # Cache the clean body; the resume hint is per-turn state.
         await self._maybe_put_semantic(
-            state,
+            cache_state,
             message,
             response.get("response", ""),
             used_history=_used_history(config),
@@ -1375,7 +1428,7 @@ class NodeFactory:
         """
         if self._semantic_cache is None or not response:
             return
-        if state.get("user_id") or state.get("pending_confirmation") or used_history:
+        if used_history or not await self._can_share_answer(state):
             return
         await self._semantic_cache.put(
             message,
@@ -1424,6 +1477,14 @@ class NodeFactory:
             "last_tool_turn_id": tool_context["turn_id"] if tool_context else None,
         }
 
+        pending_review = state.get("pending_refund_review")
+        if pending_review and reason in {REASON_EXPLICIT, REASON_EMOTION}:
+            # A failed ticket write must not turn the review into an
+            # ordinary-priority request or lose its order after another
+            # tool ran. Retrying the handoff never re-executes the refund.
+            context = {**pending_review, "retry_user_message": state.get("message", "")}
+            reason = REASON_REFUND_THRESHOLD
+
         ticket: dict[str, Any] = {
             "ticket_id": None,
             "queue_position": None,
@@ -1457,6 +1518,8 @@ class NodeFactory:
             "pending_confirmation": None,
             "slot_prompt": "",
         }
+        if reason == REASON_REFUND_THRESHOLD:
+            updates["pending_refund_review"] = context if handoff_outcome == "failed" else None
         if ticket.get("ticket_id") is not None:
             updates["handoff_ticket_id"] = ticket["ticket_id"]
 
@@ -1765,6 +1828,23 @@ class NodeFactory:
         ticket/order identifiers quotable only as the tool result states
         them — the live failure invented「CP122245」and「客服专员-小李」.
         """
+        if intent == "refund" and tool_result.get("status") == "escalated":
+            # The tool decided that manual review is required; only the
+            # durable handoff result may acknowledge that request. The
+            # outer generation node owns output checks and stream emission.
+            handoff_state: DialogueState = {
+                **state,
+                "intent": intent,
+                "prev_intent": intent,
+                "tool_result": tool_result,
+                "handoff_reason": REASON_REFUND_THRESHOLD,
+            }
+            updates = await self.handle_handoff_node(handoff_state)
+            # The ticket/retry snapshot owns these completed refund args.
+            # Leaving them live would replace the order on a later task.
+            updates.update({"filled_slots": {}, "pending_slots": []})
+            return updates
+
         lang = _turn_lang(state, fallback_text=message)
         if lang == LANG_EN:
             context = (
@@ -1861,6 +1941,7 @@ class NodeFactory:
                     "filled_slots": restored.get("filled_slots", {}),
                     "pending_slots": restored.get("pending_slots", []),
                     "pending_confirmation": None,
+                    "pending_refund_review": None,
                     # Restored tasks were suspended pre-execution; clear
                     # any stale flag from the cancelled turn (see the
                     # handle_switch resume note).
@@ -1871,6 +1952,7 @@ class NodeFactory:
                 "filled_slots": {},
                 "pending_slots": [],
                 "pending_confirmation": None,
+                "pending_refund_review": None,
             }
 
         if intent == "confirm":
@@ -1928,11 +2010,21 @@ class NodeFactory:
                         }
                     ],
                 }
+                tool_state: DialogueState = {
+                    **state,
+                    "intent": pending.get("intent", ""),
+                    "filled_slots": pending_args,
+                    "pending_slots": [],
+                    "pending_confirmation": None,
+                    "tool_result": tool_result,
+                    "executed_tools": updates["executed_tools"],
+                    "task_executed": True,
+                }
                 generated = await self._generate_with_tool(
                     pending.get("intent", ""),
                     state.get("message", ""),
                     tool_result,
-                    state,
+                    tool_state,
                     config,
                 )
                 updates.update(generated)
@@ -1963,7 +2055,10 @@ class NodeFactory:
                     "pending_confirmation": None,
                     "response": "好的，已取消本次操作，未执行任何更改。请问还有什么可以帮您的？",
                 }
-            return {"response": "好的，已取消。请问还有什么可以帮您的？"}
+            return {
+                "pending_refund_review": None,
+                "response": "好的，已取消。请问还有什么可以帮您的？",
+            }
 
         return {"response": "抱歉，我没有理解您的意思，请重新描述。"}
 
@@ -2030,6 +2125,9 @@ class NodeFactory:
                 history_added = bool(history)
             except Exception:  # noqa: BLE001 - history is best-effort
                 logger.warning("History fetch failed; generating without prior turns")
+                configurable = config.get("configurable") if config else None
+                if isinstance(configurable, dict):
+                    configurable["shared_cache_blocked"] = True
         if (facts or history_added) and config is not None:
             # Shared-cache eligibility flag: this generation is personal
             # to the dialogue, so its output must not be stored in any
@@ -2210,6 +2308,8 @@ def _build_handoff_response(reason: str, ticket: dict[str, Any], lang: str = LAN
     prefix = ""
     if reason == REASON_EMOTION:
         prefix = HANDOFF_EMOTION_PREFIX[lang]
+    elif reason == REASON_REFUND_THRESHOLD:
+        prefix = HANDOFF_REFUND_REVIEW_PREFIX[lang]
 
     ticket_id = ticket.get("ticket_id")
     if ticket_id is None:

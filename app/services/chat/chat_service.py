@@ -484,10 +484,15 @@ class ChatService:
             return
         if (
             result.get("pending_slots")
+            or result.get("filled_slots")
             or result.get("pending_confirmation")
+            or result.get("state_stack")
+            or result.get("task_executed")
+            or result.get("pending_refund_review")
             or result.get("executed_tools")
             or result.get("blocked")
             or result.get("personalized")
+            or result.get("shared_cache_blocked")
         ):
             return
         await self.answer_cache.put(

@@ -253,8 +253,9 @@ class ChatServiceFactory:
                     data_file=settings.FAQ_DATA_FILE or None,
                     threshold=settings.FAQ_SIMILARITY_THRESHOLD,
                 )
-            # Prior turns for every generator's LLM prompt — the
-            # persister reads them best-effort with its own session.
+            # Context reads must distinguish unavailable storage from an
+            # empty conversation. Generators retain their own fail-open
+            # fallback; shared-cache eligibility can conservatively miss.
             history_provider = None
             if persister is not None:
                 bound_persister = persister
@@ -263,7 +264,10 @@ class ChatServiceFactory:
                     from app.services.llm.base import LLMMessage
 
                     turns = await bound_persister.get_history(
-                        session_id=session_id, limit=6, include_summary=True
+                        session_id=session_id,
+                        limit=6,
+                        include_summary=True,
+                        raise_on_error=True,
                     )
                     return [LLMMessage(role=t.role, content=t.content) for t in turns]
 

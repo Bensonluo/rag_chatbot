@@ -12,6 +12,7 @@ as before and writes back only for anonymous, stateless turns.
 from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
+import pytest
 from prometheus_client import REGISTRY
 
 from app.services.chat.answer_cache import CachedAnswer
@@ -95,17 +96,19 @@ class TestSemanticCacheHit:
         assert _layer_value("l1_semantic") == before_l1 + 1.0
         assert _layer_value("direct") == before_direct
 
-    async def test_hit_still_serves_with_pending_confirmation(self):
-        # Direct-tier answers are stateless by construction, so a cached
-        # replay is safe mid-flow — unlike L0, which gates on in-flight
-        # state because grounded answers there can embed task context.
+    async def test_pending_confirmation_bypasses_shared_replay(self):
+        # Direct generation can use the pending dialogue context, so a
+        # cached public greeting must not skip that generation.
         stub = StubSemanticCache(hit=CachedAnswer(response="hi", sources=[], intent="greeting"))
         factory = _make_factory(stub, _stub_llm())
 
         updates = await factory.direct_response_node(
             _state(pending_confirmation={"intent": "refund", "args": {}}), None
         )
-        assert updates["response"] == "hi"
+        assert updates["response"] == "你好！请问有什么可以帮您？"
+        assert updates["shared_cache_blocked"] is True
+        assert stub.gets == []
+        assert stub.puts == []
 
     async def test_hit_blocked_by_output_guardrail_replaced(self):
         cached = CachedAnswer(response="联系我的私聊账号", sources=[], intent="chitchat")
@@ -185,3 +188,58 @@ class TestSemanticCacheUnwired:
 
         assert updates["response"] == "原路返回"
         assert _layer_value("direct") == before + 1.0
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"user_id": 42},
+        {"filled_slots": {"order_id": "ORD1001"}},
+        {"pending_slots": ["reason"]},
+        {"state_stack": [{"intent": "refund"}]},
+        {"task_executed": True},
+        {"pending_refund_review": {"trigger": "refund_threshold"}},
+        {"shared_cache_blocked": True},
+    ],
+)
+async def test_l1_replay_and_write_require_a_context_free_turn(extra: dict[str, Any]) -> None:
+    stub = StubSemanticCache(hit=CachedAnswer(response="generic", sources=[], intent="chitchat"))
+    factory = _make_factory(stub, _stub_llm("fresh"))
+    result = await factory.direct_response_node(_state(**extra), {"configurable": {}})
+    assert result["response"].startswith("fresh")
+    assert result["shared_cache_blocked"] is True
+    assert stub.gets == []
+    assert stub.puts == []
+
+
+async def test_l1_history_is_used_instead_of_a_generic_cached_answer() -> None:
+    from app.services.llm.base import LLMMessage
+
+    stub = StubSemanticCache(hit=CachedAnswer(response="generic", sources=[], intent="chitchat"))
+    llm = _stub_llm("Premium response")
+    factory = _make_factory(stub, llm)
+    history = [LLMMessage(role="user", content="I have a Premium plan")]
+    factory._history_provider = AsyncMock(return_value=history)
+    result = await factory.direct_response_node(
+        _state(turn_id="premium-turn"), {"configurable": {}}
+    )
+    assert result["response"] == "Premium response"
+    assert history[0] in llm.generate.await_args.args[0]
+    assert stub.gets == []
+    assert stub.puts == []
+
+
+@pytest.mark.parametrize("config", [None, {}], ids=["default-none", "empty-config"])
+async def test_generation_history_failure_blocks_write_without_caller_config(config) -> None:
+    stub = StubSemanticCache(hit=None)
+    factory = _make_factory(stub, _stub_llm("fresh but missing history"))
+    factory._history_provider = AsyncMock(
+        side_effect=[[], RuntimeError("late history failure"), []]
+    )
+    state = _state()
+    result = await factory.direct_response_node(state, config)
+    assert result["response"] == "fresh but missing history"
+    assert result["shared_cache_blocked"] is True
+    assert not state.get("shared_cache_blocked")  # Input graph state stays unchanged.
+    assert stub.gets == ["你好呀"]
+    assert stub.puts == []

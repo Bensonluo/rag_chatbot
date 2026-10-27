@@ -5,7 +5,8 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models.database.base import Base
@@ -151,6 +152,34 @@ class TestChatMessagePersister:
 
         assert [m.content for m in history] == ["问题"]
 
+    async def test_strict_empty_history_is_a_successful_empty_read(self, session_maker):
+        persister = ChatMessagePersister(session_maker=session_maker)
+
+        assert await persister.get_history(1, raise_on_error=True) == []
+        assert await persister.get_history(1) == []
+
+    async def test_history_database_failure_can_be_distinguished_from_empty(self, session_maker):
+        async with session_maker() as session:
+            await session.execute(text("DROP TABLE messages"))
+            await session.commit()
+        persister = ChatMessagePersister(session_maker=session_maker)
+
+        assert await persister.get_history(1) == []
+        with pytest.raises(OperationalError, match="no such table: messages"):
+            await persister.get_history(1, raise_on_error=True)
+
+    async def test_strict_history_preserves_the_original_failure(self):
+        failure = RuntimeError("isolated history connection failure")
+
+        def broken_maker():
+            raise failure
+
+        persister = ChatMessagePersister(session_maker=broken_maker)
+        assert await persister.get_history(1) == []
+        with pytest.raises(RuntimeError) as caught:
+            await persister.get_history(1, raise_on_error=True)
+        assert caught.value is failure
+
 
 class TestChatServicePersistence:
     """ChatService integration with the persister"""
@@ -214,7 +243,8 @@ class TestChatServicePersistence:
 class TestSummaryAwareHistory:
     """get_history(include_summary=True) is the LLM-context read."""
 
-    async def test_include_summary_prepends_and_cuts(self, session_maker):
+    @pytest.mark.parametrize("strict_errors", [False, True], ids=["legacy", "strict"])
+    async def test_include_summary_prepends_and_cuts(self, session_maker, strict_errors):
         async with session_maker() as session:
             session.add(
                 Message(
@@ -243,7 +273,10 @@ class TestSummaryAwareHistory:
             await session.commit()
         persister = ChatMessagePersister(session_maker=session_maker)
 
-        history = await persister.get_history(session_id=1, limit=10, include_summary=True)
+        options = {"raise_on_error": True} if strict_errors else {}
+        history = await persister.get_history(
+            session_id=1, limit=10, include_summary=True, **options
+        )
 
         # Summary block first, covered row cut, post-summary turn kept
         assert [m.role for m in history] == ["system", "assistant"]
@@ -275,6 +308,43 @@ class TestSummaryAwareHistory:
 
         # API tail view: raw turns only, no synthetic summary block
         assert [m.content for m in history] == ["早期问题"]
+
+    @pytest.mark.parametrize("summary_text", ["", " \n\t "], ids=["empty", "whitespace"])
+    @pytest.mark.parametrize("has_turns", [False, True], ids=["summary-only", "raw-turn"])
+    @pytest.mark.parametrize("strict_errors", [False, True], ids=["legacy", "strict"])
+    async def test_invalid_summary_cannot_hide_conversation_context(
+        self, session_maker, summary_text, has_turns, strict_errors
+    ):
+        async with session_maker() as session:
+            if has_turns:
+                session.add(
+                    Message(
+                        session_id=1,
+                        role=MessageRole.USER,
+                        content="My Premium plan applies.",
+                        created_at=datetime(2026, 10, 28, 10, 0, 0),
+                    )
+                )
+            session.add(
+                Message(
+                    session_id=1,
+                    role=MessageRole.SYSTEM,
+                    content=summary_text,
+                    created_at=datetime(2026, 10, 28, 10, 0, 1),
+                )
+            )
+            await session.commit()
+        persister = ChatMessagePersister(session_maker)
+        if strict_errors and not has_turns:
+            with pytest.raises(RuntimeError, match="history unavailable"):
+                await persister.get_history(1, include_summary=True, raise_on_error=True)
+        else:
+            history = await persister.get_history(
+                1, include_summary=True, raise_on_error=strict_errors
+            )
+            assert [(message.role, message.content) for message in history] == (
+                [("user", "My Premium plan applies.")] if has_turns else []
+            )
 
 
 class TestCompressionScheduling:

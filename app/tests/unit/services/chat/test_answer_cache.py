@@ -302,6 +302,11 @@ class TestChatServiceCacheWritePath:
         "extra",
         [
             {"pending_slots": ["order_id"]},
+            {"filled_slots": {"order_id": "ORD1001"}},
+            {"state_stack": [{"intent": "refund"}]},
+            {"task_executed": True},
+            {"pending_refund_review": {"trigger": "refund_threshold"}},
+            {"shared_cache_blocked": True},
             {"pending_confirmation": {"intent": "refund", "args": {}}},
             {"executed_tools": [{"tool": "refund"}]},
             {"blocked": True},

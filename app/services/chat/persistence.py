@@ -222,6 +222,8 @@ class ChatMessagePersister:
         session_id: int,
         limit: int = 50,
         include_summary: bool = False,
+        *,
+        raise_on_error: bool = False,
     ) -> list[ChatMessage]:
         """Read chat history for a session using a request-scoped session.
 
@@ -229,7 +231,10 @@ class ChatMessagePersister:
         session summary is prepended as a system block and turns it
         already covers are cut — same overlap-free contract as the
         optimized memory strategy. The default (API tail view) stays
-        raw turns only.
+        raw turns only. ``raise_on_error`` lets context-sensitive callers
+        distinguish an unavailable read from a successful empty history;
+        existing callers still receive an empty list on read failure.
+        An invalid empty summary never replaces readable raw turns.
         """
         try:
             async with self._session_maker() as session:
@@ -242,6 +247,12 @@ class ChatMessagePersister:
                 summary = await repo.get_latest_summary(session_id) if include_summary else None
                 # System-role rows are summary artifacts, not turns.
                 rows = [msg for msg in reversed(recent) if msg.role != MessageRole.SYSTEM]
+                if summary is not None and not summary.content.strip():
+                    if raise_on_error and not rows:
+                        raise RuntimeError(
+                            "Conversation history unavailable: empty summary without readable turns"
+                        )
+                    summary = None
                 if summary is not None:
                     # Overlap-free: the summary already carries whatever
                     # happened before it was written.
@@ -282,6 +293,8 @@ class ChatMessagePersister:
                 session_id,
                 exc,
             )
+            if raise_on_error:
+                raise
             return []
 
     async def get_user_facts(self, *, user_id: int, limit: int = 8) -> list[str]:

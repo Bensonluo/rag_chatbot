@@ -181,3 +181,14 @@ class TestSystemPersona:
 
         roles = [m.role for m in _sent_messages(llm)]
         assert roles == ["system", "user", "assistant", "user"]
+
+
+async def test_history_without_a_turn_id_is_never_reused_for_a_different_session() -> None:
+    async def provider(session_id: int) -> list[Any]:
+        return [] if session_id == 1 else _turns(("user", "Premium plan in session two"))
+
+    factory = _factory(_capturing_llm(), history_provider=provider)
+    assert await factory._turn_history({"session_id": 1}) == []
+    second = await factory._turn_history({"session_id": 2})
+    assert len(second) == 1
+    assert second[0].content == "Premium plan in session two"

@@ -61,7 +61,7 @@ Deployment commands below start a single API instance. Replica templates, option
 | Human handoff | Tickets, queue/AHT, assigned-agent transcript, knowledge-gap records | Carry context into staff handling and feed knowledge maintenance |
 | Operational control | Epoch-scoped L0/L1/L2 cache, metrics/alerts, tracing, rate limits | Inspect latency, outcomes, cache consistency and load |
 
-**Recorded quality baseline (2026-10-23):** 2750 passing core tests, 3 opt-in scenarios skipped by default, 93.04% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately.
+**Recorded quality baseline (2026-10-28):** 2918 passing core tests, 3 opt-in scenarios skipped by default, 93.19% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately.
 
 [Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md)
 
@@ -463,7 +463,7 @@ separately configured checkpoint databases require their own recovery plans.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 2750 passed + 3 opt-in skipped / 93.04%)
+# Maintained core suite (70% minimum; currently 2918 passed + 3 opt-in skipped / 93.19%)
 pytest
 
 # Targeted runs
@@ -491,17 +491,24 @@ ruff format --check app/
 mypy app/
 ```
 
-Local verification on 2026-10-23: 2750 tests pass, with three opt-in scenarios
+Local verification on 2026-10-28: 2918 tests pass, with three opt-in scenarios
 skipped by default (PostgreSQL concurrency, assigned-transcript locking, and
 the Docker recovery drill);
-core coverage is 93.04%. Ruff and
-full strict Mypy pass (431 Python files).
-Authenticated HTTP/SSE regressions also cover chat ownership, guarded text and
-citations, plus ASGI 2.3/2.4 disconnect persistence; all 23 isolated route cases
-pass with socket connections blocked. See the [boundary evidence](docs/reviews/http-stream-results-2026-10-23.json).
+core coverage is 93.19%. Ruff and
+full strict Mypy pass (436 Python files).
+Authenticated HTTP/SSE regressions cover chat ownership, guarded text and
+citations, plus ASGI 2.3/2.4 disconnect persistence; the earlier socket-blocked
+run is recorded in the [boundary evidence](docs/reviews/http-stream-results-2026-10-23.json).
+The refund-review regression covers 24 socket-blocked cases (22 real service/graph,
+2 strict JWT HTTP): high-value review tickets, write failures and retry, cancellation,
+order access, single stream emission and low-value controls. See the [refund review evidence](docs/reviews/refund-review-results-2026-10-28.json).
+Context-aware L0/L1 replay also passes 12 real service/graph cases plus a separate
+14-contrast actual semantic-cache audit using local I/O seams. Anonymous stateless
+hits remain available; applicable or unavailable history blocks shared replay and
+write. See the [cache-context evidence](docs/reviews/context-cache-results-2026-10-28.json).
 
 The following dependency and companion-frontend checks were verified in earlier
-iterations and were not rerun on October 23. All 8 PostgreSQL concurrency tests
+iterations and were not rerun on October 28. All 8 PostgreSQL concurrency tests
 and the SQLite/PostgreSQL migration round trips pass in isolated databases.
 The new PostgreSQL backup/recovery drill also passes with explicit Docker opt-in.
 CI migration/recovery commands were verified locally; remote CI was not triggered.
@@ -514,10 +521,10 @@ dependency advisories remain documented in the iteration record.
 
 | Metric | Value |
 |--------|-------|
-| Maintained test results | **2750 passed, 3 opt-in skipped** |
-| Maintained core coverage | **93.04%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
-| Python files (app/) | 431 |
-| Python files in app/tests/ | 220 (214 test_ modules) |
+| Maintained test results | **2918 passed, 3 opt-in skipped** |
+| Maintained core coverage | **93.19%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
+| Python files (app/) | 436 |
+| Python files in app/tests/ | 224 (218 test_ modules) |
 
 ---
 
@@ -529,7 +536,7 @@ dependency advisories remain documented in the iteration record.
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 2750 passing core tests, 93.04% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
+- [x] 2918 passing core tests, 93.19% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)
