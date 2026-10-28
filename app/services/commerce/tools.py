@@ -1,12 +1,10 @@
-"""Request-local shopping tools executed by the bounded commerce Agent.
+"""Request-local shopping tools executed by the bounded commerce LLM Agent.
 
-Order and payment tools are registered only for a turn carrying a fresh,
-explicit text authorization. Handlers re-check that binding, so a model or
-product-text injection cannot supply the authorization itself.
+The model owns semantic planning. Handlers own principal binding and typed,
+non-semantic transaction checks; there is no phrase-matching authorization.
 """
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
@@ -16,13 +14,6 @@ from app.models.database.commerce import PurchaseSession
 from app.models.schemas.commerce import CommerceView
 from app.services.commerce.service import PurchaseService
 from app.services.dialogue.tools import ToolDefinition, ToolRegistry
-
-
-@dataclass(frozen=True)
-class CommerceAuthorization:
-    kind: str
-    purchase_id: str
-    expected_version: int
 
 
 async def current_purchase(service: PurchaseService, owner: int) -> CommerceView | None:
@@ -43,7 +34,7 @@ def create_commerce_tools(
     service: PurchaseService,
     owner: int,
     views: list[CommerceView],
-    authorization: CommerceAuthorization | None = None,
+    current: CommerceView | None,
 ) -> ToolRegistry:
     """Bind one verified principal in a local closure, never a model argument."""
     if type(owner) is not int or owner <= 0:
@@ -98,27 +89,15 @@ def create_commerce_tools(
 
     async def commit(args: dict[str, Any]) -> CommerceView:
         del args
-        if (
-            authorization is None
-            or authorization.kind != "commit_checkout"
-            or authorization.purchase_id == ""
-        ):
-            raise ValidationError("An explicit fresh order confirmation is required")
-        return await service.commit_checkout(
-            owner, authorization.purchase_id, authorization.expected_version
-        )
+        if current is None or current.stage != "quoted":
+            raise ValidationError("A current quoted purchase is required before ordering")
+        return await service.commit_checkout(owner, current.purchase_id, current.version)
 
     async def pay(args: dict[str, Any]) -> CommerceView:
         del args
-        if (
-            authorization is None
-            or authorization.kind != "mock_pay"
-            or authorization.purchase_id == ""
-        ):
-            raise ValidationError("An explicit fresh payment confirmation is required")
-        return await service.mock_pay(
-            owner, authorization.purchase_id, authorization.expected_version
-        )
+        if current is None or current.stage != "awaiting_payment":
+            raise ValidationError("An unpaid mock order is required before payment")
+        return await service.mock_pay(owner, current.purchase_id, current.version)
 
     definitions: list[
         tuple[
@@ -169,19 +148,21 @@ def create_commerce_tools(
             status,
         ),
     ]
-    if authorization is not None:
+    if current is not None and current.stage == "quoted":
         definitions.append(
             (
                 "commit_checkout",
-                "Create the displayed mock order only after an explicit order confirmation.",
+                "Create the currently displayed mock order only when the latest user message explicitly and unambiguously confirms this quote.",
                 {},
                 [],
                 commit,
             )
-            if authorization.kind == "commit_checkout"
-            else (
+        )
+    if current is not None and current.stage == "awaiting_payment":
+        definitions.append(
+            (
                 "mock_pay",
-                "Settle the displayed mock payment only after an explicit payment confirmation.",
+                "Settle the currently displayed mock payment only when the latest user message explicitly and unambiguously confirms payment.",
                 {},
                 [],
                 pay,

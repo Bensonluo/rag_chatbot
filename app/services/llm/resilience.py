@@ -145,6 +145,23 @@ class ResilientLLMService(LLMServiceBase):
                 messages, max_tokens=max_tokens, temperature=temperature, **kwargs
             )
 
+    async def generate_with_tools(
+        self,
+        messages: list[LLMMessage],
+        tools: list[dict[str, Any]],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        """Run function-calling through the same retry/failover chain."""
+        return await self._generate_with_failover(
+            messages,
+            tools=tools,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            **kwargs,
+        )
+
     async def _generate_with_failover(
         self,
         messages: list[LLMMessage],

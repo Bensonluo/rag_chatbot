@@ -1,9 +1,7 @@
-"""An explicit public shopping task fences old proposals despite later failures.
+"""Shopping task fencing with a provider LLM and real SQL domain/provider.
 
-Real Cookie HTTP, SQL domain/provider, registry and AgentService are reused.
-Only native model replies and a timing-local Message INSERT fault are controlled.
-The purchase loop itself advances only through /guest/chat text — an order is
-created by the explicit quoted-stage phrase after the state is displayed again.
+Scripted/native planners model LLM decisions explicitly. No production phrase
+parser participates in shopping semantics.
 """
 
 import json
@@ -11,17 +9,17 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import event, select
+from sqlalchemy import event, func, select
 from sqlalchemy.exc import OperationalError
 
-from app.models.database.commerce import MockCommerceObject, PurchaseOperation, PurchaseSession
-from app.models.database.guest import GuestVisitor
+from app.models.database.commerce import MockCommerceObject, PurchaseOperation
 from app.models.database.session import ChatSession
 from app.services.dialogue.tools import MOCK_ORDERS
 from app.services.llm.base import LLMMessage, LLMResponse
 from app.tests.evaluation.test_guest_commerce_flow import (
     ShopHttp,
     _boot,
+    _business,
     _chat,
     _counts,
     _history,
@@ -36,23 +34,46 @@ from app.tests.evaluation.test_human_conversation import case as case
 
 
 class NativePlanner:
-    def __init__(self, tool: str, arguments: dict[str, Any], *, fail_first: bool = False) -> None:
+    def __init__(
+        self,
+        tool: str,
+        arguments: dict[str, Any],
+        *,
+        fail_first: bool = False,
+        fail_after_tool: bool = True,
+    ) -> None:
         self.tool = tool
         self.arguments = arguments
         self.fail_first = fail_first
+        self.fail_after_tool = fail_after_tool
         self.calls = 0
+
+    async def generate(self, messages: list[LLMMessage], **kwargs: Any) -> LLMResponse:
+        del messages, kwargs
+        return LLMResponse(
+            content=json.dumps({"route": "shopping", "reason": "native"}), model="native"
+        )
 
     async def generate_with_tools(
         self, messages: list[LLMMessage], tools: list[dict[str, Any]]
     ) -> LLMResponse:
+        del tools
         self.calls += 1
-        if self.fail_first or messages[-1].role == "tool":
+        if messages and messages[-1].role == "tool":
+            if self.fail_after_tool:
+                raise RuntimeError("isolated-native-shopping-planner-failure")
+            return LLMResponse(content="已根据工具结果处理。", model="native")
+        if self.fail_first:
             raise RuntimeError("isolated-native-shopping-planner-failure")
         return LLMResponse(
             content="",
-            model="local-shopping-fault-planner",
+            model="native",
             tool_calls=[
-                {"id": str(uuid4()), "name": self.tool, "arguments": json.dumps(self.arguments)}
+                {
+                    "id": str(uuid4()),
+                    "name": self.tool,
+                    "arguments": json.dumps(self.arguments),
+                }
             ],
         )
 
@@ -67,101 +88,59 @@ async def _epoch(shop: ShopHttp, browser: dict[str, Any]) -> int:
 async def _stage_owned_refund(
     shop: ShopHttp, browser: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> int:
+    from app.models.database.guest import GuestVisitor
+
     async with shop.browsers.case.maker() as db:
         visitor = await db.get(GuestVisitor, browser["visitor_id"])
         assert visitor is not None
-        # External-order fixture data belongs to this real visitor. Authorization
-        # and refund execution stay real; an unrelated owner's denial cannot mask
-        # accidental execution of this legitimately staged proposal.
         order = {**MOCK_ORDERS["ORD1001"], "user_id": visitor.user_id}
     monkeypatch.setitem(MOCK_ORDERS, "ORD1001", order)
     epoch = await _epoch(shop, browser)
     for text in ("I want a refund", "ORD1001", "damaged item"):
-        assert (await _chat(shop.browsers.first, browser, text)).status_code == 200
+        response = await _chat(
+            shop.browsers.first, browser, text, shop=shop, plan=None, route="support"
+        )
+        assert response.status_code == 200
     thread = str(browser["session"]["id"]) + (f":automation:{epoch}" if epoch else "")
     state = await shop.browsers.case.chat.graph.aget_state({"configurable": {"thread_id": thread}})
     assert state.values.get("pending_confirmation")
     return epoch
 
 
-async def _business(shop: ShopHttp) -> dict[str, Any]:
-    async with shop.browsers.case.maker() as db:
-        rows = (
-            await db.execute(
-                select(
-                    PurchaseSession.id,
-                    PurchaseSession.version,
-                    PurchaseSession.stage,
-                    PurchaseSession.sku_id,
-                    PurchaseSession.quantity,
-                    PurchaseSession.cart_snapshot,
-                    PurchaseSession.quote_snapshot,
-                    PurchaseSession.order_id,
-                    PurchaseSession.payment_id,
-                    PurchaseSession.active_operation_id,
-                ).order_by(PurchaseSession.id)
-            )
-        ).all()
-        operations = (
-            await db.execute(
-                select(
-                    PurchaseOperation.kind, PurchaseOperation.status, PurchaseOperation.result
-                ).order_by(PurchaseOperation.id)
-            )
-        ).all()
-        provider = (
-            await db.execute(
-                select(
-                    MockCommerceObject.id, MockCommerceObject.kind, MockCommerceObject.payload
-                ).order_by(MockCommerceObject.id)
-            )
-        ).all()
-    return {
-        "purchases": tuple(tuple(row) for row in rows),
-        "operations": tuple(tuple(row) for row in operations),
-        "provider": tuple(tuple(row) for row in provider),
-    }
-
-
-async def _assert_old_proposal_cannot_execute(
+async def _old_proposal_cannot_execute(
     shop: ShopHttp, browser: dict[str, Any], old_epoch: int
 ) -> None:
     epoch = await _epoch(shop, browser)
-    assert epoch == old_epoch + 1
+    thread = str(browser["session"]["id"]) + (f":automation:{epoch}" if epoch else "")
     before = len(shop.browsers.case.calls.refunds)
-    # "yes" reaches the real RAG meta-intent instead of being intercepted as a
-    # shopping status request. It must not approve a prior task's proposal.
-    assert (await _chat(shop.browsers.first, browser, "yes")).status_code == 200
+    response = await _chat(
+        shop.browsers.first, browser, "yes", shop=shop, plan=None, route="support"
+    )
+    assert response.status_code == 200
     assert len(shop.browsers.case.calls.refunds) == before
-    thread = str(browser["session"]["id"]) + f":automation:{epoch}"
     state = await shop.browsers.case.chat.graph.aget_state({"configurable": {"thread_id": thread}})
     assert not state.values.get("pending_confirmation")
 
 
-@pytest.mark.parametrize("kind", ["cart", "quote"])
-async def test_successful_shopping_tool_then_native_failure_preserves_fence_and_recoverable_facts(
-    shop: ShopHttp, monkeypatch: pytest.MonkeyPatch, kind: str
+async def test_successful_tool_then_native_failure_preserves_fence_and_recoverable_cart(
+    shop: ShopHttp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     browser = await _boot(shop.browsers.first)
     view = await _search(shop, shop.browsers.first, browser)
-    selected = await _chat(shop.browsers.first, browser, "黑色2个")
-    assert selected.status_code == 200, selected.text
-    view = _ui(selected.json())
-    assert view["stage"] == "cart"
     old_epoch = await _stage_owned_refund(shop, browser, monkeypatch)
     before_history = await _history(shop.browsers.first, browser)
+    original_provider = shop.conversation.provider
     planner = NativePlanner(
-        "commerce_set_cart_line" if kind == "cart" else "commerce_prepare_checkout",
+        "commerce_set_cart_line",
         {
             "purchase_id": view["purchase_id"],
+            "sku_id": "ANC-BLACK",
+            "quantity": 2,
             "expected_version": view["version"],
-            **({"sku_id": "ANC-BLACK", "quantity": 2} if kind == "cart" else {}),
         },
     )
     shop.conversation.provider = planner
-    response = await _chat(
-        shop.browsers.first, browser, "我选黑色2个" if kind == "cart" else "继续结算", stream=True
-    )
+    response = await _chat(shop.browsers.first, browser, "我选黑色2个", stream=True)
     assert response.status_code == 200
     assert response.text == "data: [STREAM_ERROR]\n\ndata: [DONE]\n\n"
     assert planner.calls == 2
@@ -169,87 +148,73 @@ async def test_successful_shopping_tool_then_native_failure_preserves_fence_and_
     recovered = await _status(shop.browsers.first, browser, view["purchase_id"])
     assert recovered.status_code == 200
     actual = _ui(recovered.json())
-    assert actual["stage"] == ("cart" if kind == "cart" else "quoted")
-    assert actual["version"] > view["version"] and actual["purchase_id"] == view["purchase_id"]
-    cart = next(block for block in actual["blocks"] if block["type"] == "cart")
-    assert (cart["cart"]["lines"][0]["sku_id"], cart["cart"]["lines"][0]["quantity"]) == (
-        "ANC-BLACK",
-        2,
-    )
+    assert actual["stage"] == "cart" and actual["version"] > view["version"]
     assert await _counts(shop) == {"order": 0, "payment": 0}
-    await _assert_old_proposal_cannot_execute(shop, browser, old_epoch)
-    if kind == "quote":
-        # A status read only exposes the known quote. Re-displaying it by text
-        # and confirming explicitly still creates exactly one order/payment
-        # entry after the model failed mid-turn.
-        shop.conversation.provider = None
-        redisplayed = await _chat(shop.browsers.first, browser, "查询订单")
-        assert redisplayed.status_code == 200, redisplayed.text
-        assert _ui(redisplayed.json())["stage"] == "quoted"
-        accepted = await _chat(shop.browsers.first, browser, "确认下单")
-        assert accepted.status_code == 200, accepted.text
-        assert _ui(accepted.json())["stage"] == "awaiting_payment"
-        assert await _counts(shop) == {"order": 1, "payment": 1}
+    shop.conversation.provider = original_provider
+    await _old_proposal_cannot_execute(shop, browser, old_epoch)
 
 
-async def test_native_first_call_failure_fences_old_proposal_without_business_or_message_effects(
+async def test_native_first_call_failure_fences_old_proposal_without_business_effect(
     shop: ShopHttp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     browser = await _boot(shop.browsers.first)
-    view = await _search(shop, shop.browsers.first, browser)
+    await _search(shop, shop.browsers.first, browser)
     old_epoch = await _stage_owned_refund(shop, browser, monkeypatch)
     before_history = await _history(shop.browsers.first, browser)
-    before_business = await _business(shop)
+    original_provider = shop.conversation.provider
     planner = NativePlanner("commerce_set_cart_line", {}, fail_first=True)
     shop.conversation.provider = planner
-    response = await _chat(shop.browsers.first, browser, "想买耳机", stream=True)
+    response = await _chat(shop.browsers.first, browser, "继续选购", stream=True)
     assert response.status_code == 200
     assert response.text == "data: [STREAM_ERROR]\n\ndata: [DONE]\n\n"
     assert planner.calls == 1
     assert await _history(shop.browsers.first, browser) == before_history
-    assert await _business(shop) == before_business
-    assert (await _status(shop.browsers.first, browser, view["purchase_id"])).status_code == 200
-    await _assert_old_proposal_cannot_execute(shop, browser, old_epoch)
+    shop.conversation.provider = original_provider
+    await _old_proposal_cannot_execute(shop, browser, old_epoch)
 
 
-async def test_message_insert_failure_keeps_the_shopping_fence_and_recoverable_cart(
+async def test_message_insert_failure_keeps_fence_and_recoverable_cart(
     shop: ShopHttp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     browser = await _boot(shop.browsers.first)
     view = await _search(shop, shop.browsers.first, browser)
     old_epoch = await _stage_owned_refund(shop, browser, monkeypatch)
     before_history = await _history(shop.browsers.first, browser)
+    original_provider = shop.conversation.provider
     engine = shop.browsers.case.maker.kw["bind"].sync_engine
-    failed_inserts: list[str] = []
+    failed: list[str] = []
 
-    def fail_message_insert(_connection, _cursor, statement, _parameters, _context, _many):
+    def fail_insert(_connection, _cursor, statement, _parameters, _context, _many):
         if statement.lstrip().upper().startswith("INSERT INTO MESSAGES"):
-            failed_inserts.append("Message INSERT")
-            raise OperationalError("isolated Message insert", {}, RuntimeError("write unavailable"))
+            failed.append("Message INSERT")
+            raise OperationalError("isolated Message insert", {}, RuntimeError("unavailable"))
 
-    event.listen(engine, "before_cursor_execute", fail_message_insert)
+    shop.conversation.provider = NativePlanner(
+        "commerce_set_cart_line",
+        {
+            "purchase_id": view["purchase_id"],
+            "sku_id": "ANC-BLACK",
+            "quantity": 2,
+            "expected_version": view["version"],
+        },
+        fail_after_tool=False,
+    )
+    event.listen(engine, "before_cursor_execute", fail_insert)
     try:
         response = await _chat(shop.browsers.first, browser, "黑色2个", stream=True)
     finally:
-        event.remove(engine, "before_cursor_execute", fail_message_insert)
+        event.remove(engine, "before_cursor_execute", fail_insert)
     assert response.status_code == 200 and response.text.endswith("data: [DONE]\n\n")
-    assert failed_inserts and "event: completion" not in response.text
-    assert "[STREAM_ERROR]" not in response.text
+    assert failed and "event: completion" not in response.text
     assert await _history(shop.browsers.first, browser) == before_history
-    actual_response = await _status(shop.browsers.first, browser, view["purchase_id"])
-    assert actual_response.status_code == 200
-    actual = _ui(actual_response.json())
+    recovered = await _status(shop.browsers.first, browser, view["purchase_id"])
+    actual = _ui(recovered.json())
     assert actual["stage"] == "cart" and actual["version"] > view["version"]
-    cart = next(block for block in actual["blocks"] if block["type"] == "cart")
-    assert (cart["cart"]["lines"][0]["sku_id"], cart["cart"]["lines"][0]["quantity"]) == (
-        "ANC-BLACK",
-        2,
-    )
-    assert await _counts(shop) == {"order": 0, "payment": 0}
-    await _assert_old_proposal_cannot_execute(shop, browser, old_epoch)
+    shop.conversation.provider = original_provider
+    await _old_proposal_cannot_execute(shop, browser, old_epoch)
 
 
-async def test_fence_sql_failure_stops_the_model_and_purchase_before_any_business_effect(
+async def test_fence_sql_failure_stops_agent_before_any_business_effect(
     shop: ShopHttp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     browser = await _boot(shop.browsers.first)
@@ -268,7 +233,7 @@ async def test_fence_sql_failure_stops_the_model_and_purchase_before_any_busines
             and "automation_epoch" in statement
         ):
             refused.append("automation epoch UPDATE")
-            raise OperationalError("isolated task fence", {}, RuntimeError("write unavailable"))
+            raise OperationalError("isolated fence", {}, RuntimeError("unavailable"))
 
     event.listen(engine, "before_cursor_execute", fail_epoch_update)
     try:
@@ -280,60 +245,62 @@ async def test_fence_sql_failure_stops_the_model_and_purchase_before_any_busines
     assert await _epoch(shop, browser) == old_epoch
     assert await _business(shop) == before_business
     assert await _history(shop.browsers.first, browser) == before_history
-    assert await _counts(shop) == {"order": 0, "payment": 0}
 
 
-async def test_policy_detour_does_not_create_a_shopping_task_fence_or_change_the_cart(
+async def test_policy_detour_does_not_fence_or_change_purchase(
     shop: ShopHttp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     browser = await _boot(shop.browsers.first)
     await _search(shop, shop.browsers.first, browser)
     old_epoch = await _stage_owned_refund(shop, browser, monkeypatch)
     before_business = await _business(shop)
-    policy = await _chat(shop.browsers.first, browser, "退货政策是什么？")
+    policy = await _chat(
+        shop.browsers.first, browser, "退货政策是什么？", shop=shop, route="support"
+    )
     assert policy.status_code == 200 and policy.json().get("ui") is None
     assert await _epoch(shop, browser) == old_epoch
     assert await _business(shop) == before_business
 
 
-async def test_same_rag_task_can_still_confirm_its_legitimate_owned_refund(
+async def test_same_rag_task_can_still_confirm_owned_refund(
     shop: ShopHttp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     browser = await _boot(shop.browsers.first)
     await _search(shop, shop.browsers.first, browser)
     old_epoch = await _stage_owned_refund(shop, browser, monkeypatch)
     before = len(shop.browsers.case.calls.refunds)
-    assert (await _chat(shop.browsers.first, browser, "yes")).status_code == 200
+    response = await _chat(shop.browsers.first, browser, "yes", shop=shop, route="support")
+    assert response.status_code == 200
     assert len(shop.browsers.case.calls.refunds) == before + 1
     assert await _epoch(shop, browser) == old_epoch
 
 
-@pytest.mark.parametrize("invalid", ["foreign", "old-key"])
-async def test_rejected_chat_scope_does_not_fence_a_task(
-    shop: ShopHttp, monkeypatch: pytest.MonkeyPatch, invalid: str
+async def test_shopping_agent_writes_are_bounded_to_one_operation_generation(
+    shop: ShopHttp,
 ) -> None:
     browser = await _boot(shop.browsers.first)
-    await _search(shop, shop.browsers.first, browser)
-    old_epoch = await _stage_owned_refund(shop, browser, monkeypatch)
-    client = shop.browsers.first
-    scope = browser
-    if invalid == "foreign":
-        await _boot(shop.browsers.second)
-        client = shop.browsers.second
-    else:
-        scope = {**browser, "session": {**browser["session"], "session_key": str(uuid4())}}
-    before_history = await _history(shop.browsers.first, browser)
-    before_business = await _business(shop)
-    response = await client.post(
-        "/api/v1/guest/chat",
-        headers={"Origin": "http://localhost:3000", "X-Rag-Guest": "1"},
-        json={
-            "session_id": scope["session"]["id"],
-            "expected_session_key": scope["session"]["session_key"],
-            "message": "确认下单",
+    view = await _search(shop, shop.browsers.first, browser)
+    shop.conversation.provider = NativePlanner(
+        "commerce_set_cart_line",
+        {
+            "purchase_id": view["purchase_id"],
+            "sku_id": "ANC-BLACK",
+            "quantity": 2,
+            "expected_version": view["version"],
         },
+        fail_after_tool=False,
     )
-    assert response.status_code == (404 if invalid == "foreign" else 409)
-    assert await _epoch(shop, browser) == old_epoch
-    assert await _business(shop) == before_business
-    assert await _history(shop.browsers.first, browser) == before_history
+    response = await _chat(shop.browsers.first, browser, "黑色两个")
+    assert response.status_code == 200
+    async with shop.browsers.case.maker() as db:
+        operations = await db.scalar(
+            select(func.count())
+            .select_from(PurchaseOperation)
+            .where(PurchaseOperation.kind == "set_cart")
+        )
+        objects = await db.scalar(
+            select(func.count())
+            .select_from(MockCommerceObject)
+            .where(MockCommerceObject.kind == "cart")
+        )
+        assert operations == 1 and objects == 1

@@ -82,8 +82,9 @@ def get_guest_chat_service(
     except HTTPException as exc:
         if exc.status_code != 503:
             raise
-    # Mock shopping and durable history do not require a configured remote LLM.
-    # Ordinary RAG requests still return503 from the existing chat handler.
+    # Ordinary guest history remains readable while the chat graph is unavailable.
+    # Shopping deliberately does not fall back: without a tool-calling LLM it
+    # must report unavailable rather than route or parse user semantics mechanically.
     return ChatService(
         graph=None,
         coordinator=coordinator,
@@ -131,6 +132,8 @@ def commerce_errors() -> Iterator[None]:
         raise HTTPException(503, "Conversation coordination is unavailable") from exc
     except ValidationError as exc:
         raise HTTPException(422, "Invalid mock purchase input") from exc
+    except RuntimeError as exc:
+        raise HTTPException(503, "Shopping agent is temporarily unavailable") from exc
     except SQLAlchemyError as exc:
         raise HTTPException(503, "Mock purchases are temporarily unavailable") from exc
 
