@@ -61,7 +61,7 @@ class TestTraceLifecycle:
             ("cs.memory", "detail"),
             ("cs.memory", "end"),
         ]
-        assert events[1]["detail"] == {"facts": ["用户是 PLUS 会员"]}
+        assert events[1]["detail"] == {"facts": 1}
         assert events[2]["ms"] is not None
 
     async def test_provider_failure_ends_as_error_without_failing_chat(self):

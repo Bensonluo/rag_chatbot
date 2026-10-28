@@ -2273,7 +2273,7 @@ class NodeFactory:
                 "cs.memory", status="error", ms=(time.perf_counter() - started) * 1000, facts=0
             )
             return []
-        emit_trace("cs.memory", facts=facts)
+        emit_trace("cs.memory", facts=len(facts))
         emit_trace(
             "cs.memory", status="end", ms=(time.perf_counter() - started) * 1000, facts=len(facts)
         )
