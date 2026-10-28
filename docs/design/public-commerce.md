@@ -1,6 +1,6 @@
 # 公共访客与 Agent 纯文本模拟购买
 
-日期：2026-10-28。本地实现，未部署。历史按钮式链路证据见[第27轮记录](../reviews/public-commerce-results-2026-10-28.json)与[可靠性里程碑](../reviews/public-purchase-milestone-2026-10-28.md)；当前合同以本文为准。公共网站无需注册，`/support/` 工作台保留但不再深化。
+日期：2026-10-29。后端 `4094c52` 与纯文本前端已部署到 HTTPS 公开体验；部署与线上验证见[部署记录](../operations/agent-text-commerce-deployment-2026-10-29.md)。历史按钮式链路证据见[第27轮记录](../reviews/public-commerce-results-2026-10-28.json)与[可靠性里程碑](../reviews/public-purchase-milestone-2026-10-28.md)。公共网站无需注册；`/support/` 仅保留 URL 直接访问，不在公开项目页加入口。
 
 ## 目标与边界
 
@@ -79,4 +79,4 @@ SSE 输出文本帧、可选持久化 completion 和 DONE。completion 必须匹
 
 覆盖真实本地 SQLite/HTTP/Agent 工具循环、两次独立文字确认、重复确认幂等、跨访客隔离、报价过期、购物车变更、政策插问恢复、接受后超时、processing 和消息保存失败。当前完整门禁已通过：Ruff、格式化、严格 Mypy，后端 **3726 通过/3 配置跳过/5 警告**（核心覆盖 93.57%），前端 **333 Jest + 55 Node**、lint、strict TypeScript 与 12 页构建。真实浏览器已在本地 SQLite + MockCommercePort 上完成目录→选品→报价→文字下单→独立文字付款→查询，未发出购买专用请求且 `commerce_actions` 为 0；第二位访客不能看到第一位订单。完整门禁仍应在变更后重新运行。
 
-本合同不宣称真实支付、真实供应商、生产 PostgreSQL 并发、跨域 Cookie 部署或浏览器支付认证。原[接入评估](conversational-commerce-assessment.md)保留历史设计与未来外部集成要求；其中的按钮/结算页建议已被本文纯文本合同取代。
+本合同不宣称真实支付、真实供应商、生产 PostgreSQL 并发/容量、跨副本 Cookie 拓扑或浏览器支付认证；线上单访客与双访客文字旅程已按部署记录验证。原[接入评估](conversational-commerce-assessment.md)保留历史设计与未来外部集成要求；其中的按钮/结算页建议已被本文纯文本合同取代。

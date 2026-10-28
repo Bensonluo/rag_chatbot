@@ -689,23 +689,27 @@ All commerce is visibly simulated.
 
 Current text-commerce gate: Ruff, formatting and strict Mypy pass; the complete
 suite passes **3726 tests with 3 configured skips, 5 warnings** (core coverage
-93.57%). A real browser then completed catalog → SKU/quantity → quote →
-explicit text order → separate text payment → status query against SQLite and
-`MockCommercePort`, with zero purchase-action requests and zero
-`commerce_actions` rows. A second visitor could not see the first order.
+93.57%). Real browsers completed the same journey locally against SQLite and in
+production against PostgreSQL: catalog → SKU/quantity → quote → explicit text
+order → separate text payment → status query, with zero purchase-action
+requests. The production run created exactly one paid mock purchase with one
+order, one payment and one operation of each kind; a second visitor could not
+see it. See the
+[deployment record](docs/operations/agent-text-commerce-deployment-2026-10-29.md).
 
 New migrations are `d64b8c0f9532` (anonymous visitors) and `e75c9d1064a3`
-(commerce framework), following `c53a7d9e8421`. Drain old API instances before
-upgrading and use the matching frontend. `GUEST_COOKIE_SECURE=true` requires
-HTTPS; disable it only for local HTTP. Cookie identity represents its browser,
-with no real-person or cross-device recovery promise. See the
-[public commerce contract](docs/design/public-commerce.md). The round27 numbers
-below are the historical button-card baseline, not the current text-only gate:
+(commerce framework), following `c53a7d9e8421`. The 2026-10-29 deployment kept
+the database at `e75c9d1064a3` and restored no old image or backup.
+`GUEST_COOKIE_SECURE=true` requires HTTPS; disable it only for local HTTP.
+Cookie identity represents its browser, with no real-person or cross-device
+recovery promise. See the [public commerce contract](docs/design/public-commerce.md).
+The round27 numbers below are the historical button-card baseline:
 3709 backend tests, 398 frontend checks, strict types/lint/build and a native
 Chrome mock journey passed then. See
 [round27 evidence](docs/reviews/public-commerce-results-2026-10-28.json).
-Current text-commerce gate results are recorded with this workspace's final run.
-Neither run verifies real payments, production HTTPS/PostgreSQL or deployment.
+Neither the historical run nor the current mock deployment verifies real
+payments, supplier integration, production concurrency/capacity or a real
+commerce rollout.
 
 ### Historical button reliability milestone (2026-10-28)
 
