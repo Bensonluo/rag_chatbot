@@ -11,7 +11,9 @@ One switch, ``DEMO_MODE``, selects the posture:
   contradicting the token is refused, and history and message-processing
   endpoints only touch sessions owned by the caller — foreign and missing sessions
   both answer 404 so existence is not leaked (OWASP BOLA guidance).
-  Knowledge-base writes additionally require admin.
+
+Knowledge-base management requires an authenticated active admin in both
+modes. The public-demo chat posture does not grant document-management access.
 
 Endpoint wiring calls these helpers *before* their try blocks: an
 HTTPException raised inside would be swallowed by the generic
@@ -25,6 +27,7 @@ from fastapi import HTTPException, status
 from app.config.settings import settings
 from app.core.exceptions import NotFoundError
 from app.models.database.user import User
+from app.services.chat.session_identity import ConversationChangedError, require_session_key
 
 
 class AnySessionService(Protocol):
@@ -75,7 +78,10 @@ async def ensure_session_access(
     session_id: int,
     current_user: User | None,
     session_service: AnySessionService,
-) -> None:
+    *,
+    expected_session_key: str | None = None,
+    require_key: bool = False,
+) -> str | None:
     """Object-level check before chat processing or history access (strict posture).
 
     Demo posture checks the server-owned privacy marker first. Private and strict:
@@ -87,32 +93,51 @@ async def ensure_session_access(
         # Internal legacy service adapters have no private-session feature;
         # the production SessionService always supplies the scoped reader.
         if privacy_reader is None or not await privacy_reader(session_id):
-            return
+            if expected_session_key is None:
+                return None
+            reader = getattr(session_service, "get_session_key", None)
+            key = await reader(session_id) if reader is not None else None
+            try:
+                require_session_key(key, expected_session_key)
+            except ConversationChangedError as exc:
+                raise HTTPException(
+                    409, "Conversation changed; reopen it before continuing"
+                ) from exc
+            return key if isinstance(key, str) else None
     if current_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
         )
     try:
-        await session_service.get_session_by_id(session_id, current_user.id)
+        row = await session_service.get_session_by_id(session_id, current_user.id)
     except NotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Session not found",
         ) from exc
 
+    key = getattr(row, "session_key", None)
+    key = key if isinstance(key, str) else None
+    try:
+        require_session_key(
+            key,
+            expected_session_key,
+            required=require_key and getattr(row, "is_private", False) is True,
+        )
+    except ConversationChangedError as exc:
+        raise HTTPException(409, "Conversation changed; reopen it before continuing") from exc
+    return key
+
 
 def require_kb_writer(current_user: User | None) -> None:
-    """Gate for knowledge-base write endpoints.
+    """Require an admin for knowledge-base management in both modes.
 
-    Demo posture: any authenticated user may manage the demo KB (the
-    endpoint's auth dependency already rejected anonymous). Strict:
-    admin only — an open-registration customer must not be able to
-    poison or delete the shared service knowledge base.
+    Endpoint dependencies already require an active authenticated user.
+    Open-registration customers must not be able to inspect unpublished
+    source documents, poison answers, or delete the shared knowledge base.
     """
-    if settings.DEMO_MODE:
-        return
-    if current_user is None or not current_user.is_admin:
+    if current_user is None or current_user.is_admin is not True:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Administrator role required",

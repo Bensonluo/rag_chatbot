@@ -1,0 +1,491 @@
+{
+  "round": 25,
+  "date": "2026-10-28",
+  "status": "Session-incarnation isolation implemented and verified locally; documentation closeout; overall product goal remains active",
+  "baseline": {
+    "backend_head": "1289c368c2025a6d4ea3013a0a665c91b05c79ef",
+    "frontend_head": "8efd9535ce6f1bb2d6bbd1e396af0c45f796b0e2",
+    "backend_previous": 3464,
+    "frontend_previous": 343,
+    "matched_backend_files_before_changes": 496,
+    "matched_frontend_files_before_changes": 85,
+    "preserved": "Round22/23/24 uncommitted product work, user docker-compose.local.yml and local planning files. No commit/push/deploy."
+  },
+  "before": {
+    "initial_candidate": "Ordinary AI/human message inserts do not advance parent session activity; this candidate was deferred after a higher-priority incarnation defect was proved.",
+    "activity_evidence": "/tmp/rag-round22-session-activity-audit.json",
+    "frontend_audit": "/tmp/rag-round25-frontend-lifecycle-audit.json",
+    "real_private_id_reuse": {
+      "artifacts": [
+        "/tmp/rag-round25-private-id-reuse.py",
+        "/tmp/rag-round25-private-id-reuse.json",
+        "/tmp/rag-round25-private-id-reuse.log"
+      ],
+      "scope": "Actual JWT/FastAPI/SQLite foreign keys/SessionCoordinator/HandoffService; ordinary API-created IDs, no manually assigned primary keys or mocked business outcomes.",
+      "observed": "Owner1 session21/ticket1 was closed and deleted (200/204); human rows became0. Owner2 normal creation reused session21/ticket1, staff3 was assigned. Original staff UUID/content POST returned200 reused=false, and owner2 GET200 read the old private text; durable human rows1.",
+      "network": "Zero network attempts and paid-model calls in the local reproduction.",
+      "limits": "Natural delete-ID reuse observed on supported SQLite. PostgreSQL ordinary sequences do not have this natural delete reuse behavior; no PG sequence-reset or backup-restore reproduction was executed."
+    },
+    "frontend": {
+      "independent_real_api": "/tmp/rag-round25-private-id-reuse.json (backend verifier; actual SQLite/JWT/API old staff message reached new customer before fix)",
+      "frontend_observation": "/tmp/rag-round25-frontend-lifecycle-audit.json",
+      "baseline_replay_log": "/tmp/rag-round25-fe-baseline-red.log",
+      "baseline_replay": "4 literal behavioral failures plus1 old-module marker passing control, executed after implementation against immutable pre-change frontend snapshot in an isolated /tmp project. Transport modeled original no-session-key compatibility; not the new mandatory-key backend. New code rejects old content, wrong response key and v1 auto-adoption.",
+      "harness_note": "An initial alias-only attempt loaded current source due Next SWC path resolution; marker detected it and its green result was rejected as baseline evidence. The isolated old-source project with copied config and read-only dependency symlink produced the recorded4 red failures. No working-tree rollback or installs."
+    },
+    "minimal_model_red": {
+      "log": "/tmp/rag-round25-session-key-minimal-red.log",
+      "result": "1 failed: existing ORM ChatSession lacks session_key. The foreign-recipient journal replay reproduction is independently owned by root/verifier/frontend worker, not this child."
+    },
+    "evidence_fidelity": "The42 final HTTP evaluation cases were written after implementation; they are not claimed as42 literal original-source red cases. Frontend4 behavioral reds ran against a preserved old-source snapshot after implementation, with a separate old-module marker control. The before reproduction was not rerun during documentation closeout."
+  },
+  "changes": {
+    "server_identity": "ChatSession has server-generated canonical lowercase UUID session_key, unique and non-null. Each new row has a fresh key; legal existing keys survive migration, malformed/duplicate values fail closed. No fixed/server SQL fallback or AUTOINCREMENT workaround.",
+    "lifecycle": {
+      "ordinary_read_message_title_configuration": "Key remains stable.",
+      "normal_staff_close": "Key remains stable, automation epoch advances, exact originally committed UUID may replay under the original authorization.",
+      "clear_history": "Within existing session gate, commit key rotation and automation_epoch increment before checkpoint/history cleanup. Cleanup failure does not make old commands valid; this is not an atomic cross-storage clear.",
+      "delete_recreate": "A new row has a new key even if integer IDs are reused. Ledger rows retain their audit identity; deleted live FK becomes NULL rather than rebinding."
+    },
+    "authorization_and_requests": "Owner/active-role/assignment checks remain prior to incarnation comparison. New human HTTP POST DTOs require expected_session_key; missing/malformed keys422, well-formed mismatch409. Listed private AI REST/SSE/history/clear, human/staff-context reads, session update/delete, claim and resolve enforce the original key, with service-side checks inside applicable gates/transactions and session-config SQL CAS.",
+    "responses": "Session discovery DTOs, queue/claim/resolve, human page/ACK, staff AI context and AI history/REST replies carry server identity. New workspace parsers reject missing/noncanonical/mismatched response identity before consuming body or ACK.",
+    "discovery_and_compatibility": "Authenticated owner Session list/detail intentionally discover current metadata without an old key. Shared unmarked Demo remains keyless; explicitly supplied keys still must match. Key is not authorization. Feedback/QA and manual internal legacy adapters retain their own protocols; this report does not claim every API uses incarnation guards.",
+    "ticket_binding": "Customer immutable attempts retain original expected_ticket_id in addition to session key. The older optional same-instance ticket-hint compatibility remains; a session key does not permit retargeting an uncertain request to another ticket.",
+    "journal_v2": "Version2 envelope/scope includes canonical sessionKey. v1 is never parsed for restoration, never assigned a current key and never sent; generic warning permits explicit current-user/API legacy cleanup. Sign-out removes both v1/v2 for all this API users. Existing limits, immutable attempts, late ACK and unsaved-draft protection preserved.",
+    "journal_lifecycle": "Any v1 envelope for current verified user/API namespace blocks journal restoration/saving without parsing/showing old body or assigning current key. Explicit legacy cleanup removes only that user/API v1, retaining v2 and other namespaces/users. Explicit signout clears current API v1/v2 for all users in this tab;401 hides private UI and clears support token while preserving journals for same-user reauthentication.",
+    "frontend_scope": "Panel keys and hook/journal scopes include sessionKey; staff active recovery scope includes nonce even when numeric ticket matches. Original closed retry keeps its original key and cannot bind to new customer.",
+    "safe_reopen": "Explicit Refresh consultations re-fetches authoritative list and selected owner Session detail, including off-page selection. It only swaps the same selected ID/old key still in view; a new key remounts without copying old work. No activity auto-refresh or additional background polling added.",
+    "retained_protections": "Immutable UUID/body/resolve/ticket, bounded storage, same-tab canonical cleanup, late-ACK protection and higher unsaved draft handling remain. Mount/restore never automatically POST; local discard does not cancel/delete server messages.",
+    "operator_probe": "scripts/probe_live.py authenticated allocation validates canonical distinct server keys, sends each original key on private chat/history and checks response/history/known-owner ticket identity. Anonymous shared mode and original21cases/24turns/retry/evidence thresholds remain. No live probe was run."
+  },
+  "migration": {
+    "revision": "c53a7d9e8421",
+    "parent": "b42f9c8e7310",
+    "new_cases": 17,
+    "combined_validation": {
+      "new_cases": 17,
+      "combined": "17 owned tests +1 existing fresh-environment migration/metadata round trip =18 passed in0.82s",
+      "command": ".venv/bin/python -m pytest app/tests/unit/deploy/test_session_incarnation_migration.py app/tests/unit/deploy/test_schema_completeness.py::test_fresh_environment_registers_all_models_and_sqlite_round_trip --no-cov -q",
+      "ruff": "3 owned files passed check and format",
+      "mypy": "3 owned files zero errors",
+      "diff_check": "passed"
+    },
+    "verified": [
+      "Natural SQLite numeric session ID reuse across different owners gets distinct canonical keys.",
+      "Explicit malformed, compact or uppercase internal keys rejected. Server reset can assign a fresh canonical key; epoch-only changes preserve the current key.",
+      "Real Alembic b42 schema upgrades under SQLite foreign_keys=ON with bot/human/ticket children and SET NULL action-ledger reference retained. Existing title/owner/metadata/timestamps are preserved.",
+      "SQLite migration runs in Alembic autocommit maintenance block, disables FKs only while an explicit BEGIN IMMEDIATE transaction rebuilds the parent table, checks foreign_key_check and restores FKs on success/failure.",
+      "Injected upgrade and downgrade rebuild errors roll back table/key/data changes, retain children and reenable foreign keys.",
+      "Existing legal keys survive create_all adoption/replayed migration. Suspect or duplicate preexisting keys fail closed for explicit repair instead of silent reassignment.",
+      "Private sessions or any human rows block downgrade. Public-only downgrade preserves parent/children/user index and reenables FKs.",
+      "PostgreSQL offline SQL uses gen_random_uuid()::text per row and ordered lock+private/human guard before removing the key.",
+      "SQLite offline upgrade has a frozen b42 parent shape, random per-row key generation, explicit FK maintenance and foreign_key_check; generated SQL was actually executed against the legacy fixture without child loss. SQLite offline downgrade refuses unsafe generation.",
+      "Fresh interpreter Alembic head->base->head plus compare_metadata confirms all model/table/unique/index alignment on an empty SQLite database."
+    ],
+    "operator_requirements": [
+      "Back up and stop/drain old application instances, in-flight requests and SQLite writers before maintenance. All backend/workspace/operator clients must support the new key contract; old/new mixed-version protection is not claimed.",
+      "SQLite online Alembic maintenance uses autocommit, disables FK only on its migration connection, starts BEGIN IMMEDIATE, rebuilds the parent, checks foreign_key_check, commits/rolls back, and restores FK ON. Prior migration work is committed before this controlled transaction.",
+      "Bot/human/ticket children and ActionLedger.live_session_id must survive the upgrade. Unit fixtures exercised rollback and FK restoration on injected rebuild failures.",
+      "Offline SQLite generated SQL was executed locally against legacy fixtures, but an arbitrary external SQL-runner interruption has no Python finally cleanup guarantee; operators must inspect FK-check output.",
+      "Downgrade refuses private sessions or any human rows. Empty/public-only guards do not prove reverting an old application image or database backup is generally safe."
+    ],
+    "limits": [
+      "Application/CLI writers must be stopped and a backup retained for SQLite maintenance. Migration commits preceding work before its controlled parent-table transaction; no zero-downtime or whole-chain single-transaction claim.",
+      "Automatic exception rollback and FK restoration are online Python migration guarantees. Offline SQLite SQL requires operator inspection of foreign_key_check output and cannot provide Python finally cleanup on arbitrary external execution failure.",
+      "No live PostgreSQL migration test was executed by this child; PostgreSQL output was compiled/reviewed only. Root/verifier own any actual PG gates.",
+      "Raw legacy SQL INSERTs omitting session_key intentionally fail NOT NULL; no shared fallback nonce is generated. Root owns API guards/read-only schema/projections and legacy fixture updates.",
+      "No frontend v1 journal is upgraded or assigned a key by this migration; frontend fail-closed handling is owned by its worker.",
+      "No claim of external exactly-once or settlement recovery after restoring an older database snapshot."
+    ],
+    "verification_scope": "The frozen17-case module includes real SQLite online upgrade/downgrade rollback injection and actual execution of generated offline SQLite SQL via executescript; PostgreSQL SQL is generated/reviewed only. These assertions were cross-checked in the frozen test source during closeout without rerunning it."
+  },
+  "validation": {
+    "backend_default": {
+      "command": ".venv/bin/python -m pytest",
+      "passed": 3530,
+      "skipped": 3,
+      "warnings": 5,
+      "seconds": 194.83,
+      "core_percent": 93.57,
+      "core_statements": 5553,
+      "core_missed": 357,
+      "minimum_percent": 70,
+      "scope": "Unchanged selected default coverage module set, not all501 Python files; percentage is not proof of complete new chat/handoff/API coverage.",
+      "log": "/tmp/rag-round25-backend-full-final.log"
+    },
+    "backend_net_new": {
+      "migration_unit": 17,
+      "actual_http_lifecycle": 42,
+      "operator_probe_unit": 7,
+      "total": 66
+    },
+    "backend_actual": {
+      "command": ".venv/bin/python -m pytest app/tests/evaluation/test_session_incarnation.py --no-cov -q",
+      "passed": 42,
+      "seconds": 2.84,
+      "log": "/tmp/rag-round25-session-incarnation-after.log",
+      "case_classification": {
+        "server_generation_uniqueness_stable_reads_rename": 1,
+        "normal_human_pages_ack_and_staff_AI_histories_key": 1,
+        "human_missing_null_malformed_boolean_array422_or_mismatch409_two_sides": 12,
+        "four_private_reads_missing_or_mismatch": 8,
+        "private_AI_normal_stream_missing_or_mismatch_before_HTTPstream_and_graph": 4,
+        "auth_owner_or_assignment_checks_precede_mismatch": 9,
+        "ordinary_same_owner_numeric_reuse_old_key_commands_refused": 4,
+        "clear_rotates_key_epoch_then_old_human_command_refused": 1,
+        "postcommit_clear_cleanup_failure_keeps_old_key_invalid": 1,
+        "normal_staff_close_keeps_key_and_exact_original_receipt": 1
+      },
+      "real_components": [
+        "FastAPI routes and production JWT verification",
+        "SQLite FK with actual ORM session/ticket/bot/human/action rows",
+        "SessionCoordinator same-process gate",
+        "actual compiled graph and local default tools (negative guard tests never enter graph/cache/tool)",
+        "authoritative session discovery and private history endpoints"
+      ],
+      "controlled_boundaries": [
+        "Existing local Redis/cache boundary and no external text model",
+        "Cleanup method throws only after expected key/epoch SQL commit to test honest partial failure"
+      ],
+      "side_effect_evidence": "SQL key/epoch/resolved_at/reopened_count and bot/human/action counts plus ticket status/assignee; no changes on rejection. Work counters graph/cache/tool/refund unchanged.",
+      "network": "Imported real fixture hard-blocks socket connect/connect_ex; new autouse fixture separately blocks DNS and asserts zero attempts.",
+      "initial_test_arrangement_corrections": "First41pass/1setup error used PATCH instead of existing PUT; next used query hint instead of new SessionUpdate body. Only new test adapted to actual route contract, no app fix requested. Expanded42 were written after implementation; no literal original-source42red claim."
+    },
+    "backend_focused": [
+      {
+        "log": "/tmp/rag-round25-human-compat-green.log",
+        "result": "49 passed in3.41s"
+      },
+      {
+        "log": "/tmp/rag-round25-backend-compat-focused-after.log",
+        "result": "615 passed,1 skipped in11.73s"
+      },
+      {
+        "log": "/tmp/rag-round25-operator-compat-focused-after.log",
+        "result": "117 passed in7.19s"
+      }
+    ],
+    "initial_default_full": {
+      "result": "10 failed,3513 passed,3 skipped,5 warnings in196.60s",
+      "log": "/tmp/rag-round25-backend-full.log",
+      "classification": {
+        "old_session_crud_missing_expected_key": 3,
+        "old_create_all_raw_sql_missing_nonnull_key": 4,
+        "real_operator_probe_private_chat_history_missing_key": 3
+      }
+    },
+    "initial_failures_resolved": "Seven failures were old session CRUD/raw-SQL fixtures missing mandatory generated keys. Three were real operator script compatibility defects; the script now transports and validates the key. Fixtures retain orthogonal invalid actor/ticket/busy assertions, and raw missing/malformed-key negative cases are not auto-filled. No schema/gate relaxation.",
+    "operator_new_cases": "Seven added fail-closed unit cases: missing/noncanonical/reused allocation identity prevents chat/history sends; wrong response/history/known-owner staff-ticket identity is rejected. Final117focused includes the old110 plus7new.",
+    "frontend_default": {
+      "command": "npm test",
+      "jest_passed": 299,
+      "jest_suites": 12,
+      "node_passed": 55,
+      "total": 354,
+      "new_default": {
+        "journal_unit": 7,
+        "actual_react": 4,
+        "net_total": 11
+      },
+      "actual_cases": [
+        "customer same-numeric session/ticket reuse blocked; explicit refresh/reload does not move old work",
+        "closed original staff retry TOCTOU bound to old nonce when another customer receives reused numeric IDs",
+        "mismatched200 history/human key cannot authorize restoration or display a body",
+        "v1 generic warning/manual cleanup with no automatic adoption or POST"
+      ],
+      "log": "/tmp/rag-round25-frontend-full.log",
+      "lint": {
+        "passed": true,
+        "log": "/tmp/rag-round25-frontend-lint.log"
+      },
+      "strict_types": {
+        "passed": true,
+        "log": "/tmp/rag-round25-frontend-types.log"
+      },
+      "static_build_pages": 12,
+      "build_log": "/tmp/rag-round25-frontend-build.log",
+      "scope": "Real React/jsdom + actual SupportApi/journal with controlled fetch. No browser/hydration, real backend/frontend HTTP integration, remote service, payment, model, production or capacity claims.",
+      "exported_html_files": 13,
+      "html_count_note": "Build log counts 12 generated pages. Export has 13 HTML artifacts; three not-found paths are byte-identical. Artifact count is not the build route count.",
+      "not_found_aliases_sha256": {
+        "404.html": "8141b339930036b99b0c50968f4145502b0278a83f332e35fe5daab35c685077",
+        "404/index.html": "8141b339930036b99b0c50968f4145502b0278a83f332e35fe5daab35c685077",
+        "_not-found/index.html": "8141b339930036b99b0c50968f4145502b0278a83f332e35fe5daab35c685077"
+      }
+    },
+    "static": {
+      "ruff": {
+        "scope": "app,migrations,scripts/init_db.py,scripts/document_import.py,scripts/probe_live.py",
+        "result": "All checks passed!",
+        "log": "/tmp/rag-round25-backend-final-ruff.log"
+      },
+      "format": {
+        "scope": "app/ and scripts/probe_live.py",
+        "result": "477 files already formatted after formatting only the new operator unit block",
+        "log": "/tmp/rag-round25-backend-final-format.log"
+      },
+      "mypy_app": {
+        "scope": "app/",
+        "result": "Success: no issues found in476 source files",
+        "log": "/tmp/rag-round25-backend-final-mypy.log"
+      },
+      "mypy_cli": {
+        "paths": [
+          "scripts/init_db.py",
+          "scripts/document_import.py",
+          "scripts/probe_live.py"
+        ],
+        "result": "Success: no issues found in3 source files",
+        "log": "/tmp/rag-round25-backend-final-cli-mypy.log"
+      },
+      "pip_check": {
+        "command": ".venv/bin/python -m pip check",
+        "exit_code": 0,
+        "stdout": "No broken requirements found.\n",
+        "log": "/tmp/rag-round25-current-pip-check.log"
+      }
+    },
+    "outside_ci_scope_lint": {
+      "command": ".venv/bin/python -m ruff check .",
+      "log": "/tmp/rag-round25-backend-compat-ruff.log",
+      "result": "18 existing ad-hoc root-level manual test lint errors; untouched and outside actual CI app gate. No gate/config suppression added."
+    },
+    "independent": {
+      "model_migration": "/tmp/rag-round25-session-incarnation-backend-evidence.json",
+      "actual_http": "/tmp/rag-round25-session-incarnation-verification.json",
+      "frontend": "/tmp/rag-round25-frontend-incarnation-evidence.json",
+      "integration_review": "/tmp/rag-round25-independent-integration-review.json:read-only production integration/source review;501backend/86frontend SHA match, no concrete blocking bypass/integration break found, no tests rerun by that review.",
+      "report_source_verification": "/tmp/rag-round25-report-source-verification.json:current501backend/86frontend entries all match; no removed baseline files or unmanifested Python source;26backend/14frontend changed/new SHA derived against round24.",
+      "closeout_backend": "/tmp/rag-round25-backend-closeout-evidence.json",
+      "current_state": "/tmp/rag-round25-current-state-verification.json:independent fresh source/git/pip/export checks passed; full/static/build results reused only after source-match verification. No tests or build rerun."
+    },
+    "browser": "No browser/hydration/frontend-backend live-network acceptance. Current root inventory returned no enabled browser surface; native Chrome application presence was observed separately and is not a browser acceptance result.",
+    "evidence_reuse": "Documentation closeout reread completed terminal logs and verified current frozen source. Full test/static/build results belong to those completed runs; fresh independent checks were pip check, git hygiene, SHA/source inventory and export artifacts, not redundant product tests.",
+    "repository_hygiene": {
+      "evidence": "/tmp/rag-round25-current-state-verification.json",
+      "scope": "Fresh read-only git checks in both repositories; product sources unchanged.",
+      "backend_head": "1289c368c2025a6d4ea3013a0a665c91b05c79ef",
+      "frontend_head": "8efd9535ce6f1bb2d6bbd1e396af0c45f796b0e2",
+      "indexes_empty": true,
+      "dependency_and_lock_diffs_empty": true,
+      "tracked_diff_whitespace": "passed",
+      "limitation": "Tracked git diff --check does not inspect untracked documentation whitespace; separate final documentation inspection is required."
+    }
+  },
+  "backend_source_sha256": {
+    "app/api/deps/authorization.py": "b18744663822bd97fb0091996b7c7a6797c0fcdf951dbbe60bff19ec9ed3ca98",
+    "app/api/v1/chat.py": "a4ee83c50a90ed5e012d6c4ff3c1e651fcf3419bc43ce7d0f6495867b765acb5",
+    "app/api/v1/handoff.py": "301a16437abfa67185611c619a522381a00ada82d7857b073f1af42e149ac0a0",
+    "app/api/v1/sessions.py": "e4783b746278a6f5ed3846fd087d3a9725e385d9468f21cfb6e38ded8e477baa",
+    "app/models/database/session.py": "570fcf4b16c5e55c634fb72e1e4ef7f24a717011b1bedb87ebc23a1af93f290f",
+    "app/models/schemas/handoff.py": "2d73eb3fe1f58ba1052722471e14c898fc552dbfe68a8989588c9f39fd8e3646",
+    "app/models/schemas/session.py": "a151d05a9a0b3c27b984376a3d969e12f539c9e71e3343f650c6beddd5fcb7ba",
+    "app/models/schemas/session_key.py": "019f683f3133fa5dd2933f904f5e75bd6ab13a055c488f00112b6c7595177353",
+    "app/repositories/session_repository.py": "1717c60ce151e59cb94942a57ae5c0ac2d3351021e42872e6c4f4ab6034b04ed",
+    "app/services/chat/chat_service.py": "1ab39b779382f867f3fb4a8952ad6d3bd0bb3a8a4b7beaeb2a98dcb385ad47fe",
+    "app/services/chat/coordination.py": "3377ce5c194bb4a2289cc1857dfdedbb82742ab9dc5691068c077db519f7bc3b",
+    "app/services/chat/session_identity.py": "d22e75a3a5627ebdef5e530c2a29f63c81e790a75fe888dd693776a9c5f52008",
+    "app/services/handoff/service.py": "985a2de6df87c7dbc90144dc493c9d689cd95267df2ec8b4302c645b4496ac8f",
+    "app/services/session_service.py": "4308f514903179a5f1669ea7c885b6e9b08cec961b7efa4e4f6bebf5f87e58d2",
+    "app/tests/evaluation/test_durable_business_actions.py": "872336afbae5feac9018ca3c5cc67fef10c939e42d8add73e3662d7e17231bf5",
+    "app/tests/evaluation/test_human_conversation.py": "a29896b009d2263a18c905842ae0dc1d9296e3e9a686b1ae89c41484e0f28389",
+    "app/tests/evaluation/test_human_recipient_binding.py": "870dbd86bf3aebb0c18b000ab7aff9ac8c763b4988d066bf85172dcc25d077c6",
+    "app/tests/evaluation/test_human_resolution.py": "d460e1fb6414186bffde6746fa8fec4f14d7bc4cc319dec76b50d649df5493e8",
+    "app/tests/evaluation/test_session_incarnation.py": "c20f1d09942df91f3758dd7cccd12ae1ad5fd368959fd0663d404b888632a5d6",
+    "app/tests/integration/api/test_session_endpoints.py": "ad31507e0ee2eba7477e2fa7b4ace291a7019b5bf5a72a9446da341dd75e13d6",
+    "app/tests/unit/deploy/test_action_ledger_migration.py": "160cfd6a71bc748965042eb61e6976d802e4f605e39a05d7aef3ea96d78d3a8b",
+    "app/tests/unit/deploy/test_human_channel_migration.py": "e852ef0073cf01a6f2a65ee0e337f9905b5488f84f7f681d4506a9dbf07216d5",
+    "app/tests/unit/deploy/test_probe_live_evidence.py": "e4f233e3ae4720fc19b91bd67d651c1f742e5237c71105ab8d66c960bea1c4bc",
+    "app/tests/unit/deploy/test_session_incarnation_migration.py": "383c5af20af18a58cea9fe2cf82cef1c1140a309d598b7e498d07c54db85b8d1",
+    "migrations/versions/c53a7d9e8421_session_incarnation.py": "b1e807fa6befaf028d682dec733a6dca7ba68b83337e2092ebe25375bc803d89",
+    "scripts/probe_live.py": "483fb0ba65c6afca157508ed4679a7898bbeb139890ad8900309e3eeeb0d93ec"
+  },
+  "frontend_source_sha256": {
+    "components/support/AgentWorkspace.tsx": "72fd90bc000cc43bbae0ca284ae11d36770d7f76c2791fe54bee565a2d9fd7a9",
+    "components/support/ConversationPanel.tsx": "dcc176c0a808c3a275f2445ca5cd3d6776ad30c801c43831263b1b88eb4192f0",
+    "components/support/CustomerWorkspace.tsx": "c9072202d77acff06b97e34e62ad40c774b6a519fa646d9c32790966a9a84ec3",
+    "components/support/LegacyJournalNotice.tsx": "7002c7a1769ffcd1bc58420207c61e7459ce8f2015509a4c3688a559ed9a5e5a",
+    "components/support/SharedTicketPanel.tsx": "d3bfc1255b38c58c63e1d370826885c6efd3bff177bccb0eefa5b524a694b677",
+    "components/support/SupportWorkspace.tsx": "b5a2c8f05699d223d275236c0e6e2c76849196a213e134860dcffce5819bc4f3",
+    "components/support/__tests__/agent-recovery.test.tsx": "f7f0367f0779a46057c831c635f52602faf61a0a49e0f4bc6d7fd4b0e3e591ee",
+    "components/support/__tests__/support-continuity.test.tsx": "52ad48032f89a4f56b996aa97f04e005f39dbb15fbb9b2c36e23bdaebc2619cb",
+    "components/support/__tests__/support-workspace.test.tsx": "2343f429e50fa50b57b7c6049cb5431a3286f0a913d0cc641cf73ef546ec89de",
+    "components/support/useConversationDraft.ts": "bc7dca887471a0c0b83965478ad6687f40721466a19a151d72cfc75ce72a126b",
+    "components/support/useHumanThread.ts": "70987e24247fec4c6d1f6ec9c6b3bf2efc876c24bc2bb94bee8135cd952b591a",
+    "lib/__tests__/support-journal.test.ts": "692c74f9f6b61b55d1925b4319ff270a54ef8bc1c6d64ce55c02e492f819d507",
+    "lib/support-api.ts": "8c7a5d95427abf3148928f98c7b28785f6f2654f716dd362b5f947915665f00c",
+    "lib/support-journal.ts": "5ef8ee1226ff6913a5ac6912ed11df9766fb526ad56ae4fac6921984008e656a"
+  },
+  "source_counts": {
+    "backend_all_python": 501,
+    "backend_app_python": 476,
+    "backend_tests_python": 253,
+    "backend_test_modules": 247,
+    "frontend_source_config": 86,
+    "backend_changed_or_new_vs_round24": 26,
+    "frontend_changed_or_new_vs_round24": 14
+  },
+  "manifests": {
+    "backend": {
+      "path": "/tmp/rag-round25-backend-final-source-manifest.json",
+      "format": "object with count and files mapping",
+      "files": 501,
+      "sha256": "d8f9dc7d38c370d14620be2db900728fbd680211a9c08e3ea8e9b9a7440947fb"
+    },
+    "frontend": {
+      "path": "/tmp/rag-round25-frontend-final-source.json",
+      "format": "flat path-to-sha256 mapping",
+      "files": 86,
+      "sha256": "35ef9917beb287cd30bcd7516b131fdb780f263f8c33380d5097165ef69ee94e"
+    }
+  },
+  "commerce_assessment": {
+    "path": "docs/design/conversational-commerce-assessment.md",
+    "status": "proposed only; no purchase/payment implementation or real provider calls",
+    "lines": 191,
+    "sha256": "fade70a0be314d3b549e9e924c20f3f6f5ce2f0d13d4d57545f93796f1f990ca",
+    "independent_final_review": "/tmp/rag-commerce-current-final-verification.json:passed",
+    "boundary": "External commerce APIs assumed for design; recommended single Agent plus persisted purchase service and adapter. This design work is not evidence that commerce is integrated."
+  },
+  "scope_limits": [
+    "session_key binds a conversation incarnation; it does not grant owner/admin/merchant/tenant access. Explicit server clear intentionally rotates it; ordinary close preserves it.",
+    "Actual42 exercise local JWT/FastAPI/FK-SQLite/compiled graph and same-process gates with network blocks. No actual PostgreSQL migration, cross-process coordination/locks, multi-replica or capacity acceptance.",
+    "PostgreSQL migration was compiled/reviewed offline; SQLite natural-ID reuse is not proof of the same ordinary PostgreSQL deletion behavior.",
+    "Listed workspace/HTTP conversation operations are guarded. Feedback, QA verdict and manually constructed unkeyed internal adapters are outside this uniform key contract.",
+    "v1 recovery is intentionally refused and discarded only explicitly. Old customer v2 scopes remain stored, but there is no unified customer old-scope recovery-list UI; not every orphan draft is claimed retrievable.",
+    "sessionStorage remains per-tab plaintext accessible to same-origin scripts, possibly copied through browser opener/session restore. It is not encryption, cross-device sync or a server backup; signout cleanup does not cover other tabs/devices.",
+    "Key/epoch rotation commits before checkpoint cleanup and may persist after cleanup failure; this is not an all-or-nothing cross-storage history deletion.",
+    "Old server/clients do not enforce the new contract. New workspace fails closed on old keyless responses, and new private endpoints reject old keyless commands; no seamless mixed deployment claim.",
+    "Restoring older database snapshots may restore keys, receipts and ledger state together; external exactly-once/settlement requires provider idempotency and reconciliation.",
+    "No dependency/lock/runtime-default/coverage-threshold changes, installation, paid model, real business/payment/provider/production call, live operator probe, production migration, commit/push/deploy."
+  ],
+  "remaining": [
+    "Ordinary committed AI/human message activity timestamps, accurate session-list counts/order and bounded list invalidation remain deferred; manual incarnation refresh is not activity sorting.",
+    "Actual PostgreSQL migration/coordination/ledger/locking, multi-replica and capacity acceptance.",
+    "Real browser hydration/interaction and frontend-backend transport acceptance.",
+    "Enterprise tenant isolation, real business integration/reconciliation and structured outcomes.",
+    "Conversational purchase plan implementation remains future work; assessment alone does not add commerce functionality."
+  ],
+  "evidence_artifacts_sha256": {
+    "/tmp/rag-round25-backend-full.log": {
+      "sha256": "0d477bc64a4dc414e5ff4aaee714c890b2a3fe08c41cb161789e005cb2204216",
+      "bytes": 79151
+    },
+    "/tmp/rag-round25-backend-full-final.log": {
+      "sha256": "6ecaedb7c298175cc038dab413a80bf49cf66859ad5c5e1d2f473e4db486a4c4",
+      "bytes": 37247
+    },
+    "/tmp/rag-round25-backend-final-ruff.log": {
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "bytes": 19
+    },
+    "/tmp/rag-round25-backend-final-format.log": {
+      "sha256": "3bb85af2e485eaae782bc94176655f9e1c8016b399647baa8f9c10dc5e1d0544",
+      "bytes": 28
+    },
+    "/tmp/rag-round25-backend-final-mypy.log": {
+      "sha256": "a728079fcae0ffaf45406a239fada3cd6def99769fad96d053259b592d5d10e2",
+      "bytes": 45
+    },
+    "/tmp/rag-round25-backend-final-cli-mypy.log": {
+      "sha256": "2e0dd258970686efeb31dd7eab2c43a46afc5ae7497abb8d1cb170692f837038",
+      "bytes": 109
+    },
+    "/tmp/rag-round25-human-compat-green.log": {
+      "sha256": "702fdd4a003c161edc71914e602fc5db4c85ea397b91da49c4e28312b967841d",
+      "bytes": 99
+    },
+    "/tmp/rag-round25-backend-compat-focused-after.log": {
+      "sha256": "71523111cab4c5b235c599e184d849addb3a3aef5b7925cf62388c8c5a54b8e1",
+      "bytes": 752
+    },
+    "/tmp/rag-round25-operator-compat-focused-after.log": {
+      "sha256": "a2bb1d1c73389f6bcb15fe7cb5636de9c9b8441be7fb94b2a66ae1e24fc6d697",
+      "bytes": 180
+    },
+    "/tmp/rag-round25-session-incarnation-after.log": {
+      "sha256": "fe7a9052f1d8b2aee946dda46f819b291bf750fe248cdc2bfd3279104f14ad91",
+      "bytes": 99
+    },
+    "/tmp/rag-round25-session-incarnation-static.log": {
+      "sha256": "aa3da639a5f5751e4d8436b003f48c0c4512cf540d04751b2a3337a730728500",
+      "bytes": 320
+    },
+    "/tmp/rag-round25-session-key-minimal-red.log": {
+      "sha256": "334d005ebb228c6d85dccb18ff50e9a3ce1e79b76958af57b10b958c6b52f249",
+      "bytes": 816
+    },
+    "/tmp/rag-round25-private-id-reuse.py": {
+      "sha256": "7450112f647be5745bb33afb4d9ea3c9624d9b4e722a25c1775d592b011c4eb7",
+      "bytes": 3801
+    },
+    "/tmp/rag-round25-private-id-reuse.json": {
+      "sha256": "b5bd8023df77f7437d28100d426c4d4278d26e4fdd6aa7efd120d4acf7fd645d",
+      "bytes": 1124
+    },
+    "/tmp/rag-round25-private-id-reuse.log": {
+      "sha256": "b5bd8023df77f7437d28100d426c4d4278d26e4fdd6aa7efd120d4acf7fd645d",
+      "bytes": 1124
+    },
+    "/tmp/rag-round25-frontend-lifecycle-audit.json": {
+      "sha256": "bee35bfdf41244ee3b3e0cd6a252367437f392a712503721fcb3bf933926b20f",
+      "bytes": 4527
+    },
+    "/tmp/rag-round25-fe-baseline-red.log": {
+      "sha256": "07534cb4d335a0c1701381d24637e9149592e35fa525ba2f95634a373e122d3f",
+      "bytes": 6122
+    },
+    "/tmp/rag-round25-frontend-full.log": {
+      "sha256": "50cad5250955d7d089ad0db3a03459e5eb41b4860675de0642e3640976d8a2d4",
+      "bytes": 5519
+    },
+    "/tmp/rag-round25-frontend-lint.log": {
+      "sha256": "fcb9026e7d61e64d36df9003ea9103141bf5d0ec902ffb42f1a7c4133a535c82",
+      "bytes": 63
+    },
+    "/tmp/rag-round25-frontend-types.log": {
+      "sha256": "69b0ecf44bd84c75d55eebe4356dba7f1e804e61341ad799d5243990f7a092b1",
+      "bytes": 73
+    },
+    "/tmp/rag-round25-frontend-build.log": {
+      "sha256": "ef869b465c5fd643965bbf8f692bc575d923fdd801f8f15eb12d40503980fb07",
+      "bytes": 1029
+    },
+    "/tmp/rag-round25-current-pip-check.log": {
+      "sha256": "8bf022d1e05f49c684bc0e7807cafe6b31e1deaba298908845f03a1a69c53c7f",
+      "bytes": 82
+    },
+    "/tmp/rag-round25-backend-closeout-evidence.json": {
+      "sha256": "12298f5417d61c83157d841d01f49a9d492aa0f434e4c0dfb60e9bcecbc86a38",
+      "bytes": 6014
+    },
+    "/tmp/rag-round25-session-incarnation-backend-evidence.json": {
+      "sha256": "2b813c3539add2b7c478581d971be5edb378b940f021828f06af4e6f3e4c6321",
+      "bytes": 4979
+    },
+    "/tmp/rag-round25-session-incarnation-verification.json": {
+      "sha256": "d2cf7fca04fe528619b02f63ddb51979751afb366e18940b24d2c588216e4526",
+      "bytes": 4645
+    },
+    "/tmp/rag-round25-frontend-incarnation-evidence.json": {
+      "sha256": "c24d202ca72104ec3124cd22b47effa2cad2376040788d147c6ab2a7661c0027",
+      "bytes": 6603
+    },
+    "/tmp/rag-round25-independent-integration-review.json": {
+      "sha256": "212c0b320fcf57f1fffc2abd49e072be3c47664df7a65fd28427f1ebcba191f2",
+      "bytes": 4763
+    },
+    "/tmp/rag-round25-current-state-verification.json": {
+      "sha256": "aac0f3f4a060cfe8918c243ea0850269be94b26d3b24ba74c98bf2a9c50b917d",
+      "bytes": 12219
+    },
+    "/tmp/rag-round25-report-source-verification.json": {
+      "sha256": "7ebd74f90432da56698b5801bc472cf84211b342f7edd516ab920c797071e4e1",
+      "bytes": 5244
+    },
+    "/tmp/rag-commerce-current-final-verification.json": {
+      "sha256": "dc6b374370038106ce33aef7e4cb2438704a7bae045d7c921dabc73d8ed5aaba",
+      "bytes": 2408
+    }
+  }
+}

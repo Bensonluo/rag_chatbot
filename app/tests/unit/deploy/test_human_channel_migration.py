@@ -4,6 +4,7 @@ import importlib.util
 from io import StringIO
 from pathlib import Path
 from types import ModuleType
+from uuid import uuid4
 
 import pytest
 from alembic.migration import MigrationContext
@@ -73,8 +74,9 @@ def test_orm_adoption_retains_all_constraints_and_human_data(human_migration, mo
             )
             db.execute(
                 text(
-                    "INSERT INTO chat_sessions (id,user_id,memory_type,context_window,title,reopened_count,automation_epoch) VALUES (10,1,'sliding_window',10,'Retained',0,0)"
-                )
+                    "INSERT INTO chat_sessions (id,user_id,memory_type,context_window,title,reopened_count,automation_epoch,session_key) VALUES (10,1,'sliding_window',10,'Retained',0,0,:session_key)"
+                ),
+                {"session_key": str(uuid4())},
             )
             db.execute(
                 text(
@@ -108,8 +110,9 @@ def test_nonzero_generation_alone_prevents_destructive_downgrade(human_migration
             Base.metadata.create_all(db)
             db.execute(
                 text(
-                    "INSERT INTO chat_sessions (id,user_id,memory_type,context_window,title,reopened_count,automation_epoch) VALUES (10,1,'sliding_window',10,'Retained',0,2)"
-                )
+                    "INSERT INTO chat_sessions (id,user_id,memory_type,context_window,title,reopened_count,automation_epoch,session_key) VALUES (10,1,'sliding_window',10,'Retained',0,2,:session_key)"
+                ),
+                {"session_key": str(uuid4())},
             )
             monkeypatch.setattr(human_migration, "op", Operations(MigrationContext.configure(db)))
             with pytest.raises(RuntimeError, match="prevents lossless downgrade"):
@@ -126,9 +129,9 @@ def test_private_session_alone_prevents_rollback_to_public_demo(human_migration,
             Base.metadata.create_all(db)
             db.execute(
                 text(
-                    "INSERT INTO chat_sessions (id,user_id,memory_type,context_window,title,reopened_count,automation_epoch,session_metadata) VALUES (10,1,'sliding_window',10,'Private',0,0,:metadata)"
+                    "INSERT INTO chat_sessions (id,user_id,memory_type,context_window,title,reopened_count,automation_epoch,session_metadata,session_key) VALUES (10,1,'sliding_window',10,'Private',0,0,:metadata,:session_key)"
                 ),
-                {"metadata": '{"access_mode":"private"}'},
+                {"metadata": '{"access_mode":"private"}', "session_key": str(uuid4())},
             )
             monkeypatch.setattr(human_migration, "op", Operations(MigrationContext.configure(db)))
             with pytest.raises(RuntimeError, match="prevents lossless downgrade"):

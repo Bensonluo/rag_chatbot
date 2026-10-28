@@ -225,6 +225,18 @@ class TestChatServiceStreamBridge:
 
 
 class TestNodeStreaming:
+    async def test_direct_llm_tokens_stream_without_full_text_duplicate(self) -> None:
+        config, queue = _config_with_queue()
+        factory = _factory(llm=_StreamLLM(["Hello", " there."]))
+
+        updates = await factory.direct_response_node(
+            {"message": "Hello", "intent": "chitchat"}, config
+        )
+
+        assert updates["response"] == "Hello there."
+        assert _drain(queue) == ["Hello", " there."]
+        assert config["configurable"]["streamed_response"] is True
+
     async def test_llm_tokens_stream_without_full_text_duplicate(self):
         config, queue = _config_with_queue()
         factory = _factory(llm=_StreamLLM(["您", "好", "呀"]))

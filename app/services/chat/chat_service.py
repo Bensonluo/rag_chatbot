@@ -32,6 +32,7 @@ from app.services.chat.metrics import (
     CHAT_STREAM_DURATION_SECONDS,
     CHAT_STREAM_OUTCOMES,
 )
+from app.services.chat.session_identity import ConversationChangedError, require_session_key
 from app.services.llm.budget import (
     BudgetState,
     enter_llm_budget,
@@ -121,6 +122,7 @@ class ChatMessage:
     message_id: int | None = None
     status: str | None = None
     user_rating: int | None = None
+    ui: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -178,7 +180,12 @@ class ChatService:
         self.answer_cache = answer_cache
         self.coordinator = coordinator
 
-    async def _automation_thread(self, session_id: int, authenticated_user_id: int | None) -> str:
+    async def _automation_thread(
+        self,
+        session_id: int,
+        authenticated_user_id: int | None,
+        expected_session_key: str | None = None,
+    ) -> str:
         assert self.coordinator is not None
         from app.services.chat.persistence import ensure_demo_session_row
 
@@ -186,17 +193,23 @@ class ChatService:
         state = await self.coordinator.state(session_id)
         if state.is_private and authenticated_user_id != state.owner_id:
             raise ConversationAccessError("Session unavailable")
+        require_session_key(state.session_key, expected_session_key, required=state.is_private)
         if state.claimed_ticket_id is not None:
             raise HumanHandlingError("Human support is handling this conversation")
         return state.thread_id(session_id)
 
     async def assert_automation_available(
-        self, session_id: int, authenticated_user_id: int | None = None
+        self,
+        session_id: int,
+        authenticated_user_id: int | None = None,
+        expected_session_key: str | None = None,
     ) -> None:
         """Short preflight before SSE headers; the body reacquires its own gate."""
         if self.coordinator is not None:
             async with self.coordinator.hold(session_id):
-                await self._automation_thread(session_id, authenticated_user_id)
+                await self._automation_thread(
+                    session_id, authenticated_user_id, expected_session_key
+                )
 
     @traced_stage("cs.pipeline")
     async def process_message(
@@ -207,12 +220,15 @@ class ChatService:
         max_tokens: int | None = None,
         *,
         authenticated_user_id: int | None = None,
+        expected_session_key: str | None = None,
     ) -> ChatResponse:
         if self.coordinator is None:
             return await self._process_message(session_id, message, user_id, max_tokens)
         async with self.coordinator.hold(session_id):
             async with asyncio.timeout(settings.CHAT_STREAM_MAX_SECONDS):
-                thread_id = await self._automation_thread(session_id, authenticated_user_id)
+                thread_id = await self._automation_thread(
+                    session_id, authenticated_user_id, expected_session_key
+                )
                 return await self._process_message(
                     session_id, message, user_id, max_tokens, thread_id=thread_id
                 )
@@ -275,6 +291,8 @@ class ChatService:
         executed_tools = result.get("executed_tools") or []
         if executed_tools:
             metadata["executed_tools"] = executed_tools
+        if result.get("action_execution"):
+            metadata["action_execution"] = result["action_execution"]
 
         persisted_reply: PersistedReply | None = None
         if self.persister is not None:
@@ -324,6 +342,7 @@ class ChatService:
         include_completion: bool = False,
         *,
         authenticated_user_id: int | None = None,
+        expected_session_key: str | None = None,
     ) -> AsyncGenerator[str | TraceEvent | CitationEvent | CompletionEvent, None]:
         options: dict[str, Any] = {
             "heartbeat_seconds": heartbeat_seconds,
@@ -344,7 +363,9 @@ class ChatService:
                 async with asyncio.timeout(
                     stream_max_seconds + _STREAM_FINALIZE_TIMEOUT_SECONDS + 1
                 ):
-                    thread_id = await self._automation_thread(session_id, authenticated_user_id)
+                    thread_id = await self._automation_thread(
+                        session_id, authenticated_user_id, expected_session_key
+                    )
                     async with aclosing(
                         self._process_message_stream(
                             session_id, message, user_id, **options, thread_id=thread_id
@@ -360,6 +381,7 @@ class ChatService:
             CoordinationUnavailableError,
             HumanHandlingError,
             ConversationAccessError,
+            ConversationChangedError,
             TimeoutError,
         ):
             # A claim may win after the HTTP preflight. No graph/business
@@ -563,6 +585,8 @@ class ChatService:
                         executed_tools = result.get("executed_tools") or []
                         if executed_tools:
                             metadata["executed_tools"] = executed_tools
+                        if result.get("action_execution"):
+                            metadata["action_execution"] = result["action_execution"]
                         receipt = await self.persister.persist_turn(
                             session_id=session_id,
                             user_id=user_id,
@@ -663,6 +687,7 @@ class ChatService:
         limit: int = 50,
         *,
         authenticated_user_id: int | None = None,
+        expected_session_key: str | None = None,
     ) -> list[ChatMessage]:
         if self.coordinator is None:
             return await self._get_chat_history(session_id, limit)
@@ -670,6 +695,7 @@ class ChatService:
             state = await self.coordinator.state(session_id)
             if state.is_private and authenticated_user_id != state.owner_id:
                 raise ConversationAccessError("Session unavailable")
+            require_session_key(state.session_key, expected_session_key, required=state.is_private)
             return await self._get_chat_history(session_id, limit)
 
     async def _get_chat_history(self, session_id: int, limit: int) -> list[ChatMessage]:
@@ -692,14 +718,40 @@ class ChatService:
         return [ChatMessage(role=msg["role"], content=msg["content"]) for msg in context[:limit]]
 
     async def clear_chat_history(
-        self, session_id: int, *, authenticated_user_id: int | None = None
+        self,
+        session_id: int,
+        *,
+        authenticated_user_id: int | None = None,
+        expected_session_key: str | None = None,
     ) -> None:
         if self.coordinator is None:
             await self.discard_session_state(session_id)
             return
         async with self.coordinator.hold(session_id):
-            await self._automation_thread(session_id, authenticated_user_id)
+            await self._automation_thread(session_id, authenticated_user_id, expected_session_key)
             state = await self.coordinator.state(session_id)
+            from uuid import uuid4
+
+            from sqlalchemy import update
+
+            from app.models.database.session import ChatSession
+
+            # Invalidate old commands before any destructive history/checkpoint work.
+            # The new epoch cannot read a partially cleared old checkpoint on failure.
+            async with self.coordinator.sessions() as db, db.begin():
+                changed = await db.execute(
+                    update(ChatSession)
+                    .where(
+                        ChatSession.id == session_id,
+                        ChatSession.session_key == state.session_key,
+                    )
+                    .values(
+                        session_key=str(uuid4()), automation_epoch=ChatSession.automation_epoch + 1
+                    )
+                    .returning(ChatSession.id)
+                )
+                if changed.scalar_one_or_none() != session_id:
+                    raise ConversationChangedError("Conversation changed")
             await self.discard_session_state(session_id, state.epoch)
             from sqlalchemy import delete
 

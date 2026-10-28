@@ -138,13 +138,27 @@ class TestSampleReviewQueue:
         assert await _queue(session_maker) == set()
 
 
+async def _record_review(
+    repo: SessionRepository, session_id: int, *, resolved: bool, note: str | None = None
+) -> ChatSession | None:
+    """Existing positive cases explicitly use a freshly read server proposal."""
+    snapshot = await repo.get_review_snapshot(session_id)
+    return await repo.record_review_verdict(
+        session_id,
+        expected_session_key=snapshot.row.session_key if snapshot else None,
+        expected_review_version=snapshot.version if snapshot else None,
+        resolved=resolved,
+        note=note,
+    )
+
+
 class TestRecordReviewVerdict:
     async def test_verdict_resolved_true_stamps_resolved_at(self, session_maker):
         await _seed(session_maker, sessions=[1], assistant_turns={1: 1})
 
         async with session_maker() as session:
             repo = SessionRepository(session)
-            row = await repo.record_review_verdict(1, resolved=True, note="问题清晰，确认解决")
+            row = await _record_review(repo, 1, resolved=True, note="问题清晰，确认解决")
 
         assert row is not None
         assert row.resolved_at is not None
@@ -158,7 +172,7 @@ class TestRecordReviewVerdict:
 
         async with session_maker() as session:
             repo = SessionRepository(session)
-            row = await repo.record_review_verdict(1, resolved=False, note="机器人答非所问")
+            row = await _record_review(repo, 1, resolved=False, note="机器人答非所问")
 
         assert row is not None
         assert row.resolved_at is None  # not a resolution — no KPI inflation
@@ -170,15 +184,15 @@ class TestRecordReviewVerdict:
     async def test_verdict_missing_session_returns_none(self, session_maker):
         async with session_maker() as session:
             repo = SessionRepository(session)
-            assert await repo.record_review_verdict(999, resolved=True) is None
+            assert await _record_review(repo, 999, resolved=True) is None
 
     async def test_verdict_overwrites_prior_verdict(self, session_maker):
         await _seed(session_maker, sessions=[1], assistant_turns={1: 1})
 
         async with session_maker() as session:
             repo = SessionRepository(session)
-            await repo.record_review_verdict(1, resolved=False, note="先判未解决")
-            row = await repo.record_review_verdict(1, resolved=True, note="复核后确认")
+            await _record_review(repo, 1, resolved=False, note="先判未解决")
+            row = await _record_review(repo, 1, resolved=True, note="复核后确认")
 
         assert row is not None
         assert row.resolved_at is not None
@@ -199,15 +213,13 @@ class TestRecordReviewVerdict:
             row.reopened_count = reopened_count
             row.session_metadata = {"source": "support"}
             await session.commit()
-            await SessionRepository(session).record_review_verdict(
-                1, resolved=True, note="初审确认解决"
-            )
+            await _record_review(SessionRepository(session), 1, resolved=True, note="初审确认解决")
             stats = await TicketRepository(session).get_containment_stats(since=since)
             assert stats["sessions_resolved"] == 1
 
         async with session_maker() as session:
-            await SessionRepository(session).record_review_verdict(
-                1, resolved=False, note="复核发现问题仍存在"
+            await _record_review(
+                SessionRepository(session), 1, resolved=False, note="复核发现问题仍存在"
             )
 
         # Read committed state through a new session, as the dashboard does.

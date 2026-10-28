@@ -4,15 +4,20 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.models.database.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.database.message import Message
     from app.models.database.user import User
+
+
+def _new_session_key() -> str:
+    return str(uuid4())
 
 
 class ChatSession(Base, TimestampMixin):
@@ -31,8 +36,10 @@ class ChatSession(Base, TimestampMixin):
     """
 
     __tablename__ = "chat_sessions"
+    __table_args__ = (UniqueConstraint("session_key", name="uq_chat_sessions_session_key"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    session_key: Mapped[str] = mapped_column(String(36), nullable=False, default=_new_session_key)
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
@@ -70,6 +77,18 @@ class ChatSession(Base, TimestampMixin):
     automation_epoch: Mapped[int] = mapped_column(
         Integer, default=0, server_default="0", nullable=False
     )
+
+    @validates("session_key")
+    def _validate_session_key(self, _name: str, value: str) -> str:
+        if type(value) is not str:
+            raise ValueError("Session key must be a canonical UUID string")
+        try:
+            canonical = str(UUID(value))
+        except ValueError as exc:
+            raise ValueError("Session key must be a canonical UUID string") from exc
+        if canonical != value:
+            raise ValueError("Session key must be a canonical UUID string")
+        return value
 
     @property
     def is_private(self) -> bool:

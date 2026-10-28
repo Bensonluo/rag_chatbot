@@ -1,0 +1,118 @@
+{
+  "round": 22,
+  "date": "2026-10-28",
+  "status": "bounded knowledge-management access iteration verified locally; product goal not complete",
+  "baseline": {
+    "backend_head": "1289c368c2025a6d4ea3013a0a665c91b05c79ef",
+    "frontend_head": "8efd9535ce6f1bb2d6bbd1e396af0c45f796b0e2",
+    "backend_full_previous": 3288,
+    "frontend_full_previous": 272,
+    "baseline_python_hashes_matched": 484,
+    "baseline_frontend_hashes_matched": 80,
+    "tracked_state": "Both product trees clean after prior commit; only user local Compose and planning files existed"
+  },
+  "why_this_iteration": {
+    "risk": "Open-registration customer accounts could use every knowledge lifecycle management route under Demo, including retained unpublished sources and mutation of shared active knowledge. This affects all customers using the shared knowledge base.",
+    "actual_before": "Real register201->login200->me is_admin=false, Demo list/versions/source200 with exact queued unpublished bytes, replacement202 revision2, actual local worker/Qdrant activation, DELETE200 with both revisions deleted; same customer strict source403.",
+    "artifact": "/tmp/rag-round22-kb-management-auth-audit.json",
+    "unit_before": "10-case new matrix against original helper:6 failed/4 controls passed. Original3 unit cases had passed. Not6 separate real HTTP exploits.",
+    "literal_after_distinction": "New32-case real HTTP suite was authored after helper fix. Original actual before reproduction and worker unit red are separate evidence; no claim that32 cases all ran literally before."
+  },
+  "changes": {
+    "authorization": "require_kb_writer requires current_user.is_admin is True in both Demo/strict; active account and real JWT checks remain in existing dependencies. No role self-grant or new role model.",
+    "covered_management_routes": "Nine lifecycle path shapes: text/file uploads, catalog, version status, source, normalized text, revision list, retry, delete; text upload covers both new document and same-ID replacement commands.",
+    "early_denial": "get_document_manager precedes job/storage/vector dependencies; handlers retain the same role check before content processing. Valid customer requests cannot invoke observed job/storage/vector dependencies or methods, and actual registry snapshots stay unchanged.",
+    "cache_control": "Documents router reuses existing PrivateAPIRoute: successful and handled HTTP/validation responses include private,no-store, preserving status/types/auth headers.",
+    "preserved": "Ordinary active customer read-only documents/search, publication qualification, shared Demo chat/history, private owner checks, graph management admin dependencies and trusted worker/CLI boundary remain unchanged.",
+    "documentation": "DEMO_MODE description and .env.example comments now distinguish shared chat from permanent admin knowledge/QA boundary; README, citation/publication/private/per-user docs link the role contract. Runtime defaults, schema and dependencies unchanged."
+  },
+  "validation": {
+    "backend_default": {
+      "command": ".venv/bin/python -m pytest",
+      "passed": 3327,
+      "skipped": 3,
+      "warnings": 5,
+      "seconds": 181.45,
+      "log": "/tmp/rag-round22-backend-full.log",
+      "core_statements": 5236,
+      "core_missed": 348,
+      "core_coverage_percent": 93.35,
+      "coverage_scope": "Existing selected core modules; auth/API changes are not measured by that percentage. No gate changes."
+    },
+    "case_delta": {
+      "existing_auth_file_before": 21,
+      "existing_auth_file_after": 28,
+      "old_kb_matrix": 3,
+      "replacement_kb_matrix": 10,
+      "net_auth_case_increase": 7,
+      "new_real_http_cases": 32,
+      "net_default_case_increase": 39
+    },
+    "focused": {
+      "existing_documents_publication_pipeline_authorization_joint": 117,
+      "log": "/tmp/rag-round22-root-focused.log",
+      "real_http": 32,
+      "real_http_seconds": 15.48,
+      "real_http_log": "/tmp/rag-round22-knowledge-access-final-pytest.log"
+    },
+    "real_http_matrix": {
+      "customer_ten_commands_two_modes": 20,
+      "admin_ten_command_lifecycle_two_modes": 2,
+      "published_customer_search_two_modes": 2,
+      "anonymous_representative_source_upload_delete_two_modes": 2,
+      "same_issued_jwt_then_sql_demotion_or_deactivation_two_modes": 4,
+      "invalid_model_or_json_cache_headers": 2
+    },
+    "real_controls": [
+      "Each fixture registers with is_admin:true; registration/me/SQL confirm false.",
+      "Same issued admin token first reads draft200; direct trusted SQL role removal or deactivation makes fresh list/source/upload/delete403 without business dependencies.",
+      "Admin actual source bytes, normalized text, durable retry queued, uploads/replacement revision2 and vector/registry deletion remain valid.",
+      "Customer search returns actual published active-policy local Qdrant evidence and current version.",
+      "DNS/socket connect/connect_ex are hard-blocked with zero-attempt teardown assertions for new actual fixtures.",
+      "No global app_client/test_token elevation or old fixture relaxation was needed; they remain ordinary customers."
+    ],
+    "static": {
+      "ruff_lint": "passed",
+      "ruff_format_files": 476,
+      "strict_mypy_app_files": 462,
+      "strict_mypy_cli_files": 2,
+      "pip_check": "passed",
+      "diff_check": "passed"
+    },
+    "frontend": "No tracked frontend change.80 source/config SHA match committed8efd953 and prior272 tests/12-page build. They were not rerun or claimed as new round22 execution.",
+    "independent_reviews": {
+      "backend_worker": "/tmp/rag-round22-kb-auth-independent-review.json:final helper/router/new matrix/docs reviewed,no blockers;anonymous subset and JWT/500 limits kept explicit.",
+      "frontend_worker": "Final role/router/dependency/contract review no blockers;strict JSON/bodyparse/shared search/no tenant claim checked.",
+      "verifier": "/tmp/rag-round22-knowledge-management-access-verification.json:actual before and32 after cases,typed/static freeze;role and storage boundaries documented.",
+      "final_document_review": "Frontend worker checked final3327/39 counts,32-case matrix,5 source SHA,links,frontend272 historical distinction and registration/early-denial/no-store limitations;no blockers. Root mechanical report /tmp/rag-round22-final-document-verification.json."
+    }
+  },
+  "source_sha256": {
+    "app/api/deps/authorization.py": "1021c0dd2a31fd88f6fa2ce2c3b39b597ba366da3289d7cd6aff50b7b7f108b3",
+    "app/api/v1/documents.py": "ff735422ac8847325a8aec1aa4ddcb7bc4a5a0dc37768beb3e4b974cc4e92cfd",
+    "app/config/settings.py": "b24f0309e1f92e4897b1b59de9acb5b7d4c28e9eee659bcd54674ed7f0f6a860",
+    "app/tests/evaluation/test_knowledge_management_access.py": "6e75336d21e04d1c3e90661fa3822afe42e05979f98a68047226a6df8eea9869",
+    "app/tests/unit/api/v1/test_authorization_boundary.py": "0615deb6c3c4af4e51d8775f49af720d19393e1695abb0fbda309d7a6abbc328"
+  },
+  "manifest": {
+    "path": "/tmp/rag-round22-final-source.json",
+    "files": 485,
+    "sha256": "48de59ec9c9e2ecb2e3bfc15ccf951a6451017fed11075e04f4db431975e2e67"
+  },
+  "scope_limits": [
+    "Input JSON/multipart parsing may precede dependencies;422 is not proof of auth refusal and this does not promise zero HTTP body reads.",
+    "no-store covers route success and handled HTTP/request-validation responses,not arbitrary unhandled500,outer middleware or previous client downloads.",
+    "Anonymous actual checks use source/upload/delete representatives;invalid/expired JWT is existing auth coverage,not separately claimed by the new32 cases.",
+    "Current knowledge store is shared. No tenant/document ownership ACL,private knowledge corpus,real model answer semantics or arbitrary enterprise isolation delivered.",
+    "No real PostgreSQL/remote Qdrant/Redis,multi-replica,browser,capacity or production acceptance this round. Actual Qdrant engine is local and embeddings/epoch boundary controlled.",
+    "Retry target arranged failed in SQL for a valid command;not a new ingestion-failure evaluation.",
+    "No new migration,dependency installation,environment change,production call,commit,push or deployment. Active runtime defaults unchanged;example configuration only has comment updates.",
+    "All application instances exposing management endpoints must upgrade before deployed two-mode boundary is guaranteed;prior downloads cannot be withdrawn."
+  ],
+  "deferred_actual_findings": {
+    "checkpoint_retry": "/tmp/rag-round22-confirmation-checkpoint-audit.json:actual project mock refund executed twice across injected checkpoint-write failure and retry;known external exactly-once limitation concretely reproduced,not fixed this round.",
+    "draft_and_pending_attempt": "/tmp/rag-round22-support-continuity-audit.json:5 React controlled-HTTP observations,uncertain UUID lost across panel lifecycle and human draft switches to AI after close;not database message loss,not fixed.",
+    "session_recency": "/tmp/rag-round22-session-activity-audit.json:ordinary AI/customer/staff inserts do not advance parent updated_at;actual list can keep new empty chat above active old chat;not fixed."
+  },
+  "goal_status": "Whole objective not complete; goal tool observed usageLimited,current explicit iterate handled manually without marking complete"
+}

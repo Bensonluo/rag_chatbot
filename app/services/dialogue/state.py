@@ -36,6 +36,8 @@ class TurnState(TypedDict, total=False):
     tool_name: str
     tool_result: dict[str, Any]
     executed_tools: list[dict[str, Any]]
+    # Durable execution record status is independent of business success.
+    action_execution: dict[str, Any]
     retrieved_docs: list[dict[str, Any]]
     sources: list[str]
     citations: list[dict[str, Any]]
@@ -129,6 +131,7 @@ def begin_turn(state: DialogueState) -> DialogueState:
         "tool_name": "",
         "tool_result": {},
         "executed_tools": [],
+        "action_execution": {},
         "retrieved_docs": [],
         "sources": [],
         "citations": [],

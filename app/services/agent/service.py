@@ -27,6 +27,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import uuid4
 
 from app.services.agent.metrics import (
     AGENT_TOOL_CALLS,
@@ -121,6 +122,7 @@ class AgentService:
         llm_service: Any,
         tool_registry: Any,
         max_steps: int = 3,
+        system_prompt: str | None = None,
     ) -> None:
         """
         Args:
@@ -134,6 +136,7 @@ class AgentService:
         self._llm = llm_service
         self._tools = tool_registry
         self._max_steps = max(1, max_steps)
+        self._system_prompt = SYSTEM_PROMPT if system_prompt is None else system_prompt
 
     async def run(
         self,
@@ -188,7 +191,9 @@ class AgentService:
         # so it is re-read on every step of the tool loop — after tool
         # rounds stack Chinese JSON results, the last-message position
         # would no longer hold. See GENERATION_LANG_DIRECTIVE.
-        persona = SYSTEM_PROMPT + "\n\n" + GENERATION_LANG_DIRECTIVE[detect_language(user_message)]
+        persona = (
+            self._system_prompt + "\n\n" + GENERATION_LANG_DIRECTIVE[detect_language(user_message)]
+        )
         messages: list[LLMMessage] = [LLMMessage(role="system", content=persona)]
         if context_note:
             messages.append(LLMMessage(role="system", content=context_note))
@@ -320,6 +325,7 @@ class AgentService:
                 "intent": tool.intent,
                 "args": args,
                 "staged_at": time.time(),
+                "action_id": str(uuid4()),
             },
             outcome=OUTCOME_STAGED,
         )

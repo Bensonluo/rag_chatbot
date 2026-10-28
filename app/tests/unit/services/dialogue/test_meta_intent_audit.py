@@ -72,6 +72,7 @@ def _registry(
     message: str = "",
 ) -> Mock:
     registry = Mock()
+    registry.durable_actions = False
     registry.execute = AsyncMock(
         return_value=SimpleNamespace(
             success=success,

@@ -219,26 +219,38 @@ class TestStrictModePosture:
 
 
 class TestKbWriterGate:
-    """Knowledge-base writes: admin in strict mode, any active user in demo."""
+    """Knowledge-base management requires an admin in both deployment modes."""
 
-    def test_strict_non_admin_rejected(self, monkeypatch: Any) -> None:
+    @pytest.mark.parametrize("demo_mode", [False, True])
+    @pytest.mark.parametrize("role", ["anonymous", "customer", "admin"])
+    def test_only_admin_can_manage_the_shared_knowledge_base(
+        self, monkeypatch: Any, demo_mode: bool, role: str
+    ) -> None:
         from fastapi import HTTPException
 
         from app.api.deps.authorization import require_kb_writer
 
-        monkeypatch.setattr(settings, "DEMO_MODE", False)
+        monkeypatch.setattr(settings, "DEMO_MODE", demo_mode)
+        current_user = None if role == "anonymous" else _user(7, admin=role == "admin")
+        if role == "admin":
+            require_kb_writer(current_user)
+            return
         with pytest.raises(HTTPException) as exc:
-            require_kb_writer(_user(7, admin=False))
+            require_kb_writer(current_user)
         assert exc.value.status_code == 403
+        assert exc.value.detail == "Administrator role required"
 
-    def test_strict_admin_allowed(self, monkeypatch: Any) -> None:
+    @pytest.mark.parametrize("demo_mode", [False, True])
+    @pytest.mark.parametrize("admin_value", [1, "true"])
+    def test_truthy_non_boolean_admin_flag_does_not_grant_management(
+        self, monkeypatch: Any, demo_mode: bool, admin_value: object
+    ) -> None:
+        from fastapi import HTTPException
+
         from app.api.deps.authorization import require_kb_writer
 
-        monkeypatch.setattr(settings, "DEMO_MODE", False)
-        require_kb_writer(_user(1, admin=True))  # no raise
-
-    def test_demo_non_admin_allowed(self, monkeypatch: Any) -> None:
-        from app.api.deps.authorization import require_kb_writer
-
-        monkeypatch.setattr(settings, "DEMO_MODE", True)
-        require_kb_writer(_user(7, admin=False))  # no raise
+        monkeypatch.setattr(settings, "DEMO_MODE", demo_mode)
+        current_user = User(id=7, email="malformed-role@test.local", is_admin=admin_value)
+        with pytest.raises(HTTPException) as exc:
+            require_kb_writer(current_user)
+        assert exc.value.status_code == 403

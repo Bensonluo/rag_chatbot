@@ -198,6 +198,7 @@ class ChatServiceFactory:
         retrieval_cache = None
         try:
             from app.services.agent import AgentService
+            from app.services.dialogue.action_ledger import ActionLedger
             from app.services.dialogue.graph import build_dialogue_graph
             from app.services.dialogue.tools import (
                 create_default_tool_registry,
@@ -207,7 +208,11 @@ class ChatServiceFactory:
             from app.services.faq import create_faq_service
             from app.services.handoff import create_handoff_service
 
-            tool_registry = create_default_tool_registry()
+            tool_registry = create_default_tool_registry(
+                action_ledger=ActionLedger(coordinator.sessions)
+                if coordinator is not None
+                else None
+            )
             # Built once, shared by the agent tool and the intent-routed
             # handoff node below — one queue, one dedup path.
             if coordinator is None:

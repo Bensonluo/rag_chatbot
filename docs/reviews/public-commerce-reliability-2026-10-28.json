@@ -1,0 +1,101 @@
+{
+  "milestone": "Public anonymous chat and mock purchase reliability",
+  "date": "2026-10-28",
+  "status": "local milestone completed; subsequent iteration stopped at user request",
+  "scope": "Anonymous Cookie public chat, mock commerce Agent/port/state machine, and round28 task isolation and bounded wait recovery; support workspace retained without further feature work.",
+  "implementation": {
+    "purchasing": "Public chat offers mock catalog, SKU/quantity, cart, quote, explicitly confirmed mock order, separately confirmed mock payment and status. CommercePort uses a separately persisted mock provider; no real payment.",
+    "task_fence": "Under conversation coordination, an accepted shopping task commits its automation epoch before reading purchase context or invoking Agent/tools. Owned explicit actions validate original scope/ref/version/signature then commit epoch before domain execution. A failed fence prevents model and business writes; later model error, persistence failure or cancellation does not revive an old refund confirmation.",
+    "wait_recovery": "Commerce GET/POST including response JSON are bounded to30 seconds. Timeout/caller abort releases UI wait, leaves the outcome unconfirmed, and never automatically resubmits; explicit GET verifies original purchase. A card refresh removes its own previously verified actions until the new GET succeeds. Late results are ignored.",
+    "constraints": "Cookie represents the holding browser. Purchase/order/payment state is independent of chat; clear history does not cancel purchase. Existing workbench remains available."
+  },
+  "validation": {
+    "backend": {
+      "passed": 3720,
+      "skipped": 3,
+      "warnings": 5,
+      "seconds": 276.71,
+      "selected_core_coverage_percent": 93.57,
+      "coverage_scope": "Existing selected-core 70% gate, not new commerce API coverage.",
+      "new_actual_http_cases": 11,
+      "static": "Ruff app/migrations/3CLI, format496 app+probe, Mypy495 app and3CLI, pip check and diffcheck passed."
+    },
+    "frontend": {
+      "passed": 407,
+      "jest": 352,
+      "node": 55,
+      "suites": 14,
+      "static_pages": 12,
+      "new_cases": 9,
+      "details": "6 transport timeout/cancellation and3 real React controlled-fetch recovery cases; full test/lint/strict tsc/build passed."
+    },
+    "independent": "Three actual HTTP cancellation/SQL-fence controls passed and independent frontend race review passed; scoped source hashes match.",
+    "browser": "Round27 real Chrome verified the complete local mock purchase, Cookie, clear and expiry flow. Round28 deadline-specific browser attempt did not complete; deadline behavior was validated in React/controlled-fetch and no new browser acceptance is claimed."
+  },
+  "before_after": {
+    "backend": "Native model cart/quote success then exception left previous refund proposal live;3 literal HTTP cases failed before early fence. New11 HTTP cases and controls pass, including SQL fence failure, message insert failure and legitimate same-task refund confirmation.",
+    "frontend": "Stalled action previously kept page busy after15min simulated time;9 formal new tests failed before fix and pass after. Late payment response cannot inject a receipt after timeout; status requires explicit GET."
+  },
+  "limitations": [
+    "Mock business facts only; real supplier authentication/payment, production HTTPS Cookie and PostgreSQL concurrency require separate acceptance.",
+    "A top-level active purchase GET failure does not globally invalidate independent cards; server ref/version/expiry checks still apply.",
+    "Isolated message-history SELECT failure can still appear as an empty history; stream purchase success with failed message persistence has no explicit recovery prompt. These are recorded as future work, with no further iteration after this milestone.",
+    "SQLite naive timestamps may display differently after reload; action-audit JSON predicates can scan the conversation without an added JSON index.",
+    "The new early fence protects newly accepted shopping requests; pre-upgrade pending checkpoints are not retroactively changed. Drain old instances for any future rollout."
+  ],
+  "baseline": {
+    "round27_backend": 3709,
+    "round27_frontend": 398,
+    "round27_report": "docs/reviews/public-commerce-results-2026-10-28.json",
+    "round27_report_sha256": "3bb6214b547bdc48e76404e52316bb45f8821fa0ea6c581ad43ea0c47ccde0d7"
+  },
+  "source": {
+    "backend": {
+      "manifest": "/tmp/rag-round28-backend-final-source-manifest.json",
+      "sha256": "eb90d160ff6b9fa4d9a18750b6835d44e4817fc1dcf2992726b7c0f242270c82",
+      "count": 522,
+      "changed_sha256": {
+        "app/api/v1/guest.py": "0943dbe1ac56d7ef6713f52a2d9ad374cbc6c22580c00f0d616d03d65332a454",
+        "app/services/commerce/conversation.py": "8530a32d412f13948319c7b793a133620cb150145215cbe96d41a3fc297478b2",
+        "app/tests/evaluation/test_commerce_task_fencing.py": "160ca71504c50cc080b3271af7d118ab4118daeea37ef2ee558fa755e892f208",
+        "app/tests/evaluation/test_guest_conversations.py": "3d193eb174a1066fbab868b169dd5dcce701f25853280fb94e40b2108a58864c"
+      }
+    },
+    "frontend": {
+      "manifest": "/tmp/rag-round28-frontend-final-source.json",
+      "sha256": "07d8f5680a3377b09acb94897a79394359426b462f6242ab4605b03515283560",
+      "count": 91,
+      "changed_sha256": {
+        "components/__tests__/guest-chat.test.tsx": "0efdd296d836571059162019d090870f7b49071d2d7c3e2ca07cffd2534d7843",
+        "components/projects/CommerceCards.tsx": "482277bd51e973e7641e5b5c51843853a9c79117b9ec16022d7e21fd3ff7e59c",
+        "lib/__tests__/guest-api.test.ts": "752718b9b3ad3fb14359d59ba59c0c8c4054872ef3c89681bd09d5432cd69776",
+        "lib/guest-api.ts": "895316cf9506d3b171f7f221c92a72c3b6305ad56b80cb2a346bd9751f2882c5"
+      }
+    }
+  },
+  "artifact_sha256": {
+    "/tmp/rag-round28-backend-final-source-manifest.json": "eb90d160ff6b9fa4d9a18750b6835d44e4817fc1dcf2992726b7c0f242270c82",
+    "/tmp/rag-round28-frontend-final-source.json": "07d8f5680a3377b09acb94897a79394359426b462f6242ab4605b03515283560",
+    "/tmp/rag-round28-backend-full.log": "ee52fa3a2501a44789de43e4d5c65f1677108f362175e8cef48b5aed23a3d6c6",
+    "/tmp/rag-round28-backend-lint.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "/tmp/rag-round28-backend-format.log": "7fabca2dea2395d99d510ad155aa1005188a6d879cedca47fc31a691a5717538",
+    "/tmp/rag-round28-backend-types.log": "bfca3cfdc233732a716f99542df6502893eca753c9c1dbc2f940181099620c5a",
+    "/tmp/rag-round28-cli-types.log": "2e0dd258970686efeb31dd7eab2c43a46afc5ae7497abb8d1cb170692f837038",
+    "/tmp/rag-round28-backend-pipcheck.log": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09",
+    "/tmp/rag-round28-task-fencing-before.log": "e7bafc0e17312a44926302703e16eedc3fa99742d3bd6296dc07ea15e8a34015",
+    "/tmp/rag-round28-task-fencing-final.log": "3a113e2317dfc77e42118450a9d19ea662b30af9501d91c30d89f01538703920",
+    "/tmp/rag-round28-task-fencing-verification.json": "79f97bc61c609cffc8fb1cbfebdf1869f8c484c8178299df0788e25b73218b60",
+    "/tmp/rag-round28-entry-fence-independent-controls.json": "b7a83a6e7e66d516abbf1b1b31626c186d009873db7dd828863277af921ec960",
+    "/tmp/rag-round28-frontend-stalled-action-before.log": "44fc8bf2f40a547af7f354fa5a70c9e3c628cbb7fbc7e4384aa2364b9fce647a",
+    "/tmp/rag-round28-commerce-deadline-red.log": "256943e520ddbb13d218cbc65875fe4c86647b55d32dec4d776cf71fe0ef5633",
+    "/tmp/rag-round28-commerce-deadline-focused-green.log": "825a6eda6babc9ac73fac1db74b0a28db3c464aaec71312f2a1261119b9b48ad",
+    "/tmp/rag-round28-frontend-full.log": "9a59da1eebfd0767ab426e26a2866fd7db33a9bd0d710c9b28b35ed86849e976",
+    "/tmp/rag-round28-frontend-lint.log": "fcb9026e7d61e64d36df9003ea9103141bf5d0ec902ffb42f1a7c4133a535c82",
+    "/tmp/rag-round28-frontend-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/tmp/rag-round28-frontend-build.log": "8b9e7b85aadd880c5607b95bdd408e9e2482e9f12ead273183b649422cd29f08",
+    "/tmp/rag-round28-frontend-commerce-deadline-evidence.json": "fb7dbd13618f9b0ce0fdb804d69a5cee4112e9dbc88e2b36e7b7d9b52e435e54",
+    "/tmp/rag-round28-frontend-deadline-independent-review.json": "72d91228aa9be9e8d6624ded1e50cb214da57595efff6f9a84e81b89b2de107c",
+    "/tmp/rag-round28-public-recovery-audit.json": "4bb982fe5b7abdbb6b412053c1460d7ed58207ab0aab7149af46efa282c3634a"
+  },
+  "workspace": "Current WIP and docker-compose.local.yml retained. No commit, push, deployment, dependency installation or production operation was performed at this milestone."
+}

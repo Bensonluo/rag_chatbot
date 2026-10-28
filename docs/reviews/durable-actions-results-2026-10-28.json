@@ -1,0 +1,147 @@
+{
+  "round": 23,
+  "date": "2026-10-28",
+  "status": "bounded durable-action recovery iteration verified locally; overall product goal remains active",
+  "baseline": {
+    "backend_head": "1289c368c2025a6d4ea3013a0a665c91b05c79ef",
+    "frontend_head": "8efd9535ce6f1bb2d6bbd1e396af0c45f796b0e2",
+    "round22_backend_default_passed": 3327,
+    "round22_python_files": 485,
+    "preserved": "All round22 uncommitted access changes, user Compose and local planning retained; no commit/push/deploy"
+  },
+  "why_this_iteration": {
+    "observed_before": "Actual strict JWT HTTP confirm called default mock_refund once, post-effect checkpoint write failed with500 and no committed reply; fresh confirm called it again, producing2 effects and different refund IDs.",
+    "original_audit": "/tmp/rag-round23-action-identity-audit.json",
+    "literal_minimal_red": "/tmp/rag-round23-durable-actions-actual-red.log:1 failed in0.34s, actual calls2 !=1",
+    "red_scope": "Only the minimal1-case was run literally before; later32actual/48ledger-migration/26formatter/15registry/3init cases are not all claimed as original-source failures.",
+    "recovery_distinction": "Fresh HTTP ainvoke(dict) starts another turn/task and can reread the old pending proposal; invoke(None) resume controls did not repeat. Not a claim that all LangGraph resume duplicates actions."
+  },
+  "changes": {
+    "proposal_identity": "Both deterministic and real AgentService staging create server UUID action_id; confirmation never mints a replacement.",
+    "ledger": "Separate SQL committed in_progress reservation before dispatch; only winner calls. Completed original JSON envelope replays. Unknown/in_progress never reclaimed; no TTL retry or automatic release.",
+    "binding": "Canonical UUID + original session + effective server user + epoch-scoped thread + tool name + business argsSHA256; server identity/language/key cannot be model-overridden.",
+    "authorization": "Existing API active/private owner checks precede work; default refund/return read-only _owned_order repeated before receipt access; custom authorize hook supported.",
+    "factory": "Initialized production API always passes coordinator.sessions into ActionLedger; missing table fails before provider construction. Standalone internal registries with no ledger retain legacy semantics.",
+    "copy": "Model-free unknown/unavailable/conflict/legacy/replay/cancel/expired outcomes pass outer output guard and single emission. New completed normal results and refund-review ticket hooks keep their prior guarded flow.",
+    "metadata": "Additive per-turn action_execution in REST response and persisted normal/stream assistant metadata; replays do not add current executed_tools. No new SSE action event.",
+    "retention": "Clear keeps ledger; session deletion SET NULL live reference retains immutable scope and blocks old receipt into reused session ID. Any row blocks destructive downgrade.",
+    "mcp": "Write params.idempotencyKey uses trusted server proposal UUID; remote provider must honor it. Internal legacy key derivation retained."
+  },
+  "migration": {
+    "head": "b42f9c8e7310",
+    "parent": "a31e8d7f6290",
+    "sqlite_complete_chain": "upgrade/check/downgrade base/reupgrade/check passed on temporary local DB with network blocked",
+    "chain_log": "/tmp/rag-round23-sqlite-migration-chain.log",
+    "unit_cases": 8,
+    "postgresql": "offline SQL only; actual PG connection/locking/RETURNING/concurrency not run this round",
+    "rollout": "Drain old instances and in-flight actions, back up, migrate in controlled environment, deploy all new instances before claiming guarantee; no production migration performed. Legacy no-UUID proposal requires human verification first."
+  },
+  "validation": {
+    "backend_default": {
+      "command": ".venv/bin/python -m pytest",
+      "passed": 3451,
+      "skipped": 3,
+      "warnings": 5,
+      "seconds": 188.58,
+      "log": "/tmp/rag-round23-backend-full.log",
+      "core_statements": 5553,
+      "core_missed": 357,
+      "core_coverage_percent": 93.57,
+      "scope": "Existing selected core includes new dialogue ledger/messages; chat/coordinator/handoff/API remain outside measured percentage. No gate changes."
+    },
+    "new_default_cases": {
+      "ledger": 40,
+      "migration": 8,
+      "fixed_messages": 26,
+      "registry_mcp": 15,
+      "actual_http_graph_sql": 32,
+      "startup_factory": 3,
+      "net_total": 124
+    },
+    "focused": {
+      "passed": 1075,
+      "seconds": 9.16,
+      "log": "/tmp/rag-round23-final-focused.log"
+    },
+    "actual_case_classification": {
+      "actual_deterministic_or_AgentService_staging_x_HTTP_or_SSE_x_checkpoint_or_generation_after_effect_failure": 8,
+      "actual_SQL_reservation_INSERT_rejected_HTTP_or_SSE": 2,
+      "actual_SQL_completed_result_UPDATE_rejected_HTTP_or_SSE_then_recovery_and_retry": 2,
+      "actual_mock_effect_then_handler_acknowledgement_exception_HTTP_or_SSE": 2,
+      "completed_result_replayed_even_after_proposal_TTL_HTTP_or_SSE": 2,
+      "legacy_missing_action_id_or_unstarted_expired_x_two_staging_paths": 4,
+      "cancel_or_deny_after_completed_or_unknown": 4,
+      "stored_binding_conflict_arguments_tool_actor_session_or_automation_epoch": 5,
+      "anonymous_foreign_owner_or_nonowner_admin_HTTP_gate": 3
+    },
+    "actual_before_call": "Each actual mock handler opens a separate SQL session and reads committed in_progress row by its trusted UUID before delegating to real mock; proves commit rather than flush.",
+    "actual_transport_metadata": "REST response plus normal/stream latest SQL assistant metadata contain exact execution status/id/replayed/tool. Replay not counted executed_tools; subsequent unrelated cancel turn does not reuse execution metadata.",
+    "static": {
+      "ruff_lint": "passed",
+      "ruff_format_files": 486,
+      "strict_mypy_app_files": 471,
+      "strict_mypy_cli_files": 2,
+      "cli_paths": [
+        "scripts/probe_live.py",
+        "scripts/run_pipeline_eval.py"
+      ],
+      "pip_check": "passed",
+      "diff_check": "passed"
+    },
+    "frontend": "80 source/config SHA unchanged vs committed8efd953 and round21. Prior217Jest+55Node=272,12-page static build are historical; no rerun/browser acceptance this round.",
+    "independent_reviews": {
+      "ledger": "/tmp/rag-round23-action-ledger-backend-evidence.json",
+      "messages": "/tmp/rag-round23-action-messages-evidence.json",
+      "registry": "/tmp/rag-round23-durable-registry-evidence.json",
+      "actual": "/tmp/rag-round23-durable-business-actions-verification.json",
+      "startup": "/tmp/rag-round23-durable-action-initialization-verification.json",
+      "integration": "/tmp/rag-round23-action-integration-independent-review.json",
+      "contract_and_final_documentation": "/tmp/rag-round23-durable-actions-doc-review.json; independent code/contract/final-count review",
+      "root_mechanical": "/tmp/rag-round23-final-document-verification.json:495 backend/80 frontend/21 changed hashes,82 local links,15 new files whitespace,indexes empty,dependencies unchanged",
+      "final_documentation": "/tmp/rag-round23-final-independent-document-review.json: final counts/case delta/21 source hashes/495 manifest/80 frontend hashes/local links verified,no blockers"
+    }
+  },
+  "source_sha256": {
+    "app/api/v1/chat.py": "1a00486d9ec19bec525a937e9978e0a95933c03545174626ab3651fffbe0ce21",
+    "app/models/database/action_execution.py": "ec8871c4caa781188c19439c8791db2eeaad50e27003ef9f0a0cd2d1214f0963",
+    "app/services/agent/service.py": "53f957cd06ba9d2dfaf18627b121f6a36bff5ef784071cfab08a6a17617fac95",
+    "app/services/chat/chat_service.py": "ed3d94c4689c26fbee5119cd30fa8c67dd712ebb6f717cce2db85cd6abcb3cf4",
+    "app/services/chat/factory.py": "15b237f4c5b1b8ccdebad3efc313f9a1d4cdcb9577d87507f69fa8c50156a59d",
+    "app/services/dialogue/action_ledger.py": "2156bb901e5476300dcb14afb11bf3e4b462310ba35be32d54c73098ce49a3e9",
+    "app/services/dialogue/action_messages.py": "d7e642f8a7030636bdc8e5d74c92608efa1736a313d7e4ebf2c19541bd66642b",
+    "app/services/dialogue/mcp_tools.py": "f5e644159f26419ff493bf19b2a1769f6c361af3f4547e912e2c7f55b9611558",
+    "app/services/dialogue/nodes.py": "943f36d31383d3353ac582b4864c765e5b12f7a04021c6c93e00faa6d4461806",
+    "app/services/dialogue/state.py": "691242be1e956220346344e12eb7aa3586f5795e82b80b8cfbb99c6919994d10",
+    "app/services/dialogue/tools.py": "6b7ca97c33289d859d7a5dc367dd70c966a6831f1a7b2a5f74eda3914b1c7cff",
+    "app/tests/evaluation/test_durable_business_actions.py": "7ffa3f9047c1fc80135d28e70ddc8646d6f5f3f153a999abb5ed2493785c90c5",
+    "app/tests/unit/api/v1/test_durable_action_initialization.py": "f8be8abe59a61f91dfc3585ee76f3aee2a6d9b7b23d37bffd73078c1005b4a77",
+    "app/tests/unit/deploy/test_action_ledger_migration.py": "12ab63caae729381e751fcbc9b4cd255e3f02e75c158bd8d09cff65f4653a8b6",
+    "app/tests/unit/services/dialogue/test_action_ledger.py": "fa7c34e12341b25913fd4dac5f2c22544530a7d96e2e3256bae86f4c9c2ffbee",
+    "app/tests/unit/services/dialogue/test_action_messages.py": "de214e1e902794b99689d01b856791d62b2fc4de4e66a46f51b1dbf3d4567c6c",
+    "app/tests/unit/services/dialogue/test_durable_tool_registry.py": "1fbbdf8d7633ab755829c119d3a3e6efb5c0a31a6c2566b6c607a75ad6aea867",
+    "app/tests/unit/services/dialogue/test_meta_intent_audit.py": "4f189380d24e047f18afaabb1871235c445f88bd95b64880bd72df63212673b0",
+    "app/tests/unit/services/dialogue/test_turn_lifecycle.py": "5bfbf578c12d537b3c329b67c064da98dac19d17c4ee61e186457b2e587c5711",
+    "migrations/env.py": "897799d8d79b2b129ab156d43a11dcc401c2f7f708fa7b8eec77ccadea632201",
+    "migrations/versions/b42f9c8e7310_action_execution_ledger.py": "d3e37639b6f48b4740e72f4ab5ddf3a6be0c80185bb4d1e451bd888fc4db68f9"
+  },
+  "manifest": {
+    "path": "/tmp/rag-round23-final-source.json",
+    "files": 495,
+    "sha256": "e2c79d93fb3e00074ed0fb242476248144f96dc051a838eb16f9f2eb13189f72"
+  },
+  "scope_limits": [
+    "Only same saved proposal UUID for requires_confirmation tools in initialized API; an explicitly new proposal gets another UUID and can repeat a business operation.",
+    "Completed is a saved adapter envelope, including unsuccessful or review-required results; not settlement, resolution or proof of an external transaction.",
+    "No external exactly-once/SQL-provider atomic transaction. Real providers need idempotency, status queries, authorization and necessary fencing.",
+    "Manual contact-support copy is not a created handoff ticket; no automatic reconciliation/reclaim/admin ledger API or retention policy added.",
+    "Audit results may contain sensitive business data; clear/delete intentionally retain rows for safety. User effectiveID is not a new authentication model.",
+    "No real PostgreSQL/multi-replica/capacity/browser/remoteMCP/paidmodel/payment/production acceptance; SQLite and offline PG SQL are explicitly bounded.",
+    "No package install, global environment/dependency/gate change, production migration, commit/push/deployment."
+  ],
+  "remaining_candidates": [
+    "Real PG independent-connection ledger concurrency/roundtrips and populated downgrade lock validation",
+    "Frontend uncertain human-send UUID/draft persistence across remount and channel switch after closure",
+    "Session recency updated_at does not follow ordinary AI/human messages",
+    "Enterprise isolation, external business integration/status reconciliation, browser and capacity acceptance"
+  ]
+}

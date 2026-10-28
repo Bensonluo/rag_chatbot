@@ -14,7 +14,7 @@ from app.repositories.base import BaseRepository
 
 class UserRepository(BaseRepository[User]):
     """
-    Repository for User entity operations.
+    Account-facing User operations; anonymous principals use guest credentials.
 
     Extends BaseRepository with user-specific queries.
     """
@@ -34,7 +34,10 @@ class UserRepository(BaseRepository[User]):
         model: type[User] = User,
     ) -> User | None:
         """Get a user by ID without requiring callers to repeat the model."""
-        return await super().get_by_id(id, model)
+        result = await self.session.execute(
+            select(model).where(model.id == id, model.is_guest.is_(False))
+        )
+        return result.scalar_one_or_none()
 
     async def get_by_email(self, email: str) -> User | None:
         """
@@ -46,7 +49,7 @@ class UserRepository(BaseRepository[User]):
         Returns:
             User | None: User if found, None otherwise
         """
-        stmt = select(User).where(User.email.ilike(email))
+        stmt = select(User).where(User.email.ilike(email), User.is_guest.is_(False))
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -60,7 +63,7 @@ class UserRepository(BaseRepository[User]):
         Returns:
             bool: True if user exists, False otherwise
         """
-        return await self.exists(User.email.ilike(email))
+        return await self.exists(User.email.ilike(email) & User.is_guest.is_(False))
 
     async def list_users(
         self,
@@ -77,7 +80,13 @@ class UserRepository(BaseRepository[User]):
         Returns:
             List[User]: List of users
         """
-        stmt = select(User).order_by(User.created_at.desc()).offset(skip).limit(limit)
+        stmt = (
+            select(User)
+            .where(User.is_guest.is_(False))
+            .order_by(User.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -91,6 +100,10 @@ class UserRepository(BaseRepository[User]):
         Returns:
             User | None: User with sessions if found, None otherwise
         """
-        stmt = select(User).where(User.id == user_id).options(selectinload(User.sessions))
+        stmt = (
+            select(User)
+            .where(User.id == user_id, User.is_guest.is_(False))
+            .options(selectinload(User.sessions))
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()

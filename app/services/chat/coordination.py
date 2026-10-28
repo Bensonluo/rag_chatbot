@@ -49,6 +49,7 @@ class ConversationState:
     owner_id: int
     is_private: bool
     claimed_ticket_id: int | None
+    session_key: str | None = None
 
     def thread_id(self, session_id: int) -> str:
         return str(session_id) if self.epoch == 0 else f"{session_id}:automation:{self.epoch}"
@@ -134,7 +135,11 @@ class SessionCoordinator:
                         raise ConversationAccessError("Session unavailable")
                     session, ticket_id = row
                     return ConversationState(
-                        session.automation_epoch, session.user_id, session.is_private, ticket_id
+                        session.automation_epoch,
+                        session.user_id,
+                        session.is_private,
+                        ticket_id,
+                        session.session_key,
                     )
         except ConversationAccessError:
             raise

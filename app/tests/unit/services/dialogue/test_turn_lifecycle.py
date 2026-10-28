@@ -164,10 +164,15 @@ async def test_agent_audit_is_not_reused_as_current_turn_execution(
     chat = _chat(llm, agent_service=agent)
     await _turn(chat, "查询订单 ORD1001", streaming)
     assert (await _state(chat))["executed_tools"]
+    await chat.graph.aupdate_state(
+        {"configurable": {"thread_id": "1"}},
+        {"action_execution": {"status": "completed", "replayed": True}},
+    )
 
     await _turn(chat, "你好", streaming)
 
     assert (await _state(chat))["executed_tools"] == []
+    assert (await _state(chat))["action_execution"] == {}
 
 
 async def test_slots_and_confirmation_survive_until_executed_once(

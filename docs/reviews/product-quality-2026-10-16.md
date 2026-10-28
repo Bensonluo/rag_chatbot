@@ -442,3 +442,100 @@ REST 增加可空 message_id/status，历史增加真实 message_id/status/user_
 最终完整 **3288 passed,3 skipped,5 warnings in 164.23s**；既有选定核心 **93.35%**（5236/348），不含chat/handoff/API。Ruff475、strict Mypy app461+CLI2、pipcheck/diff通过，484后端/80前端源码与完整验证快照一致。前端 **217Jest+55Node=272**、lint/tsc、12页静态build通过。独立复核同事务与replay/staff路径、原regex AST、FE类型/scope/cursor/ID反馈边界及合同通过；最后文档复核由root负责，不声称有浏览器或远程CI验收。
 
 本轮无包安装/环境变更、新schema迁移、外部业务/模型、生产操作、提交、推送、部署。PG/多副本/容量、真实业务幂等与结果、企业隔离、浏览器及更明确的结构化客户结果仍需后续验证；不重复把上轮SQLite链路当作本轮PG证明。合同见[私人会话](../design/human-conversation.md)，前后证据见[后续消息结果](human-followup-results-2026-10-28.json)。完整目标未完成，goal工具仍usageLimited，按本次明确继续完成有界迭代。
+
+
+## 第二十二轮：开放注册不能取得共享知识管理权（2026-10-28）
+
+前轮已按用户要求提交backend1289c36/frontend8efd953，未push/deploy；开轮产品tracked clean，485之前的484后端/80前端冻结源一致。先并行核真实续聊与数据生命周期：草稿/不确定UUID跨卸载、关单后草稿转AI、checkpoint失败后mock退款重复、会话活动排序均有/tmp实际证据。选择更直接的知识权限问题优先：真实register201/login200/me is_admin=false的客户在Demo读取queued未发布原文字节、替换admin共享文档202revision2，经实际worker/localQdrant激活后DELETE200删除两修订；strict同客户source403。此是原Demo刻意宽放在新开放注册场景下的产品权限缺口，不虚构为未披露的租户隔离功能。
+
+统一require_kb_writer：admin精确布尔True，两模式相同，active/JWT仍由既有依赖执行。9条管理路径（text upload既含new与replacement）全部get_document_manager在jobs/ingestion/vector依赖前；handler同检查保留。目录/版本/原文/全文/上传/替换/重试/删除均收紧，普通已认证客户的合资格检索和共享Demo聊天保留。documents复用既有PrivateAPIRoute，对成功和可处理auth/validation响应加private,no-store，保状态类型与认证headers。FastAPI可能先解析body，不宣称零读取；没有更改graph维护、CLI/worker trusted边界或引入tenantACL。
+
+角色10case矩阵替代原3，原源6红/4控制，匿名helper403与实际HTTP401分开；净增7默认case。新实际32 HTTP测试在helper修复后编写，不冒称全部先红；before真实攻击链另证。矩阵20客户×操作/模式、2admin实操作、2实际published search、2匿名代表source/upload/delete、4同admin token先200再DB降权/停用403、2validation/no-store；所有fixture注册自带is_admin:true却register/me/SQL仍false，拒绝时observed业务依赖/方法0且实际registry快照不变。admin源码/全文/重试/上传/替换/delete controls真实SQLite/jobs/ingestion/localQdrant，重试failed目标由SQL布置不冒实际fail流程。新fixture封DNS/socket并断言零尝试，无付费模型/环境默认数据库。
+
+原auth文件28、相关doc/publication/actualpipeline联合117通过，未抬升全局普通客户fixture。最终完整 **3327 passed,3 skipped,5 warnings in 181.45s**，净新增39；选定核心 **93.35%**（5236/348），不含auth/API不能以此证明新权限覆盖率。Ruff476、strict Mypy app462+CLI2、pipcheck/diff通过，485Python SHA与全量源冻结一致。前端80源码/config与8efd953一致，保留上轮272/12静态页历史成绩，不声称本轮重跑或浏览器验收。独立交叉核路由依赖顺序、role/helper、JWT角色实时读取、no-store及合同无阻断；原`.env.example`与settings仅描述/注释更新，运行默认不变。
+
+完整证据见[知识权限结果](knowledge-access-results-2026-10-28.json)，当前角色表见[访问合同](../design/knowledge-access.md)。没有新迁移、依赖/环境变更、生产请求、提交/推送/部署；用户Compose和本地规划保留。所有提供管理HTTP的实例需升级后才可保证新边界，旧客户端下载不能瞬撤。真实PG/远程存储/多副本/浏览器/容量/业务幂等与企业隔离仍待推进；另外三个实际候选已留证但未在本轮修复。整体产品目标未完成，goal工具仍usageLimited，本次明确迭代完成有界进展。
+
+
+## 第二十三轮：确认业务操作独立于 checkpoint 恢复（2026-10-28）
+
+保留22轮权限WIP与提交1289c36/8efd953，先核实上轮已留证的重复mock退款：真实strictJWT HTTP确认调用1次，随后checkpoint写入失败500且无回复落库，新的确认又执行1次、生成不同退款号。深化8种时序证明fresh ainvoke(dict)的新turn/task身份不稳定，而invoke(None)恢复对照不重复；不泛化成所有LangGraph resume都重复。最小实际回归先红1case calls2!=1；其余新测试在实现后扩展，不冒称124全部先红。
+
+两个提案入口加入服务端UUID，生产ToolRegistry必注入独立SQL账本；先commit in_progress再调用，保存原success/data/message envelope。只有占位winner调用，同提案completed重放原结果；异常/取消/结果写入失败保留unknown或in_progress，不超时重抢。绑定user/session/epochscope/tool/参数摘要，读取回执前重复默认订单授权，模型不能伪造执行key。MCP写payload传UUID，但远端是否兑现需供应商契约。completed是适配器返回记录，不是付款、工单或解决结果。
+
+过期先查记录，TTL只限制首次调用；取消/否认不冒称撤销已提交请求，旧无UUID提案要求人工核实。固定中英文未知/重放说明经outerguard且只输出一次；原大额审核仍走真实工单hook。REST及普通/流式assistant落库增加独立action_execution，每轮reset；重放不记成新executed_tools，无新增SSE actionevent。聊天清空后保留账本，删会话SETNULL并阻止数字ID复用读回；任何记录拒破坏性降级。须排空旧实例，不能给旧提案自动补UUID执行。
+
+新增默认124：40ledger+8migration+26copy+15registry/MCP+32actualHTTP/SQL/graph+3init。实际handler先用第二SQLsession读取已commit占位再调用原mock；两入口×两传输×两posteffect故障、真实SQL拒写、handler后异常、TTL、旧提案、取消/否认、绑定及身份边界通过。独立worker整合复核无阻断。root首轮focused1011绿/6旧duck-typed或Mock新属性失败，保留原断言明确legacyfixture并调整短路后1017绿；最终1075focused绿。root曾误写CLI路径导致E902，修正实际路径后通过；冻结前workerWIP静态失败不当最终成绩。
+
+最终完整 **3451 passed,3 skipped,5 warnings in 188.58s**；选定核心 **93.57%**（5553/357），包含新增dialogue ledger/messages，不含chat/coordinator/handoff/API，不能把该比例当新初始化/HTTP覆盖。Ruff lint/format486、strictMypy app471+CLI2、pipcheck/diff绿，495Python与完整门禁冻结一致。SQLite全链upgrade/check/downgradebase/reupgrade/check拦网通过；PG只离线SQL，两Docker socket不可用，无实际PG/多副本/容量。FE80源码与8efd953及21轮一致，272/12页为历史成绩，本轮未重跑或浏览器验收。
+
+合同见[确认业务恢复](../design/durable-actions.md)，完整证据见[本轮结果](durable-actions-results-2026-10-28.json)。没有包安装/环境与依赖门禁更改、真实外部MCP/支付/付费模型/生产迁移、提交/推送/部署。保证限于同一已保存UUID受保护handler，新提案可能是新的重复业务申请；无外部exactly-once或自动对账。人工草稿/未确认UUID跨卸载与关单渠道、会话最新活动排序、PGledger集成和企业隔离仍需后续。整体目标active，未标complete。
+
+
+## 第二十四轮：人工草稿、原请求与收件通道连续性（2026-10-28）
+
+上一轮为实际进展：3451/3skip/5warn188.58s及执行账本已落，495BE/80FE源核无漂移。本轮复跑实际React/SupportApi五个行为观测（45旧对照按filter跳过），确认refresh/switch/401丢原UUID/草稿、staff最终关闭丢ACK后恢复入口消失、人工非空稿关单后可直接送AI；不是服务端已提交消息丢失。最小独立恢复case真红1；其后26actual、28journal、17agent和13backend均不冒称全部原源码先红。
+
+按API路径/user/side/session/staffticket隔离的严格有界sessionStorage journal，在人工POST前保存原UUID/content/resolve/ticket；授权后恢复但不自动POST。401保同user记录且隐藏正文，signout清当前API/标签页全部usersjournal。坏数据/配额失败不覆盖、不发新请求，通用写错误不否认早前送达。草稿AI/human/ticket origin须显式Move再Send；原不确定请求不转移。客户optional expected_ticket_id在原门闩/事务内比最新票、409拒串票；省略/null旧客户端保原行为，须先后端再前端升级。
+
+客服恢复项独立于队列，freshadminme后只显通用编号，GET授权才开草稿；404不作为closed证明，也不阻断显式exactPOST核实。服务端先核原resolve意图，客户端核serverACK作者/UUID/content/原ticket/当前assigned，并对结束处理尝试核resolved状态后才展示单条正文，closed历史仍拒读。逐项discard只删local，activePanel scope禁用外层清除。独立review实际查出同revision删除被旧Panel复活及canonicalnull后旧稿残留，先红并加入默认25/26例；canonical事件+last成功保存revision保新未存稿、去旧确认稿。实际ACK成功后storagefull误称未发也已纠正，只有stage前拒绝才断言本次未发。
+
+新增13后台真实JWT/外键SQLite/协调/事务case；147focused通过（1既有optin跳过），完整 **3464 passed,3 skipped,5 warnings in190.07s**；既有core **93.57%**（5553/357）不含本轮handoff/API。Ruff487、strictMypy app472+CLI2、pipcheck/diff绿，496BE源冻结一致。FE新增28+17+26=71，完整 **288Jest+55Node=343**、lint、非incremental严格tsc与12页静态build绿，85FE源码/config冻结一致。实际26不mock SupportApi/journal，仅fetch/Storage故障受控；agent17明确journal/Panel unit边界。另有真实SQLite/JWT闭票重放与expectedticket旁证，不合称生产全栈。
+
+本轮无新schema/migration/包安装/依赖或门禁更改、真实外部业务/模型/生产调用、提交/推送/部署。工具实际返回No browser is available，无浏览器/水合验收；PG/多副本/容量也未验证。MDN只作sessionStorage reload/opener边界设计参考，明文暂存不是加密保管或跨设备备份。root误引不存在handoff_endpoints而0tests、冻结前tsc读到未落模块、effectlint及copy错误均已更正并留日志。首次文档生成误把13个导出HTML当12页路由而assert中止（未写产物），核build12/12及重复404导出后区分两者。结果见[续接证据](support-continuity-results-2026-10-28.json)，合同见[私人会话](../design/human-conversation.md)。整体goal active，活动排序、真实PG/browser/企业隔离/外部业务继续。
+
+
+## 第二十五轮：会话实例隔离与旧恢复请求边界（2026-10-28）
+
+开轮核实第24轮496后端/85前端冻结源码无漂移，保留3464/343历史基线及22–24轮WIP。先审计既有最近活动候选：AI/human正文落库不推进parent updated_at，列表还存在message_count与刷新缺口；本轮没有实施活动排序。独立审计发现更高优先级P1：受支持的SQLite普通整数主键可自然复用。真实JWT/FastAPI/外键SQLite/SessionCoordinator经正常API关闭并删除客户1的最高session21/ticket1，再由客户2新建得到相同数字；原客服3旧UUID/正文POST返回200、reused=false，客户2可读到旧正文。未手填主键、伪造服务端业务结果或外连；PG普通序列并不因删除自动回收，本轮未在PG复现相同常规行为。
+
+ChatSession新增服务器每行生成、规范UUID、唯一非空session_key。工作台列出的私人AI/human读写、历史、配置、删除和claim/resolve在原授权及协调/事务内核对expected_session_key；owner无正文list/detail用于显式发现当前实例。正常关单保持key，原已提交POST仍可精确重放；显式clear在原门闩内先同事务提交新key与automation_epoch，再清checkpoint/history，清理失败不复活旧请求，也不冒称跨存储原子事务。原expected_ticket_id另保同实例换票收件约束。key不是权限，公共Demo兼容及现有feedback/QA协议范围未泛化。
+
+新head c53a7d9e8421接b42f9c8e7310；旧记录逐行回填，合法key保留，坏值/重复拒绝。SQLite迁移需停止写入者，在Alembic autocommit维护块中先提交前序工作，FK OFF、BEGIN IMMEDIATE、父表重建及foreign_key_check后提交，失败回滚并恢复FK ON；实测消息、工单和ActionLedger live FK均保留，无意外级联或SETNULL。离线SQL已有实际执行控制，但任意外部执行器中断不具Python finally保证。private会话或human行拒降级；不承诺整链单事务、零停机、旧备份或旧客户端回退安全。PG只核离线SQL，两Docker socket本轮实际仍不可用，不能以SQLite代PG升级/锁验收。
+
+前端journal v2、Panel key及客服恢复scope加入sessionKey，所有私人内容请求携原key，HTTP200错key也不合并正文/游标/ACK。当前API/已验证用户有v1 envelope即拒绝恢复/保存，不解析旧正文，不自动绑定新key；显式清理只删该API/user v1，signout清该API本标签所有用户v1/v2，401保待同用户验证的记录。刷新咨询同时独立GET选中会话，晚回执不得改另一选择；新key重挂但不搬旧稿。旧客服工作仍可按原key核实，旧客户scope尚无统一逐项恢复列表，不声称所有孤立草稿都能从UI找回。4项实际React回归在独立旧源码快照先红，另1项旧模块marker控制通过；最初仅alias的假基线因加载当前源码被marker检出并舍弃，不作为先红证据。
+
+新增默认后端66项：17迁移、42真实JWT/SQLite生命周期、7operator；前端11项：7journal、4实际React。迁移专项及42实际覆盖缺失/非法/不符key、授权先于key、REST/SSE、正常API同ID重建、clear成功/后续清理失败、普通close原请求重放。首次完整回归为10失败/3513通过/3跳过：3旧CRUD缺key、4旧raw SQL省略新非空列、3真实operator探针未携私人key。前7项显式适配fixture而不放松schema/负例，后3项修复scripts/probe_live.py真实接入，并新增7项fail-closed控制；探针校验新建key规范及当轮唯一性，chat/history发原key，回复/history/已知owner工单旁证核实例，匿名共享路径及21case/24turn原门槛不变。focused49、615（1既有skip）、117通过；没有重跑线上探针或调用真实模型/业务。
+
+最终完整 **3530 passed,3 skipped,5 warnings in194.83s**；选定核心 **93.57%**（5553/357），70%门槛未变，该范围不含本轮chat/handoff/API，不据此宣称新HTTP覆盖率。Ruff lint实际范围为app、migrations及init_db/document_import/probe_live三CLI；format app+probe_live共477文件，strict Mypy app476+三CLI通过。一次Ruff整个根目录另报18条既有临时手工脚本错误，未改旧脚本或抑制规则，不冒称全仓ruff点号全绿。501后端Python冻结与完整门禁一致。FE完整 **299Jest+55Node=354**（12 suites）、lint、独立严格tsc及 **12页静态build**通过，86源码/config冻结；相对24轮26后端、14前端增改SHA与独立只读整合复核一致。React/jsdom/fetch受控测试不等于真实浏览器水合或前后端实网验收。
+
+用户同期要求评估已有外部商品/购物车/订单/付款API如何串入Agent，形成[购买编排方案](../design/conversational-commerce-assessment.md)：单Agent、独立持久购买流程与适配层，A结算交接/B聊天确认下单/C体验扩展分期，报价授权、购买级并发、未知结果和付款事实分开。该文档仍为proposed，没有购买实现或交易接口调用。会话合同见[实例隔离](../design/session-incarnation.md)，完整前后证据见[本轮结果](session-incarnation-results-2026-10-28.json)。未安装包、更改依赖/门禁/全局环境、生产迁移、提交、推送或部署；整体goal仍active，真实PG/浏览器/企业隔离/外部业务及活动排序余项继续。
+
+
+## 第二十六轮：反馈与 QA 质量写入绑定（2026-10-28）
+
+上一轮归档是progress；开轮核501BE/86FE与3530/354基线后继续审计。活动候选在当前真实JWT/API/SQLite再现：AI2、客户human1、客服human1已落库而DTO计数仍全0，新空咨询仍first；标题或QA变更反而置顶。独立1项审计7.71s，未实现排序。更高优先级P1实证为四项：clear后消息数字ID自然复用、旧评分200改新回答；真实归属查询后仅时序暂停，再经正常删除重建到另一owner，旧在途评分仍200并改他人回答；旧QA裁决可标记重建的新客户会话；同key新增问题后，旧QA仍把当前咨询判resolved。前三项真实审计3passed1.47s、另同实例快照审计1passed；存在外来owner404/匿名401、customer与inactive reviewer403对照。未手填替换对象主键，不把SQLite自然复用泛化为PG序列行为；缓存旁证仅证明实际淘汰函数入参和计数，不宣称远程Redis已删除。
+
+Feedback增加expected_session_key，私人两模式均在owner和消息资格后核对；初步目标用标量定位，结束只读事务后取原会话门闩，门闩内重读/重验owner、key及assistant/completed资格。SQL条件还原子绑定messageID、父SID、观测key、owner或显式shared许可、role/status，删去原裸ID写入口。RETURNING构建固定回执并commit，ACK有真实message/rating/session/key，0评分保留；拒绝或SQLmiss无metric/evict。共享Demo保无key兼容但显式key照核，一次请求的server preflight key也不得自动变成新对象。
+
+QA queue、GET proposal及POST verdict都先要求activeadmin，公共Demo同样执行。提案同时有session_key与opaque review_version；版本覆盖owner/epoch/解决/重开/既有QA、所有bot行的有序id/role/status/rating/feedback_text/created_at投影摘要、human最大ID及ticket状态/接单人。门闩内重算比对，条件UPDATE再核row状态和消息水位等CAS；不是只看最新botID，也不声称SQL计算了全文正文hash。GET /sessions/{id}/review支持主动取新提案纠正，成功POST返回包含本次判断的新版本。旧裁决拒绝，unresolved纠正仍清resolved_at且不增客户reopen，qa_verdict仍单条覆盖而非audittrail。提案GET是预览与版本，不证明审核者已读完整全文或语义判断正确。
+
+抽样仍有候选上限和随机选择，门闩忙跳过且重核当前资格，不能把少于limit当全量处理完成。消息投影yield_per256分批更新SHA256，但每会话DB仍O(N)，不会把所有行一次载入应用列表并不等于驱动内存/真实PG/多副本或容量证明。无新schema/migration，沿用c53a7d9e8421；旧private评分无key、旧QA无双提案字段会拒绝，需完整更新调用方。
+
+初稿专项为feedback65pass1.58s（净15unit、旧22actual保留），独立新35actual为16feedback/19QA。首focused因旧精确ACK shape未含新SID/key失败1，已扩真实上下文正例；新unit异构dict的Mypy推断也已显式typing修复，未放宽负例。独立整合review又发现已commit评分若仍持gate等待缓存淘汰，同期clear被409拒绝；第36actual在此源上真红后，改为commit固定receipt即释放gate，随后metric/缓存/HTTP ACK仅用旧值不重读。该修复不新增cleanup总budget，缓存仍可能延迟评分本身，但不再独占咨询门闩。第一次collect35例的full为历史 **3580 passed,3 skipped,5 warnings in202.28s**，不能沿用作修正后的最终成绩；随后基于新源码freeze重新完成完整回归。
+
+最终完整 **3581 passed,3 skipped,5 warnings in204.69s**；默认净新增51BE=15unit+36actual（17feedback/19QA）。既定core **93.57%**（5553/357）、70%门槛未变，不含全部新质量API的覆盖率声明。Ruff实际维护范围为app、migrations及init_db/document_import/probe_live三CLI；format app+probe_live共478文件、strict Mypy app477+三CLI及pipcheck通过，未改依赖或门禁。最终502后端Python（app477/tests254/248 test_modules）冻结SHA与回归相符。
+
+FE完整 **312Jest+55Node=367**，净13中7项为本轮评分保护，6项为同期外部locale测试，原locale改动保留，未冒称全部本轮作者新增。86前端源/config冻结，相对25轮14BE/6FE增改；包括两份同期locale改动，均保留未回滚。本地受控fetch/jsdom不等于浏览器水合或前后端实网。
+
+合同见[质量写入](../design/quality-mutations.md)，完整证据见[本轮结果](quality-mutations-results-2026-10-28.json)。本轮无包安装、依赖/门槛更改、PG/外部业务/生产调用、提交、推送或部署；活动排序和其它产品缺口继续。用户同期明确要求下一阶段实现购买编排框架，本轮P1收尾后另起实现；目前购买仍为方案，尚无下单/支付功能。整体北极星goal保持active。
+
+
+## 第二十七轮：公共 Cookie 访客与模拟购买（本地完成）
+
+用户确认公共网站为主、Cookie持有浏览器代表访客，工作台保留不再深化。本轮交付免注册独立咨询，Agent 导购、持久购买状态机及可替换 CommercePort；确认下单与模拟付款分别通过明确 UI action，模型没有提交工具。商品、购物车、库存、报价、订单与付款由独立事务 SQL mock 保存，unknown按原请求核实，聊天清空不撤单。
+
+最终完整后端 **3709 passed/3 skipped/5 warnings in261.84s**，净增128（50service单元、19migration、58实际HTTP、1direct-stream）；选定核心5554/357=93.57%，不是新API覆盖声明。Ruff maintainedscope、format495、strictMypy494app+3CLI、pipcheck与diffcheck通过。完整首轮gate-completeness抓到50测试未注册（1F/3656P），只新增testpaths两条扩大门禁；第二3707为最后2英文数量红绿之前阶段，均保留历史日志，不冒充最终结果。
+
+前端398=343Jest+55Node/14suites、lint/strictTS/12页构建通过，新31=19protocol+10actualReact+2voice。91FE/521BE source SHA匹配，32BE/12FE相对第26轮增改。真实Chrome通过Cookie+CORS→SSE→两副耳机报价598元→explicit order/pay→refresh/history→清空key轮换但购买保留→过期401清UI/新访客无旧单；数据库仅1order+1payment/4actionPOST。临时服务及测试窗口已清理。浏览器之后只FE落地文案和BE英文数量+2case变化，分别有静态构建及最终完整回归，未声称对这些变化重跑浏览器。
+
+实证修复包括Guest继承shared-Demo越权、Hello流空正文、过滤候选跨轮丢失、比较/非法数量误加购、已持久动作重放漏epoch fence、native异常流终止、英文数量默认1及前端旧回执混新快照。旧阶段证据与容量失败代理交接保留，不把未执行阶段当验收。新增两迁移到e75c9d1064a3，SQLite实际/PG仅生成SQL；没有真实付款、生产迁移、依赖安装、提交、推送或部署。legacy空历史降级、SQLite时间戳与查询成本等已记录限制，不夸生产就绪。合同与两仓字节镜像报告见[公共购买合同](../design/public-commerce.md)、[完整证据](public-commerce-results-2026-10-28.json)。
+
+
+## 第二十八轮：购买可靠性里程碑（本地完成，停止迭代）
+
+购物入口和已授权按钮动作在 Agent 或领域操作前持久隔离旧任务；模型异常、记录保存失败或请求取消后，旧退款确认不再复活。购买 GET/POST 等待覆盖响应头及 JSON，30 秒超时释放界面、保留结果待核实并仅通过明确 GET 恢复；本卡查询失败不保留可执行旧动作，顶层 active 查询失败不广播到其它卡片。
+
+最终完整后端 **3720 通过/3 跳过/5 警告，276.71 秒**，选定核心覆盖 93.57%；新增 11 真实 HTTP 用例。前端 **407 通过**（352 Jest + 55 Node），新增 9 用例，lint、严格类型和12页构建通过。独立验证数据库 fence 失败与已提交购物后的真实请求取消；不把本轮未完成的浏览器超时尝试写成通过。第27轮真实浏览器成功旅程保留独立证据。
+
+用户要求在合适位置收里程碑并停止，故在此归档，不开展新一轮。[里程碑说明](public-purchase-milestone-2026-10-28.md)与[完整证据](public-commerce-reliability-2026-10-28.json)记录边界。未提交、推送、部署或接真实支付。

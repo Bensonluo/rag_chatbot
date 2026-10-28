@@ -428,15 +428,24 @@ class Settings(BaseSettings):
     )
 
     # Security
+    GUEST_COOKIE_SECURE: bool = Field(
+        default=True,
+        description="Send the anonymous visitor cookie only over HTTPS (local tests may override)",
+    )
+    GUEST_SESSION_TTL_SECONDS: int = Field(
+        default=604800,
+        gt=0,
+        le=2592000,
+        description="Server-side maximum lifetime of an anonymous visitor credential",
+    )
     DEMO_MODE: bool = Field(
         default=True,
         description=(
-            "Public-demo posture (review 2026-09-26, #1): anonymous visitors "
-            "may chat under a body-supplied user_id and read/clear history by "
-            "bare session id, so the seeded demo traffic keeps working. Set "
-            "false for real deployments — identity then comes only from the "
-            "token, chat/history enforce session ownership, and knowledge-base "
-            "writes require admin."
+            "Public-demo posture: anonymous visitors may chat and read/clear "
+            "unmarked shared sessions. Private sessions always require their "
+            "authenticated owner; knowledge management and QA always require "
+            "an active administrator. Set false for token-only identity and "
+            "ownership checks on every chat session."
         ),
     )
     SECRET_KEY: str = Field(

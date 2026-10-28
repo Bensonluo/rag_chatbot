@@ -118,7 +118,7 @@ class AuthenticationService:
         # Get user by email
         user = await self.user_repository.get_by_email(email)
 
-        if not user:
+        if not user or user.is_guest or user.email is None or user.hashed_password is None:
             raise AuthenticationError("Invalid email or password")
 
         # Check if user is active
@@ -143,6 +143,7 @@ class AuthenticationService:
         """
         from app.config.settings import settings
 
+        self._require_registered(user)
         token_data = {
             "sub": user.email,
             "user_id": user.id,
@@ -166,6 +167,7 @@ class AuthenticationService:
         Returns:
             str: Refresh token
         """
+        self._require_registered(user)
         token_data = {
             "sub": user.email,
             "user_id": user.id,
@@ -246,3 +248,8 @@ class AuthenticationService:
             # carry connection details that must never reach the client.
             logger.warning("Token refresh failed: %s", e)
             raise AuthenticationError("Invalid or expired refresh token") from e
+
+    @staticmethod
+    def _require_registered(user: User) -> None:
+        if user.is_guest or user.email is None or user.hashed_password is None:
+            raise AuthenticationError("Guest identities cannot use account tokens")

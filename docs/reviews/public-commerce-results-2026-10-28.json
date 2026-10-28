@@ -1,0 +1,222 @@
+{
+  "round": 27,
+  "date": "2026-10-28",
+  "status": "local implementation and bounded acceptance passed; not committed, pushed or deployed",
+  "scope": "Public no-registration Cookie visitors and mock purchasing inside Agent chat. Existing /support retained; no further workspace feature development.",
+  "identity": {
+    "meaning": "The browser holding the Cookie is the visitor; no real-person binding or cross-device recovery.",
+    "cookie": "rag_guest_session: random opaque credential, HttpOnly/Secure(default)/SameSite=Lax/Path=/, no Domain or Max-Age/Expires; only SHA256 persisted; server TTL7days.",
+    "principal": "Typed is_guest internal User owner with NULL email/password and DB prohibition on admin; excluded from registered-account login/JWT/refresh paths.",
+    "authorization": "Cookie plus header/Origin for writes; original sid/key, owner/private checks before legacy delegation and under coordinator. Shared Demo exception never authorizes guest requests."
+  },
+  "architecture": {
+    "chain": "Guest HTTP -> CommerceConversation -> bounded AgentService -> request-local tools -> PurchaseService -> CommercePort -> independently committed stateful SQL mock",
+    "planner": "Replaceable provider planner or deterministic virtual planner; virtual outputs select real tools and SQL results. No paid/real model used by validation.",
+    "tools": [
+      "search_products",
+      "get_product",
+      "set_cart_line",
+      "prepare_checkout",
+      "purchase_status"
+    ],
+    "explicit_actions": "commit_checkout and mock_pay only via server-authored action_ref HTTP from explicit UI, never model tools.",
+    "durability": "Purchase/operation/confirmation/action are independent of chat FK; owner+merchant active slot, version CAS, immutable quote/expiry, unique operation generation and stable provider key; unknown/processing never reclaimed to start another transaction.",
+    "recovery": "GET queries original external mock receipt; order-timeout recovery does not create payment. Explicit continuation remains necessary. Clearing chat rotates key/epoch but retains purchase.",
+    "ui": "schema_version1/mode mock, typed catalog/cart/quote/payment/status/actions. Historical message keeps original UI; newer current state separately displayed. No saved message receipt means no invented feedback ID.",
+    "task_boundary": "Every successful explicit shopping turn/action, including replay, fences previous RAG automation state; does not cancel already executed business effects."
+  },
+  "limits_of_current_product": [
+    "Single merchant, CNY, one SKU per cart, quantity1..10, simulated delivery/no real address.",
+    "All orders/payments are mock. CommercePort currently rejects real-mode adapters; future real auth/payment integration requires an explicit contract extension.",
+    "Virtual natural-language understanding is bounded; explicit SKU/card actions remain the reliable selection path.",
+    "SameSite production topology/HTTPS Secure Cookie, real PostgreSQL concurrency/migrations, real supplier/payment authentication and capacity are not accepted by this local evidence.",
+    "Legacy message-history read is best effort and can degrade to []; independent purchase recovery does not infer missing purchases from empty chat.",
+    "SQLite naive history timestamps can render differently after reload; identified, not fixed in this round.",
+    "Action-audit SQL uses JSON predicates, avoiding loading the entire transcript; no JSON index is added, so per-conversation DB scan cost remains."
+  ],
+  "validation": {
+    "backend": {
+      "passed": 3709,
+      "skipped": 3,
+      "warnings": 5,
+      "seconds": 261.84,
+      "command": ".venv/bin/python -m pytest",
+      "selected_core_coverage_percent": 93.57,
+      "selected_core_statements": 5554,
+      "selected_core_missed": 357,
+      "coverage_scope": "Existing selected core70% gate, not coverage of new guest/commerce APIs.",
+      "net_new": 128,
+      "new_breakdown": {
+        "guest_identity_units": 26,
+        "commerce_domain_units": 24,
+        "identity_migrations": 12,
+        "commerce_migrations": 7,
+        "actual_guest_http": 34,
+        "actual_commerce_http_agent": 24,
+        "direct_stream_unit": 1
+      },
+      "static": "Ruff maintained app/migrations/3CLI paths; format495 app+probe; strictMypy494 app +3CLI; pipcheck; git diffcheck passed."
+    },
+    "frontend": {
+      "passed": 398,
+      "jest": 343,
+      "node": 55,
+      "jest_suites": 14,
+      "static_pages": 12,
+      "net_new": 31,
+      "new_breakdown": {
+        "guest_transport_and_parser": 19,
+        "actual_react_guest": 10,
+        "voice_callback": 2
+      },
+      "gates": "Full398, lint, independent strict tsc, build at8541356b pre-copy freeze; final one-file bilingual RAGDetail copy/classes only, final lint/tsc/12page build and91SHA verification passed. Full suite not repeated for text-only change.",
+      "preserved_external_change": "User locale commit e2c9e328 and six existing locale cases remain baseline, not attributed as this round new tests."
+    }
+  },
+  "actual_browser": {
+    "method": "Native Google Chrome Incognito using CUA AX/screenshots; real fetch, Cookie and CORS to isolated localhost Next + guest-router SQLite harness.",
+    "journey": [
+      "bootstrap -> SSE mock earphone search",
+      "select black2 -> cart -> quote CNY598",
+      "explicit order confirmation -> explicit mock payment paid",
+      "GET status and reload persisted historical cards",
+      "clear204 -> newkey and empty chat -> GET active still original paid purchase",
+      "isolated SQL credential expiry -> real GET401 clears UI -> explicit restart new visitor has no old purchase"
+    ],
+    "sql_evidence": "Exactly one mock order and one payment, four action POSTs, paid/version10; provider SQL facts independent of chat clearing.",
+    "cleanup": "Owned18327/18328 stopped, listeners absent; test Incognito window closed; no credential bytes read or logged.",
+    "version_correspondence": "Browser FE8541356b differs from finala8b571b3 only RAGDetail copy. Browser backend source differs from final only virtual planner English quantity handling and its two HTTP cases, covered by literal2red ->26targetedgreen -> final3709. Core HTTP/domain/DTO/mock/persistence hashes unchanged.",
+    "limitations": "HTTP Secure=False and SQLite process-local coordination only; no real provider, production lifespan/HTTPS/PG or real speech-engine acceptance."
+  },
+  "before_after": {
+    "guest_shared_demo": "Literal3negative HTTP failures before explicit guest owner/private/key boundary; fixed and retained in final34.",
+    "direct_stream": "Literal Hello stream ended without content; existing direct node now emits response once, with one new actual stream unit.",
+    "selection": "Literal comparison/negative/three-digit quantity reds, filtered keyboard ordinal recovery; final gate includes conservative clarify and candidate-order restoration.",
+    "replay": "Literal replay after staged refund did not fence epoch; all successful shopping actions now fence. Separate frontend literal red bound old message text/ID to newer state; original snapshot now retained.",
+    "stream_failure": "Literal native planner RuntimeError broke SSE; now generic STREAM_ERROR+DONE, no completion/diagnostics, cancellation retained and bounded timeout.",
+    "english_quantity": "Literal2red savedcart1 for explicittwo/quantity2; word-count/qty parsing fixed,26targetedgreen and final3709.",
+    "frontend_identity": "Literal old baseline2fails +1shared marker control; expiry late-voice regression kept. New31 not all claimed literal baseline-red."
+  },
+  "full_run_history": [
+    {
+      "log": "/tmp/rag-round27-backend-first-full.log",
+      "result": "1failed/3656passed/3skipped/5warnings253.95s",
+      "reason": "Existing completeness test found identity26 +domain24 absent from manual testpaths. Added two paths; no gate/coverage reduction."
+    },
+    {
+      "log": "/tmp/rag-round27-backend-second-full.log",
+      "result": "3707passed/3skipped/5warnings260.52s",
+      "scope": "Intermediate before final English2 regression/fix. Historical only, superseded final3709."
+    }
+  ],
+  "migrations": {
+    "head": "e75c9d1064a3",
+    "chain": "c53a7d9e8421 -> d64b8c0f9532 -> e75c9d1064a3",
+    "verified": "SQLite online/offline and fresh head/base/head+metadata; PostgreSQL generated SQL only.",
+    "upgrade": "Drain old API instances and deploy matching client. Downgrade refuses retained guest/commerce/provider data; no production migration executed."
+  },
+  "source": {
+    "backend": {
+      "manifest": "/tmp/rag-round27-backend-final-source-manifest.json",
+      "sha256": "7e36d5a593e426e42dbf6ae5d9a15ae1ba9fce2b6576c96180f1d502edd87957",
+      "count": 521,
+      "new_files": 19,
+      "changed_existing": 13,
+      "changed_sha256": {
+        "app/api/v1/chat.py": "3d2e0693cd089732937a49e85b5d99ef4ee4ec75dc0f21224010e0401d5fa237",
+        "app/api/v1/feedback.py": "3f3fa9f306aa2db8db84262b0e882243440c447925896562fb9eb129fde09c99",
+        "app/api/v1/guest.py": "d3d3764bec5a4be746fd09094f114d10a7bee061aa45beda280fcab2a56ffa84",
+        "app/api/v1/router.py": "da38eec78c18272dbf9532c4f376fd59ad79f61bb8a13ba5d5d51e1b2687ff30",
+        "app/config/settings.py": "7d7e34bfd2be79c4535e23701304a9b7d1a4462cedc75aa4f61e503138d8b769",
+        "app/models/database/commerce.py": "0b4a5cd82bae0bd3f3f69e3cbfec8fe49c33f3ea8aa4add2415758a64d1f61b8",
+        "app/models/database/guest.py": "ce5c4d9789d77fd05b5147623bb4373e64f71a8aad4b8e733d42ea987e791412",
+        "app/models/database/user.py": "1814e3e4076a7a0345cbe7ffa36cd9f3a0cc30bf7f847d6fb63e479e5a427de3",
+        "app/models/schemas/commerce.py": "3f9ae2aadae456f7f08e0f29a5a11fa0ec596412a3785860088ccdc82610be04",
+        "app/repositories/user_repository.py": "db11cd83f20cfca609260ac580fa07d2ddcb79fc1860a6c33544d7c06f48e8d8",
+        "app/services/agent/service.py": "ddc6f6ab0eb7f351e6461cdb3b553c182e6634e94571f2408ffa329912524fc1",
+        "app/services/auth_service.py": "7637a70eeddc2fc34977833f35e98237f6de47b927f988414c352b657c7a867f",
+        "app/services/chat/chat_service.py": "6ea733f6220b565359f6d65687950e59a400a985a801a01253b2c66c2edb84e8",
+        "app/services/chat/persistence.py": "fa578c3eb72b3329458894796bb3844bebc3a186aeafbe4e69945cb1f07f3572",
+        "app/services/commerce/__init__.py": "a011f6aa2ec9e1949e86a87b7d8b27186a2985dcc94fafad31a028e5ee136aa2",
+        "app/services/commerce/conversation.py": "221121c6bb6b741d1f56f07e59e51ed4c6f0da60bc13aa8965e3d6f881fbbd26",
+        "app/services/commerce/mock_port.py": "5298a002a1cf950f4c9a6cace06e6f5926f76ee57ac9cc053c35c67433782c05",
+        "app/services/commerce/port.py": "68439e0423128df0a1f8784295d7c397497f8d424e689c557cd57f0b070af920",
+        "app/services/commerce/service.py": "cf16ee2348a3ab52e476ce3d6d80e951c35654cb3fc8669ee09c04a6f4e8251d",
+        "app/services/commerce/tools.py": "8ee8f5df73a62d6f63e3bc54709d1532c3fe810471b7fc89bdd71507a25f152f",
+        "app/services/dialogue/nodes.py": "9a097a52fdf13669ba6b03f151c92859d5b685fa9103184953f107603ae6f977",
+        "app/services/guest_identity.py": "a2a40fdefcfd9e6346ce02a7b2d33ace3e94a9ea55ad9b736ec4f1b41cd1ddc8",
+        "app/tests/evaluation/test_guest_commerce_flow.py": "45fd36c1b1f8187e6b19c8f5e9959487f7e7d9a32bcde0546d7df70baf84933b",
+        "app/tests/evaluation/test_guest_conversations.py": "0f2c656418363b943bc94d2e6c5983e935ed7e96d4904fce22e302bb3402207d",
+        "app/tests/unit/deploy/test_commerce_migration.py": "de9065d6889c0eb4b9876fd02ac29711a19916752d2d8d434f405417c758d6d9",
+        "app/tests/unit/deploy/test_guest_identity_migration.py": "ee2ed12d3c6749c3b083fe625b864e83b79bf9b0dcfd4241c31e4a224212ea0a",
+        "app/tests/unit/services/commerce/test_purchase_workflow.py": "7378d24c14b1f6407d2e289312b9fd61533f1cff5a0a4c79abfbe079489c1dfa",
+        "app/tests/unit/services/dialogue/test_streaming.py": "bf312330f4aa8722c9a2333ebdc5dd607908b1af9d3259e125268935b7cca59d",
+        "app/tests/unit/services/test_guest_identity.py": "d76782ed6b42f7df57752389dc20f8499a3f2e46afe7e35bc9e8f9e4e0cdf226",
+        "migrations/env.py": "823544494f9b32a06c747f18387f0986c62f4730576c4751e57d32342c44fd8d",
+        "migrations/versions/d64b8c0f9532_guest_identity.py": "bf11adb1c62b3af6f3c25e23d917b527379b3e7a78b4a8b87e9e70ec25f48675",
+        "migrations/versions/e75c9d1064a3_commerce_framework.py": "ce6e9e668e534c815128d09ce04bf6787b60d8cf2c32ab3dde94498fa449bb37"
+      }
+    },
+    "frontend": {
+      "manifest": "/tmp/rag-round27-browser-final-source.json",
+      "sha256": "a8b571b35a78b00e252f82ee462bb4bc8ef8558d839714f1dfbfed0759b6a472",
+      "count": 91,
+      "new_files": 5,
+      "changed_existing": 7,
+      "changed_sha256": {
+        "components/__tests__/chat-feedback.test.tsx": "f02af86a568af15e3119f6b1627beffb1131a3c41bebd459aa4e2c2e438a0b1c",
+        "components/__tests__/chat-response-integration.test.tsx": "35155b92b2831591cc6dba4053a48f89ffff7d26ba31aab7228135d914922ee0",
+        "components/__tests__/chat-turn-state.test.tsx": "15f339609bd9ffac474ce294adc291c3fbf4eb19382a01b96d7cb5a45ee7b5fe",
+        "components/__tests__/guest-chat.test.tsx": "c93dffa4a97b654b5721ec5ddea6727a138f5ee5b2f25f0a0e1c7461a8749957",
+        "components/__tests__/quality-state.test.tsx": "7657bd25df194de495fc9f132c355af2d65ddbe569c8279457654b5f585476c7",
+        "components/projects/ChatInterfaceUpdated.tsx": "31a3a85e2f373cb901d5fcaddc95cb45c6db9b6e2d0d366bcd4c3b1b80987709",
+        "components/projects/CommerceCards.tsx": "ad606428aae6e9ca87e1632dc079a7f2bb81402c499785684ef7927e837e9384",
+        "components/projects/RAGDetail.tsx": "8856be74671a2742d372b456d94cc84d4d554a5c9a980d6a3caf9625e3f05b88",
+        "lib/__tests__/guest-api.test.ts": "518dee4d5ad43ff807cac0870562b911276238d0939a0513a63737b7c0b977b6",
+        "lib/api.ts": "6fd31efc28b7da01344e8b15ec108a597cd49f8eaca51a1409a58e7c3acae7b4",
+        "lib/commerce-ui.ts": "448b456e223b73b4afab5b5b5e7fa93bfdba1e808c88bb04549dba13ca11278b",
+        "lib/guest-api.ts": "63a4f6dd9a43c7a686c6a8eb6f8de3cdab8ff92cf01a908c9221cc5b6aaea681"
+      }
+    },
+    "backend_extra_config": {
+      "pyproject.toml": "445e40afa3a3e18f9242e5c83f8ca771d180fc2256c5d015203bc18173083476",
+      ".env.example": "86048162093034779ff41938c493b1e3824337e020e3b63e6512ada7ba99c6c3"
+    },
+    "head": {
+      "backend": "1289c368c2025a6d4ea3013a0a665c91b05c79ef",
+      "frontend": "e2c9e328163fb38c8d3ce2ceebea03ea8aef1970"
+    },
+    "workspace": "Prior WIP, user docker-compose.local.yml and six planning files retained; no commits/push/deploy or dependency installs."
+  },
+  "artifact_sha256": {
+    "/tmp/rag-round27-backend-final-source-manifest.json": "7e36d5a593e426e42dbf6ae5d9a15ae1ba9fce2b6576c96180f1d502edd87957",
+    "/tmp/rag-round27-backend-final-config-manifest.json": "321fbb1dd8258d791ec2ac76d2b3d4ea5b0bc626799aac6624b4f79f24f3389a",
+    "/tmp/rag-round27-browser-final-source.json": "a8b571b35a78b00e252f82ee462bb4bc8ef8558d839714f1dfbfed0759b6a472",
+    "/tmp/rag-round27-snapshot-final-source.json": "8541356bb05e77c4f5a21e4e6c59d18823f88ce8e5d2ca473fb6190e23d88098",
+    "/tmp/rag-round27-backend-full-source-manifest.json": "2f0367873f88b5adbe109f8b43cbeb573e2067719c855380630c74dc90eb5c84",
+    "/tmp/rag-round27-backend-full.log": "2cfb8a323b98f191f82edb4e88752a1b08a53b399ac7e3f1a7254ac882325ef6",
+    "/tmp/rag-round27-backend-first-full.log": "5c36c4817b257749763afdfa33be40eae8650a636238b683627a06b3c31f1dbc",
+    "/tmp/rag-round27-backend-second-full.log": "7a5d173727c9ece6ac01573edfd51a2e85f4c9b9b2ce58b2fc8fe819b4bd32ae",
+    "/tmp/rag-round27-backend-lint.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+    "/tmp/rag-round27-backend-format.log": "14cd9920e1b6bbaae446bb9a28789d278bea54c3ba8b471d60ca57d57b13c420",
+    "/tmp/rag-round27-backend-types.log": "dadeedffab5a5f3992c3a83afc2dade2dc61fa8913ec01300a99aa2fc7a6bb4d",
+    "/tmp/rag-round27-cli-types.log": "2e0dd258970686efeb31dd7eab2c43a46afc5ae7497abb8d1cb170692f837038",
+    "/tmp/rag-round27-backend-pipcheck.log": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09",
+    "/tmp/rag-round27-guest-identity-evidence.json": "cb3d016332f569beec52c9b2eb7ed3d562914677eabc6635dff316033ff290f0",
+    "/tmp/rag-round27-commerce-domain-evidence.json": "67ad3c8424645273736aefa09c5112db4a091f9d28374f872c8e00561744b4f9",
+    "/tmp/rag-round27-guest-http-integration-review.json": "4a048c6b3832c8ea81b2f1fe55511f292fef14d62dd2d9a1c0489ecf5e5f6543",
+    "/tmp/rag-round27-guest-commerce-verification.json": "b19c19fb6c724e401b7ac3fbc494cf293e54466e41632bfa37ae0443aa8326c4",
+    "/tmp/rag-round27-guest-english-quantity-addendum.json": "a658d5bc4054d7b47a3493035d8c9c36ab6a21006a1a693d6ad427601f418384",
+    "/tmp/rag-round27-identity-http-cross-review.json": "9f348d4e5d13f9125f3236e854826673595155ba99cc6614e5afc231b00eecda",
+    "/tmp/rag-round27-frontend-browser-final-evidence.json": "5aa5ef08d228a70731d882d2a36db91cdaf15e29f1b3c59b2df504286cacf39f",
+    "/tmp/rag-round27-final-readonly-precheck.json": "8149e03ddb59f213e04c1407eeef530c1fdd82500fb41007bc945f19d20111f0",
+    "/tmp/rag-round27-browser-evidence/summary.json": "cbaacc17605340225fbe612c1eb2b585fa2931d59306c0694ee672790978a055",
+    "/tmp/rag-round27-browser-http.jsonl": "39c1f6b3c95fa659d5889e69aca490ee34317f0b2a59a2d528df7c74a4b2e183",
+    "/tmp/rag-round27-browser-evidence/01-catalog.png": "9a5584cbfa89e606cfb28c299992c1702ebbfa7cbdc66833b9409337d4858e77",
+    "/tmp/rag-round27-browser-evidence/02-quote.png": "de8bb1063ecdeda1578e895ac315810f0ee370731f41f659a6030f2c50b231ec",
+    "/tmp/rag-round27-browser-evidence/04-paid.png": "94559444f9be55f8821777df3c0991791a7ab22137e5447d403bc99d6348db54",
+    "/tmp/rag-round27-browser-evidence/08-purchase-survives-clear.png": "993b0419c95710f1f1fd654e5c4d5083f2aeff39fc4c21920b9693999eb39b1e",
+    "/tmp/rag-round27-browser-evidence/10-expired-cleared.png": "fc9bb1143d31b3dc51e7cd27fae74c9c11ec7bb509a8ae9cd630b2d758272f50"
+  },
+  "independent_review": "Component/source cross review and source precheck passed. Final documentation/evidence review recorded separately after this immutable result is written."
+}

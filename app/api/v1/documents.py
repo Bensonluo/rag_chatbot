@@ -18,6 +18,7 @@ from sqlalchemy import select
 from app.api.database import async_session_maker
 from app.api.deps import get_current_active_user
 from app.api.deps.authorization import require_kb_writer
+from app.api.deps.private_response import PrivateAPIRoute
 from app.api.deps.publication import get_publication_guard
 from app.config.settings import get_settings
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
@@ -33,7 +34,7 @@ from app.services.retrieval.publication import PublicationGuard, PublicationUnav
 from app.services.retrieval.qdrant_client import QdrantClient
 from app.services.retrieval.vector_base import VectorSearchRequest
 
-router = APIRouter(prefix="/documents", tags=["documents"])
+router = APIRouter(prefix="/documents", tags=["documents"], route_class=PrivateAPIRoute)
 logger = logging.getLogger(__name__)
 
 

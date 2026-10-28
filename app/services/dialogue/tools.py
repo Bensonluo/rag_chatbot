@@ -14,7 +14,10 @@ import logging
 import random
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from app.services.dialogue.action_ledger import ActionLedger
 
 from app.models.enums.intent import TASK_INTENTS  # noqa: F401 (re-exported)
 
@@ -41,6 +44,8 @@ class ToolDefinition:
     # JSON Schema for the function-calling API (LLM agent mode). When
     # None the tool is only reachable via the slot-filling pipeline.
     parameters_schema: dict[str, Any] | None = None
+    # Read-only authorization, repeated before a durable receipt is read.
+    authorize: Callable[[dict[str, Any]], Any] | None = None
 
 
 @dataclass
@@ -50,13 +55,21 @@ class ToolResult:
     success: bool
     data: dict[str, Any]
     message: str = ""
+    execution_status: str | None = None
+    action_id: str | None = None
+    replayed: bool = False
 
 
 class ToolRegistry:
     """Registry of available tools for Function Calling."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, action_ledger: "ActionLedger | None" = None) -> None:
         self._tools: dict[str, ToolDefinition] = {}
+        self.action_ledger = action_ledger
+
+    @property
+    def durable_actions(self) -> bool:
+        return self.action_ledger is not None
 
     def register(self, tool: ToolDefinition) -> None:
         self._tools[tool.intent] = tool
@@ -98,6 +111,11 @@ class ToolRegistry:
         user_id: int | None = None,
         session_id: int | None = None,
         language: str | None = None,
+        *,
+        action_id: str | None = None,
+        execution_scope: str | None = None,
+        allow_new: bool = True,
+        _lookup_only: bool = False,
     ) -> ToolResult:
         """Run the handler for ``intent`` with per-user authorization.
 
@@ -113,6 +131,10 @@ class ToolRegistry:
         if not tool:
             return ToolResult(success=False, data={}, message=f"No tool for intent: {intent}")
         call_args = dict(args)
+        call_args.pop("_durable_action_id", None)
+        if self.action_ledger is not None and tool.requires_confirmation:
+            for reserved in ("action_id", "operation_id", "execution_scope", "idempotency_key"):
+                call_args.pop(reserved, None)
         if user_id is not None:
             # Identity is server truth: a forged user_id inside LLM- or
             # request-supplied args must never override the authenticated
@@ -135,6 +157,83 @@ class ToolRegistry:
             # Strip model-supplied language claims — the caller decides
             # the reply language from the user's own message.
             call_args.pop("language", None)
+        if self.action_ledger is not None and tool.requires_confirmation:
+            from app.services.dialogue.action_ledger import ActionBinding
+
+            if not isinstance(session_id, int) or not isinstance(user_id, int):
+                return ToolResult(False, {}, execution_status="confirmation_required")
+            try:
+                binding = ActionBinding(
+                    action_id=action_id or "",
+                    session_id=session_id,
+                    user_id=user_id,
+                    scope=execution_scope or str(session_id),
+                    tool_name=tool.name,
+                    arguments={
+                        key: value
+                        for key, value in call_args.items()
+                        if key not in {"user_id", "session_id", "language"}
+                    },
+                )
+            except (TypeError, ValueError):
+                return ToolResult(False, {}, execution_status="confirmation_required")
+            if tool.authorize is not None:
+                try:
+                    checked = tool.authorize(call_args)
+                    if inspect.isawaitable(checked):
+                        await checked
+                except Exception:
+                    return ToolResult(False, {}, execution_status="conflict", action_id=action_id)
+
+            async def invoke() -> dict[str, Any]:
+                # Do not catch provider exceptions here: a timeout/exception
+                # after dispatch is uncertain, not a confirmed business failure.
+                call_args["idempotency_key"] = binding.action_id
+                call_args["_durable_action_id"] = binding.action_id
+                value = tool.handler(call_args)
+                if inspect.isawaitable(value):
+                    value = await value
+                result = value if isinstance(value, ToolResult) else ToolResult(True, value, "OK")
+                if (
+                    type(result.success) is not bool
+                    or not isinstance(result.data, dict)
+                    or not isinstance(result.message, str)
+                ):
+                    raise ValueError("Invalid tool result")
+                return {"success": result.success, "data": result.data, "message": result.message}
+
+            outcome = (
+                await self.action_ledger.lookup(binding)
+                if _lookup_only
+                else await self.action_ledger.execute_once(binding, invoke, allow_new=allow_new)
+            )
+            saved = outcome.result
+            if (
+                outcome.status == "completed"
+                and isinstance(saved, dict)
+                and type(saved.get("success")) is bool
+                and isinstance(saved.get("data"), dict)
+                and isinstance(saved.get("message"), str)
+            ):
+                return ToolResult(
+                    saved["success"],
+                    saved["data"],
+                    saved["message"],
+                    "completed",
+                    binding.action_id,
+                    outcome.replayed,
+                )
+            return ToolResult(
+                False,
+                {},
+                execution_status="unknown" if outcome.status == "completed" else outcome.status,
+                action_id=binding.action_id,
+                replayed=outcome.replayed,
+            )
+        if _lookup_only:
+            return ToolResult(
+                False, {}, execution_status="confirmation_required", action_id=action_id
+            )
         try:
             result = tool.handler(call_args)
             if inspect.isawaitable(result):
@@ -144,6 +243,28 @@ class ToolRegistry:
             return ToolResult(success=True, data=result, message="OK")
         except Exception as e:
             return ToolResult(success=False, data={}, message=str(e))
+
+    async def lookup_action(
+        self,
+        intent: str,
+        args: dict[str, Any],
+        *,
+        user_id: int | None,
+        session_id: int | None,
+        language: str | None,
+        action_id: str | None,
+        execution_scope: str | None,
+    ) -> ToolResult:
+        return await self.execute(
+            intent,
+            args,
+            user_id,
+            session_id,
+            language,
+            action_id=action_id,
+            execution_scope=execution_scope,
+            _lookup_only=True,
+        )
 
 
 # ── Demo order store ───────────────────────────────────────────────────────
@@ -309,9 +430,9 @@ def mock_get_recent_orders(args: dict[str, Any]) -> dict[str, Any]:
     return {"orders": orders, "count": len(orders)}
 
 
-def create_default_tool_registry() -> ToolRegistry:
+def create_default_tool_registry(*, action_ledger: "ActionLedger | None" = None) -> ToolRegistry:
     """Create and populate registry with all mock tools."""
-    registry = ToolRegistry()
+    registry = ToolRegistry(action_ledger=action_ledger)
     for tool in DEFAULT_TOOLS:
         registry.register(tool)
     return registry
@@ -490,6 +611,7 @@ DEFAULT_TOOLS: list[ToolDefinition] = [
         required_slots=["order_id", "reason"],
         handler=mock_refund,
         requires_confirmation=True,
+        authorize=_owned_order,
         parameters_schema={
             "type": "object",
             "properties": {
@@ -512,6 +634,7 @@ DEFAULT_TOOLS: list[ToolDefinition] = [
         required_slots=["order_id", "reason"],
         handler=mock_return,
         requires_confirmation=True,
+        authorize=_owned_order,
         parameters_schema={
             "type": "object",
             "properties": {

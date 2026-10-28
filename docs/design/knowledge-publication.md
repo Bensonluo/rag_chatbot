@@ -56,3 +56,5 @@ L0/L1/L2 使用固定 `published-v1` 命名空间。旧缓存可能已丢掉图�
 [Qdrant 官方 alias 说明](https://qdrant.tech/documentation/manage-data/collections/#collection-aliases)描述整集合 alias 的原子切换；上表对多存储边界的判断是本项目架构推论，不是厂商对本项目的保证。
 
 具体前后证据与当前门禁见[发布资格验证](../reviews/knowledge-publication-results-2026-10-28.json)。真实 PostgreSQL 并发、Neo4j 查询与生产模型质量仍需独立验证。
+
+知识登记、原始/规范化全文、上传替换、重试和删除在两种模式下都需 active admin；普通注册客户仅保留已发布检索能力，不因认证而成为知识运营者。身份入口与无缓存规则见[知识访问合同](knowledge-access.md)。

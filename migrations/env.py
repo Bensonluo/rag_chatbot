@@ -10,14 +10,24 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from app.config.settings import settings
+from app.models.database.action_execution import ActionExecution  # noqa: F401
 
 # Import models and settings
 from app.models.database.base import Base
+from app.models.database.commerce import (  # noqa: F401
+    MockCommerceObject,
+    MockCommerceReceipt,
+    PurchaseAction,
+    PurchaseConfirmation,
+    PurchaseOperation,
+    PurchaseSession,
+)
 
 # Import all models to ensure they're registered with SQLAlchemy
 # (side-effect imports — removing them empties Base.metadata and would
 # make autogenerate diff against an empty model set)
 from app.models.database.document import Document  # noqa: F401
+from app.models.database.guest import GuestVisitor  # noqa: F401
 from app.models.database.handoff_message import HandoffMessage  # noqa: F401
 from app.models.database.knowledge_gap import KnowledgeGapRecord  # noqa: F401
 from app.models.database.knowledge_gap_resolution import KnowledgeGapResolution  # noqa: F401

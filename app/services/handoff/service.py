@@ -34,10 +34,10 @@ from app.models.schemas.handoff import (
     HandoffConversationMessage,
     HandoffConversationPage,
     HandoffConversationTicket,
+    HandoffCustomerMessageCreate,
     HandoffHistoryMessage,
     HandoffHistoryResponse,
     HandoffMessageAcknowledgement,
-    HandoffMessageCreate,
     HandoffStaffMessageCreate,
 )
 from app.repositories.ticket_repository import (
@@ -48,6 +48,7 @@ from app.repositories.ticket_repository import (
 )
 from app.services.chat.citations import normalize_citations
 from app.services.chat.resolution import apply_resolution_transition
+from app.services.chat.session_identity import ConversationChangedError, require_session_key
 from app.services.handoff.summarizer import SummaryLLM
 
 if TYPE_CHECKING:
@@ -255,23 +256,36 @@ class HandoffService:
             repo = TicketRepository(session)
             tickets = await repo.list_by_status(status, skip=skip, limit=limit)
             privacy = {}
+            keys = {}
             if tickets:
                 rows = await session.execute(
-                    select(ChatSession.id, ChatSession.session_metadata).where(
-                        ChatSession.id.in_({ticket.session_id for ticket in tickets})
-                    )
+                    select(
+                        ChatSession.id, ChatSession.session_metadata, ChatSession.session_key
+                    ).where(ChatSession.id.in_({ticket.session_id for ticket in tickets}))
                 )
+                rows = list(rows)
+                keys = {identifier: key for identifier, _metadata, key in rows}
                 privacy = {
                     identifier: isinstance(metadata, dict)
                     and metadata.get("access_mode") == "private"
-                    for identifier, metadata in rows
+                    for identifier, metadata, _key in rows
                 }
             return [
-                {**_ticket_to_dict(ticket), "is_private": privacy.get(ticket.session_id, False)}
+                {
+                    **_ticket_to_dict(ticket, keys.get(ticket.session_id)),
+                    "is_private": privacy.get(ticket.session_id, False),
+                }
                 for ticket in tickets
             ]
 
-    async def claim_ticket(self, ticket_id: int, agent_id: int) -> dict[str, Any]:
+    async def claim_ticket(
+        self,
+        ticket_id: int,
+        agent_id: int,
+        *,
+        expected_session_key: str | None = None,
+        require_key: bool = False,
+    ) -> dict[str, Any]:
         """
         Claim an open ticket for an agent.
 
@@ -280,13 +294,32 @@ class HandoffService:
         """
         session_id = await self._ticket_session(ticket_id)
         async with self._hold_session(session_id), self._session_maker() as session:
+            target = await session.get(HandoffTicket, ticket_id, with_for_update=True)
+            if target is None:
+                raise LookupError("Ticket unavailable")
+            if target.session_id != session_id:
+                raise ConversationChangedError("Conversation changed")
+            chat = await session.get(ChatSession, session_id)
+            if chat is None:
+                raise LookupError("Conversation unavailable")
+            require_session_key(
+                chat.session_key, expected_session_key, required=require_key and chat.is_private
+            )
+            session_key = chat.session_key
             ticket = await TicketRepository(session).claim(ticket_id, agent_id)
             if ticket is None:
                 raise LookupError(f"Ticket {ticket_id} is not claimable")
-            return _ticket_to_dict(ticket)
+            return _ticket_to_dict(ticket, session_key)
 
     async def get_ticket_history(
-        self, ticket_id: int, agent_id: int, skip: int = 0, limit: int = 50
+        self,
+        ticket_id: int,
+        agent_id: int,
+        skip: int = 0,
+        limit: int = 50,
+        *,
+        expected_session_key: str | None = None,
+        require_key: bool = False,
     ) -> HandoffHistoryResponse:
         """Read persisted turns only while this agent handles the claimed ticket.
 
@@ -318,6 +351,12 @@ class HandoffService:
             ticket = await repo.get_claimed_for_history(ticket_id, agent_id)
             if ticket is None:
                 raise LookupError("Ticket history not found")
+            chat = await session.get(ChatSession, ticket.session_id)
+            if chat is None:
+                raise LookupError("Conversation unavailable")
+            require_session_key(
+                chat.session_key, expected_session_key, required=require_key and chat.is_private
+            )
             total = await repo.count_history_messages(ticket.session_id)
             rows = await repo.get_history_messages(ticket.session_id, skip=skip, limit=limit)
             messages = []
@@ -341,13 +380,21 @@ class HandoffService:
             return HandoffHistoryResponse(
                 ticket_id=ticket.id,
                 session_id=ticket.session_id,
+                session_key=chat.session_key,
                 skip=skip,
                 limit=limit,
                 total=total,
                 messages=messages,
             )
 
-    async def resolve_ticket(self, ticket_id: int, agent_id: int) -> dict[str, Any]:
+    async def resolve_ticket(
+        self,
+        ticket_id: int,
+        agent_id: int,
+        *,
+        expected_session_key: str | None = None,
+        require_key: bool = False,
+    ) -> dict[str, Any]:
         """
         Resolve a claimed or open ticket.
 
@@ -368,10 +415,18 @@ class HandoffService:
             )
             if ticket is None or ticket.status not in {TICKET_STATUS_OPEN, TICKET_STATUS_CLAIMED}:
                 raise LookupError(f"Ticket {ticket_id} is not resolvable")
+            if ticket.session_id != session_id:
+                raise ConversationChangedError("Conversation changed")
+            chat = await session.get(ChatSession, ticket.session_id)
+            if chat is None:
+                raise LookupError("Conversation unavailable")
+            require_session_key(
+                chat.session_key, expected_session_key, required=require_key and chat.is_private
+            )
             await self._resolve_in_transaction(session, ticket, agent_id)
             await session.flush()
             await session.refresh(ticket)
-            return _ticket_to_dict(ticket)
+            return _ticket_to_dict(ticket, chat.session_key)
 
     @staticmethod
     async def _resolve_in_transaction(session: Any, ticket: HandoffTicket, agent_id: int) -> None:
@@ -394,21 +449,38 @@ class HandoffService:
         return chat
 
     async def get_customer_messages(
-        self, session_id: int, user_id: int, after_id: int = 0, limit: int = 100
+        self,
+        session_id: int,
+        user_id: int,
+        after_id: int = 0,
+        limit: int = 100,
+        *,
+        expected_session_key: str | None = None,
+        require_key: bool = False,
     ) -> HandoffConversationPage:
         _validate_channel_page(session_id, user_id, after_id, limit)
-        async with self._session_maker() as session:
-            await self._owned_session(session, session_id, user_id)
+        async with self._hold_session(session_id), self._session_maker() as session:
+            chat = await self._owned_session(session, session_id, user_id)
+            require_session_key(chat.session_key, expected_session_key, required=require_key)
             ticket = await session.scalar(
                 select(HandoffTicket)
                 .where(HandoffTicket.session_id == session_id)
                 .order_by(HandoffTicket.id.desc())
                 .limit(1)
             )
-            return await _conversation_page(session, session_id, ticket, after_id, limit)
+            return await _conversation_page(
+                session, session_id, ticket, after_id, limit, chat.session_key
+            )
 
     async def get_staff_messages(
-        self, ticket_id: int, agent_id: int, after_id: int = 0, limit: int = 100
+        self,
+        ticket_id: int,
+        agent_id: int,
+        after_id: int = 0,
+        limit: int = 100,
+        *,
+        expected_session_key: str | None = None,
+        require_key: bool = False,
     ) -> HandoffConversationPage:
         _validate_channel_page(ticket_id, agent_id, after_id, limit)
         async with self._session_maker() as session, session.begin():
@@ -418,19 +490,39 @@ class HandoffService:
             chat = await session.get(ChatSession, ticket.session_id)
             if chat is None or not chat.is_private:
                 raise LookupError("Conversation unavailable")
-            return await _conversation_page(session, ticket.session_id, ticket, after_id, limit)
+            require_session_key(chat.session_key, expected_session_key, required=require_key)
+            return await _conversation_page(
+                session, ticket.session_id, ticket, after_id, limit, chat.session_key
+            )
 
     async def send_customer_message(
-        self, session_id: int, user_id: int, client_message_id: str, content: str
+        self,
+        session_id: int,
+        user_id: int,
+        client_message_id: str,
+        content: str,
+        *,
+        expected_ticket_id: int | None = None,
+        expected_session_key: str | None = None,
     ) -> HandoffMessageAcknowledgement:
-        request = HandoffMessageCreate(client_message_id=client_message_id, content=content)
+        request = HandoffCustomerMessageCreate(
+            client_message_id=client_message_id,
+            content=content,
+            expected_ticket_id=expected_ticket_id,
+        )
         _validate_channel_page(session_id, user_id, 0, 1)
         # Do not reveal whether a foreign session currently holds a busy lock.
         async with self._session_maker() as session:
             await self._owned_session(session, session_id, user_id)
         async with self._hold_session(session_id):
             return await self._send_channel_message(
-                session_id, user_id, "customer", request.client_message_id, request.content
+                session_id,
+                user_id,
+                "customer",
+                request.client_message_id,
+                request.content,
+                expected_ticket_id=request.expected_ticket_id,
+                expected_session_key=expected_session_key,
             )
 
     async def send_staff_message(
@@ -440,6 +532,7 @@ class HandoffService:
         client_message_id: str,
         content: str,
         resolve: bool = False,
+        expected_session_key: str | None = None,
     ) -> HandoffMessageAcknowledgement:
         request = HandoffStaffMessageCreate(
             client_message_id=client_message_id, content=content, resolve=resolve
@@ -471,6 +564,7 @@ class HandoffService:
                 request.content,
                 ticket_id=ticket_id,
                 resolve=request.resolve,
+                expected_session_key=expected_session_key,
             )
 
     async def _send_channel_message(
@@ -483,6 +577,8 @@ class HandoffService:
         *,
         ticket_id: int | None = None,
         resolve: bool = False,
+        expected_ticket_id: int | None = None,
+        expected_session_key: str | None = None,
     ) -> HandoffMessageAcknowledgement:
         # The unique key remains the final arbitration point for callers
         # using this service without the production session coordinator.
@@ -490,7 +586,7 @@ class HandoffService:
             try:
                 async with self._session_maker() as session, session.begin():
                     if kind == "customer":
-                        await self._owned_session(session, session_id, author_id)
+                        chat = await self._owned_session(session, session_id, author_id)
                         ticket = await session.scalar(
                             select(HandoffTicket)
                             .where(HandoffTicket.session_id == session_id)
@@ -518,6 +614,13 @@ class HandoffService:
                             raise LookupError("Conversation unavailable")
                         if not chat.is_private:
                             raise RequiresPrivateSessionError()
+                    require_session_key(chat.session_key, expected_session_key)
+                    if (
+                        kind == "customer"
+                        and expected_ticket_id is not None
+                        and (ticket is None or ticket.id != expected_ticket_id)
+                    ):
+                        raise ConflictError("The human conversation changed before this send")
                     existing = await session.scalar(
                         select(HandoffMessage)
                         .where(
@@ -538,6 +641,7 @@ class HandoffService:
                         ):
                             raise ConflictError("Message identifier conflicts with a prior send")
                         return HandoffMessageAcknowledgement(
+                            session_key=chat.session_key,
                             message=_conversation_message(existing),
                             ticket=_conversation_ticket(ticket),
                             reused=True,
@@ -567,6 +671,7 @@ class HandoffService:
                         await self._resolve_in_transaction(session, ticket, author_id)
                     await session.flush()
                     return HandoffMessageAcknowledgement(
+                        session_key=chat.session_key,
                         message=_conversation_message(message),
                         ticket=_conversation_ticket(ticket),
                         reused=False,
@@ -668,10 +773,11 @@ def _history_sources(value: object) -> list[str] | None:
     return sources or None
 
 
-def _ticket_to_dict(ticket: HandoffTicket) -> dict[str, Any]:
+def _ticket_to_dict(ticket: HandoffTicket, session_key: str | None = None) -> dict[str, Any]:
     """Serialize a ticket row for API responses."""
     return {
         "id": ticket.id,
+        "session_key": session_key,
         "session_id": ticket.session_id,
         "user_id": ticket.user_id,
         "reason": ticket.reason,
@@ -731,7 +837,12 @@ def _conversation_message(message: HandoffMessage) -> HandoffConversationMessage
 
 
 async def _conversation_page(
-    session: Any, session_id: int, ticket: HandoffTicket | None, after_id: int, limit: int
+    session: Any,
+    session_id: int,
+    ticket: HandoffTicket | None,
+    after_id: int,
+    limit: int,
+    session_key: str,
 ) -> HandoffConversationPage:
     rows = list(
         (
@@ -745,6 +856,7 @@ async def _conversation_page(
     )
     page = rows[:limit]
     return HandoffConversationPage(
+        session_key=session_key,
         session_id=session_id,
         ticket=_conversation_ticket(ticket) if ticket is not None else None,
         messages=[_conversation_message(row) for row in page],

@@ -12,6 +12,7 @@ from scripts import probe_live as probe
 
 _OWNER = 1
 _SESSION = 101
+_SESSION_KEY = "00000000-0000-4000-8000-000000000101"
 _TICKET = 12
 _QUESTION = "what is the return policy"
 _ANSWER = "Returns are accepted within 7 days."
@@ -31,6 +32,7 @@ def _knowledge_reply(source_type: str = "document") -> dict[str, Any]:
         sources = ["returns-doc"]
     return {
         "session_id": _SESSION,
+        "session_key": _SESSION_KEY,
         "content": _ANSWER,
         "intent": "policy",
         "metadata": {"pending_slots": []},
@@ -42,6 +44,7 @@ def _knowledge_reply(source_type: str = "document") -> dict[str, Any]:
 def _ticket_reply() -> dict[str, Any]:
     return {
         "session_id": _SESSION,
+        "session_key": _SESSION_KEY,
         "content": f"Your request is recorded (ticket #{_TICKET}).",
         "intent": "handoff",
         "metadata": {"handoff_outcome": "queued", "handoff_ticket_id": _TICKET},
@@ -57,8 +60,11 @@ def _owned_chat_handler(
         if request.url.path == "/api/v1/auth/me":
             return httpx.Response(200, json={"id": _OWNER, "is_active": True, "is_admin": False})
         if request.url.path == "/api/v1/sessions":
-            return httpx.Response(200, json={"id": _SESSION, "user_id": _OWNER})
+            return httpx.Response(
+                200, json={"id": _SESSION, "user_id": _OWNER, "session_key": _SESSION_KEY}
+            )
         if request.url.path == "/api/v1/chat/history":
+            assert request.url.params["expected_session_key"] == _SESSION_KEY
             assistant = {
                 "role": "assistant",
                 "content": reply["content"],
@@ -71,6 +77,7 @@ def _owned_chat_handler(
                 200,
                 json={
                     "session_id": _SESSION,
+                    "session_key": _SESSION_KEY,
                     "messages": [
                         {
                             "role": "user",
@@ -84,6 +91,7 @@ def _owned_chat_handler(
             )
         assert request.method == "POST" and request.url.path == "/api/v1/chat"
         assert json.loads(request.content)["session_id"] == _SESSION
+        assert json.loads(request.content)["expected_session_key"] == _SESSION_KEY
         return httpx.Response(200, json=copy.deepcopy(reply))
 
     return handler
@@ -119,6 +127,7 @@ def _ticket_row(*, ticket_id: int = _TICKET, session_id: int = _SESSION, user_id
     return {
         "id": ticket_id,
         "session_id": session_id,
+        "session_key": _SESSION_KEY,
         "user_id": user_id,
         "status": "open",
         "assigned_to": None,
@@ -222,3 +231,76 @@ def test_probe_keeps_its_stricter_seeded_policy_revision_requirement():
     SourceCitation.model_validate(reply["citations"][0])
 
     assert probe.is_knowledge_answer(probe._EN_POLICY_EVIDENCE)(reply) is not None
+
+
+@pytest.mark.parametrize(
+    "bad_key",
+    [None, "not-a-uuid", _SESSION_KEY.replace("-", ""), "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"],
+)
+async def test_owned_probe_never_sends_when_server_incarnation_is_missing_or_noncanonical(
+    monkeypatch, bad_key
+):
+    case = probe.ProbeCase("invalid-incarnation", [probe.Turn("hello", lambda reply: None)])
+    monkeypatch.setattr(probe, "build_cases", lambda: [case])
+    requests = []
+
+    def handler(request):
+        requests.append((request.method, request.url.path))
+        if request.url.path == "/api/v1/auth/me":
+            return httpx.Response(200, json={"id": _OWNER})
+        if request.url.path == "/api/v1/sessions":
+            return httpx.Response(
+                200, json={"id": _SESSION, "user_id": _OWNER, "session_key": bad_key}
+            )
+        pytest.fail("An invalid server key must not authorize a probe chat or history request")
+
+    async with _client(handler, authenticated=True) as client:
+        await probe.run_probes(client, authenticated_sessions=True)
+    assert case.failures and case.failures[0].startswith("session allocation:")
+    assert requests == [("GET", "/api/v1/auth/me"), ("POST", "/api/v1/sessions")]
+
+
+@pytest.mark.parametrize("surface", ["reply", "history"])
+async def test_owned_probe_cannot_verify_readback_from_a_different_incarnation(
+    monkeypatch, surface
+):
+    case = probe.ProbeCase(
+        "changed-incarnation",
+        [probe.Turn(_QUESTION, probe.is_knowledge_answer(probe._EN_POLICY_EVIDENCE))],
+    )
+    monkeypatch.setattr(probe, "build_cases", lambda: [case])
+    reply = _knowledge_reply()
+    other = "00000000-0000-4000-8000-000000000102"
+    if surface == "reply":
+        reply["session_key"] = other
+    original = _owned_chat_handler(case, reply)
+
+    def handler(request):
+        response = original(request)
+        if surface == "history" and request.url.path == "/api/v1/chat/history":
+            return httpx.Response(200, json={**response.json(), "session_key": other})
+        return response
+
+    async with _client(handler, authenticated=True) as client:
+        await probe.run_probes(client, authenticated_sessions=True)
+    assert case.failures and not case.history_verified
+
+
+async def test_staff_observation_must_match_the_owned_conversation_incarnation(monkeypatch):
+    case = probe.ProbeCase("ticket-incarnation", [probe.Turn("human agent", probe.is_ticket(True))])
+    monkeypatch.setattr(probe, "build_cases", lambda: [case])
+
+    def observer(request):
+        if request.url.path == "/api/v1/auth/me":
+            return httpx.Response(200, json={"id": 2, "is_admin": True, "is_active": True})
+        row = {**_ticket_row(), "session_key": "00000000-0000-4000-8000-000000000102"}
+        return httpx.Response(200, json={"tickets": [row], "count": 1})
+
+    async with (
+        _client(_owned_chat_handler(case, _ticket_reply()), authenticated=True) as client,
+        _client(observer) as staff,
+    ):
+        await probe.main(["--require-ticket-evidence"], client=client, ticket_client=staff)
+    assert case.history_verified
+    assert case.failures == ["staff ticket observation: wrong conversation identity"]
+    assert case.verified_ticket_ids == []

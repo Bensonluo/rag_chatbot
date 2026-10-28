@@ -1,0 +1,280 @@
+{
+  "round": 26,
+  "date": "2026-10-28",
+  "status": "Quality mutation identity and review evidence protection implemented and verified locally; overall product goal remains active",
+  "baseline": {
+    "backend_passed": 3530,
+    "frontend_total": 354,
+    "backend_source_files": 501,
+    "frontend_source_files": 86,
+    "previous_evidence": "session-incarnation-results-2026-10-28.json",
+    "preserved": "All earlier WIP, user Compose, planning history, and two concurrent frontend locale changes; no commit/push/deploy"
+  },
+  "before": {
+    "real_audits": [
+      "/tmp/rag-round26-private-mutation-audit.json",
+      "/tmp/rag-round26-qa-snapshot-audit.json"
+    ],
+    "actual_defects": [
+      "Clear rotated session key but naturally reused message ID still accepted old feedback.",
+      "After a real ownership SELECT, normal delete/create/bot writes reused session and message IDs for another owner; original inflight feedback200 rated the new owner message and incremented rating counter. Sequential foreign actor404 control held.",
+      "Old QA session ID resolved a replacement consultation and removed it from review queue.",
+      "With key unchanged, a new customer problem advanced Message watermark2 to4; old QA verdict still resolved the current conversation."
+    ],
+    "components": "Real JWT/FastAPI/FK-SQLite/compiled graph/local tools and normal APIs with socket/DNS guards. Cache observation records the eviction transport call target, not actual Redis deletion.",
+    "deferred_activity_audit": "Actual AI2/customer-human1/staff-human1 messages leave DTO counts0 and new empty consultation first; title/QA alone reorder. No activity implementation this round."
+  },
+  "changes": {
+    "feedback": "Private targets require original expected_session_key in both modes after actor/eligibility checks. Scalar discovery ends read transaction; same session gate reauthorizes fresh target and preflight/client keys. Conditional UPDATE binds message/SID/key/owner-or-explicit-shared/assistant/completed. Committed immutable scalar receipt precedes rating metrics and eviction outside the gate. No reread of reused numeric message after commit.",
+    "response": "Feedback response adds real session_id/session_key; private SupportApi checks success/message/rating/SID/original-key before saved UI. No auto-adopt or retry with a new key. Shared Demo ApiClient keeps its legacy contract; not claimed protected against stale unkeyed requests across incarnations.",
+    "qa": "All active-admin QA verdicts, public or private, require expected_session_key plus expected_review_version. Queue and new GET /sessions/{id}/review expose current opaque proposal and bot/human watermarks; POST returns the new proposal. Identity/hash are not authorization or proof the reviewer read the transcript.",
+    "review_version": "SHA256 over owner/key/epoch/resolution/reopens/prior QA, ordered Message id/role/status/rating/feedback_text/created_at projection digest, max human ID, and ticket id/status/assignee. Message projections stream in256-row batches with cursor close; still O(N) DB work and ticket rows are read. Not a body hash or a persisted monotonic revision.",
+    "review_consistency": "Queue snapshots and verdict validation occur under the shared conversation gate. Queue rechecks eligibility and skips busy candidates. UPDATE additionally binds row state/key/owner/epoch/bot+human watermarks/prior reviewed_at, not an SQL recomputation of the full digest. Requires normal writers to use the coordination contract and normal message-body immutability.",
+    "corrections": "Explicit admin GET can refresh an already reviewed session; old proposals cannot overwrite a newer verdict. qa_verdict remains one current dictionary, not an audit log. Resolved/unresolved preserve prior outcome semantics without artificial user reopen increments.",
+    "late_review_fix": "Independent review found committed negative feedback waiting for cache eviction while holding the gate. New36th actual case first failed because clear returned409 despite committed rating. Metrics/cache/ACK moved outside gate; case then passed and proves original immutable receipt/body survive clear/new ID reuse while new answer remains unrated."
+  },
+  "validation": {
+    "backend_default": {
+      "passed": 3581,
+      "skipped": 3,
+      "warnings": 5,
+      "seconds": 204.69,
+      "log": "/tmp/rag-round26-backend-full-final.log",
+      "coverage_percent": 93.57,
+      "statements": 5553,
+      "missed": 357,
+      "minimum_percent": 70,
+      "coverage_scope": "Unchanged selected core modules; not all502 files or proof of full new API/repository coverage."
+    },
+    "backend_new": {
+      "unit": 15,
+      "actual_http_sqlite": 36,
+      "actual_breakdown": {
+        "feedback": 17,
+        "qa": 19
+      },
+      "net_total": 51
+    },
+    "initial_full": {
+      "passed": 3580,
+      "skipped": 3,
+      "warnings": 5,
+      "seconds": 202.28,
+      "log": "/tmp/rag-round26-backend-full.log",
+      "manifest": "/tmp/rag-round26-backend-initial-source-manifest.json",
+      "scope": "Completed before the postcommit cache-gate finding and new36th case; historical only. Final full reran after exactly2 source changes (feedback endpoint and new evaluation file)."
+    },
+    "focused": {
+      "old_qa": "20 passed in0.24s",
+      "final_qa_plus_actual": "55 passed in3.02s before new36th case",
+      "final_feedback_plus_actual": "79 passed in3.19s after gate correction",
+      "author_feedback": "65 passed in1.58s, superseded pre-cache-gate revision",
+      "new_postcommit_case": "1 passed,35 deselected in0.22s; before fix1failed/35deselected0.40s"
+    },
+    "red_fidelity": "Four actual before defects are independent of regression drafting. Original30-case last-message-ID draft produced24fail/6controls and is not claimed as literal final36-case baseline. Frontend old-source tests produced6fail plus2controls (existing late-ACK protection and old-source marker).",
+    "frontend": {
+      "jest": 312,
+      "node": 55,
+      "total": 367,
+      "jest_suites": 12,
+      "static_build_pages": 12,
+      "net_since25": 13,
+      "p1_new": 7,
+      "external_locale_new": 6,
+      "provenance": "Only4 frontend files authored for this P1; two concurrent workspace locale files retained and included in fresh integrated gates. OriginalP1-only361 was superseded by integrated367; not all13 attributed to our author.",
+      "full_log": "/tmp/rag-round26-frontend-integrated-full.log",
+      "lint": "passed",
+      "independent_strict_tsc": "passed",
+      "build": "passed",
+      "boundaries": "React/jsdom with actual SupportApi and controlled fetch; no real browser/hydration/frontend-backend live HTTP/provider/model/payment/production claim."
+    },
+    "static": {
+      "ruff": "passed: app,migrations,scripts/init_db.py,scripts/document_import.py,scripts/probe_live.py",
+      "format": "478 files passed: app plus scripts/probe_live.py",
+      "mypy_app": "477 source files passed",
+      "mypy_cli": "3 CLI files passed; unchanged since their completed run",
+      "pip_check": "No broken requirements found; unchanged dependencies"
+    },
+    "independent_code_review": "/tmp/rag-round26-independent-integration-review.json; current502BE/86FE hashes match; no remaining blocking findings. Source review is distinct from parent full-suite run.",
+    "historical_author_evidence": "/tmp/rag-round26-feedback-backend-evidence.json and original35-case verification describe pre-gate-correction source and are explicitly superseded for final endpoint/test SHA by final manifest,36-case record, and final full.",
+    "hygiene": {
+      "backend": {
+        "tracked_whitespace": "passed",
+        "index_empty": true,
+        "dependencies_unchanged": true,
+        "head": "1289c368c2025a6d4ea3013a0a665c91b05c79ef"
+      },
+      "frontend": {
+        "tracked_whitespace": "passed",
+        "index_empty": true,
+        "dependencies_unchanged": true,
+        "head": "e2c9e328163fb38c8d3ce2ceebea03ea8aef1970"
+      }
+    }
+  },
+  "source_counts": {
+    "backend_python": 502,
+    "backend_app": 477,
+    "backend_tests": 254,
+    "backend_test_modules": 248,
+    "frontend_source_config": 86,
+    "backend_changed_since25": 14,
+    "frontend_changed_since25": 6
+  },
+  "backend_source_sha256": {
+    "app/api/v1/feedback.py": "076a97174c57b3d421e44a54b72cf46faec08be3e381a4876f9736b77fe0d4f2",
+    "app/api/v1/sessions.py": "1fb9849809bc02a0ca3e362e12a0cca7c5e6377e17b6894001954e25d0f03535",
+    "app/models/schemas/feedback.py": "7ad602cba0c253c5fbe46c58dc67b25b8889b9c7fd49f0eff27af54e8beccadd",
+    "app/models/schemas/session.py": "2e66247a08ebbf198c403341d4368033800b0544270ce2b69c50bc4a9d5755d7",
+    "app/repositories/feedback_repository.py": "29fe26629b07b543c653394f5ece9d69db4336d37a52f0208df5ffcf042d79a8",
+    "app/repositories/session_repository.py": "97c77cc90c2592a878678348acc2d0ae7297da5fdccb8c8ad0cba659985c7989",
+    "app/tests/evaluation/test_feedback_identity.py": "340ae407aeeb0a2b5d7a9ab172f10ec3e226eb2281eeb76d7abcb3312ba4b701",
+    "app/tests/evaluation/test_quality_mutation_identity.py": "40d0e5d256251250ad431573f873b20f10963a59ece13527c57be8384f11713b",
+    "app/tests/unit/api/v1/test_feedback_authorization.py": "7a40c57d397e98c63218ac64d31a422de1d89c83cb455420807f1a71f486a63a",
+    "app/tests/unit/api/v1/test_feedback_eviction.py": "66b6e4b5e29944fd15536b95e5301ca590e34821d8a28c42decf49885cb8571c",
+    "app/tests/unit/api/v1/test_feedback_metrics.py": "6d5e143dd8730b0c5945fe6c603723dc0b8e316d361436d2dda9fc345dbedc0c",
+    "app/tests/unit/api/v1/test_review_queue_api.py": "d48ed664532d5d90deee6a36dc97b77eb69ee75bd68d94078617f84ee34d087b",
+    "app/tests/unit/repositories/test_feedback_eligibility.py": "3a80c97dfc8b929bdeb698dbd9a0bca0d880c6fd9463e98881341dca3956a6c8",
+    "app/tests/unit/repositories/test_review_queue.py": "21b8ffa44a0dadb1a3aff59a03d5aa10d55f70d91142757a4f4c0f5cd81c7140"
+  },
+  "frontend_source_sha256": {
+    "components/__tests__/quality-state.test.tsx": "2c3515ecba80a8dc96a1ee0e650a0257633b5b06094fb4576fa95aaf66665bfd",
+    "components/support/ConversationPanel.tsx": "6dac10100ad148c44daba37a84560b45c9a7b40023e6f73d55619cafce0e3591",
+    "components/support/__tests__/support-continuity.test.tsx": "eb1fc664b96976cb9272e4cfc11ac9d289351bfc78a374f080ee68713604efd6",
+    "components/support/__tests__/support-workspace.test.tsx": "e039d1029f355e5e047f9800e76280012fba2cf8c82e624788236c26c7e9c944",
+    "lib/i18n/context.tsx": "b2435d5ce27a6bf0dc4d132c38e4b14964f083afef8d872c70f2ff4400a051dc",
+    "lib/support-api.ts": "179fa728f5502f03f7a10d73c660adcc9a705c3c7f35f6b413f5e1f4ee8ea09d"
+  },
+  "manifests": {
+    "backend": {
+      "path": "/tmp/rag-round26-backend-final-source-manifest.json",
+      "sha256": "41e1e67ab7d9363b1458b97c5e8c3664383e58e97433a24a94e7761c43e62f6f",
+      "format": "object.count/files",
+      "files": 502
+    },
+    "frontend": {
+      "path": "/tmp/rag-round26-frontend-final-source.json",
+      "sha256": "3db99a6d71a7e29ea4bf43126a6f9adc84a6576aac04de89c52c09124535a60b",
+      "format": "flat path-to-sha256",
+      "files": 86
+    }
+  },
+  "scope_limits": [
+    "No new DB migration; c53a7d9e8421 remains head. Old/new clients and binaries require coordinated upgrade; old servers cannot provide these guards.",
+    "No real PostgreSQL coordination/SQL migration/locking, cross-process/multi-replica/capacity, browser, provider business API or production acceptance. SQLite natural ID reuse is not ordinary PostgreSQL deletion behavior.",
+    "Ratings counter counts accepted submissions, not unique votes. Repeated valid ratings remain last-write-wins. Cache eviction is best effort; moving it outside the gate does not add a total feedback cleanup latency budget.",
+    "Review context is a bounded preview/proposal, not a full transcript export. The digest does not prove review semantic correctness, operator reading or a complete audit trail.",
+    "Projection has linear per-consultation DB cost; no capacity acceptance or persistent review-version column. Uncoordinated manual SQL body edits are outside the normal immutable-message contract.",
+    "No dependency/lock/runtime-default/test-threshold changes, installations, commit/push/deploy or production migration."
+  ],
+  "next_authorized_work": {
+    "purchase": "User explicitly requested implementation after this iteration, using mock external APIs and virtual agent results; prioritize orchestration framework, durable purchase/operation state, typed actions, confirmations and testability. Design remains docs/design/conversational-commerce-assessment.md; no commerce code yet in round26.",
+    "other_remaining": [
+      "Activity timestamps/counts/list invalidation",
+      "Real PG/browser/production evidence",
+      "Enterprise tenant isolation and real business adapter reconciliation"
+    ]
+  },
+  "evidence_artifacts_sha256": {
+    "/tmp/rag-round26-private-mutation-audit.json": {
+      "sha256": "761f9d7b5239ae755889ee52ad8bbf8d1e3bac6975c183acb01cbc49e8f66e1d",
+      "bytes": 9267
+    },
+    "/tmp/rag-round26-qa-snapshot-audit.json": {
+      "sha256": "0ff94f21a564e562dc85576bec936555a4ebfba4ea50a48f7bea41336341eadb",
+      "bytes": 1101
+    },
+    "/tmp/rag-round26-activity-audit.json": {
+      "sha256": "483e0f4a5ee58c4f5c0fab416877492c3700bb353f36bb97117619ae9fbf95a2",
+      "bytes": 17275
+    },
+    "/tmp/rag-round26-frontend-audit.json": {
+      "sha256": "be88632ea3bf4086e1ebc6b3aa4e34c04082aeee96b5da5c7ed9df567c8ba4b8",
+      "bytes": 12384
+    },
+    "/tmp/rag-round26-quality-mutation-verification.json": {
+      "sha256": "bd1e63c5addb499a2b00d7ed4f1c8a152d2acdd2d7c3b98fc3546a49e8601099",
+      "bytes": 7411
+    },
+    "/tmp/rag-round26-quality-mutation-final-verification.json": {
+      "sha256": "599dd0b94748c07bc96e13ecce34b0f254bec116f1d8f4643ca92ccd7485eda6",
+      "bytes": 3165
+    },
+    "/tmp/rag-round26-feedback-backend-evidence.json": {
+      "sha256": "f2092dc7dd49571a14071b047de8993f2797c94451b71c744148d47d62f3cefa",
+      "bytes": 4899
+    },
+    "/tmp/rag-round26-independent-integration-review.json": {
+      "sha256": "6e6da24589eb4f7d243796b2f78e98607436e1557391ebcbf56847747968344e",
+      "bytes": 11511
+    },
+    "/tmp/rag-round26-frontend-feedback-evidence.json": {
+      "sha256": "c54c1dc7dc7124d1d811f930e8506ce0fce26a3def3860ecd4c244993f7778b8",
+      "bytes": 10778
+    },
+    "/tmp/rag-round26-backend-full.log": {
+      "sha256": "42f88a0249ec96be8ee7adf0fe38af36dc0dbe7bf89f11ed7618ce1ac89b2d03",
+      "bytes": 37407
+    },
+    "/tmp/rag-round26-backend-full-final.log": {
+      "sha256": "dfb0ca0fa86b17d461274a5d2067db1aa933ec0b1be7ef2b47e6eb0411c7043b",
+      "bytes": 37407
+    },
+    "/tmp/rag-round26-quality-final-focused.log": {
+      "sha256": "8478b0487b38d4d4af4acb306c42b0c0d4fdc7403a11ec0c388590d57d7c83ee",
+      "bytes": 99
+    },
+    "/tmp/rag-round26-feedback-final-focused.log": {
+      "sha256": "a80bc297a6c9e562d996ab4a124ea59facfa0dd999785ee61cb48dd55340f40d",
+      "bytes": 179
+    },
+    "/tmp/rag-round26-feedback-postcommit-gate-red.log": {
+      "sha256": "83577bde73606b853483c2fb5896add6d6fea554fd4591efbf0deddf072439ca",
+      "bytes": 2549
+    },
+    "/tmp/rag-round26-feedback-postcommit-gate-after.log": {
+      "sha256": "fee5f5a764edcaa89c4dce525c588f0cb371e4d1253fe6089b1f06312c77f40b",
+      "bytes": 113
+    },
+    "/tmp/rag-round26-backend-final-ruff.log": {
+      "sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "bytes": 19
+    },
+    "/tmp/rag-round26-backend-final-format.log": {
+      "sha256": "ff46d0473a2bbccc9e5bff1c50d06608c3454a03e8c14705301c06492206f2da",
+      "bytes": 28
+    },
+    "/tmp/rag-round26-backend-final-mypy.log": {
+      "sha256": "c6fd4dde68784f209f0e8872ebdd24f5080e6cf03abf04d0e18207a30d4cfbaa",
+      "bytes": 45
+    },
+    "/tmp/rag-round26-cli-mypy.log": {
+      "sha256": "2e0dd258970686efeb31dd7eab2c43a46afc5ae7497abb8d1cb170692f837038",
+      "bytes": 109
+    },
+    "/tmp/rag-round26-pip-check.log": {
+      "sha256": "9261363b733079a641c2e4cc9bc46ffa1d8336945a87f807b6cf68847dbc9b09",
+      "bytes": 30
+    },
+    "/tmp/rag-round26-frontend-integrated-full.log": {
+      "sha256": "91ec89a89da7bad6f69da7ca2bbb1ad1ce6114b5acbbc8804211c57e25897029",
+      "bytes": 5519
+    },
+    "/tmp/rag-round26-frontend-integrated-lint.log": {
+      "sha256": "fcb9026e7d61e64d36df9003ea9103141bf5d0ec902ffb42f1a7c4133a535c82",
+      "bytes": 63
+    },
+    "/tmp/rag-round26-frontend-integrated-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/tmp/rag-round26-frontend-integrated-build.log": {
+      "sha256": "1b876e2cb57b4b681fb6bbee35741987aac5fe823d839cd09964cd38823d2626",
+      "bytes": 1027
+    },
+    "/tmp/rag-round26-fe-feedback-baseline-red.log": {
+      "sha256": "67b45e6f9ebb9f16d6fe99275331cf337e9ccc90ca4e3bc431cd2f51d5148f3e",
+      "bytes": 7218
+    }
+  }
+}

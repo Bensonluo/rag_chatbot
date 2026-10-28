@@ -21,6 +21,7 @@ from app.tests.evaluation.test_human_conversation import (
     _customer_url,
     _human_rows,
     _send,
+    _session_key,
     _staff_url,
     _stats,
     _ticket,
@@ -52,7 +53,8 @@ async def _resolved_by_bot_then_claimed(case: _Case) -> int:
     assert (await _state(case, ticket_id)).resolved_at is not None
     assert (
         await case.client.post(
-            f"/api/v1/handoff/tickets/{ticket_id}/claim", headers=case.headers[3]
+            f"/api/v1/handoff/tickets/{ticket_id}/claim?expected_session_key={await _session_key(case)}",
+            headers=case.headers[3],
         )
     ).status_code == 200
     return ticket_id
@@ -159,7 +161,8 @@ async def test_administrative_close_preserves_the_customers_resolution_state(cas
     before = await _state(case, ticket_id)
     assert before.resolved_at is not None
     response = await case.client.post(
-        f"/api/v1/handoff/tickets/{ticket_id}/resolve", headers=case.headers[3]
+        f"/api/v1/handoff/tickets/{ticket_id}/resolve?expected_session_key={await _session_key(case)}",
+        headers=case.headers[3],
     )
     assert response.status_code == 200
     after = await _state(case, ticket_id)

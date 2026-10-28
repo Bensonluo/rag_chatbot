@@ -8,7 +8,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -28,7 +28,8 @@ from app.models.schemas.session import (
     SessionReviewVerdict,
     SessionUpdate,
 )
-from app.repositories.session_repository import SessionRepository
+from app.models.schemas.session_key import SessionKey
+from app.repositories.session_repository import ReviewChangedError, SessionRepository
 from app.repositories.ticket_repository import TicketRepository
 from app.services.chat.chat_service import ChatService
 from app.services.chat.coordination import (
@@ -38,6 +39,7 @@ from app.services.chat.coordination import (
     SessionCoordinator,
     get_session_coordinator,
 )
+from app.services.chat.session_identity import ConversationChangedError, require_session_key
 from app.services.session_service import SessionService
 
 logger = logging.getLogger(__name__)
@@ -84,6 +86,7 @@ async def get_review_queue(
     limit: Annotated[int, Query(ge=1, le=20)] = 10,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    coordinator: SessionCoordinator = Depends(get_session_coordinator),
 ) -> dict[str, Any]:
     """QA review sample: contained sessions with no resolution evidence.
 
@@ -99,27 +102,56 @@ async def get_review_queue(
     since = datetime.now(UTC) - timedelta(days=window_days)
     repo = SessionRepository(db)
     sampled = await repo.sample_review_queue(since=since, limit=limit)
+    identifiers = [chat.id for chat in sampled]
+    await db.rollback()  # End the discovery transaction before taking conversation gates.
     items = []
-    for chat in sampled:
-        preview = await repo.last_user_message(chat.id)
-        items.append(
-            {
-                "session_id": chat.id,
-                "title": chat.title,
-                "updated_at": chat.updated_at.isoformat(),
-                "reopened_count": chat.reopened_count,
-                "last_user_message": preview[:200] if preview else None,
-            }
-        )
+    for session_id in identifiers:
+        try:
+            async with coordinator.hold(session_id):
+                snapshot = await repo.get_review_snapshot(session_id, since=since)
+                if snapshot is not None and snapshot.eligible:
+                    preview = await repo.last_user_message(session_id)
+                    items.append(snapshot.response(preview))
+        except ConversationBusyError:
+            continue  # Sampling is best effort; never offer an inconsistent proposal.
+        except CoordinationUnavailableError as exc:
+            raise HTTPException(503, "Review coordination is unavailable") from exc
+        finally:
+            await db.rollback()
     return {"window_start": since.isoformat(), "items": items}
+
+
+@router.get("/{session_id}/review")
+async def get_review_context(
+    session_id: Annotated[int, Path(ge=1, le=2_147_483_647)],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+    coordinator: SessionCoordinator = Depends(get_session_coordinator),
+) -> dict[str, Any]:
+    """An active reviewer explicitly refreshes a proposal, including corrections."""
+    require_qa_reviewer(current_user)
+    await db.rollback()
+    repo = SessionRepository(db)
+    try:
+        async with coordinator.hold(session_id):
+            snapshot = await repo.get_review_snapshot(session_id)
+            if snapshot is None:
+                raise HTTPException(404, "Session not found")
+            preview = await repo.last_user_message(session_id)
+            return snapshot.response(preview)
+    except ConversationBusyError as exc:
+        raise HTTPException(409, "A conversation action is still in progress") from exc
+    except CoordinationUnavailableError as exc:
+        raise HTTPException(503, "Review coordination is unavailable") from exc
 
 
 @router.post("/{session_id}/review")
 async def review_session(
-    session_id: int,
+    session_id: Annotated[int, Path(ge=1, le=2_147_483_647)],
     verdict: SessionReviewVerdict,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
+    coordinator: SessionCoordinator = Depends(get_session_coordinator),
 ) -> dict[str, Any]:
     """Record a QA verdict on a sampled session.
 
@@ -130,12 +162,36 @@ async def review_session(
     """
     require_qa_reviewer(current_user)
     repo = SessionRepository(db)
+    await db.rollback()
     try:
-        row = await repo.record_review_verdict(
-            session_id,
-            resolved=verdict.resolved,
-            note=verdict.note,
-        )
+        async with coordinator.hold(session_id):
+            row = await repo.record_review_verdict(
+                session_id,
+                resolved=verdict.resolved,
+                note=verdict.note,
+                expected_session_key=verdict.expected_session_key,
+                expected_review_version=verdict.expected_review_version,
+            )
+            if row is None:
+                raise HTTPException(404, "Session not found")
+            snapshot = await repo.get_review_snapshot(session_id)
+            if snapshot is None:
+                raise ReviewChangedError("Review conversation changed")
+            return {
+                "session_id": row.id,
+                "session_key": row.session_key,
+                "review_version": snapshot.version,
+                "last_message_id": snapshot.last_message_id,
+                "last_human_message_id": snapshot.last_human_message_id,
+                "resolved": verdict.resolved,
+                "resolved_at": row.resolved_at.isoformat() if row.resolved_at else None,
+            }
+    except ReviewChangedError as exc:
+        raise HTTPException(409, "Review evidence changed; refresh the review") from exc
+    except ConversationBusyError as exc:
+        raise HTTPException(409, "A conversation action is still in progress") from exc
+    except CoordinationUnavailableError as exc:
+        raise HTTPException(503, "Review coordination is unavailable") from exc
     except HTTPException:
         raise
     except Exception as e:
@@ -144,16 +200,6 @@ async def review_session(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to record verdict",
         ) from e
-    if row is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Session not found",
-        )
-    return {
-        "session_id": row.id,
-        "resolved": verdict.resolved,
-        "resolved_at": row.resolved_at.isoformat() if row.resolved_at else None,
-    }
 
 
 async def get_session_service(
@@ -301,8 +347,12 @@ async def update_session(
             title=session_data.title,
             memory_type=session_data.memory_type,
             context_window=session_data.context_window,
+            expected_session_key=session_data.expected_session_key,
+            require_key=True,
         )
         return session
+    except ConversationChangedError as e:
+        raise HTTPException(409, "Conversation changed; reopen it before continuing") from e
     except HTTPException:
         raise
     except Exception as e:
@@ -324,6 +374,7 @@ async def delete_session(
     session_service: Annotated[SessionService, Depends(get_session_service)],
     coordinator: Annotated[SessionCoordinator, Depends(get_session_coordinator)],
     chat_service: Annotated[ChatService, Depends(get_session_chat_service)],
+    expected_session_key: SessionKey | None = Query(None),
 ) -> None:
     """
     Delete a chat session.
@@ -333,12 +384,17 @@ async def delete_session(
     """
     try:
         async with coordinator.hold(session_id):
-            await session_service.get_session_by_id(session_id, current_user.id)
+            current = await session_service.get_session_by_id(session_id, current_user.id)
             state = await coordinator.state(session_id)
+            require_session_key(
+                state.session_key, expected_session_key, required=current.is_private
+            )
             if state.claimed_ticket_id is not None:
                 raise HumanHandlingError("Human support is handling this conversation")
             await chat_service.discard_session_state(session_id, state.epoch)
             await session_service.delete_session(session_id, current_user.id)
+    except ConversationChangedError as e:
+        raise HTTPException(409, "Conversation changed; reopen it before continuing") from e
     except ConversationBusyError as e:
         raise HTTPException(409, "A conversation action is still in progress") from e
     except HumanHandlingError as e:

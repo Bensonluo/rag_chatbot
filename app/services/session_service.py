@@ -7,6 +7,7 @@ Handles session creation, retrieval, updating, and deletion.
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models.database.session import ChatSession
 from app.repositories.session_repository import SessionRepository
+from app.services.chat.session_identity import ConversationChangedError, require_session_key
 
 
 class SessionService:
@@ -75,6 +76,10 @@ class SessionService:
         session = await self.session_repository.get_by_id(session_id, ChatSession)
         return session is not None and session.is_private
 
+    async def get_session_key(self, session_id: int) -> str | None:
+        session = await self.session_repository.get_by_id(session_id, ChatSession)
+        return session.session_key if session is not None else None
+
     async def get_user_sessions(
         self,
         user_id: int,
@@ -129,6 +134,9 @@ class SessionService:
         title: str | None = None,
         memory_type: str | None = None,
         context_window: int | None = None,
+        *,
+        expected_session_key: str | None = None,
+        require_key: bool = False,
     ) -> ChatSession:
         """
         Update a session.
@@ -150,9 +158,13 @@ class SessionService:
         # Get session with authorization check
         session = await self.get_session_by_id(session_id, user_id)
 
-        # Update fields if provided
+        require_session_key(
+            session.session_key, expected_session_key, required=require_key and session.is_private
+        )
+        values: dict[str, object] = {}
+        # Build values without mutating ORM state before the atomic incarnation check.
         if title is not None:
-            session.title = title
+            values["title"] = title
 
         if memory_type is not None:
             valid_memory_types = ["sliding_window", "summarization", "hybrid"]
@@ -160,15 +172,21 @@ class SessionService:
                 raise ValidationError(
                     f"Invalid memory_type: {memory_type}. Must be one of {valid_memory_types}"
                 )
-            session.memory_type = memory_type
+            values["memory_type"] = memory_type
 
         if context_window is not None:
             if context_window < 1 or context_window > 100:
                 raise ValidationError("context_window must be between 1 and 100")
-            session.context_window = context_window
+            values["context_window"] = context_window
 
         # Save updates
-        updated_session = await self.session_repository.update(session)
+        if not values:
+            return session
+        updated_session = await self.session_repository.update_fields_if_key(
+            session_id, user_id, session.session_key, values
+        )
+        if updated_session is None:
+            raise ConversationChangedError("Conversation changed")
         return updated_session
 
     async def delete_session(

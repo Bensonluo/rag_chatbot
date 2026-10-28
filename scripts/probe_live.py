@@ -47,6 +47,7 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, TypeGuard
+from uuid import UUID
 
 import httpx
 
@@ -325,6 +326,7 @@ class ProbeCase:
     ticket_ids: list[int] = field(default_factory=list)
     verified_ticket_ids: list[int] = field(default_factory=list)
     ticket_evidence_requested: bool = False
+    session_key: str | None = None
 
 
 HANDOFF_PHRASES_ZH = [
@@ -482,11 +484,24 @@ def _json_object(response: httpx.Response) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def _reply_contract(reply: dict[str, Any] | None, session_id: int) -> str | None:
+def _canonical_session_key(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return value if str(UUID(value)) == value else None
+    except ValueError:
+        return None
+
+
+def _reply_contract(
+    reply: dict[str, Any] | None, session_id: int, session_key: str | None = None
+) -> str | None:
     if reply is None:
         return "expected JSON object response"
     if not _positive_id(reply.get("session_id")) or reply["session_id"] != session_id:
         return "response session ID does not match request"
+    if session_key is not None and reply.get("session_key") != session_key:
+        return "response conversation identity does not match request"
     if not isinstance(reply.get("content"), str) or not reply["content"].strip():
         return "expected nonempty string content"
     if not isinstance(reply.get("intent"), str) or not reply["intent"].strip():
@@ -510,9 +525,15 @@ async def _request_object(
 
 async def run_case(client: httpx.AsyncClient, case: ProbeCase, session_id: int) -> None:
     case.session_id = session_id
+    if case.authenticated_session and _canonical_session_key(case.session_key) is None:
+        case.failures.append("session allocation: missing or invalid conversation identity")
+        return
     expected_history = []
     for i, turn in enumerate(case.turns):
-        outcome = await _post_turn(client, {"message": turn.send, "session_id": session_id})
+        payload: dict[str, Any] = {"message": turn.send, "session_id": session_id}
+        if case.authenticated_session:
+            payload["expected_session_key"] = case.session_key
+        outcome = await _post_turn(client, payload)
         prefix = f"turn {i} ({turn.label})"
         if isinstance(outcome, str):
             case.failures.append(f"{prefix}: {outcome}")
@@ -521,7 +542,7 @@ async def run_case(client: httpx.AsyncClient, case: ProbeCase, session_id: int) 
             case.failures.append(f"{prefix}: HTTP {outcome.status_code}")
             return
         reply = _json_object(outcome)
-        failure = _reply_contract(reply, session_id)
+        failure = _reply_contract(reply, session_id, case.session_key)
         if failure:
             case.failures.append(f"{prefix}: {failure}")
             return
@@ -546,7 +567,14 @@ async def run_case(client: httpx.AsyncClient, case: ProbeCase, session_id: int) 
         )
     if case.authenticated_session:
         history = await _request_object(
-            client, "GET", "/api/v1/chat/history", params={"session_id": session_id, "limit": 100}
+            client,
+            "GET",
+            "/api/v1/chat/history",
+            params={
+                "session_id": session_id,
+                "limit": 100,
+                "expected_session_key": case.session_key,
+            },
         )
         if isinstance(history, str):
             case.failures.append(f"owner history readback: {history}")
@@ -555,6 +583,7 @@ async def run_case(client: httpx.AsyncClient, case: ProbeCase, session_id: int) 
         if (
             not _positive_id(history.get("session_id"))
             or history["session_id"] != session_id
+            or history.get("session_key") != case.session_key
             or not isinstance(messages, list)
             or not all(isinstance(message, dict) for message in messages)
         ):
@@ -581,6 +610,11 @@ async def _observe_tickets(client: httpx.AsyncClient, cases: list[ProbeCase]) ->
     """Bounded separate API read; no claim/resolve, and no absence assertion on 404."""
     owners = {
         (ticket_id, case.session_id): case.owner_id
+        for case in cases
+        for ticket_id in case.ticket_ids
+    }
+    incarnations = {
+        (ticket_id, case.session_id): case.session_key
         for case in cases
         for ticket_id in case.ticket_ids
     }
@@ -629,6 +663,12 @@ async def _observe_tickets(client: httpx.AsyncClient, cases: list[ProbeCase]) ->
                     ):
                         error = "staff ticket observation: wrong ticket owner"
                         break
+                    if (
+                        incarnations[key] is not None
+                        and row.get("session_key") != incarnations[key]
+                    ):
+                        error = "staff ticket observation: wrong conversation identity"
+                        break
                     observed.add(key)
                     pending.remove(key)
             if error.startswith("staff ticket observation:"):
@@ -659,6 +699,7 @@ async def run_probes(
     for case in cases:
         case.authenticated_session = authenticated_sessions
         case.ticket_evidence_requested = ticket_client is not None
+        case.session_key = None
     owner_id = None
     if authenticated_sessions:
         owner = await _request_object(client, "GET", "/api/v1/auth/me")
@@ -670,6 +711,7 @@ async def run_probes(
     for case in cases:
         case.owner_id = owner_id
     used_ids: set[int] = set()
+    used_keys: set[str] = set()
     for idx, case in enumerate(cases):
         if idx and turn_pace_seconds:
             await asyncio.sleep(turn_pace_seconds)
@@ -681,14 +723,21 @@ async def run_probes(
                 case.failures.append(f"session allocation: {session}")
                 continue
             session_id = session.get("id")
+            session_key = _canonical_session_key(session.get("session_key"))
             if (
                 not _positive_id(session_id)
                 or not _positive_id(session.get("user_id"))
                 or session["user_id"] != owner_id
                 or session_id in used_ids
+                or session_key is None
+                or session_key in used_keys
             ):
-                case.failures.append("session allocation: invalid ID, reused ID or wrong owner")
+                case.failures.append(
+                    "session allocation: invalid or reused conversation identity or wrong owner"
+                )
                 continue
+            case.session_key = session_key
+            used_keys.add(session_key)
         else:
             session_id = secrets.randbelow(2_147_483_647) + 1
             while session_id in used_ids:

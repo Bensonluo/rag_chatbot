@@ -1,0 +1,165 @@
+{
+  "round": 24,
+  "date": "2026-10-28",
+  "status": "human draft/recipient/immutable-send continuity verified locally; overall goal active",
+  "baseline": {
+    "backend_head": "1289c368c2025a6d4ea3013a0a665c91b05c79ef",
+    "frontend_head": "8efd9535ce6f1bb2d6bbd1e396af0c45f796b0e2",
+    "backend_previous": 3451,
+    "frontend_previous": 272,
+    "matched_backend_files": 495,
+    "matched_frontend_files": 80,
+    "preserved": "round22/23 WIP,user local Compose and planning;no commit/push/deploy"
+  },
+  "before": {
+    "original_audit": "/tmp/rag-round22-support-continuity-audit.json",
+    "current_revalidation": "/tmp/rag-round24-support-before.log:5 observed-behavior cases passed,45 earlier controls filtered,0.533s",
+    "expanded_audit": "/tmp/rag-round24-support-continuity-before.json",
+    "observed": "Uncertain human UUID and separate edited draft lost on reload/switch/401; staff final-close lostACK disappears from queues; human draft directly sendable to AI after closure. This is client recovery loss,not deletion of committed server messages.",
+    "minimal_actual_red": "/tmp/rag-round24-support-minimal-red.log:1failed0.317s,expected edited draft after remount got empty",
+    "limits": "Only minimal1case literally ran before; expanded26actual/28journal/17agent/13backend not all claimed as original-source red. Agent emptyqueue recovery minimal separately red; journal missingmodule collection is not business proof."
+  },
+  "changes": {
+    "journal": "Native sessionStorage versioned envelope scoped by API origin+path/user/side/session/staffticket. Strict schema/UUID/bounds,immutable attempts,monotone revisions,no automatic eviction. No copied token/history/diagnostics.",
+    "limits": "Per API+user:20scopes,5attempts per scope,4000characters per draft/attempt,256KiB UTF8 envelope. Native quota also applies;not combined all-user limit.",
+    "dispatch": "Save original UUID/content/resolve/ticket/revision before human POST. Save refusal starts no new POST and keeps draft in memory. Generic cleanup/save errors never deny earlier delivery.",
+    "identity": "After /me and current scope authorization restore body;401 hides private UI but retains same-user journal. Explicit signout clears this API journals for all users in current tab;failed cleanup reported.",
+    "recipient": "Nonempty draft retains AI/human origin and originalticket;explicit move then separate Send required. Immutable attempts never move.",
+    "server_binding": "Customer optional strict positive expected_ticket_id compared to latest ticket under existing gate/transaction before receipt/resolution/INSERT.409 mismatch;hint grants no ownership. Omitted/null legacy calls retain old session routing.",
+    "staff_recovery": "Saved work outside activequeue after freshadminme,genericID only. Authorized currentassigned GET opens draft.404 is not closed proof. Explicit exactPOST can recover prior closed ACK;may send if not delivered and still allowed. Backend validates original resolves_ticket intent;client validates ACK author/session/ticket/assignment/UUID/content and requires resolved status for resolve=true. No resolve field is echoed in ACK. Only then reveal singlebody;no reopen/history expansion. Inactive scope may be discarded locally.",
+    "races": "Same-tab canonical events honor equalrevision removals;canonicalnull clears saved old draft while retaining higher unsaved new draft. LateACK/signout and oldPanel cannot restore confirmed attempts.",
+    "receipt": "StaffACK validates assigned_to;customerACK validates expectedticket. Local discard does not cancel/delete server messages."
+  },
+  "validation": {
+    "backend_default": {
+      "command": ".venv/bin/python -m pytest",
+      "passed": 3464,
+      "skipped": 3,
+      "warnings": 5,
+      "seconds": 190.07,
+      "core_percent": 93.57,
+      "core_statements": 5553,
+      "core_missed": 357,
+      "scope": "Existing selected core;newhandoff/API not measured by percentage.",
+      "log": "/tmp/rag-round24-backend-full.log"
+    },
+    "backend_new_actual": 13,
+    "backend_focused": {
+      "passed": 147,
+      "skipped": 1,
+      "seconds": 2.98,
+      "log": "/tmp/rag-round24-backend-final-focused.log"
+    },
+    "frontend_default": {
+      "command": "npm test",
+      "jest_passed": 288,
+      "jest_suites": 12,
+      "node_passed": 55,
+      "total": 343,
+      "new_default": {
+        "journal_unit": 28,
+        "agent_unit": 17,
+        "actual_react": 26,
+        "net_total": 71
+      },
+      "lint": "passed",
+      "strict_types": "tsc --noEmit --incremental false passed",
+      "static_build_pages": 12,
+      "exported_html_files": 13,
+      "html_count_note": "12 build pages plus duplicate exported404 artifact;file count is not route count",
+      "log": "/tmp/rag-round24-frontend-full.log",
+      "build_log": "/tmp/rag-round24-frontend-build.log"
+    },
+    "actual_case_classification": {
+      "original_attempt_and_edited_draft_restore_reload_switch_or401_same_user": 3,
+      "first_inflight_POST_UUID_recorded_before_send_survives_abort_remount": 1,
+      "unsent_AI_or_human_draft_restore_without_send": 2,
+      "authorized_GET_reconciles_lost_ACK_without_resend_or_new_edit_loss": 1,
+      "explicit_signout_clears_private_journal": 1,
+      "different_verified_user_cannot_restore_or_send_prior_work": 1,
+      "same_numeric_ID_staff_role_loss_does_not_restore_staff_body_in_customer_panel": 1,
+      "denied_scope403_or404_hides_saved_body": 2,
+      "explicit_recipient_choice_human_to_AI_AI_to_human_or_new_ticket": 3,
+      "retargeting_draft_cannot_retarget_immutable_original_attempt": 1,
+      "staff_closed_final_ack_lost_reload_exact_manual_replay": 1,
+      "staff_draft_restores_only_after_live_assigned_access": 1,
+      "staff_revoked_assignment_hides_body_and_replay_is_denied": 1,
+      "native_storage_write_failure_blocks_new_POST_and_retains_draft": 1,
+      "late_ACK_after_signout_cannot_recreate_journal": 1,
+      "server_ticket_change_before_poll_rejected_with_old_expected_ticket": 1,
+      "five_pending_capacity_blocks_sixth_and_discard_enables_new_send_without_server_delete": 1,
+      "ACK_during_storage_failure_preserves_newer_memory_draft_and_honest_copy": 1,
+      "same_page_recovery_and_stale_Panel_discard_cannot_resurrect_confirmed_attempt": 1,
+      "sole_canonical_entry_removed_by_recovery_also_clears_old_composer_and_prevents_new_UUID_send": 1
+    },
+    "real_backend_controls": {
+      "closed_replay": "/tmp/rag-round24-staff-closed-replay.json:GET404/exact originalstaff POST200 reused/sameID/1row/epoch1;changedbody-or-resolve409,newUUID404,foreignadmin404,customer403,anon401,demoted/inactive403",
+      "ticket_binding": "/tmp/rag-round24-customer-ticket-binding.json:oldclosed original200whilelatest,after newticket oldexpected/newUUID/sameUUIDchangedticket409 rows1,currentticket newUUID200 rows2"
+    },
+    "static": {
+      "ruff_format_files": 487,
+      "ruff_lint": "passed",
+      "mypy_app_files": 472,
+      "mypy_cli_files": 2,
+      "pip_check": "passed",
+      "diff_check": "passed"
+    },
+    "independent": {
+      "journal": "/tmp/rag-round24-support-journal-evidence.json",
+      "agent": "/tmp/rag-round24-agent-recovery-evidence.json",
+      "actual": "/tmp/rag-round24-support-continuity-verification.json",
+      "review": "/tmp/rag-round24-independent-review.json:before+intermediate resurrection/null reds retained,3after controls passed0.33s,not added to default count",
+      "root_final_documentation": "/tmp/rag-round24-final-document-verification.json:496/85source manifests,4/10changed SHA,mirrorJSON,95relative links,23newfile whitespace,indexes empty,dependencies unchanged",
+      "final_documentation": "/tmp/rag-round24-final-independent-document-review.json:full counts/deltas,496BE/85FE/4BE10FE changed SHA,manifest SHA,mirror JSON,95relative links,12buildpages/13HTML and resolved protocol wording verified;no blockers"
+    },
+    "browser": "Actual cua.getBrowser(localhost/support) returned No browser is available;no visual/hydration/browser acceptance."
+  },
+  "backend_source_sha256": {
+    "app/api/v1/handoff.py": "99e8f0d579c6cfabe3095f1d300732a612e749afff942aa17af7a8d681dcf767",
+    "app/models/schemas/handoff.py": "d169a1757072fa3b5d06975887c7898cd4ca8e904762589ff1b764c3bd2788d5",
+    "app/services/handoff/service.py": "6c566bdaa3e50b4dace0b19a6e41af5d414388b2d1d8102781a0f4f5930d1a92",
+    "app/tests/evaluation/test_human_recipient_binding.py": "041a30a5358f3105ba7d31aa533a982a257383fefbc127e91f18c421adf87494"
+  },
+  "frontend_source_sha256": {
+    "components/support/AgentWorkspace.tsx": "8fdd21d17ab167478c1118de49fca2a73e54e5aca85cd8bf7edfae08bbddbcfb",
+    "components/support/ConversationPanel.tsx": "6d32e40ee5efe7e30dbee1b25cd4cb107afa32a0e9ed7f4827a8c19ef8cf22cd",
+    "components/support/SupportWorkspace.tsx": "07abed0c510c91d11fc989dc8aff7d735c9a071a197e57fa0b41799e46db10d7",
+    "components/support/__tests__/agent-recovery.test.tsx": "09b7c332ec9d0f272b5687de77b451ade09e24b01ddc6a25fb4a51a7cf5a0ebd",
+    "components/support/__tests__/support-continuity.test.tsx": "aa63962986a822e5f082580d22e17b1f61dbbc223a83082ff4aaab4117e918c8",
+    "components/support/useConversationDraft.ts": "25f7ddc29a9967e9c9a0184961871de3cab7c23d6b06b85ae48404e3c1022348",
+    "components/support/useHumanThread.ts": "73590ead9ffd8d01394591acb88502d6e0f15641afc05f656c615ca03b553871",
+    "lib/__tests__/support-journal.test.ts": "6304e9baeb53e40811647cd8f214b5cdd3e2cffc896ac2326742b5e8cd69e0b2",
+    "lib/support-api.ts": "9ed22f7d5d84b2584375b16ade4fa1cc59a00708d4bc09285f3b14ddb0159111",
+    "lib/support-journal.ts": "cc7f00ac6e5fa7d35fa588d11fbfad9c2deeb4c4d3ca01e91f8760a076b97a3c"
+  },
+  "manifests": {
+    "backend": {
+      "path": "/tmp/rag-round24-backend-final-source.json",
+      "files": 496,
+      "sha256": "173c540b0ed02b070e8fe333f006c83fd23312c1f7342bb141692a259da42543"
+    },
+    "frontend": {
+      "path": "/tmp/rag-round24-frontend-final-source.json",
+      "files": 85,
+      "sha256": "8fb33ba2711a387f4424484b79eef054ee7be4b31e4bc386811a8cfc35828f6e"
+    }
+  },
+  "reference": {
+    "url": "https://developer.mozilla.org/en-US/docs/Web/API/Window/sessionStorage",
+    "purpose": "reload persistence/origin-tab partition/openercopy limitation;design reference,not runtime proof"
+  },
+  "scope_limits": [
+    "Actual26 use real React/jsdom/SupportApi/nativejournal,onlyfetch/Storage fault controlled;agent17 explicitly mockjournal/Panel at unitboundary. Not browser/fullstack network acceptance.",
+    "Backend13 use real JWT/FastAPI/SQLite/coordinator fixture with socket/DNS blocks. RealPG/multi-replica/capacity not run.",
+    "sessionStorage plaintext is same-origin script accessible,may be copied via opener/session restore;not encryptedbackup/crossdevice sync. Signout only this API/tab,not all browser sessions/devices.",
+    "Older customer clients without expected_ticket_id keep legacy session routing. Deploy newbackend before newfrontend;old strictbackend rejects extra field.",
+    "Local removal does not cancel/delete server messages or prove resolution. AI POST remains non-idempotent and never automatically retried.",
+    "No new schema/migration/package/lock/environment/gate change,paidmodel/payment/productioncall/commit/push/deploy. Existing round23 migration requirements remain."
+  ],
+  "remaining": [
+    "Session updated_at recency does not follow ordinary AI/human messages",
+    "RealPG ledger/coordination/locking/multi-replica/capacity",
+    "Real browser hydration/interaction/frontend-backend transport acceptance",
+    "Enterprise isolation,real business integration/status reconciliation,structured outcomes"
+  ]
+}

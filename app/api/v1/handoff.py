@@ -21,11 +21,12 @@ from app.core.exceptions import ConflictError
 from app.models.database.user import User
 from app.models.schemas.handoff import (
     HandoffConversationPage,
+    HandoffCustomerMessageRequest,
     HandoffHistoryResponse,
     HandoffMessageAcknowledgement,
-    HandoffMessageCreate,
-    HandoffStaffMessageCreate,
+    HandoffStaffMessageRequest,
 )
+from app.models.schemas.session_key import SessionKey
 from app.services.chat.coordination import ConversationBusyError, CoordinationUnavailableError
 from app.services.handoff import HandoffService, create_handoff_service
 from app.services.handoff.service import RequiresPrivateSessionError
@@ -78,6 +79,7 @@ def _human_error(exc: Exception) -> HTTPException:
 async def get_customer_messages(
     response: Response,
     session_id: int = Path(..., gt=0, le=2_147_483_647),
+    expected_session_key: SessionKey | None = Query(None),
     after_id: int = Query(0, ge=0, le=2_147_483_647),
     limit: int = Query(100, ge=1, le=100),
     customer: User = Depends(get_current_active_user),
@@ -86,14 +88,21 @@ async def get_customer_messages(
     """The authenticated owner receives the private human channel in both modes."""
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await service.get_customer_messages(session_id, customer.id, after_id, limit)
+        return await service.get_customer_messages(
+            session_id,
+            customer.id,
+            after_id,
+            limit,
+            expected_session_key=expected_session_key,
+            require_key=True,
+        )
     except Exception as exc:
         raise _human_error(exc) from exc
 
 
 @router.post("/sessions/{session_id}/messages", response_model=HandoffMessageAcknowledgement)
 async def send_customer_message(
-    request: HandoffMessageCreate,
+    request: HandoffCustomerMessageRequest,
     response: Response,
     session_id: int = Path(..., gt=0, le=2_147_483_647),
     customer: User = Depends(get_current_active_user),
@@ -102,7 +111,12 @@ async def send_customer_message(
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return await service.send_customer_message(
-            session_id, customer.id, request.client_message_id, request.content
+            session_id,
+            customer.id,
+            request.client_message_id,
+            request.content,
+            expected_ticket_id=request.expected_ticket_id,
+            expected_session_key=request.expected_session_key,
         )
     except Exception as exc:
         raise _human_error(exc) from exc
@@ -112,6 +126,7 @@ async def send_customer_message(
 async def get_staff_messages(
     response: Response,
     ticket_id: int = Path(..., gt=0, le=2_147_483_647),
+    expected_session_key: SessionKey | None = Query(None),
     after_id: int = Query(0, ge=0, le=2_147_483_647),
     limit: int = Query(100, ge=1, le=100),
     admin: User = Depends(require_admin),
@@ -119,14 +134,21 @@ async def get_staff_messages(
 ) -> HandoffConversationPage:
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await service.get_staff_messages(ticket_id, admin.id, after_id, limit)
+        return await service.get_staff_messages(
+            ticket_id,
+            admin.id,
+            after_id,
+            limit,
+            expected_session_key=expected_session_key,
+            require_key=True,
+        )
     except Exception as exc:
         raise _human_error(exc) from exc
 
 
 @router.post("/tickets/{ticket_id}/messages", response_model=HandoffMessageAcknowledgement)
 async def send_staff_message(
-    request: HandoffStaffMessageCreate,
+    request: HandoffStaffMessageRequest,
     response: Response,
     ticket_id: int = Path(..., gt=0, le=2_147_483_647),
     admin: User = Depends(require_admin),
@@ -135,7 +157,12 @@ async def send_staff_message(
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return await service.send_staff_message(
-            ticket_id, admin.id, request.client_message_id, request.content, resolve=request.resolve
+            ticket_id,
+            admin.id,
+            request.client_message_id,
+            request.content,
+            resolve=request.resolve,
+            expected_session_key=request.expected_session_key,
         )
     except Exception as exc:
         raise _human_error(exc) from exc
@@ -176,6 +203,7 @@ async def queue_stats(
 async def get_ticket_history(
     response: Response,
     ticket_id: int = Path(..., gt=0, le=2_147_483_647),
+    expected_session_key: SessionKey | None = Query(None),
     skip: int = Query(0, ge=0, le=2_147_483_647),
     limit: int = Query(50, ge=1, le=100),
     admin: User = Depends(require_admin),
@@ -190,7 +218,16 @@ async def get_ticket_history(
     """
     cache_headers = {"Cache-Control": "private, no-store"}
     try:
-        history = await service.get_ticket_history(ticket_id, admin.id, skip=skip, limit=limit)
+        history = await service.get_ticket_history(
+            ticket_id,
+            admin.id,
+            skip=skip,
+            limit=limit,
+            expected_session_key=expected_session_key,
+            require_key=True,
+        )
+    except ConflictError as exc:
+        raise _human_error(exc) from exc
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -205,14 +242,17 @@ async def get_ticket_history(
 async def claim_ticket(
     response: Response,
     ticket_id: int,
+    expected_session_key: SessionKey | None = Query(None),
     admin: User = Depends(require_admin),
     service: HandoffService = Depends(get_handoff_service),
 ) -> dict[str, Any]:
     """Claim an open ticket for the requesting agent."""
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await service.claim_ticket(ticket_id, admin.id)
-    except (ConversationBusyError, CoordinationUnavailableError) as exc:
+        return await service.claim_ticket(
+            ticket_id, admin.id, expected_session_key=expected_session_key, require_key=True
+        )
+    except (ConflictError, ConversationBusyError, CoordinationUnavailableError) as exc:
         raise _human_error(exc) from exc
     except LookupError:
         raise HTTPException(
@@ -226,14 +266,17 @@ async def claim_ticket(
 async def resolve_ticket(
     response: Response,
     ticket_id: int,
+    expected_session_key: SessionKey | None = Query(None),
     admin: User = Depends(require_admin),
     service: HandoffService = Depends(get_handoff_service),
 ) -> dict[str, Any]:
     """Resolve a ticket (claiming agent or any admin)."""
     response.headers["Cache-Control"] = "private, no-store"
     try:
-        return await service.resolve_ticket(ticket_id, admin.id)
-    except (ConversationBusyError, CoordinationUnavailableError) as exc:
+        return await service.resolve_ticket(
+            ticket_id, admin.id, expected_session_key=expected_session_key, require_key=True
+        )
+    except (ConflictError, ConversationBusyError, CoordinationUnavailableError) as exc:
         raise _human_error(exc) from exc
     except LookupError:
         raise HTTPException(

@@ -181,6 +181,7 @@ class TestSessionEndpoints:
                 "title": "New Title",
                 "memory_type": "summarization",
                 "context_window": 20,
+                "expected_session_key": create_response.json()["session_key"],
             },
             headers=headers,
         )
@@ -212,7 +213,10 @@ class TestSessionEndpoints:
         # Act - Only update title
         response = await app_client.put(
             f"/api/v1/sessions/{session_id}",
-            json={"title": "Updated Title"},
+            json={
+                "title": "Updated Title",
+                "expected_session_key": create_response.json()["session_key"],
+            },
             headers=headers,
         )
 
@@ -238,7 +242,11 @@ class TestSessionEndpoints:
         session_id = create_response.json()["id"]
 
         # Act
-        response = await app_client.delete(f"/api/v1/sessions/{session_id}", headers=headers)
+        response = await app_client.delete(
+            f"/api/v1/sessions/{session_id}",
+            params={"expected_session_key": create_response.json()["session_key"]},
+            headers=headers,
+        )
 
         # Assert
         assert response.status_code == 204  # No Content

@@ -20,21 +20,21 @@ human-confirmed surfaces):
   never opt a write out of the human confirmation gate (Shopify
   Checkout / UCP pattern). ``destructiveHint: true`` or ambiguous
   annotations (missing) are rejected outright.
-- **Idempotency keys on writes.** The 2026-07-28 stateless spec removed
-  resumability, making retry safety application work: a write call that
-  times out and is re-confirmed must not double-execute server-side.
-  Write payloads carry ``params.idempotencyKey`` (SEP-3182 shape,
-  sibling of ``arguments``), derived deterministically from
-  (user, tool, model-visible args) — same logical op ⇒ same key, so the
-  remote server can dedup; different args or user ⇒ different key.
+- **Idempotency keys on writes.** Protected confirmed proposals carry
+  their server-generated action UUID in ``params.idempotencyKey``,
+  sibling of ``arguments``. The local ledger blocks another dispatch
+  for the same proposal, including uncertain outcomes; remote dedup
+  still requires the provider to honor this key. Internal registries
+  without a ledger retain the legacy user/tool/arguments-derived key.
+  Neither path proves atomic execution with an external provider.
 - **Identity containment.** ``ToolRegistry.execute`` injects the
   authenticated ``user_id`` for local authorization; this layer strips
   it (and any model-forged ``idempotency_key``) before the payload
   leaves the process. Internal identity never crosses the boundary
   uninvited.
-- **Never-fail-chat.** A dead or slow remote server degrades to a
-  structured ``ToolResult`` failure the agent loop can answer around;
-  nothing raises into the dialogue graph.
+- **Bounded failure.** A dead or slow remote server becomes a structured
+  tool outcome. For ledger-protected writes, transport failures remain
+  unknown and cannot authorize another dispatch of the same proposal.
 
 Manifest format (a JSON array of entries; ``MCP_TOOLS_MANIFEST`` setting
 points at the file, empty/unset = no remote tools):
@@ -76,7 +76,14 @@ _REQUEST_IDS = itertools.count(1)
 # Keys never forwarded to a remote server. ``user_id`` is injected
 # server-side for local authorization and is internal identity;
 # ``idempotency_key`` is server-derived and must never be model-supplied.
-_STRIP_ARG_KEYS = ("user_id", "idempotency_key")
+_STRIP_ARG_KEYS = (
+    "user_id",
+    "idempotency_key",
+    "action_id",
+    "operation_id",
+    "execution_scope",
+    "_durable_action_id",
+)
 
 
 class ToolInvocationError(Exception):
@@ -226,16 +233,20 @@ def _build_call_payload(name: str, args: dict[str, Any], *, write: bool) -> dict
     """One stateless JSON-RPC 2.0 ``tools/call`` request.
 
     Internal identity keys are stripped before the payload leaves the
-    process (identity containment). Write calls additionally carry a
-    deterministic idempotency key (SEP-3182 shape, sibling of
-    ``arguments``) so a timeout-then-reconfirm flow cannot
-    double-execute server-side.
+    process (identity containment). Writes carry the trusted proposal
+    key, or the legacy derived key for internal registries without a
+    ledger. Provider-side deduplication depends on its own contract.
     """
     arguments = {key: value for key, value in args.items() if key not in _STRIP_ARG_KEYS}
     params: dict[str, Any] = {"name": name, "arguments": arguments}
     if write:
-        params["idempotencyKey"] = _derive_idempotency_key(
-            user_id=args.get("user_id"), name=name, arguments=arguments
+        action_key = args.get("_durable_action_id")
+        params["idempotencyKey"] = (
+            action_key
+            if isinstance(action_key, str) and action_key
+            else _derive_idempotency_key(
+                user_id=args.get("user_id"), name=name, arguments=arguments
+            )
         )
     return {
         "jsonrpc": "2.0",
@@ -248,9 +259,9 @@ def _build_call_payload(name: str, args: dict[str, Any], *, write: bool) -> dict
 def _derive_idempotency_key(user_id: int | None, name: str, arguments: dict[str, Any]) -> str:
     """Deterministic key over the logical operation identity.
 
-    Same user + tool + model-visible args ⇒ same key (a re-confirmed
-    retry dedups server-side); any variation ⇒ a different key (distinct
-    operations never collide).
+    Same user + tool + model-visible args gives the same legacy key.
+    Remote deduplication is conditional on the provider honoring it;
+    durable registries instead use a distinct server UUID per proposal.
     """
     canonical = json.dumps(arguments, sort_keys=True, ensure_ascii=False, default=str)
     digest = hashlib.sha256(f"{user_id}|{name}|{canonical}".encode()).hexdigest()

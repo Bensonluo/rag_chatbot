@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any, Optional
+from uuid import uuid4
 
 if TYPE_CHECKING:
     from app.services.agent.service import AgentService
@@ -773,6 +775,7 @@ class NodeFactory:
                     "intent": intent,
                     "args": dict(filled_slots),
                     "staged_at": time.time(),
+                    "action_id": str(uuid4()),
                 },
                 "response": summary,
                 # Staging re-opens the task: it is in flight again and
@@ -1428,6 +1431,7 @@ class NodeFactory:
             expected_epoch=cache_epoch,
         )
         response["response"] = _maybe_append_resume_hint(response.get("response", ""), state)
+        _emit_response(response["response"], config)
         return response
 
     async def _cached_answer_published(
@@ -1977,6 +1981,15 @@ class NodeFactory:
         """
         intent = state.get("intent", "")
 
+        if (
+            intent in {"confirm", "cancel", "deny"}
+            and state.get("pending_confirmation")
+            and self._tool_registry.durable_actions
+        ):
+            durable = await self._handle_durable_confirmation(state, config)
+            if durable is not None:
+                return durable
+
         if intent == "cancel":
             state_stack: list[dict[str, Any]] = list(state.get("state_stack") or [])
             # Try to resume a suspended task after cancellation.
@@ -2109,6 +2122,135 @@ class NodeFactory:
             }
 
         return {"response": "抱歉，我没有理解您的意思，请重新描述。"}
+
+    async def _handle_durable_confirmation(
+        self, state: DialogueState, config: Optional[RunnableConfig]
+    ) -> dict[str, Any] | None:
+        """Checkpoint state proposes an action; only the ledger authorizes dispatch."""
+        from app.services.dialogue.action_messages import render_action_outcome
+        from app.services.dialogue.tools import ToolResult
+
+        pending = state.get("pending_confirmation") or {}
+        intent = state.get("intent", "")
+        if state.get("blocked"):
+            return {"response": GUARDRAIL_INPUT_BLOCKED[_turn_lang(state)]}
+        tool_intent = pending.get("intent", "")
+        args = pending.get("args")
+        tool = (
+            self._tool_registry.get_tool_for_intent(tool_intent)
+            if isinstance(tool_intent, str)
+            else None
+        )
+        action_id = pending.get("action_id")
+        stamp = pending.get("staged_at")
+        stage_time = (
+            float(stamp) if isinstance(stamp, (int, float)) and not isinstance(stamp, bool) else 0.0
+        )
+        prepared_args: dict[str, Any] = args if isinstance(args, dict) else {}
+        valid = (
+            tool is not None
+            and tool.requires_confirmation
+            and isinstance(args, dict)
+            and isinstance(action_id, str)
+            and isinstance(stamp, (int, float))
+            and not isinstance(stamp, bool)
+            and math.isfinite(stage_time)
+            and stage_time > 0
+        )
+        expired = bool(
+            valid
+            and settings.CONFIRMATION_TTL_SECONDS > 0
+            and time.time() - stage_time > settings.CONFIRMATION_TTL_SECONDS
+        )
+        context = intent if intent != "confirm" else "expired" if expired else "confirm"
+        if not valid:
+            result = ToolResult(False, {}, execution_status="confirmation_required")
+        else:
+            scope = (config or {}).get("configurable", {}).get("thread_id")
+            options: dict[str, Any] = {
+                "user_id": state.get("user_id"),
+                "session_id": state.get("session_id"),
+                "language": _turn_lang(state),
+                "action_id": action_id,
+                "execution_scope": scope
+                if isinstance(scope, str) and scope
+                else str(state.get("session_id")),
+            }
+            if intent != "confirm" or expired:
+                result = await self._tool_registry.lookup_action(
+                    tool_intent, prepared_args, **options
+                )
+                if result.execution_status == "not_started" and intent in {"cancel", "deny"}:
+                    # The ledger proves no dispatch; retain prior stack/cancel semantics.
+                    return None
+            else:
+                result = await self._tool_registry.execute(tool_intent, prepared_args, **options)
+        status = result.execution_status or "confirmation_required"
+        action = {
+            "action_id": result.action_id,
+            "status": status,
+            "replayed": result.replayed,
+            "tool": tool.name if tool else "",
+        }
+        updates: dict[str, Any] = {
+            "action_execution": action,
+            "pending_confirmation": pending
+            if status in {"unknown", "unavailable"} and intent == "confirm"
+            else None,
+            "task_executed": status not in {"not_started"},
+            "tool_result": dict(result.data),
+        }
+        if status == "completed":
+            result_data = dict(result.data)
+            if not result.success:
+                result_data["error"] = result.message
+            updates.update(
+                {
+                    "intent": tool_intent,
+                    "filled_slots": dict(args or {}),
+                    "tool_result": result_data,
+                }
+            )
+            if not result.replayed and intent == "confirm":
+                updates["executed_tools"] = [
+                    {
+                        "tool": tool.name if tool else tool_intent,
+                        "ok": result.success,
+                        "args": dict(args or {}),
+                        "summary": _safe_json(result_data)[:200],
+                        "action_id": result.action_id,
+                        "execution_status": status,
+                    }
+                ]
+        response = render_action_outcome(
+            status=status,
+            replayed=result.replayed,
+            tool_intent=tool_intent if isinstance(tool_intent, str) else "",
+            success=result.success,
+            data=result.data,
+            message=result.message,
+            language=_turn_lang(state),
+            operation_id=result.action_id,
+            context=context,
+        )
+        if response is not None:
+            updates["response"] = response
+            return updates
+        tool_state: DialogueState = {
+            **state,
+            "intent": tool_intent,
+            "filled_slots": prepared_args,
+            "tool_result": updates["tool_result"],
+            "action_execution": action,
+            "pending_confirmation": updates["pending_confirmation"],
+            "executed_tools": updates.get("executed_tools", []),
+            "task_executed": True,
+        }
+        generated = await self._generate_with_tool(
+            tool_intent, state.get("message", ""), updates["tool_result"], tool_state, config
+        )
+        updates.update(generated)
+        return updates
 
     async def _recall_user_facts(self, state: DialogueState | None) -> list[str]:
         """Newest durable facts for the current user, best-effort.

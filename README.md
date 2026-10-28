@@ -61,7 +61,7 @@ Deployment commands below start a single API instance. Replica templates, option
 | Human handoff | Private sign-in workspace, tickets/queue, assigned context, two-way human messages, atomic final reply/closure | Carry context into staff handling and deliver a saved explanation |
 | Operational control | Epoch-scoped L0/L1/L2 cache, metrics/alerts, tracing, rate limits | Inspect latency, outcomes, cache consistency and load |
 
-**Recorded quality baseline (2026-10-28):** 3288 passing core tests, 3 opt-in scenarios skipped by default, 93.35% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
+**Recorded quality baseline (2026-10-28):** 3720 passing core tests, 3 opt-in scenarios skipped by default, 93.57% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
 
 [Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md)
 
@@ -311,9 +311,10 @@ GUARDRAILS_ENABLED=true
 GUARDRAILS_HARDENING_ENABLED=true
 
 # Authorization posture (review 2026-09-26, #1): DEMO_MODE=true keeps the
-# public demo open (anonymous chat under a body user_id, history by bare
-# session id); false enforces token-only identity, session ownership on
-# chat writes and history read/clear, and admin-only knowledge-base writes.
+# public demo open for unmarked shared sessions. Private sessions always
+# require their authenticated owner. Knowledge management and QA require
+# active admins in both modes; false enforces token-only chat identity
+# and ownership on every session.
 DEMO_MODE=true
 ```
 
@@ -352,7 +353,14 @@ Postgres document locks serialize replacements across replicas. Interrupted
 | Delete indexes and retained sources | `DELETE /api/v1/documents/{document_id}` |
 | Check registry, vector store, and worker | `GET /api/v1/documents/health` |
 
-Text upload example (with the normal bearer token):
+Knowledge lifecycle management requires an active administrator in both Demo
+and strict modes, including catalog/version inspection, retained originals and
+normalized text. Open registration grants customer access only; customers may
+search published evidence but cannot manage shared knowledge. Sensitive document
+responses and handled auth/validation errors use private,no-store headers. See
+the [knowledge access contract](docs/design/knowledge-access.md).
+
+Text upload example (with an active administrator bearer token):
 
 ```json
 {
@@ -468,7 +476,7 @@ separately configured checkpoint databases require their own recovery plans.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 3288 passed + 3 opt-in skipped / 93.35%)
+# Maintained core suite (70% minimum; currently 3720 passed + 3 opt-in skipped / 93.57%)
 pytest
 
 # Targeted runs
@@ -508,11 +516,14 @@ ruff format --check app/
 mypy app/
 ```
 
-Local verification on 2026-10-28: 3288 tests pass, with three opt-in scenarios
+Local verification on 2026-10-28: 3720 tests pass, with three opt-in scenarios
 skipped by default (PostgreSQL concurrency, assigned-transcript locking, and
 the Docker recovery drill);
-core coverage is 93.35%. Ruff and
-full strict Mypy pass (461 Python files).
+selected core coverage is 93.57%, not a coverage claim for chat/handoff/API code.
+Maintained Ruff lint passes for `app/`, `migrations/`, and the three CLI paths
+`scripts/init_db.py`, `scripts/document_import.py`, and `scripts/probe_live.py`.
+Format checking passes for `app/` plus `scripts/probe_live.py` (496 files);
+strict Mypy passes for 495 `app/` Python files and those three CLI files.
 Authenticated HTTP/SSE regressions cover chat ownership, guarded text and
 citations, plus ASGI 2.3/2.4 disconnect persistence; the earlier socket-blocked
 run is recorded in the [boundary evidence](docs/reviews/http-stream-results-2026-10-23.json).
@@ -566,8 +577,9 @@ measures the selected core modules; it does not measure chat/coordinator/handoff
 Private sessions also enforce owner checks in Demo mode, private feedback requires ownership,
 and QA access requires admin in both modes. Shared legacy tickets have no private human channel.
 
-Apply migration `a31e8d7f6290` and drain all old app instances **before** allowing private
-consultations. Private sessions/human rows/nonzero automation generations block downgrade;
+Round20 introduced migration `a31e8d7f6290` and required draining old app instances **before**
+allowing private consultations; current builds require the newer head described below.
+Private sessions/human rows/nonzero automation generations block downgrade;
 restarting old Demo binaries can bypass privacy. Local SQLite migration round trips and
 schema alignment pass. PostgreSQL advisory-lock coordination has a separate bounded pool and
 CI-selected independent-connection regression, but was not executed on real PG this round;
@@ -584,12 +596,123 @@ rejects invalid JSON enum types. No new outcome API, schema or confirmation butt
 Full regression: 3288 backend tests (3 existing opt-in skipped), and 272 frontend tests
 (217 Jest + 55 protocol), lint/types and 12 static pages. See the [followup evidence](docs/reviews/human-followup-results-2026-10-28.json).
 
+Round22 requires an active administrator for knowledge lifecycle management in
+both Demo and strict modes, including retained originals and unpublished version
+metadata. Open registration no longer grants knowledge operator access. Sensitive
+document responses and handled auth/validation errors are private,no-store; ordinary
+customer search and shared Demo chat are preserved. New actual JWT/SQLite/jobs/local
+Qdrant coverage adds 32 cases; the role matrix grows from 3 to 10 (net 7), bringing the
+full backend suite to 3327. Frontend code is unchanged from the prior 272-test baseline.
+See the [access contract](docs/design/knowledge-access.md) and
+[round22 evidence](docs/reviews/knowledge-access-results-2026-10-28.json).
+
+Round23 adds a durable SQL execution ledger for confirmed refund/return and MCP write proposals.
+Checkpoint failures and fresh-confirm retries replay the saved result for the same UUID;
+unknown outcomes block another dispatch, and cancellation cannot claim an earlier request
+was reversed. A saved adapter result is distinct from business success. Production startup
+requires migration `b42f9c8e7310`; drain old instances before enabling this guarantee.
+The new124 default cases cover ledger/migration, both graph/AgentService proposal paths,
+actual HTTP/SSE/SQL faults, authority, metadata and MCP parameter binding. Local SQLite
+full migration round trips pass; real PG, external payment/MCP and browser acceptance remain
+unverified. See the [durable action contract](docs/design/durable-actions.md) and
+[round23 evidence](docs/reviews/durable-actions-results-2026-10-28.json).
+
+Round24 (historical baseline) preserves support drafts and immutable human-send attempts across reload,
+consultation switches and same-user sign-in recovery. Drafts keep their original
+AI/human recipient until an explicit move. New customer sends bind expected_ticket_id;
+old-ticket attempts cannot enter a newer ticket. Closed staff attempts have an explicit
+saved-work recovery entry. New 13 actual backend cases bring the full suite to 3464;
+frontend passes 288 Jest + 55 Node = 343, lint, strict types and 12 static pages.
+Local recovery is bounded and cannot replace server authorization or business idempotency.
+See the [continuity contract](docs/design/human-conversation.md) and
+[round24 evidence](docs/reviews/support-continuity-results-2026-10-28.json).
+
+Round25 (historical baseline) binds workspace conversation operations and local recovery to a server-generated
+`session_key`, preventing an old draft or retry from entering a replacement consultation
+when numeric session/ticket IDs are reused. Private content requests carry the expected key;
+clear-history rotates the key and automation epoch before cleanup. Journal v2 includes the
+key; legacy v1 recovery requires explicit local discard and is never silently adopted.
+The authenticated operator probe also carries and checks the original server key.
+Upgrade all clients and backends to migration head `c53a7d9e8421` (after `b42f9c8e7310`),
+with old instances drained and SQLite writers stopped during migration.
+New 66 backend cases (17 migration, 42 actual lifecycle, 7 operator) bring the full suite
+to 3530 passed and 3 opt-in skipped. New 11 frontend cases (7 journal, 4 actual React)
+bring its complete suite to 354 (299 Jest + 55 Node), with lint, strict types and 12 static
+pages passing. The frozen manifests cover 501 backend Python and 86 frontend source/config
+files. These are local SQLite/JWT and controlled-fetch checks; real PG, browser/hydration,
+production migration and external commerce remain unverified. The activity-ordering
+candidate is deferred, and the purchase integration design remains proposed.
+See the [session incarnation contract](docs/design/session-incarnation.md) and
+[round25 evidence](docs/reviews/session-incarnation-results-2026-10-28.json).
+
+Round26 binds feedback and QA mutations to the object and evidence actually selected.
+Private feedback requires the displayed session key; the server reauthorizes inside the
+conversation gate and atomically binds the SQL update to owner, parent, key and a completed
+assistant answer. A committed immutable receipt fixes the original message/session/key;
+metrics and best-effort cache cleanup run outside the gate so slow cleanup cannot hold
+up a later conversation action. QA queue/context now provides a session key and opaque
+review version; verdicts require both and reject a proposal made stale by a new question,
+feedback, human message or review correction. Explicit GET review permits a fresh correction.
+The projection is streamed in batches of 256, but still reads O(N) bot rows; this is not
+an audit log, proof of transcript comprehension or a PostgreSQL/capacity acceptance result.
+The final complete backend suite passes 3581 cases with 3 opt-in skips and 93.57% selected
+core coverage. The earlier 3580-case run is a historical pre-fix result; the final suite
+includes the post-commit cleanup regression. New default cases total 51: 15 feedback unit
+and 36 actual HTTP/SQLite scenarios. Frontend at that checkpoint passes 367 (312 Jest + 55 Node);
+its 13-case increase comprises 7 feedback guards and 6 preserved locale tests from concurrent
+workspace changes. Frozen source covers 502 backend Python and 86 frontend source/config
+files, with 14 backend and 6 frontend changes versus round25. No new migration is needed;
+head remains `c53a7d9e8421` and clients must
+adopt the new private feedback/QA contract. See the [quality mutation contract](docs/design/quality-mutations.md)
+and [round26 evidence](docs/reviews/quality-mutations-results-2026-10-28.json).
+
+### Public visitor chat and mock purchasing (2026-10-28)
+
+The public website now uses server-issued HttpOnly session cookies and a private
+conversation per browser, without registration. The existing `/support/` workspace
+is retained; further product work focuses on the public experience.
+
+Public chat can search mock products, select a SKU/quantity, prepare a quote, then
+create a mock order and simulate payment through separate explicit buttons.
+The bounded Agent uses a request-local tool registry and a replaceable planner;
+`PurchaseService` owns durable purchase state, confirmation versions, idempotency
+and recovery through `CommercePort`. Order confirmation/payment are unavailable
+as model tools. Unknown results query the original operation, and clearing chat
+does not delete or repeat a purchase. All commerce is visibly simulated.
+
+New migrations are `d64b8c0f9532` (anonymous visitors) and `e75c9d1064a3`
+(commerce framework), following `c53a7d9e8421`. Drain old API instances before
+upgrading and use the matching frontend. `GUEST_COOKIE_SECURE=true` requires
+HTTPS; disable it only for local HTTP. Cookie identity represents its browser,
+with no real-person or cross-device recovery promise. See the
+[public commerce contract](docs/design/public-commerce.md). Final local verification:
+3709 backend tests pass (3 skips, 5 warnings, 261.84s; selected core93.57%),
+398 frontend checks pass (343 Jest +55 Node), plus strict types/lint/12-page build.
+Native Chrome passed Cookie/CORS, the full mock order/payment journey, history
+recovery, clear-with-retained-purchase and expired-visitor isolation. Browser
+versions and the final small follow-up changes are recorded separately in the
+[round27 evidence](docs/reviews/public-commerce-results-2026-10-28.json).
+This does not verify real payments, production HTTPS/PostgreSQL or deployment.
+
+### Reliability milestone (2026-10-28)
+
+Public mock shopping now commits its conversation task boundary before invoking
+Agent or business operations. A failed fence blocks the operation; later model
+errors, cancellation or chat-save failures cannot reactivate an earlier refund
+proposal. Commerce requests wait at most 30 seconds, then offer explicit status
+recovery without automatically submitting the transaction again. Complete local
+checks pass: **3720 backend** and **407 frontend** tests, plus lint, strict types
+and a 12-page build. The new timeout path was checked with real React and
+controlled fetch; the prior milestone used real Chrome for the complete mock
+purchase. See the [milestone record](docs/reviews/public-purchase-milestone-2026-10-28.md)
+and [reliability evidence](docs/reviews/public-commerce-reliability-2026-10-28.json).
+
 | Metric | Value |
 |--------|-------|
-| Maintained test results | **3288 passed, 3 opt-in skipped** |
-| Maintained core coverage | **93.35%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
-| Python files (app/) | 461 |
-| Python files in app/tests/ | 243 (237 test_ modules) |
+| Maintained test results | **3720 passed, 3 opt-in skipped** |
+| Maintained core coverage | **93.57%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
+| Python files (app/) | 495 |
+| Python files in app/tests/ | 261 (255 test_ modules) |
 
 ---
 
@@ -601,7 +724,7 @@ Full regression: 3288 backend tests (3 existing opt-in skipped), and 272 fronten
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 3288 passing core tests, 93.35% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
+- [x] 3720 passing core tests, 93.57% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)

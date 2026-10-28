@@ -32,8 +32,10 @@ data: [DONE]
 
 `POST /api/v1/feedback` 沿用现有 active-user 认证，strict 模式继续核对会话所有权，外人、非 owner 的管理员和不存在的消息均为 404。Demo 原有存在性模式不升级成匿名评分许可。Repository 写入进一步限定为 **COMPLETED ASSISTANT**；USER、SYSTEM、FAILED、PENDING、PROCESSING 不接受评价。拒绝路径不计评分指标，也不驱逐缓存。
 
-评分保留 `-1`、`0`、`1` 兼容值；`0` 是原协议清除值，不是好评。前端只在服务端返回 `success=true` 且 ID、rating 与本次请求完全一致时更新该条显示。每条消息有同步提交门闩，失败显示未提交，允许用户核实后手动重试，不自动重发。
+第26轮私人评分另须提交原 `expected_session_key`；授权后缺失或不符返回409。服务端先定位，再于会话门闩内读取最新权限和实例，并以同一 SQL 条件绑定消息、父会话、owner、key 与完成状态。只有提交后的不可变回执才能触发评分指标和缓存驱逐；驱逐在门闩外使用原回执正文，不重读可能已被替换的数字消息 ID。详见[质量写入合同](quality-mutations.md)。
+
+评分保留 `-1`、`0`、`1` 兼容值；`0` 是原协议清除值，不是好评。新工作台只在 `success=true`、消息 ID、rating、session_id 和原 session_key 全部匹配时更新显示；公开共享 Demo 客户端保留原 ID/rating 兼容协议，不据此声称具有私有实例保护。每条消息有同步提交门闩，失败显示未确认，允许用户核实后手动重试，不自动重发。
 
 当前公开页面仍使用共享 Demo 会话，并无新增登录入口。没有既有访问令牌时，实际可评分的回答提示登录，不发送匿名反馈；strict 模式还要求访问令牌拥有该会话。本轮没有放宽权限以恢复按钮。真实支付、客户最终解决、匿名登录体验、人工发送/接收及多租户知识隔离仍有独立交付边界。
 
-验证结果见[第十八轮记录](../reviews/message-feedback-results-2026-10-28.json)：31 项新增单元和 22 项实际 SQLite/JWT/编译图 HTTP 回归均通过；完整默认 3063 通过、3 opt-in 跳过，核心覆盖 93.29%。真实 PostgreSQL、Redis 驱逐、模型质量和浏览器交互不在本轮证明范围内。
+历史验证见[第十八轮记录](../reviews/message-feedback-results-2026-10-28.json)：当轮31 项新增单元和 22 项实际 SQLite/JWT/编译图 HTTP 回归均通过；当轮完整默认 3063 通过、3 opt-in 跳过，核心覆盖 93.29%。第26轮的当前实例、并发及证据版本结果见[质量写入验证](../reviews/quality-mutations-results-2026-10-28.json)。这些本地结果不等于真实 PostgreSQL、Redis 驱逐、模型质量或浏览器交互验收。

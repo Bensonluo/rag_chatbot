@@ -34,6 +34,7 @@ from app.models.database.user import User
 from app.models.enums.message import MessageRole, MessageStatus
 from app.services.chat import cache_eviction
 from app.services.chat.chat_service import ChatService
+from app.services.chat.coordination import SessionCoordinator, get_session_coordinator
 from app.services.chat.metrics import FEEDBACK_RATINGS
 from app.services.chat.persistence import ChatMessagePersister
 from app.services.dialogue.graph import build_dialogue_graph
@@ -171,6 +172,7 @@ async def case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncGenerato
 
     app.dependency_overrides[get_db] = local_db
     app.dependency_overrides[feedback_api._get_db] = local_db
+    app.dependency_overrides[get_session_coordinator] = lambda: SessionCoordinator(maker)
     app.dependency_overrides[chat_api.get_chat_service] = lambda: service
     delivered: list[dict[str, Any]] = []
 
@@ -440,6 +442,10 @@ async def test_failed_partial_stream_has_no_completion_and_cannot_be_rated(case:
 
 async def test_accepted_downvote_then_zero_survives_database_and_history(case: _Case) -> None:
     receipt = _receipt(await _chat(case, "normal"), "normal")
+    async with case.maker() as db:
+        chat = await db.get(ChatSession, receipt["session_id"])
+        assert chat is not None
+        session_key = chat.session_key
     before = _rating_counts()
     for value in (-1, 0, 1):
         response = await _feedback(case, receipt["message_id"], value)
@@ -448,6 +454,8 @@ async def test_accepted_downvote_then_zero_survives_database_and_history(case: _
             "success": True,
             "message_id": receipt["message_id"],
             "rating": value,
+            "session_id": receipt["session_id"],
+            "session_key": session_key,
         }
         saved = next(row for row in await _rows(case) if row.id == receipt["message_id"])
         assert saved.user_rating == value

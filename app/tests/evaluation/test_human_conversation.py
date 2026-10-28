@@ -258,9 +258,56 @@ async def case(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> AsyncGenerato
 
 
 async def test_new_session_exposes_the_private_conversation_contract(case: _Case) -> None:
-    response = await case.client.get(f"/api/v1/sessions/{case.private_id}", headers=case.headers[1])
+    response = await _get(case, f"/api/v1/sessions/{case.private_id}", headers=case.headers[1])
     assert response.status_code == 200
     assert response.json().get("is_private") is True
+
+
+async def _session_key(case: _Case, session_id: int | None = None) -> str:
+    async with case.maker() as db:
+        chat = await db.get(ChatSession, session_id or case.private_id)
+        return chat.session_key if chat is not None else "00000000-0000-4000-8000-000000000000"
+
+
+async def _url_session_key(case: _Case, url: str) -> str:
+    import re
+
+    match = re.search(r"/handoff/(sessions|tickets)/(\d+)", url)
+    session_id = case.private_id
+    if match is not None:
+        identifier = int(match[2])
+        if match[1] == "sessions":
+            session_id = identifier
+        else:
+            async with case.maker() as db:
+                ticket = await db.get(HandoffTicket, identifier)
+                if ticket is not None:
+                    session_id = ticket.session_id
+    return await _session_key(case, session_id)
+
+
+async def _get(case: _Case, url: str, **kwargs: Any) -> Response:
+    # Existing positive commands explicitly discover the current object; negative
+    # incarnation tests issue raw HTTP without this convenience helper.
+    from urllib.parse import parse_qsl, urlsplit
+
+    params = dict(parse_qsl(urlsplit(url).query))
+    params.update(kwargs.pop("params", {}))
+    if "expected_session_key" not in params:
+        session_id = params.get("session_id")
+        params["expected_session_key"] = (
+            await _session_key(case, int(session_id))
+            if session_id is not None
+            else await _url_session_key(case, url)
+        )
+    return await case.client.get(url, params=params, **kwargs)
+
+
+async def _delete(case: _Case, url: str, **kwargs: Any) -> Response:
+    separator = "&" if "?" in url else "?"
+    return await case.client.delete(
+        url + separator + "expected_session_key=" + await _url_session_key(case, url), **kwargs
+    )
 
 
 def _customer_url(case: _Case) -> str:
@@ -293,7 +340,8 @@ async def _ticket(case: _Case, *, claim: bool = True) -> int:
     assert type(ticket_id) is int
     if claim:
         response = await case.client.post(
-            f"/api/v1/handoff/tickets/{ticket_id}/claim", headers=case.headers[3]
+            f"/api/v1/handoff/tickets/{ticket_id}/claim?expected_session_key={await _url_session_key(case, _staff_url(ticket_id))}",
+            headers=case.headers[3],
         )
         assert response.status_code == 200
     return ticket_id
@@ -308,10 +356,18 @@ async def _bot(
     actor: int = 1,
     **options: Any,
 ) -> Response:
+    async with case.maker() as db:
+        current = await db.get(ChatSession, session_id or case.private_id)
+        session_key = current.session_key if current is not None else None
     return await case.client.post(
         "/api/v1/chat" + ("/stream" if transport == "stream" else ""),
         headers=case.headers.get(actor, {}),
-        json={"session_id": session_id or case.private_id, "message": message, **options},
+        json={
+            "session_id": session_id or case.private_id,
+            "message": message,
+            "expected_session_key": session_key,
+            **options,
+        },
     )
 
 
@@ -324,7 +380,11 @@ async def _send(
     key: str | None = None,
     resolve: bool | None = None,
 ) -> Response:
-    body: dict[str, Any] = {"client_message_id": key or str(uuid4()), "content": content}
+    body: dict[str, Any] = {
+        "client_message_id": key or str(uuid4()),
+        "content": content,
+        "expected_session_key": await _url_session_key(case, url),
+    }
     if resolve is not None:
         body["resolve"] = resolve
     return await case.client.post(url, headers=case.headers.get(actor, {}), json=body)
@@ -349,8 +409,8 @@ def _ack(response: Response) -> dict[str, Any]:
 async def _feed(
     case: _Case, url: str, actor: int, *, after_id: int = 0, limit: int = 100
 ) -> dict[str, Any]:
-    response = await case.client.get(
-        url, headers=case.headers[actor], params={"after_id": after_id, "limit": limit}
+    response = await _get(
+        case, url, headers=case.headers[actor], params={"after_id": after_id, "limit": limit}
     )
     assert response.status_code == 200, response.text
     _no_store(response)
@@ -373,7 +433,8 @@ async def test_claimed_conversation_delivers_both_authors_without_bot_execution(
     ticket_id = initial.json()["metadata"]["handoff_ticket_id"]
     assert (
         await case.client.post(
-            f"/api/v1/handoff/tickets/{ticket_id}/claim", headers=case.headers[3]
+            f"/api/v1/handoff/tickets/{ticket_id}/claim?expected_session_key={await _url_session_key(case, _staff_url(ticket_id))}",
+            headers=case.headers[3],
         )
     ).status_code == 200
     bot_before = [(row.id, row.content) for row in await _bot_rows(case)]
@@ -404,8 +465,11 @@ async def test_claimed_conversation_delivers_both_authors_without_bot_execution(
     assert "[DONE]" not in rejected.text
     assert _calls(case) == counts
     assert [(row.id, row.content) for row in await _bot_rows(case)] == bot_before
-    history = await case.client.get(
-        "/api/v1/chat/history", params={"session_id": case.private_id}, headers=case.headers[1]
+    history = await _get(
+        case,
+        "/api/v1/chat/history",
+        params={"session_id": case.private_id},
+        headers=case.headers[1],
     )
     assert history.status_code == 200
     assert [row["content"] for row in history.json()["messages"]] == [
@@ -515,7 +579,7 @@ async def test_customer_channel_requires_the_actual_owner_in_both_modes(
     await _ticket(case)
     monkeypatch.setattr(settings, "DEMO_MODE", demo)
     for response in [
-        await case.client.get(_customer_url(case), headers=case.headers.get(actor, {})),
+        await _get(case, _customer_url(case), headers=case.headers.get(actor, {})),
         await _send(case, _customer_url(case), actor, "Unauthorized note."),
     ]:
         assert response.status_code == (401 if actor == 0 else 404)
@@ -529,7 +593,7 @@ async def test_staff_channel_requires_the_assigned_authenticated_admin(
 ) -> None:
     ticket_id = await _ticket(case)
     for response in [
-        await case.client.get(_staff_url(ticket_id), headers=case.headers.get(actor, {})),
+        await _get(case, _staff_url(ticket_id), headers=case.headers.get(actor, {})),
         await _send(case, _staff_url(ticket_id), actor, "Unauthorized reply."),
     ]:
         assert response.status_code == {0: 401, 1: 403, 4: 404}[actor]
@@ -598,7 +662,7 @@ async def test_legacy_unmarked_demo_chat_keeps_its_existing_shared_behavior(
     monkeypatch.setattr(settings, "DEMO_MODE", True)
     response = await _bot(case, "hello", session_id=10, actor=0, user_id=1)
     assert response.status_code == 200
-    history = await case.client.get("/api/v1/chat/history", params={"session_id": 10})
+    history = await _get(case, "/api/v1/chat/history", params={"session_id": 10})
     assert history.status_code == 200
     assert len(history.json()["messages"]) == 2
 
@@ -625,10 +689,12 @@ async def test_inflight_bot_excludes_claim_until_the_turn_and_side_effect_settle
     try:
         await asyncio.wait_for(entered.wait(), timeout=2)
         claim = await case.client.post(
-            f"/api/v1/handoff/tickets/{ticket_id}/claim", headers=case.headers[3]
+            f"/api/v1/handoff/tickets/{ticket_id}/claim?expected_session_key={await _url_session_key(case, _staff_url(ticket_id))}",
+            headers=case.headers[3],
         )
         assert claim.status_code == 409
-        clear = await case.client.delete(
+        clear = await _delete(
+            case,
             "/api/v1/chat/history",
             headers=case.headers[1],
             params={"session_id": case.private_id},
@@ -649,7 +715,8 @@ async def test_inflight_bot_excludes_claim_until_the_turn_and_side_effect_settle
         await asyncio.gather(bot, return_exceptions=True)
     assert (
         await case.client.post(
-            f"/api/v1/handoff/tickets/{ticket_id}/claim", headers=case.headers[3]
+            f"/api/v1/handoff/tickets/{ticket_id}/claim?expected_session_key={await _url_session_key(case, _staff_url(ticket_id))}",
+            headers=case.headers[3],
         )
     ).status_code == 200
     counts = _calls(case)
@@ -664,7 +731,8 @@ async def test_inflight_staff_send_excludes_resolve_and_postclose_new_writes(cas
     try:
         await asyncio.wait_for(case.writer_gate.entered.wait(), timeout=2)
         closing = await case.client.post(
-            f"/api/v1/handoff/tickets/{ticket_id}/resolve", headers=case.headers[3]
+            f"/api/v1/handoff/tickets/{ticket_id}/resolve?expected_session_key={await _url_session_key(case, _staff_url(ticket_id))}",
+            headers=case.headers[3],
         )
         assert closing.status_code == 409
         assert not sender.done()
@@ -677,7 +745,8 @@ async def test_inflight_staff_send_excludes_resolve_and_postclose_new_writes(cas
         await asyncio.gather(sender, return_exceptions=True)
     assert (
         await case.client.post(
-            f"/api/v1/handoff/tickets/{ticket_id}/resolve", headers=case.headers[3]
+            f"/api/v1/handoff/tickets/{ticket_id}/resolve?expected_session_key={await _url_session_key(case, _staff_url(ticket_id))}",
+            headers=case.headers[3],
         )
     ).status_code == 200
     assert (await _send(case, _staff_url(ticket_id), 3, "Too late.")).status_code == 404
@@ -705,7 +774,7 @@ async def test_claim_resolve_epoch_cannot_resume_a_stale_refund_confirmation(cas
 
 
 async def _stats(case: _Case) -> dict[str, Any]:
-    response = await case.client.get("/api/v1/sessions/containment-stats", headers=case.headers[1])
+    response = await _get(case, "/api/v1/sessions/containment-stats", headers=case.headers[1])
     assert response.status_code == 200
     body = response.json()
     assert isinstance(body, dict)
@@ -800,7 +869,8 @@ async def test_customer_send_replays_once_and_cannot_move_an_old_key_to_a_new_ti
     assert len(await _human_rows(case)) == 1
     assert (
         await case.client.post(
-            f"/api/v1/handoff/tickets/{ticket_id}/resolve", headers=case.headers[3]
+            f"/api/v1/handoff/tickets/{ticket_id}/resolve?expected_session_key={await _url_session_key(case, _staff_url(ticket_id))}",
+            headers=case.headers[3],
         )
     ).status_code == 200
     replay = _ack(await _send(case, _customer_url(case), 1, "One send.", key=key))
@@ -859,7 +929,8 @@ async def test_claim_between_stream_preflight_and_body_emits_error_without_bot_w
         await asyncio.wait_for(case.stream_gate.entered.wait(), timeout=2)
         assert (
             await case.client.post(
-                f"/api/v1/handoff/tickets/{ticket_id}/claim", headers=case.headers[3]
+                f"/api/v1/handoff/tickets/{ticket_id}/claim?expected_session_key={await _url_session_key(case, _staff_url(ticket_id))}",
+                headers=case.headers[3],
             )
         ).status_code == 200
         case.stream_gate.release.set()
@@ -891,11 +962,12 @@ async def test_shared_legacy_session_has_no_human_channel_or_human_context(
     assert type(ticket_id) is int
     assert (
         await case.client.post(
-            f"/api/v1/handoff/tickets/{ticket_id}/claim", headers=case.headers[3]
+            f"/api/v1/handoff/tickets/{ticket_id}/claim?expected_session_key={await _url_session_key(case, _staff_url(ticket_id))}",
+            headers=case.headers[3],
         )
     ).status_code == 200
     customer_url = "/api/v1/handoff/sessions/10/messages"
-    assert (await case.client.get(customer_url, headers=case.headers[1])).status_code == 404
+    assert (await _get(case, customer_url, headers=case.headers[1])).status_code == 404
     assert (await _send(case, customer_url, 1, "Public human message.")).status_code == 404
     assert (await _send(case, _staff_url(ticket_id), 3, "Public staff reply.")).status_code == 409
     assert await _human_rows(case) == []
@@ -933,7 +1005,7 @@ async def test_demo_private_quality_surfaces_reject_other_customers(
         message = await db.get(Message, message_id)
         assert message is not None and message.user_rating is None
     assert (
-        await case.client.get("/api/v1/sessions/review-queue", headers=case.headers[2])
+        await _get(case, "/api/v1/sessions/review-queue", headers=case.headers[2])
     ).status_code == 403
     assert (
         await case.client.post(
@@ -946,21 +1018,19 @@ async def test_demo_private_quality_surfaces_reject_other_customers(
 
 async def test_missing_and_foreign_session_delete_have_same_404(case: _Case) -> None:
     for session_id in (case.private_id, 999999):
-        response = await case.client.delete(
-            f"/api/v1/sessions/{session_id}", headers=case.headers[2]
-        )
+        response = await _delete(case, f"/api/v1/sessions/{session_id}", headers=case.headers[2])
         assert response.status_code == 404
 
 
 async def test_private_chat_and_session_responses_are_never_cached(case: _Case) -> None:
     responses = [
         await _bot(case, "你好"),
-        await case.client.get(
-            f"/api/v1/chat/history?session_id={case.private_id}", headers=case.headers[1]
+        await _get(
+            case, f"/api/v1/chat/history?session_id={case.private_id}", headers=case.headers[1]
         ),
-        await case.client.get("/api/v1/sessions", headers=case.headers[1]),
-        await case.client.get(f"/api/v1/sessions/{case.private_id}", headers=case.headers[1]),
-        await case.client.get(f"/api/v1/chat/history?session_id={case.private_id}"),
+        await _get(case, "/api/v1/sessions", headers=case.headers[1]),
+        await _get(case, f"/api/v1/sessions/{case.private_id}", headers=case.headers[1]),
+        await _get(case, f"/api/v1/chat/history?session_id={case.private_id}"),
     ]
     assert [response.status_code for response in responses] == [200, 200, 200, 200, 401]
     for response in responses:
@@ -973,7 +1043,7 @@ async def test_deleted_private_session_cannot_reveal_old_checkpoint_to_demo(
     for message in ["I want a refund", "ORD1001", "damaged item"]:
         assert (await _bot(case, message)).status_code == 200
     assert (
-        await case.client.delete(f"/api/v1/sessions/{case.private_id}", headers=case.headers[1])
+        await _delete(case, f"/api/v1/sessions/{case.private_id}", headers=case.headers[1])
     ).status_code == 204
     monkeypatch.setattr(settings, "DEMO_MODE", True)
     assert (await _bot(case, "confirm", actor=0)).status_code == 200
@@ -995,7 +1065,7 @@ async def test_history_rechecks_private_owner_after_demo_preflight(
         return False
 
     monkeypatch.setattr(SessionService, "is_private_session", stale_preflight)
-    response = await case.client.get(
-        f"/api/v1/chat/history?session_id={case.private_id}", headers=case.headers[2]
+    response = await _get(
+        case, f"/api/v1/chat/history?session_id={case.private_id}", headers=case.headers[2]
     )
     assert response.status_code == 404

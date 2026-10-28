@@ -268,6 +268,12 @@ class ChatMessagePersister:
                             message_id=msg.id,
                             status=_stored_processing_status(msg.status),
                             user_rating=msg.user_rating,
+                            ui=(
+                                metadata.get("commerce_ui")
+                                if msg.role == MessageRole.ASSISTANT
+                                and isinstance(metadata.get("commerce_ui"), dict)
+                                else None
+                            ),
                             sources=(
                                 [source for source in sources if isinstance(source, str)]
                                 if isinstance(sources, list) and msg.role == MessageRole.ASSISTANT

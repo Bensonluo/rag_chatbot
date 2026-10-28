@@ -247,6 +247,8 @@ testpaths = [
     "app/tests/unit/services/llm/test_openai_client.py",
     "app/tests/unit/services/llm/test_resilience.py",
     "app/tests/unit/services/test_auth_service.py",
+    "app/tests/unit/services/test_guest_identity.py",
+    "app/tests/unit/services/commerce",
     "app/tests/integration/api/test_auth_endpoints.py",
     "app/tests/integration/api/test_session_endpoints.py",
     "app/tests/integration/test_chat_pipeline.py",

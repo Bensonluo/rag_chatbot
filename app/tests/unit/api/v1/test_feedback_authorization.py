@@ -10,11 +10,13 @@ endpoints in test_authorization_boundary.py):
 - strict: the message must belong to the caller (via its session);
   a foreign and a missing id both answer 404 with the same wording
   so existence is not leaked, and the rating is never applied.
-- demo: unchanged — existence check only, the demo DB's messages
-  belong to seeded users.
+- demo: shared seeded rows remain rateable without a key; private rows
+  still require their owner and matching server incarnation.
 """
 
-from typing import Any
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -24,6 +26,10 @@ from app.api.deps import get_current_user
 from app.api.v1 import feedback as feedback_api
 from app.config.settings import settings
 from app.models.database.user import User
+from app.repositories.feedback_repository import FeedbackReceipt, FeedbackTarget
+from app.services.chat.coordination import SessionCoordinator, get_session_coordinator
+
+_KEY = "10000000-0000-4000-8000-000000000001"
 
 
 @pytest.fixture(autouse=True)
@@ -38,12 +44,13 @@ def _user() -> User:
     return User(id=7, email="u7@test.local", is_active=True)
 
 
-def _repo(*, owned: bool) -> Mock:
-    """Repository stand-in: get_owned_message answers the ownership
-    probe; submit_feedback applies the rating."""
+def _repo(*, owned: bool, private: bool = True) -> Mock:
+    """The read and conditional-write seams return concrete scalar snapshots."""
     repo = Mock()
-    repo.get_owned_message = AsyncMock(return_value=Mock() if owned else None)
-    repo.submit_feedback = AsyncMock(return_value=Mock(id=5, user_rating=-1, content="answer text"))
+    repo.get_feedback_target = AsyncMock(
+        return_value=FeedbackTarget(5, 17, _KEY, private) if owned else None
+    )
+    repo.submit_feedback = AsyncMock(return_value=FeedbackReceipt(5, 17, _KEY, -1, "answer text"))
     return repo
 
 
@@ -52,6 +59,15 @@ def _client(current_user: User | None, repo: Mock, monkeypatch: pytest.MonkeyPat
 
     app = create_app()
     app.dependency_overrides[get_current_user] = lambda: current_user
+    app.dependency_overrides[feedback_api._get_db] = lambda: AsyncMock()
+
+    @asynccontextmanager
+    async def hold(session_id: int) -> AsyncIterator[None]:
+        assert session_id == 17
+        yield
+
+    coordinator = cast(SessionCoordinator, Mock(hold=hold))
+    app.dependency_overrides[get_session_coordinator] = lambda: coordinator
     # FeedbackRepository is a plain class the endpoint instantiates, not
     # a FastAPI dependency — patch the module attribute the call site
     # resolves (same seam as test_feedback_metrics.py).
@@ -59,8 +75,11 @@ def _client(current_user: User | None, repo: Mock, monkeypatch: pytest.MonkeyPat
     return TestClient(app)
 
 
-def _post_rating(client: TestClient, message_id: int = 5) -> Any:
-    return client.post("/api/v1/feedback", json={"message_id": message_id, "rating": -1})
+def _post_rating(client: TestClient, message_id: int = 5, key: str | None = _KEY) -> Any:
+    payload: dict[str, object] = {"message_id": message_id, "rating": -1}
+    if key is not None:
+        payload["expected_session_key"] = key
+    return client.post("/api/v1/feedback", json=payload)
 
 
 class TestStrictModeOwnership:
@@ -88,8 +107,37 @@ class TestStrictModeOwnership:
 
         assert response.status_code == 200
         assert response.json()["success"] is True
-        repo.get_owned_message.assert_awaited_once_with(5, 7)
-        repo.submit_feedback.assert_awaited_once()
+        assert response.json()["session_id"] == 17
+        assert response.json()["session_key"] == _KEY
+        assert repo.get_feedback_target.await_count == 2
+        repo.get_feedback_target.assert_awaited_with(5, 7, allow_shared=False, session_id=17)
+        repo.submit_feedback.assert_awaited_once_with(
+            message_id=5,
+            rating=-1,
+            text=None,
+            user_id=7,
+            session_id=17,
+            session_key=_KEY,
+            allow_shared=False,
+        )
+
+    @pytest.mark.parametrize("key", [None, "20000000-0000-4000-8000-000000000002"])
+    def test_private_missing_or_stale_key_is_not_rated(
+        self, monkeypatch: pytest.MonkeyPatch, key: str | None
+    ) -> None:
+        repo = _repo(owned=True)
+        response = _post_rating(_client(_user(), repo, monkeypatch), key=key)
+        assert response.status_code == 409
+        repo.submit_feedback.assert_not_awaited()
+
+    def test_owner_removed_between_discovery_and_gate_is_not_rated(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(owned=True)
+        repo.get_feedback_target.side_effect = [FeedbackTarget(5, 17, _KEY, True), None]
+        response = _post_rating(_client(_user(), repo, monkeypatch))
+        assert response.status_code == 404
+        repo.submit_feedback.assert_not_awaited()
 
     def test_missing_message_404_wording_matches_foreign(
         self, monkeypatch: pytest.MonkeyPatch
@@ -112,11 +160,32 @@ class TestDemoModeSharedAccess:
 
     def test_shared_access_probe_runs(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Demo permits public seeded rows but still probes private access."""
-        repo = _repo(owned=True)
+        repo = _repo(owned=True, private=False)
         client = _client(_user(), repo, monkeypatch)
 
-        response = _post_rating(client)
+        response = _post_rating(client, key=None)
 
         assert response.status_code == 200
-        repo.get_owned_message.assert_awaited_once_with(5, 7, allow_shared=True)
+        assert repo.get_feedback_target.await_count == 2
+        repo.get_feedback_target.assert_awaited_with(5, 7, allow_shared=True, session_id=17)
         repo.submit_feedback.assert_awaited_once()
+
+    def test_explicit_shared_key_still_has_to_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        repo = _repo(owned=True, private=False)
+        response = _post_rating(
+            _client(_user(), repo, monkeypatch), key="20000000-0000-4000-8000-000000000002"
+        )
+        assert response.status_code == 409
+        repo.submit_feedback.assert_not_awaited()
+
+    def test_keyless_shared_request_does_not_adopt_replacement_after_discovery(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        repo = _repo(owned=True, private=False)
+        repo.get_feedback_target.side_effect = [
+            FeedbackTarget(5, 17, _KEY, False),
+            FeedbackTarget(5, 17, "20000000-0000-4000-8000-000000000002", False),
+        ]
+        response = _post_rating(_client(_user(), repo, monkeypatch), key=None)
+        assert response.status_code == 409
+        repo.submit_feedback.assert_not_awaited()

@@ -45,9 +45,11 @@
 | 模式或检查 | 实际验证 | 不能据此推断 |
 | --- | --- | --- |
 | 默认匿名模式 | 使用随机正 31 位 ID，并避免本次运行内重复；检查返回会话 ID 与请求一致 | 服务端已预留会话、严格所有权或跨运行绝无碰撞；这是 best-effort 隔离 |
-| `--auth-token-env` | `GET /api/v1/auth/me` 获取身份；每个 case `POST /api/v1/sessions` 获取服务端 ID，检查归属和本次运行内 ID 未复用 | 任意指定 ID 都可使用，或管理员可以绕过聊天会话所有权 |
-| owner history readback | 认证 case 聊天完成后，`GET /api/v1/chat/history` 回读该会话，逐轮核对角色、正文、sources 和 citations | 服务重启恢复、复制一致性、备份可恢复或真实业务执行成功 |
-| `--ticket-token-env` | 独立凭证只用 `GET /api/v1/handoff/tickets` 读取列表，核对工单 ID、会话 ID；已知认证 owner 时还核对 `user_id` | 客服已领取、真人在线、已接通、未来响应时间或退款完成 |
+| `--auth-token-env` | `GET /api/v1/auth/me` 获取身份；每个 case `POST /api/v1/sessions` 获取服务端 ID，检查归属、规范 session_key，且本次运行内 ID/key 均未复用 | 任意指定 ID 都可使用，或管理员可以绕过聊天会话所有权 |
+| owner history readback | 认证 case 聊天完成后，`GET /api/v1/chat/history` 回读该会话，携原 expected_session_key，逐轮核对实例、角色、正文、sources 和 citations | 服务重启恢复、复制一致性、备份可恢复或真实业务执行成功 |
+| `--ticket-token-env` | 独立凭证只用 `GET /api/v1/handoff/tickets` 读取列表，核对工单 ID、会话 ID；已知认证 owner 时还核对 `user_id` 与原 session_key | 客服已领取、真人在线、已接通、未来响应时间或退款完成 |
+
+认证探针只使用服务端新建响应中的实例 key，不自行生成或在冲突后采用当前新 key。聊天/历史/已知 owner 的工单回执若实例不符则失败；匿名共享路径保留原无 key 行为。第25轮会话协议及升级顺序见[会话实例合同](../design/session-incarnation.md)。
 
 报告分别列出 owner history readback 和只读工单观察结果。未配置客服观察者时，明确输出 `Ticket persistence: NOT VERIFIED`；即使所有回复契约通过，也不能把 API 返回的工单 ID 当作独立工单读取证据。匿名模式没有认证 owner，工单观察只核对 ID 与会话对应关系。
 

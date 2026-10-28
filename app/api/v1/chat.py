@@ -29,6 +29,7 @@ from app.middleware.rate_limiter_redis import EndpointRateLimiter, client_ip_fro
 from app.models.database.user import User
 from app.models.enums.message import MessageStatus
 from app.models.schemas.citation import SourceCitation
+from app.models.schemas.session_key import SessionKey
 from app.services.chat.chat_service import (
     HEARTBEAT,
     STREAM_ERROR,
@@ -46,6 +47,7 @@ from app.services.chat.coordination import (
     get_session_coordinator,
 )
 from app.services.chat.factory import ChatServiceFactory
+from app.services.chat.session_identity import ConversationChangedError
 from app.services.embeddings import EmbeddingFactory
 from app.services.handoff.containment_metrics import start_containment_refresher
 from app.services.llm import LLMFactory
@@ -102,13 +104,15 @@ async def initialize_chat_service(
     settings = get_settings()
     from sqlalchemy import select
 
+    from app.models.database.action_execution import ActionExecution
     from app.models.database.handoff_message import HandoffMessage
     from app.models.database.session import ChatSession
 
     # A graph alone cannot provide the private support contract on an older
     # schema. Refuse chat readiness before constructing external providers.
-    await db.execute(select(ChatSession.automation_epoch).limit(0))
+    await db.execute(select(ChatSession.automation_epoch, ChatSession.session_key).limit(0))
     await db.execute(select(HandoffMessage.id).limit(0))
+    await db.execute(select(ActionExecution.action_id).limit(0))
     llm_service = LLMFactory.create_from_settings()
 
     # Two tiers, one budget: classification/extraction (rerank, slot
@@ -353,6 +357,7 @@ class ChatRequest(BaseModel):
 
     message: str = Field(..., min_length=1, description="User message")
     session_id: int = Field(..., gt=0, le=2_147_483_647, description="Session ID")
+    expected_session_key: SessionKey | None = None
     user_id: int | None = Field(None, gt=0, description="User ID (optional)")
     max_tokens: int | None = Field(None, gt=0, le=4096, description="Max tokens for response")
     include_citations: bool = Field(False, description="Emit the final citations event in SSE")
@@ -364,6 +369,7 @@ class ChatResponse(BaseModel):
 
     content: str
     session_id: int
+    session_key: SessionKey | None = None
     intent: str
     sources: list[str] | None = None
     citations: list[SourceCitation] = Field(default_factory=list)
@@ -371,6 +377,7 @@ class ChatResponse(BaseModel):
     dialogue_state: dict[str, Any] | None = None
     message_id: int | None = None
     status: str | None = None
+    ui: dict[str, Any] | None = None
 
 
 class ChatMessageResponse(BaseModel):
@@ -384,6 +391,7 @@ class ChatMessageResponse(BaseModel):
     message_id: int | None = None
     status: str | None = None
     user_rating: int | None = None
+    ui: dict[str, Any] | None = None
 
 
 class ChatHistoryResponse(BaseModel):
@@ -391,6 +399,7 @@ class ChatHistoryResponse(BaseModel):
 
     messages: list[ChatMessageResponse]
     session_id: int
+    session_key: SessionKey | None = None
 
 
 def _stored_message_fields(message: Any) -> dict[str, Any]:
@@ -413,6 +422,22 @@ def _stored_user_rating(message: Any) -> int | None:
     return rating if type(rating) is int and rating in {-1, 0, 1} else None
 
 
+def _stored_commerce_ui(value: Any) -> dict[str, Any] | None:
+    """Only typed server snapshots become executable client data."""
+    from pydantic import ValidationError
+
+    from app.models.schemas.commerce import CommerceView
+
+    if not isinstance(value, dict):
+        return None
+    try:
+        return CommerceView.model_validate(value).model_dump(mode="json")
+    except ValidationError:
+        # Preserve the ordinary transcript if an old or corrupt UI snapshot
+        # cannot be interpreted. Domain status can still be queried explicitly.
+        return None
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────
 
 
@@ -433,11 +458,20 @@ async def chat(
     user_id = resolve_chat_identity(current_user, request.user_id)
     if isinstance(chat_service, ChatService) and chat_service.graph is None:
         raise HTTPException(503, "Chat service graph not initialized")
-    await ensure_session_access(request.session_id, current_user, session_service)
+    session_key = await ensure_session_access(
+        request.session_id,
+        current_user,
+        session_service,
+        expected_session_key=request.expected_session_key,
+        require_key=True,
+    )
 
     try:
-        identity_options = (
-            {"authenticated_user_id": current_user.id if current_user else None}
+        identity_options: dict[str, Any] = (
+            {
+                "authenticated_user_id": current_user.id if current_user else None,
+                "expected_session_key": request.expected_session_key,
+            }
             if isinstance(chat_service, ChatService)
             else {}
         )
@@ -461,6 +495,7 @@ async def chat(
         return ChatResponse(
             content=response.content,
             session_id=response.session_id,
+            session_key=session_key,
             intent=response.intent,
             sources=response.sources,
             citations=[
@@ -472,6 +507,8 @@ async def chat(
             **_stored_message_fields(response),
         )
 
+    except ConversationChangedError as e:
+        raise HTTPException(409, "Conversation changed; reopen it before continuing") from e
     except ConversationAccessError as e:
         raise HTTPException(404, "Session not found") from e
     except ConversationBusyError as e:
@@ -551,12 +588,20 @@ async def chat_stream(
     user_id = resolve_chat_identity(current_user, request.user_id)
     if isinstance(chat_service, ChatService) and chat_service.graph is None:
         raise HTTPException(503, "Chat service graph not initialized")
-    await ensure_session_access(request.session_id, current_user, session_service)
+    await ensure_session_access(
+        request.session_id,
+        current_user,
+        session_service,
+        expected_session_key=request.expected_session_key,
+        require_key=True,
+    )
 
     try:
         if isinstance(chat_service, ChatService):
             await chat_service.assert_automation_available(
-                request.session_id, current_user.id if current_user else None
+                request.session_id,
+                current_user.id if current_user else None,
+                request.expected_session_key,
             )
 
         async def generate() -> AsyncIterator[str]:
@@ -567,6 +612,7 @@ async def chat_stream(
                 stream_options["include_completion"] = True
             if isinstance(chat_service, ChatService):
                 stream_options["authenticated_user_id"] = current_user.id if current_user else None
+                stream_options["expected_session_key"] = request.expected_session_key
             async with aclosing(
                 chat_service.process_message_stream(
                     session_id=request.session_id,
@@ -579,13 +625,14 @@ async def chat_stream(
                 async for chunk in stream:
                     if isinstance(chunk, CompletionEvent):
                         if request.include_completion:
-                            payload = json.dumps(
-                                {
-                                    "message_id": chunk.message_id,
-                                    "session_id": chunk.session_id,
-                                    "status": chunk.status,
-                                }
-                            )
+                            receipt: dict[str, Any] = {
+                                "message_id": chunk.message_id,
+                                "session_id": chunk.session_id,
+                                "status": chunk.status,
+                            }
+                            if request.expected_session_key is not None:
+                                receipt["session_key"] = request.expected_session_key
+                            payload = json.dumps(receipt)
                             yield f"event: completion\ndata: {payload}\n\n"
                     elif isinstance(chunk, CitationEvent):
                         if request.include_citations:
@@ -615,6 +662,8 @@ async def chat_stream(
             media_type="text/event-stream",
         )
 
+    except ConversationChangedError as e:
+        raise HTTPException(409, "Conversation changed; reopen it before continuing") from e
     except ConversationAccessError as e:
         raise HTTPException(404, "Session not found") from e
     except ConversationBusyError as e:
@@ -634,6 +683,7 @@ async def chat_stream(
 @router.get("/history", response_model=ChatHistoryResponse)
 async def get_chat_history(
     session_id: int = Query(..., gt=0, description="Session ID"),
+    expected_session_key: SessionKey | None = Query(None),
     limit: int = Query(50, gt=0, le=100, description="Max messages to return"),
     current_user: User | None = Depends(get_current_user),
     session_service: SessionService = Depends(get_session_service),
@@ -645,10 +695,19 @@ async def get_chat_history(
     session first — foreign and missing sessions both read as 404
     (review 2026-09-26, #1).
     """
-    await ensure_session_access(session_id, current_user, session_service)
+    session_key = await ensure_session_access(
+        session_id,
+        current_user,
+        session_service,
+        expected_session_key=expected_session_key,
+        require_key=True,
+    )
     try:
-        identity_options = (
-            {"authenticated_user_id": current_user.id if current_user else None}
+        identity_options: dict[str, Any] = (
+            {
+                "authenticated_user_id": current_user.id if current_user else None,
+                "expected_session_key": expected_session_key,
+            }
             if isinstance(chat_service, ChatService)
             else {}
         )
@@ -666,6 +725,7 @@ async def get_chat_history(
                     timestamp=msg.timestamp,
                     sources=msg.sources if isinstance(msg.sources, list) else None,
                     user_rating=_stored_user_rating(msg),
+                    ui=_stored_commerce_ui(getattr(msg, "ui", None)),
                     **_stored_message_fields(msg),
                     citations=[
                         SourceCitation.model_validate(citation)
@@ -675,8 +735,11 @@ async def get_chat_history(
                 for msg in messages
             ],
             session_id=session_id,
+            session_key=session_key,
         )
 
+    except ConversationChangedError as e:
+        raise HTTPException(409, "Conversation changed; reopen it before continuing") from e
     except ConversationAccessError as e:
         raise HTTPException(404, "Session not found") from e
     except ConversationBusyError as e:
@@ -694,6 +757,7 @@ async def get_chat_history(
 @router.delete("/history", status_code=status.HTTP_204_NO_CONTENT)
 async def clear_chat_history(
     session_id: int = Query(..., gt=0, description="Session ID"),
+    expected_session_key: SessionKey | None = Query(None),
     current_user: User | None = Depends(get_current_user),
     session_service: SessionService = Depends(get_session_service),
     chat_service: ChatService = Depends(get_chat_service),
@@ -704,14 +768,25 @@ async def clear_chat_history(
     wiping another visitor's dialogue must not be a bare
     ``DELETE ?session_id=`` away.
     """
-    await ensure_session_access(session_id, current_user, session_service)
+    await ensure_session_access(
+        session_id,
+        current_user,
+        session_service,
+        expected_session_key=expected_session_key,
+        require_key=True,
+    )
     try:
-        identity_options = (
-            {"authenticated_user_id": current_user.id if current_user else None}
+        identity_options: dict[str, Any] = (
+            {
+                "authenticated_user_id": current_user.id if current_user else None,
+                "expected_session_key": expected_session_key,
+            }
             if isinstance(chat_service, ChatService)
             else {}
         )
         await chat_service.clear_chat_history(session_id=session_id, **identity_options)
+    except ConversationChangedError as e:
+        raise HTTPException(409, "Conversation changed; reopen it before continuing") from e
     except ConversationAccessError as e:
         raise HTTPException(404, "Session not found") from e
     except ConversationBusyError as e:
