@@ -38,8 +38,9 @@ from app.services.chat.coordination import (
 )
 from app.services.chat.persistence import ChatMessagePersister
 from app.services.chat.session_identity import ConversationChangedError, require_session_key
+from app.services.commerce import create_commerce_port
 from app.services.commerce.conversation import CommerceConversation
-from app.services.commerce.port import ProviderRejected
+from app.services.commerce.port import ProviderRejected, ProviderUnknown
 from app.services.commerce.service import PurchaseService
 from app.services.commerce.tools import current_purchase
 from app.services.guest_identity import (
@@ -95,7 +96,10 @@ def get_guest_chat_service(
 def get_guest_purchase_service() -> PurchaseService:
     from app.api.database import async_session_maker
 
-    return PurchaseService(async_session_maker)
+    # Explicit composition from settings: mock stays local, external is the
+    # HTTP provider. An unreachable external provider surfaces as an explicit
+    # error (ProviderUnknown) — never as a silent local commerce fallback.
+    return PurchaseService(async_session_maker, create_commerce_port(async_session_maker))
 
 
 def get_guest_commerce_conversation(
@@ -132,6 +136,12 @@ def commerce_errors() -> Iterator[None]:
         raise HTTPException(503, "Conversation coordination is unavailable") from exc
     except ValidationError as exc:
         raise HTTPException(422, "Invalid mock purchase input") from exc
+    except ProviderUnknown as exc:
+        # The provider may have committed the write; the result stays unconfirmed
+        # and no local substitute answers for it.
+        raise HTTPException(
+            503, "Shopping provider did not confirm the result; retry the same request"
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(503, "Shopping agent is temporarily unavailable") from exc
     except SQLAlchemyError as exc:

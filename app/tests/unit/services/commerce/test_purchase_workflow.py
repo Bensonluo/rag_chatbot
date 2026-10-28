@@ -12,6 +12,7 @@ import socket
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import delete, event, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -26,7 +27,12 @@ from app.models.database.commerce import (
 )
 from app.models.database.session import ChatSession
 from app.models.database.user import User
-from app.models.schemas.commerce import CommerceView
+from app.models.schemas.commerce import (
+    CartLineSelection,
+    CatalogFilters,
+    CatalogPage,
+    CommerceView,
+)
 from app.services.commerce.mock_port import MockCommercePort
 from app.services.commerce.port import ProviderRejected, ProviderUnknown
 from app.services.commerce.service import PurchaseService
@@ -73,7 +79,15 @@ async def shop(tmp_path, monkeypatch):
 
 async def quoted(service: PurchaseService) -> CommerceView:
     v = await service.start(1)
-    v = await service.set_cart_line(1, v.purchase_id, "ANC-BLACK", 2, v.version)
+    v = await service.update_cart_lines(
+        1,
+        v.purchase_id,
+        [
+            CartLineSelection(sku_id="ANC-02", quantity=2),
+            CartLineSelection(sku_id="MAT-03", quantity=1),
+        ],
+        v.version,
+    )
     return await service.prepare_checkout(1, v.purchase_id, v.version)
 
 
@@ -110,7 +124,7 @@ async def test_full_journey_needs_separate_order_and_payment_confirmations(shop)
     v = await quoted(s)
     assert v.mode == "mock" and v.stage == "quoted"
     quote = next(b for b in v.blocks if b.type == "quote")
-    assert quote.quote.total_minor == 59800 and quote.quote.currency == "CNY"
+    assert quote.quote.total_minor == 67100 and quote.quote.currency == "CNY"
     assert await counts(m) == {"order": 0, "payment": 0}
     confirmed = v.version
     v = await s.commit_checkout(1, v.purchase_id, expected_version=confirmed)
@@ -161,7 +175,7 @@ async def test_foreign_owner_never_reads_or_mutates_purchase(shop, method):
         elif method == "search":
             await s.search(2, v.purchase_id, "耳机")
         elif method == "product":
-            await s.get_product(2, v.purchase_id, "ANC-BLACK")
+            await s.get_product(2, v.purchase_id, "ANC-02")
         elif method == "commit":
             await s.commit_checkout(2, v.purchase_id, expected_version=v.version)
         else:
@@ -193,7 +207,9 @@ async def test_payment_confirmation_before_any_order_is_refused(shop):
 async def test_order_confirmation_without_a_quote_is_refused(shop):
     s, _, m, _ = shop
     v = await s.start(1)
-    v = await s.set_cart_line(1, v.purchase_id, "ANC-BLACK", 2, v.version)
+    v = await s.update_cart_lines(
+        1, v.purchase_id, [CartLineSelection(sku_id="ANC-02", quantity=2)], v.version
+    )
     with pytest.raises(ConflictError):
         await s.commit_checkout(1, v.purchase_id, expected_version=v.version)
     assert await counts(m) == {"order": 0, "payment": 0}
@@ -204,7 +220,9 @@ async def test_material_cart_change_invalidates_the_quoted_confirmation(shop):
     s, _, m, _ = shop
     v = await quoted(s)
     confirmed = v.version
-    fresh = await s.set_cart_line(1, v.purchase_id, "ANC-WHITE", 1, v.version)
+    fresh = await s.update_cart_lines(
+        1, v.purchase_id, [CartLineSelection(sku_id="ANC-03", quantity=1)], v.version
+    )
     assert fresh.stage == "cart"
     with pytest.raises(ConflictError):
         await s.commit_checkout(1, v.purchase_id, expected_version=confirmed)
@@ -355,21 +373,61 @@ async def test_provider_rechecks_confirmed_price_at_atomic_order_creation(shop):
     s, _, m, _ = shop
     v = await quoted(s)
     async with m() as db:
-        row = await db.get(MockCommerceObject, "stock:ANC-BLACK")
+        row = await db.get(MockCommerceObject, "stock:ANC-02")
         row.payload = {**row.payload, "unit_price_minor": 39900}
         await db.commit()
     v = await s.commit_checkout(1, v.purchase_id, expected_version=v.version)
     assert v.stage == "failed" and await counts(m) == {"order": 0, "payment": 0}
 
 
-@pytest.mark.parametrize("quantity", [True, 0, 11, "2"])
-async def test_invalid_quantity_is_refused_before_external_mutation(shop, quantity):
+@pytest.mark.parametrize("quantity", [True, 0, -1, "2", 1.5, None])
+def test_cart_line_selection_requires_a_positive_integer(quantity):
+    # Typed validation is the only local quantity rule: positive integers.
+    with pytest.raises(PydanticValidationError):
+        CartLineSelection(sku_id="ANC-02", quantity=quantity)
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [None, [], "ANC-02", [{"sku_id": "ANC-02", "quantity": 2}], ("ANC-02",)],
+)
+async def test_cart_mutation_requires_a_non_empty_typed_line_list(shop, lines):
     s, _, m, _ = shop
     v = await s.start(1)
     with pytest.raises(ValidationError):
-        await s.set_cart_line(1, v.purchase_id, "ANC-BLACK", quantity, v.version)
+        await s.update_cart_lines(1, v.purchase_id, lines, v.version)
     async with m() as db:
         assert await db.scalar(select(func.count()).select_from(PurchaseOperation)) == 0
+
+
+async def test_no_local_upper_quantity_bound_provider_limit_rejects(shop):
+    s, p, m, _ = shop
+    v = await s.start(1)
+    # MOU-02 keeps stock 9 but the provider caps it at 7 per order; a locally
+    # valid quantity 8 must be refused by the provider, never by local rules.
+    v = await s.update_cart_lines(
+        1, v.purchase_id, [CartLineSelection(sku_id="MOU-02", quantity=8)], v.version
+    )
+    assert v.stage == "failed"
+    assert "限购" in next(b for b in v.blocks if b.type == "status").message
+    async with m() as db:
+        # The reservation exists and failed; no provider cart was committed.
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(PurchaseOperation)
+                .where(PurchaseOperation.kind == "update_cart")
+            )
+            == 1
+        )
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(MockCommerceObject)
+                .where(MockCommerceObject.kind == "cart")
+            )
+            == 0
+        )
 
 
 async def test_purchase_and_external_facts_survive_chat_deletion(shop):
@@ -406,21 +464,78 @@ async def test_mock_provider_idempotency_receipt_is_separate_and_parameter_bound
     assert await counts(m) == {"order": 1, "payment": 1}
 
 
-async def test_mock_catalog_search_is_bounded_and_does_not_invent_unknown_products(shop):
+async def test_catalog_search_is_structured_filtered_sorted_and_paged(shop):
     s, p, m, _ = shop
     v = await s.start(1)
-    headphones = await p.search_products(1, "我想买降噪耳机")
-    assert len(headphones) == 2 and all(item.product_id == "headphones-anc" for item in headphones)
-    black = await p.search_products(1, "黑色耳机")
-    assert [item.sku_id for item in black] == ["ANC-BLACK"]
-    assert await p.search_products(1, "不存在的冰箱商品") == []
-    assert (await s.get_product(1, v.purchase_id, "KEYBOARD-87")).stage == "shopping"
+    # The agent passes clean product terms; matching is lexical containment
+    # over provider-owned text with no user-language phrase buckets.
+    page = await p.search_products(1, "降噪耳机")
+    assert [item.sku_id for item in page.items] == ["ANC-02", "ANC-03", "ANC-04", "ANC-05"]
+    assert page.total_estimate == 4 and page.next_page_token is None  # ANC-01 is out of stock.
+    everything = await p.search_products(1, "降噪耳机", filters=CatalogFilters(in_stock=False))
+    assert [item.sku_id for item in everything.items] == [
+        "ANC-01",
+        "ANC-02",
+        "ANC-03",
+        "ANC-04",
+        "ANC-05",
+    ]
+    mats = await p.search_products(
+        1, "鼠标垫", filters=CatalogFilters(max_price_minor=7000), sort="price_desc"
+    )
+    assert [item.sku_id for item in mats.items] == ["MAT-04", "MAT-03", "MAT-02", "MAT-01"]
+    first = await p.search_products(1, "", page_size=2)
+    assert [item.sku_id for item in first.items] == ["ANC-02", "ANC-03"]
+    assert first.total_estimate == 26 and first.next_page_token == "2"
+    second = await p.search_products(1, "", page_size=2, page_token=first.next_page_token)
+    assert [item.sku_id for item in second.items] == ["ANC-04", "ANC-05"]
+    newest = await p.search_products(1, "", sort="newest", page_size=3)
+    assert [item.sku_id for item in newest.items] == ["MOU-05", "MOU-04", "MOU-02"]
+    assert await p.search_products(1, "不存在的冰箱商品") == CatalogPage(items=[], total_estimate=0)
+    with pytest.raises(ProviderRejected):
+        await p.search_products(1, "", page_size=0)
+    with pytest.raises(ProviderRejected):
+        await p.search_products(1, "", page_size=51)
+    with pytest.raises(ProviderRejected):
+        await p.search_products(1, "", page_token="not-a-cursor")
+    assert (await s.get_product(1, v.purchase_id, "KEY-01")).stage == "shopping"
     assert await counts(m) == {"order": 0, "payment": 0}
 
 
-async def test_non_mock_adapter_cannot_execute_under_a_mock_payment_label(shop):
+async def test_multi_line_cart_preserves_provider_facts_and_replaces_whole_list(shop):
+    s, _, m, _ = shop
+    v = await s.start(1)
+    v = await s.update_cart_lines(
+        1,
+        v.purchase_id,
+        [
+            CartLineSelection(sku_id="ANC-02", quantity=2),
+            CartLineSelection(sku_id="MAT-03", quantity=1),
+        ],
+        v.version,
+    )
+    cart = next(b for b in v.blocks if b.type == "cart").cart
+    lines = {line.sku_id: line for line in cart.lines}
+    assert set(lines) == {"ANC-02", "MAT-03"}
+    assert lines["ANC-02"].name == "轻音降噪耳机 · 白色"
+    assert lines["ANC-02"].unit_price_minor == 30400 and lines["MAT-03"].unit_price_minor == 6300
+    assert cart.subtotal_minor == 2 * 30400 + 6300
+    # The next request carries the full authoritative line list: absent SKUs drop.
+    v = await s.update_cart_lines(
+        1, v.purchase_id, [CartLineSelection(sku_id="KEY-01", quantity=1)], v.version
+    )
+    cart = next(b for b in v.blocks if b.type == "cart").cart
+    assert [line.sku_id for line in cart.lines] == ["KEY-01"]
+    assert cart.cart_version == 2 and cart.subtotal_minor == 19900
+    assert await counts(m) == {"order": 0, "payment": 0}
+
+
+async def test_external_adapter_is_accepted_and_unknown_labels_are_refused(shop):
     _, p, m, _ = shop
     p.mode = "external"
-    with pytest.raises(ValueError, match="mock adapters only"):
+    service = PurchaseService(m, p)
+    assert service.port.mode == "external"
+    p.mode = "mystery"
+    with pytest.raises(ValueError, match="mock and external adapters only"):
         PurchaseService(m, p)
     assert await counts(m) == {"order": 0, "payment": 0}

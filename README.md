@@ -673,28 +673,34 @@ conversation per browser, without registration. The existing `/support/` workspa
 is retained; product work focuses on the public experience.
 
 Mock shopping is now an Agent orchestration demo with no purchase buttons. The
-bounded Agent searches products, selects SKU/quantity, prepares a quote, creates
-an order and settles mock payment entirely through chat text. `commit_checkout`
-and `mock_pay` are Agent tools only when the current turn carries a fresh,
-explicit authorization for the latest displayed purchase version; handlers
-recheck owner, stage, confirmation/payment and generation. The two irreversible
-steps require separate confirmations.
+bounded Agent understands references and constraints, performs structured catalog
+search/pagination, updates a multi-line cart, prepares a quote, creates an order
+and settles mock payment entirely through chat text. `commit_checkout` and
+`mock_pay` are Agent tools only when the current turn carries a fresh, explicit
+authorization for the latest displayed purchase version; handlers recheck owner,
+stage, confirmation/payment and generation. The two irreversible steps require
+separate confirmations.
 
-`PurchaseService` keeps durable purchase state, immutable quotes, version CAS,
-operation idempotency and recovery through the stateful `MockCommercePort`.
+Commerce facts live in the separate internal `commerce-provider` FastAPI service:
+a deterministic 100,000,000-SKU addressable catalog, SQLite-backed multi-line
+carts, quotes, stock deltas, orders, payments and idempotency receipts. The API
+reaches it only through `ExternalCommercePort`; provider failure makes shopping
+explicitly unavailable and never falls back to a local or regex planner.
+`PurchaseService` keeps only durable safety orchestration — owner binding,
+immutable quote confirmations, version CAS, operation idempotency and recovery.
 Unknown or processing results only query the original operation; clearing chat
 does not delete or repeat a purchase. The server renders catalog, cart, quote,
 order and payment facts as assistant text, and the model cannot invent success.
 All commerce is visibly simulated.
 
-Current text-commerce gate: Ruff, formatting and strict Mypy pass; the complete
-suite passes **3726 tests with 3 configured skips, 5 warnings** (core coverage
-93.57%). Real browsers completed the same journey locally against SQLite and in
-production against PostgreSQL: catalog → SKU/quantity → quote → explicit text
-order → separate text payment → status query, with zero purchase-action
-requests. The production run created exactly one paid mock purchase with one
-order, one payment and one operation of each kind; a second visitor could not
-see it. See the
+Current text-commerce backend gate: Ruff, formatting and strict Mypy pass; the
+complete suite passes **3772 tests with 3 configured skips, 5 warnings** (core
+coverage 93.58%). A real local HTTP smoke drove the external adapter through
+search → multi-line cart → quote → order → payment → status, including stable
+request-key replay and refusal of a conflicting replay. Production rollout of
+this provider boundary is tracked in the deployment records; the earlier
+production text-commerce journey proved the chat/Agent contract with zero
+purchase-action requests. See the
 [deployment record](docs/operations/agent-text-commerce-deployment-2026-10-29.md).
 
 New migrations are `d64b8c0f9532` (anonymous visitors) and `e75c9d1064a3`

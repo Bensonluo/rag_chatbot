@@ -131,16 +131,15 @@ async def test_successful_tool_then_native_failure_preserves_fence_and_recoverab
     before_history = await _history(shop.browsers.first, browser)
     original_provider = shop.conversation.provider
     planner = NativePlanner(
-        "commerce_set_cart_line",
+        "commerce_update_cart_lines",
         {
             "purchase_id": view["purchase_id"],
-            "sku_id": "ANC-BLACK",
-            "quantity": 2,
+            "lines": [{"sku_id": "ANC-02", "quantity": 2}],
             "expected_version": view["version"],
         },
     )
     shop.conversation.provider = planner
-    response = await _chat(shop.browsers.first, browser, "我选黑色2个", stream=True)
+    response = await _chat(shop.browsers.first, browser, "我选白色2个", stream=True)
     assert response.status_code == 200
     assert response.text == "data: [STREAM_ERROR]\n\ndata: [DONE]\n\n"
     assert planner.calls == 2
@@ -162,7 +161,7 @@ async def test_native_first_call_failure_fences_old_proposal_without_business_ef
     old_epoch = await _stage_owned_refund(shop, browser, monkeypatch)
     before_history = await _history(shop.browsers.first, browser)
     original_provider = shop.conversation.provider
-    planner = NativePlanner("commerce_set_cart_line", {}, fail_first=True)
+    planner = NativePlanner("commerce_update_cart_lines", {}, fail_first=True)
     shop.conversation.provider = planner
     response = await _chat(shop.browsers.first, browser, "继续选购", stream=True)
     assert response.status_code == 200
@@ -190,18 +189,17 @@ async def test_message_insert_failure_keeps_fence_and_recoverable_cart(
             raise OperationalError("isolated Message insert", {}, RuntimeError("unavailable"))
 
     shop.conversation.provider = NativePlanner(
-        "commerce_set_cart_line",
+        "commerce_update_cart_lines",
         {
             "purchase_id": view["purchase_id"],
-            "sku_id": "ANC-BLACK",
-            "quantity": 2,
+            "lines": [{"sku_id": "ANC-02", "quantity": 2}],
             "expected_version": view["version"],
         },
         fail_after_tool=False,
     )
     event.listen(engine, "before_cursor_execute", fail_insert)
     try:
-        response = await _chat(shop.browsers.first, browser, "黑色2个", stream=True)
+        response = await _chat(shop.browsers.first, browser, "白色2个", stream=True)
     finally:
         event.remove(engine, "before_cursor_execute", fail_insert)
     assert response.status_code == 200 and response.text.endswith("data: [DONE]\n\n")
@@ -222,7 +220,7 @@ async def test_fence_sql_failure_stops_agent_before_any_business_effect(
     old_epoch = await _stage_owned_refund(shop, browser, monkeypatch)
     before_history = await _history(shop.browsers.first, browser)
     before_business = await _business(shop)
-    planner = NativePlanner("commerce_set_cart_line", {}, fail_first=True)
+    planner = NativePlanner("commerce_update_cart_lines", {}, fail_first=True)
     shop.conversation.provider = planner
     engine = shop.browsers.case.maker.kw["bind"].sync_engine
     refused: list[str] = []
@@ -281,22 +279,21 @@ async def test_shopping_agent_writes_are_bounded_to_one_operation_generation(
     browser = await _boot(shop.browsers.first)
     view = await _search(shop, shop.browsers.first, browser)
     shop.conversation.provider = NativePlanner(
-        "commerce_set_cart_line",
+        "commerce_update_cart_lines",
         {
             "purchase_id": view["purchase_id"],
-            "sku_id": "ANC-BLACK",
-            "quantity": 2,
+            "lines": [{"sku_id": "ANC-02", "quantity": 2}],
             "expected_version": view["version"],
         },
         fail_after_tool=False,
     )
-    response = await _chat(shop.browsers.first, browser, "黑色两个")
+    response = await _chat(shop.browsers.first, browser, "白色两个")
     assert response.status_code == 200
     async with shop.browsers.case.maker() as db:
         operations = await db.scalar(
             select(func.count())
             .select_from(PurchaseOperation)
-            .where(PurchaseOperation.kind == "set_cart")
+            .where(PurchaseOperation.kind == "update_cart")
         )
         objects = await db.scalar(
             select(func.count())

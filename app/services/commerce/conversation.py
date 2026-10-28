@@ -63,9 +63,9 @@ def _money(amount_minor: int) -> str:
 
 def describe(view: CommerceView, *, english: bool = False) -> str:
     stages = {
-        "shopping": "Choose a displayed SKU and an integer quantity from 1 to 10."
+        "shopping": "Choose displayed SKUs and integer quantities; ask when a choice is ambiguous."
         if english
-        else "请从展示商品中选择规格，并说明 1–10 的整数数量。",
+        else "请从展示商品中选择规格与整数数量；如有含糊请先确认。",
         "cart": "The mock cart is saved. Say checkout to review the total."
         if english
         else "模拟购物车已保存。回复“结算”可查看订单摘要。",
@@ -101,9 +101,15 @@ def describe(view: CommerceView, *, english: bool = False) -> str:
         if isinstance(block, CatalogBlock):
             lines.append("Products:" if english else "商品：")
             lines.extend(
-                f"{index}. {item.name} [{item.sku_id}] {' / '.join(f'{key}:{value}' for key, value in item.attributes.items())} {_money(item.unit_price_minor)} × {'stock' if english else '库存'} {item.available_quantity}"
+                f"{index}. {item.name} [{item.sku_id}] {' / '.join(f'{key}:{value}' for key, value in item.attributes.items())} {_money(item.unit_price_minor)} × {'stock' if english else '库存'} {item.available_quantity}（{'max' if english else '限购'} {item.max_order_quantity}）"
                 for index, item in enumerate(block.items, 1)
             )
+            if block.next_page_token is not None:
+                lines.append(
+                    "More matching products are available; ask for the next page."
+                    if english
+                    else "还有更多匹配商品，可要求查看下一页。"
+                )
         elif isinstance(block, CartBlock):
             lines.append("Cart:" if english else "购物车：")
             lines.extend(

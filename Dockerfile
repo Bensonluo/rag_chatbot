@@ -79,8 +79,8 @@ COPY --from=builder /opt/venv /opt/venv
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && \
-    mkdir -p /home/appuser/app && \
-    chown -R appuser:appuser /home/appuser
+    mkdir -p /home/appuser/app /data && \
+    chown -R appuser:appuser /home/appuser /data
 
 # Set working directory
 WORKDIR /home/appuser/app

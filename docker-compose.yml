@@ -84,6 +84,32 @@ services:
     networks:
       - rag-network
 
+
+  # Virtual external commerce facts service (catalog/cart/quote/order/payment).
+  # Not exposed to the host: only the API reaches it on the private network.
+  commerce-provider:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "app.commerce_provider"]
+    environment:
+      COMMERCE_PROVIDER_HOST: 0.0.0.0
+      COMMERCE_PROVIDER_PORT: 8000
+      COMMERCE_PROVIDER_DATABASE_PATH: /data/commerce.db
+      COMMERCE_PROVIDER_AUTH_TOKEN: ${COMMERCE_PROVIDER_TOKEN:-commerce-provider-dev-token}
+      COMMERCE_PROVIDER_FAULTS_ENABLED: "false"
+    volumes:
+      - commerce_provider_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - rag-network
+    restart: unless-stopped
+
   # RAG Chatbot API
   api:
     build:
@@ -113,6 +139,12 @@ services:
       MINIMAX_MODEL: ${MINIMAX_MODEL:-MiniMax-M3}
       MINIMAX_LIGHT_MODEL: ${MINIMAX_LIGHT_MODEL:-MiniMax-M2.7-highspeed}
       MINIMAX_BASE_URL: ${MINIMAX_BASE_URL:-https://api.minimaxi.com/v1}
+
+      # Virtual external commerce facts (no runtime mock fallback)
+      COMMERCE_PROVIDER_MODE: external
+      COMMERCE_PROVIDER_URL: http://commerce-provider:8000
+      COMMERCE_PROVIDER_TOKEN: ${COMMERCE_PROVIDER_TOKEN:-commerce-provider-dev-token}
+      COMMERCE_PROVIDER_TIMEOUT_SECONDS: ${COMMERCE_PROVIDER_TIMEOUT_SECONDS:-5}
 
       # Embedding Models
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
@@ -147,6 +179,8 @@ services:
       # upstream) — no re-architecture, just a wider window.
       - "127.0.0.1:8000-8003:8000"
     depends_on:
+      commerce-provider:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       redis:
@@ -216,6 +250,8 @@ volumes:
   qdrant_data:
     driver: local
   neo4j_data:
+    driver: local
+  commerce_provider_data:
     driver: local
   prometheus_data:
     driver: local

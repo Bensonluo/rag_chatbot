@@ -31,13 +31,32 @@ class CatalogItem(CommerceModel):
     unit_price_minor: int = Field(ge=0)
     currency: Literal["CNY"] = "CNY"
     available_quantity: int = Field(ge=0)
+    max_order_quantity: int = Field(ge=1)
+
+
+class CatalogFilters(CommerceModel):
+    min_price_minor: int | None = Field(default=None, ge=0)
+    max_price_minor: int | None = Field(default=None, ge=0)
+    attributes: dict[str, list[str]] = Field(default_factory=dict)
+    in_stock: bool = True
+
+
+class CatalogPage(CommerceModel):
+    items: list[CatalogItem]
+    next_page_token: str | None = None
+    total_estimate: int = Field(ge=0)
+
+
+class CartLineSelection(CommerceModel):
+    sku_id: str = Field(min_length=1, max_length=64)
+    quantity: int = Field(strict=True, ge=1)
 
 
 class CartLine(CommerceModel):
     sku_id: str
     name: str
     attributes: dict[str, str]
-    quantity: int = Field(ge=1, le=10)
+    quantity: int = Field(ge=1)
     unit_price_minor: int = Field(ge=0)
     subtotal_minor: int = Field(ge=0)
 
@@ -83,6 +102,8 @@ class CatalogBlock(CommerceModel):
     type: Literal["catalog"] = "catalog"
     title: str = "模拟商品目录"
     items: list[CatalogItem]
+    next_page_token: str | None = None
+    total_estimate: int = Field(default=0, ge=0)
 
 
 class CartBlock(CommerceModel):

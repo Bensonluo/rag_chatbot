@@ -219,22 +219,27 @@ async def _quoted(shop: ShopHttp, client: AsyncClient, browser: dict[str, Any]) 
     selected = await _chat(
         client,
         browser,
-        "第二款黑色，两副",
+        "白色那款降噪耳机两副，再加大号鼠标垫一张",
         shop=shop,
         plan={
-            "tool": "set_cart_line",
+            "tool": "update_cart_lines",
             "arguments": {
                 "purchase_id": view["purchase_id"],
-                "sku_id": "ANC-BLACK",
-                "quantity": 2,
+                "lines": [
+                    {"sku_id": "ANC-02", "quantity": 2},
+                    {"sku_id": "MAT-03", "quantity": 1},
+                ],
                 "expected_version": view["version"],
             },
         },
     )
     assert selected.status_code == 200, selected.text
     view = _ui(selected.json())
-    line = next(block for block in view["blocks"] if block["type"] == "cart")["cart"]["lines"][0]
-    assert (line["sku_id"], line["quantity"]) == ("ANC-BLACK", 2)
+    lines = next(block for block in view["blocks"] if block["type"] == "cart")["cart"]["lines"]
+    assert [(line["sku_id"], line["quantity"]) for line in lines] == [
+        ("ANC-02", 2),
+        ("MAT-03", 1),
+    ]
     checkout = await _chat(
         client,
         browser,
@@ -371,7 +376,7 @@ async def test_provider_agent_completes_purchase_with_tools_only(
     browser = await _boot(client)
     view = await _quoted(shop, client, browser)
     assert (
-        "总价：¥598.00"
+        "总价：¥671.00"
         in (
             await _chat(
                 client,
@@ -489,14 +494,13 @@ async def test_policy_detour_preserves_cart_and_agent_continues(shop: ShopHttp) 
     selected = await _chat(
         client,
         browser,
-        "第二款黑色，两副",
+        "白色那款降噪耳机来两副",
         shop=shop,
         plan={
-            "tool": "set_cart_line",
+            "tool": "update_cart_lines",
             "arguments": {
                 "purchase_id": view["purchase_id"],
-                "sku_id": "ANC-BLACK",
-                "quantity": 2,
+                "lines": [{"sku_id": "ANC-02", "quantity": 2}],
                 "expected_version": view["version"],
             },
         },

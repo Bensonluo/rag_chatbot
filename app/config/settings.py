@@ -7,6 +7,7 @@ All settings are loaded from environment variables with sensible defaults.
 import os
 import secrets
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -580,6 +581,31 @@ class Settings(BaseSettings):
         default=3, description="Number of results after LLM second-stage reranking"
     )
 
+    # Commerce provider (facts service for the shopping workflow)
+    COMMERCE_PROVIDER_MODE: Literal["mock", "external"] = Field(
+        default="mock",
+        description=(
+            "Source of commerce facts: mock (local SQLite emulator) or external "
+            "(internal HTTP provider). Explicit choice; never falls back at runtime."
+        ),
+    )
+    COMMERCE_PROVIDER_URL: str = Field(
+        default="",
+        description=(
+            "Base URL of the internal commerce provider HTTP service "
+            "(required for external mode, e.g. http://commerce-provider:8000)"
+        ),
+    )
+    COMMERCE_PROVIDER_TOKEN: str = Field(
+        default="",
+        description="Bearer token for the internal commerce provider (empty on a protected network)",
+    )
+    COMMERCE_PROVIDER_TIMEOUT_SECONDS: float = Field(
+        default=5.0,
+        gt=0,
+        description="Bounded timeout for every commerce provider HTTP call",
+    )
+
     # Monitoring
     ENABLE_METRICS: bool = Field(default=True, description="Enable Prometheus metrics")
     METRICS_PORT: int = Field(default=9090, description="Metrics port")
@@ -614,6 +640,19 @@ class Settings(BaseSettings):
         if not v.startswith(("postgresql+asyncpg://", "postgresql://")):
             raise ValueError("Database URL must use postgresql+asyncpg:// scheme")
         return v
+
+    @field_validator("COMMERCE_PROVIDER_URL")
+    @classmethod
+    def validate_commerce_provider_url(cls, v: str, info: ValidationInfo) -> str:
+        """External facts require an explicit provider URL; fail fast at startup."""
+        url = v.strip()
+        if info.data.get("COMMERCE_PROVIDER_MODE") == "external" and not url:
+            raise ValueError(
+                "COMMERCE_PROVIDER_URL is required when COMMERCE_PROVIDER_MODE=external"
+            )
+        if url and not url.startswith(("http://", "https://")):
+            raise ValueError("COMMERCE_PROVIDER_URL must use http:// or https://")
+        return url
 
     @field_validator("DOCUMENT_CHUNK_OVERLAP")
     @classmethod

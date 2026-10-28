@@ -57,6 +57,7 @@ bash deployment/production/scripts/restore.sh \
 | 文档版本、原始二进制、归一化文本、处理配置 | 位于 PostgreSQL；演练验证字节与内容保持 |
 | LangGraph checkpoint | 同库时一起备份；`DIALOGUE_CHECKPOINTER_DB_URL` 指向其他库时需另行备份并协调恢复点 |
 | Qdrant 检索片段/向量、Neo4j 图与社区数据 | 独立数据存储，不包含在 SQL 包中；需要各自快照或经过验证的重建流程 |
+| commerce-provider 购物车/报价/订单/付款回执 | 独立 SQLite 卷 `commerce_provider_data`，不在 PostgreSQL 归档中；需在停写或通过 SQLite online backup/`.backup` 生成一致快照（不要只复制运行中的 db/wal 文件），并与主库恢复点协调 |
 | FAQ、事实表、自定义文件及模型配置 | 保存对应版本的代码和自定义文件；不依赖 SQL 包恢复这些内容 |
 | Redis | 主要为 TTL 缓存、限流和临时状态；不能用旧缓存掩盖数据库/知识库恢复缺口 |
 

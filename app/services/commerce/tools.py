@@ -2,18 +2,30 @@
 
 The model owns semantic planning. Handlers own principal binding and typed,
 non-semantic transaction checks; there is no phrase-matching authorization.
+Tool schemas expose structured search filters/sort/paging and a full multi-line
+cart payload, so the provider stays the only source of prices, names and limits.
 """
 
+import math
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models.database.commerce import PurchaseSession
-from app.models.schemas.commerce import CommerceView
+from app.models.schemas.commerce import (
+    CartLineSelection,
+    CatalogFilters,
+    CommerceView,
+)
+from app.services.commerce.port import CommerceSort
 from app.services.commerce.service import PurchaseService
 from app.services.dialogue.tools import ToolDefinition, ToolRegistry
+
+_SORTS = ("relevance", "price_asc", "price_desc", "newest")
+_PAGE_SIZE_MAX = 50
 
 
 async def current_purchase(service: PurchaseService, owner: int) -> CommerceView | None:
@@ -28,6 +40,58 @@ async def current_purchase(service: PurchaseService, owner: int) -> CommerceView
             .limit(1)
         )
     return None if identifier is None else await service.status(owner, identifier)
+
+
+def _price_minor(value: Any, label: str) -> int | None:
+    """Convert a yuan amount from the model into typed minor units."""
+    if value is None:
+        return None
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or value < 0
+    ):
+        raise ValidationError(f"{label} must be a non-negative number of yuan")
+    return round(float(value) * 100)
+
+
+def _catalog_filters(args: dict[str, Any]) -> CatalogFilters | None:
+    minimum, maximum, in_stock = args.get("min_price"), args.get("max_price"), args.get("in_stock")
+    raw_attributes = args.get("attributes")
+    if minimum is None and maximum is None and in_stock is None and raw_attributes is None:
+        return None
+    min_minor, max_minor = (
+        _price_minor(minimum, "Minimum price"),
+        _price_minor(maximum, "Maximum price"),
+    )
+    if min_minor is not None and max_minor is not None and min_minor > max_minor:
+        raise ValidationError("Minimum price must not exceed maximum price")
+    attributes: dict[str, list[str]] = {}
+    if raw_attributes is not None:
+        if not isinstance(raw_attributes, dict) or len(raw_attributes) > 8:
+            raise ValidationError("Catalog attribute filters must be an object with at most 8 keys")
+        for key, allowed in raw_attributes.items():
+            if not isinstance(key, str) or not key or not isinstance(allowed, list):
+                raise ValidationError("Each catalog attribute filter needs a name and string array")
+            if (
+                not allowed
+                or len(allowed) > 8
+                or not all(isinstance(value, str) for value in allowed)
+            ):
+                raise ValidationError("Each catalog attribute filter needs 1 to 8 string values")
+            attributes[key] = allowed
+    try:
+        return CatalogFilters(
+            **({"min_price_minor": min_minor} if min_minor is not None else {}),
+            **({"max_price_minor": max_minor} if max_minor is not None else {}),
+            **({"in_stock": in_stock} if in_stock is not None else {}),
+            **({"attributes": attributes} if attributes else {}),
+        )
+    except PydanticValidationError as exc:
+        raise ValidationError(
+            "Catalog filters must be prices, a boolean stock flag, and attributes"
+        ) from exc
 
 
 def create_commerce_tools(
@@ -56,8 +120,25 @@ def create_commerce_tools(
         query = args.get("query", "")
         if not isinstance(query, str) or len(query) > 500:
             raise ValidationError("Search query must be a bounded string")
+        sort = args.get("sort", "relevance")
+        if sort not in _SORTS:
+            raise ValidationError("Catalog sort must be one of: " + ", ".join(_SORTS))
+        page_size = args.get("page_size", 10)
+        if type(page_size) is not int or not 1 <= page_size <= _PAGE_SIZE_MAX:
+            raise ValidationError(f"Page size must be an integer from 1 to {_PAGE_SIZE_MAX}")
+        page_token = args.get("page_token")
+        if page_token is not None and (not isinstance(page_token, str) or not page_token):
+            raise ValidationError("Page token must be a non-empty cursor string")
         view = await service.start(owner)
-        return await service.search(owner, view.purchase_id, query)
+        return await service.search(
+            owner,
+            view.purchase_id,
+            query,
+            filters=_catalog_filters(args),
+            sort=cast(CommerceSort, sort),
+            page_size=page_size,
+            page_token=page_token,
+        )
 
     async def product(args: dict[str, Any]) -> CommerceView:
         view = await target(args)
@@ -68,14 +149,24 @@ def create_commerce_tools(
 
     async def cart(args: dict[str, Any]) -> CommerceView:
         view = await target(args)
-        sku, quantity, version = (
-            args.get("sku_id"),
-            args.get("quantity"),
-            args.get("expected_version"),
-        )
-        if not isinstance(sku, str) or type(quantity) is not int or type(version) is not int:
-            raise ValidationError("SKU, integer quantity and purchase version are required")
-        return await service.set_cart_line(owner, view.purchase_id, sku, quantity, version)
+        version = args.get("expected_version")
+        if type(version) is not int:
+            raise ValidationError("A purchase version is required")
+        raw_lines = args.get("lines")
+        if not isinstance(raw_lines, list) or not raw_lines:
+            raise ValidationError("A non-empty cart lines array is required")
+        lines: list[CartLineSelection] = []
+        for entry in raw_lines:
+            if not isinstance(entry, dict):
+                raise ValidationError("Each cart line must be an object with sku_id and quantity")
+            sku = entry.get("sku_id")
+            quantity = entry.get("quantity")
+            if not isinstance(sku, str) or type(quantity) is not int:
+                raise ValidationError(
+                    "Each cart line must name one displayed sku_id and a positive integer quantity"
+                )
+            lines.append(CartLineSelection(sku_id=sku, quantity=quantity))
+        return await service.update_cart_lines(owner, view.purchase_id, lines, version)
 
     async def quote(args: dict[str, Any]) -> CommerceView:
         view = await target(args)
@@ -106,33 +197,80 @@ def create_commerce_tools(
     ] = [
         (
             "search_products",
-            "Search the mock product catalog without placing an order.",
-            {"query": {"type": "string", "maxLength": 500}},
+            "Search the mock catalog with a short product query plus structured filters, sort and "
+            "paging; never places an order. Invite clarification when the customer's product "
+            "reference or budget is ambiguous.",
+            {
+                "query": {"type": "string", "maxLength": 500},
+                "min_price": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Lower price bound in yuan",
+                },
+                "max_price": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "Upper price bound in yuan",
+                },
+                "in_stock": {"type": "boolean"},
+                "attributes": {
+                    "type": "object",
+                    "maxProperties": 8,
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 8,
+                    },
+                    "description": "Exact catalog attribute filters from displayed items",
+                },
+                "sort": {"type": "string", "enum": list(_SORTS)},
+                "page_size": {"type": "integer", "minimum": 1, "maximum": _PAGE_SIZE_MAX},
+                "page_token": {
+                    "type": "string",
+                    "description": "Opaque cursor from a previous result page",
+                },
+            },
             ["query"],
             search,
         ),
         (
             "get_product",
-            "Read a displayed mock SKU.",
+            "Read one displayed mock SKU.",
             {"purchase_id": {"type": "string"}, "sku_id": {"type": "string"}},
             ["sku_id"],
             product,
         ),
         (
-            "set_cart_line",
-            "Set one SKU and quantity only when the customer clearly selected them.",
+            "update_cart_lines",
+            "Replace the whole mock cart with the exact list of SKU quantities the customer "
+            "clearly chose; lines absent from the list are removed and the provider re-checks "
+            "stock and per-SKU purchase limits. Invite clarification when a product reference, "
+            "variant or quantity is ambiguous instead of guessing.",
             {
                 "purchase_id": {"type": "string"},
-                "sku_id": {"type": "string"},
-                "quantity": {"type": "integer", "minimum": 1, "maximum": 10},
+                "lines": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "sku_id": {"type": "string", "maxLength": 64},
+                            "quantity": {"type": "integer", "minimum": 1},
+                        },
+                        "required": ["sku_id", "quantity"],
+                        "additionalProperties": False,
+                    },
+                },
                 "expected_version": {"type": "integer", "minimum": 0},
             },
-            ["sku_id", "quantity", "expected_version"],
+            ["lines", "expected_version"],
             cart,
         ),
         (
             "prepare_checkout",
-            "Prepare a quote for review; this never confirms or pays an order.",
+            "Prepare a quote for the current cart; this never confirms or pays an order.",
             {
                 "purchase_id": {"type": "string"},
                 "expected_version": {"type": "integer", "minimum": 0},

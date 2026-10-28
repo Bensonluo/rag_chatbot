@@ -1,6 +1,7 @@
 """Durable controlled purchase workflow. No external call holds a domain transaction."""
 
 import asyncio
+import logging
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any, cast
@@ -18,9 +19,11 @@ from app.models.database.commerce import (
 )
 from app.models.schemas.commerce import (
     CartBlock,
+    CartLineSelection,
     CartSnapshot,
     CatalogBlock,
-    CatalogItem,
+    CatalogFilters,
+    CatalogPage,
     CommerceStage,
     CommerceView,
     OrderSnapshot,
@@ -31,7 +34,14 @@ from app.models.schemas.commerce import (
     StatusBlock,
 )
 from app.services.commerce.mock_port import MockCommercePort, as_utc, request_hash, utc_now
-from app.services.commerce.port import CommercePort, ProviderRejected, ProviderUnknown
+from app.services.commerce.port import (
+    CommercePort,
+    CommerceSort,
+    ProviderRejected,
+    ProviderUnknown,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class PurchaseService:
@@ -50,8 +60,8 @@ class PurchaseService:
         self.port = port or MockCommercePort(
             sessions, clock=clock, quote_ttl_seconds=quote_ttl_seconds
         )
-        if self.port.mode != "mock":
-            raise ValueError("This purchase framework accepts mock adapters only")
+        if self.port.mode not in {"mock", "external"}:
+            raise ValueError("This purchase framework accepts mock and external adapters only")
 
     async def _load(self, owner: int, purchase_id: str) -> PurchaseSession:
         async with self.sessions() as db:
@@ -91,7 +101,6 @@ class PurchaseService:
                     stage="shopping",
                     version=0,
                     generation=0,
-                    quantity=0,
                 )
             )
             try:
@@ -105,12 +114,29 @@ class PurchaseService:
         return await self.status(owner_user_id, identifier)
 
     async def search(
-        self, owner_user_id: int, purchase_id: str, query: str, expected_version: int | None = None
+        self,
+        owner_user_id: int,
+        purchase_id: str,
+        query: str,
+        *,
+        filters: CatalogFilters | None = None,
+        sort: CommerceSort = "relevance",
+        page_size: int = 10,
+        page_token: str | None = None,
+        expected_version: int | None = None,
     ) -> CommerceView:
         row = await self._load(owner_user_id, purchase_id)
         if expected_version is not None:
             self._version(row, expected_version)
-        return await self._view(row, await self.port.search_products(owner_user_id, query[:500]))
+        page = await self.port.search_products(
+            owner_user_id,
+            query[:500],
+            filters=filters,
+            sort=sort,
+            page_size=page_size,
+            page_token=page_token,
+        )
+        return await self._view(row, page)
 
     async def get_product(self, owner_user_id: int, purchase_id: str, sku_id: str) -> CommerceView:
         row = await self._load(owner_user_id, purchase_id)
@@ -118,7 +144,7 @@ class PurchaseService:
             item = await self.port.get_product(owner_user_id, sku_id)
         except ProviderRejected as exc:
             raise ValidationError(str(exc)) from exc
-        return await self._view(row, [item])
+        return await self._view(row, CatalogPage(items=[item], total_estimate=1))
 
     @staticmethod
     def _version(row: PurchaseSession, expected: int) -> None:
@@ -147,7 +173,7 @@ class PurchaseService:
             self._version(row, expected)
             if row.active_operation_id is not None:
                 raise ConflictError("原操作尚未核实，请查询原购买流程")
-            if kind in {"set_cart", "quote"} and row.order_id is not None:
+            if kind in {"update_cart", "quote"} and row.order_id is not None:
                 raise ConflictError("已有订单，不能改成另一笔购买")
             identifier = str(uuid4())
             operation = PurchaseOperation(
@@ -233,12 +259,15 @@ class PurchaseService:
                 "version": row.version + 1,
                 "error": None,
             }
-            if operation.kind == "set_cart":
+            if operation.kind == "update_cart":
                 cart = CartSnapshot.model_validate(data)
-                if (
-                    cart.cart_id != operation.request["cart_id"]
-                    or cart.lines[0].sku_id != operation.request["sku_id"]
-                    or cart.lines[0].quantity != operation.request["quantity"]
+                requested = sorted(
+                    (line["sku_id"], line["quantity"]) for line in operation.request["lines"]
+                )
+                returned = sorted((line.sku_id, line.quantity) for line in cart.lines)
+                if requested != returned or (
+                    operation.request["cart_id"] is not None
+                    and cart.cart_id != operation.request["cart_id"]
                 ):
                     raise ProviderUnknown("模拟购物车回执与原请求不符")
                 values.update(
@@ -246,8 +275,6 @@ class PurchaseService:
                     cart_id=cart.cart_id,
                     cart_version=cart.cart_version,
                     cart_snapshot=cart.model_dump(mode="json"),
-                    sku_id=cart.lines[0].sku_id,
-                    quantity=cart.lines[0].quantity,
                     generation=row.generation + 1,
                     quote_snapshot=None,
                     confirmation_id=None,
@@ -334,13 +361,12 @@ class PurchaseService:
             return
         result: CartSnapshot | QuoteSnapshot | OrderSnapshot | PaymentSnapshot
         try:
-            if operation.kind == "set_cart":
-                result = await self.port.set_cart(
+            if operation.kind == "update_cart":
+                result = await self.port.update_cart_lines(
                     owner,
                     args["cart_id"],
-                    args["sku_id"],
-                    args["quantity"],
                     args["expected_cart_version"],
+                    [CartLineSelection.model_validate(line) for line in args["lines"]],
                     operation.id,
                 )
             elif operation.kind == "quote":
@@ -366,16 +392,26 @@ class PurchaseService:
                 owner, operation, failed=False, error="模拟业务结果未确认，请查询原操作"
             )
 
-    async def set_cart_line(
+    async def update_cart_lines(
         self,
         owner_user_id: int,
         purchase_id: str,
-        sku_id: str,
-        quantity: int,
+        lines: list[CartLineSelection],
         expected_version: int,
     ) -> CommerceView:
-        if type(quantity) is not int or not 1 <= quantity <= 10:
-            raise ValidationError("数量须为1到10的整数")
+        if (
+            not isinstance(lines, list)
+            or not lines
+            or len(lines) > 50
+            or not all(isinstance(line, CartLineSelection) for line in lines)
+        ):
+            raise ValidationError("购物车行须为非空且不超过 50 行的类型化规格与数量列表")
+        # Canonical IDs make the provider's echoed receipt match the request;
+        # the 50-line cap is a transport bound, not a local commerce rule.
+        lines = [
+            CartLineSelection(sku_id=line.sku_id.strip().upper(), quantity=line.quantity)
+            for line in lines
+        ]
         row = await self._load(owner_user_id, purchase_id)
         self._version(row, expected_version)
         if row.stage in {"submitting", "unknown", "processing", "paid"}:
@@ -384,12 +420,11 @@ class PurchaseService:
             owner_user_id,
             purchase_id,
             expected_version,
-            "set_cart",
+            "update_cart",
             {
-                "cart_id": row.cart_id or str(uuid4()),
-                "sku_id": sku_id,
-                "quantity": quantity,
+                "cart_id": row.cart_id,
                 "expected_cart_version": row.cart_version,
+                "lines": [{"sku_id": line.sku_id, "quantity": line.quantity} for line in lines],
             },
         )
         await self._dispatch(owner_user_id, operation)
@@ -536,10 +571,17 @@ class PurchaseService:
             if operation is not None:
                 try:
                     receipt = await self.port.lookup_operation(owner, operation.id)
+                    data = receipt.get("data") if receipt is not None else None
                     if receipt is not None and receipt.get("status") == "completed":
-                        await self._finish(owner, operation, receipt["data"])
+                        if not isinstance(data, dict):
+                            logger.error("Invalid provider receipt for operation %s", operation.id)
+                        else:
+                            await self._finish(owner, operation, data)
                 except Exception:
-                    pass  # Unknown remains pending. Never dispatch from a GET/reconciliation.
+                    # The original operation stays pending; never dispatch anew.
+                    logger.warning(
+                        "Operation reconciliation failed (%s)", operation.id, exc_info=True
+                    )
             row = await self._load(owner, purchase_id)
         if row.payment_id is not None and row.active_operation_id is None and row.stage != "paid":
             try:
@@ -570,7 +612,7 @@ class PurchaseService:
                             )
                         )
             except Exception:
-                pass
+                logger.warning("Payment status refresh failed (%s)", row.payment_id, exc_info=True)
         return await self._load(owner, purchase_id)
 
     async def status(self, owner_user_id: int, purchase_id: str) -> CommerceView:
@@ -579,17 +621,19 @@ class PurchaseService:
     async def reconcile(self, owner_user_id: int, purchase_id: str) -> CommerceView:
         return await self.status(owner_user_id, purchase_id)
 
-    async def _view(
-        self, row: PurchaseSession, items: list[CatalogItem] | None = None
-    ) -> CommerceView:
+    async def _view(self, row: PurchaseSession, page: CatalogPage | None = None) -> CommerceView:
         blocks: list[Any] = []
         if row.order_id is None and row.stage in {"shopping", "cart", "quoted", "failed"}:
-            products = (
-                items
-                if items is not None
-                else await self.port.search_products(row.owner_user_id, "")
+            shown = (
+                page if page is not None else await self.port.search_products(row.owner_user_id, "")
             )
-            blocks.append(CatalogBlock(items=products))
+            blocks.append(
+                CatalogBlock(
+                    items=shown.items,
+                    next_page_token=shown.next_page_token,
+                    total_estimate=shown.total_estimate,
+                )
+            )
         if row.cart_snapshot is not None:
             blocks.append(CartBlock(cart=CartSnapshot.model_validate(row.cart_snapshot)))
         if row.quote_snapshot is not None and row.confirmation_id is not None:

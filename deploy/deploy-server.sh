@@ -45,13 +45,29 @@ if [ "$RESOLVED" != "127.0.0.1:$API_PORT" ]; then
 fi
 echo "    ok: $RESOLVED"
 
-echo "==> 3/5 build api image (pip via Tsinghua mirror)"
-$SSH_CMD "cd $REMOTE_DIR && PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple docker compose build api"
+echo "==> 3/6 build api and commerce-provider images (pip via Tsinghua mirror)"
+$SSH_CMD "cd $REMOTE_DIR && PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple docker compose build api commerce-provider"
 
-echo "==> 4/5 restart api"
-$SSH_CMD "cd $REMOTE_DIR && docker compose up -d api"
+echo "==> 4/6 restart commerce provider, then api"
+$SSH_CMD "cd $REMOTE_DIR && docker compose up -d commerce-provider api"
 
-echo "==> 5/5 health check"
+echo "==> 5/6 wait for provider health"
+PROVIDER_HEALTHY=false
+for i in $(seq 1 20); do
+  PROVIDER_STATUS=$($SSH_CMD "cd $REMOTE_DIR && docker inspect --format '{{.State.Health.Status}}' \$(docker compose ps -q commerce-provider)" 2>/dev/null || true)
+  if [ "$PROVIDER_STATUS" = "healthy" ]; then
+    PROVIDER_HEALTHY=true
+    echo "    commerce-provider: healthy"
+    break
+  fi
+  sleep 5
+done
+if [ "$PROVIDER_HEALTHY" != "true" ]; then
+  echo "FATAL: commerce-provider did not become healthy; check: $SSH_CMD 'cd $REMOTE_DIR && docker compose logs commerce-provider --tail 50'"
+  exit 1
+fi
+
+echo "==> 6/6 api health check"
 for i in $(seq 1 20); do
   if $SSH_CMD "curl -sf http://localhost:$API_PORT/health" >/dev/null 2>&1; then
     echo "    healthy: http://localhost:$API_PORT/health -> 200"
