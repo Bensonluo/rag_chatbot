@@ -75,6 +75,7 @@ def seams(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 @pytest.fixture
 async def document_jobs(monkeypatch):
     """Run the real durable worker against isolated SQL persistence."""
+    monkeypatch.setattr("app.services.documents.jobs.bump_kb_epoch", AsyncMock())
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
     async with engine.begin() as connection:
         await connection.run_sync(

@@ -54,3 +54,9 @@ DB 桥接按部署配置 `CONTAINMENT_STATS_WINDOW_DAYS` 计算窗口，默认 7
 真实 SQLite、JWT HTTP 与 Prometheus 文本导出验证统计一致、排序、时间边界、未知状态及 DB 故障保留旧值。独立 SQL 探针检查固定查询数量和 PostgreSQL 编译；本轮未执行 PostgreSQL、PromQL 引擎或 Grafana 浏览器。前后结果见[失败会话可见性证据](../reviews/failed-reply-visibility-results-2026-10-28.json)。
 
 时间戳和向量过滤设计分别参考 [Prometheus instrumentation](https://prometheus.io/docs/practices/instrumentation/) 与 [PromQL operators](https://prometheus.io/docs/prometheus/latest/querying/operators/)；这些资料不代替本项目的运行验证。
+
+## 人工通道的客户解决证据
+
+私人会话中新提交的 customer 人工消息也参与现有 resolved_at/reopened_count 状态机，与 AI 客户正文使用相同保守识别规则。staff 回复或关闭工单不作为客户解决；否定、疑问、引用、附带新求助不确认解决。已解决会话收到其他非空客户消息时按现有会话粒度重开一次，不宣称能区分是否同一问题。正文与状态同事务，精确 UUID 重放不刷新解决时间，也不重复重开或覆盖后来状态。
+
+这些证据可更新已有 served 会话的 sessions_resolved/reopened；人工消息不增加机器人分母或失败/完成回复群体。只有人工消息的会话不进入这些机器人 served 指标。字段、刷新和原 containment 公式均不变。具体回归见[人工后续消息记录](../reviews/human-followup-results-2026-10-28.json)。

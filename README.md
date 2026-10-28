@@ -43,7 +43,7 @@ The system connects a 12-node LangGraph dialogue engine with hybrid retrieval, v
 ### Enterprise architecture and delivery
 
 - **Knowledge lifecycle:** retain original documents, process immutable revisions asynchronously, recover interrupted ingestion, and preserve the answer-time citation snapshot.
-- **Access and continuity:** strict mode enforces authenticated identity and session ownership; assigned staff can read the handoff transcript and its citations. PostgreSQL checkpoints persist dialogue state.
+- **Access and continuity:** private sessions enforce authenticated ownership in both Demo and strict modes; assigned staff can read context and send separate human replies. PostgreSQL checkpoints persist dialogue state.
 - **Operations:** epoch-scoped caches, Redis rate limiting, metrics and alert rules, tracing hooks, replica deployment templates, and a PostgreSQL backup/recovery runbook.
 - **Integration:** five bundled mock business-tool handlers define the refund/return/order/logistics/complaint interface; connect enterprise business APIs through the registry. Multi-tenant knowledge isolation remains on the roadmap.
 
@@ -58,10 +58,10 @@ Deployment commands below start a single API instance. Replica templates, option
 | Stateful task execution | 12-node StateGraph, five-way routing, slot collection, task stack, ToolRegistry | Complete requests across interruptions without repeating completed actions |
 | Versioned support knowledge | Retained sources, immutable revisions, retryable ingestion, stable passage IDs | Trace an answer back to the policy version used at the time |
 | Retrieval and answer control | Vector + BM25 + RRF + reranking, optional GraphRAG, sentence-level claim gates | Retrieve relevant evidence and check curated policy facts before streaming |
-| Human handoff | Tickets, queue/AHT, assigned-agent transcript, knowledge-gap records | Carry context into staff handling and feed knowledge maintenance |
+| Human handoff | Private sign-in workspace, tickets/queue, assigned context, two-way human messages, atomic final reply/closure | Carry context into staff handling and deliver a saved explanation |
 | Operational control | Epoch-scoped L0/L1/L2 cache, metrics/alerts, tracing, rate limits | Inspect latency, outcomes, cache consistency and load |
 
-**Recorded quality baseline (2026-10-28):** 3010 passing core tests, 3 opt-in scenarios skipped by default, 93.29% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
+**Recorded quality baseline (2026-10-28):** 3288 passing core tests, 3 opt-in scenarios skipped by default, 93.35% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
 
 [Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md)
 
@@ -372,9 +372,14 @@ configuration create another revision. Status transitions are
 Informational OCR/blank-page warnings do not turn a complete index into a partial job.
 A failed embedding step preserves the previous index. Qdrant replacement writes
 the new points before removing superseded points; it is not a transaction across
-Postgres, Qdrant, and Neo4j. A failure during publication is recorded and invalidates
-caches; retry converges on the retained revision. Do not run another uncoordinated
-writer against the same document IDs.
+Postgres, Qdrant, and Neo4j. New retrieval evidence and cache hits must match the
+committed active-version registry; failed/unactivated candidates are withheld.
+Publication can temporarily leave no eligible evidence if old points were removed
+before a registry failure; retry converges on the retained revision. Existing
+active versions remain eligible during a retry attempt. Unregistered raw corpora
+must be re-ingested through the durable jobs. Do not run another uncoordinated
+writer against the same document IDs. See the
+[publication contract and migration boundary](docs/design/knowledge-publication.md).
 
 Each Qdrant point stores `chunk_id`, parent `document_id`, `content`, and metadata:
 
@@ -463,7 +468,7 @@ separately configured checkpoint databases require their own recovery plans.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 3010 passed + 3 opt-in skipped / 93.29%)
+# Maintained core suite (70% minimum; currently 3288 passed + 3 opt-in skipped / 93.35%)
 pytest
 
 # Targeted runs
@@ -503,11 +508,11 @@ ruff format --check app/
 mypy app/
 ```
 
-Local verification on 2026-10-28: 3010 tests pass, with three opt-in scenarios
+Local verification on 2026-10-28: 3288 tests pass, with three opt-in scenarios
 skipped by default (PostgreSQL concurrency, assigned-transcript locking, and
 the Docker recovery drill);
-core coverage is 93.29%. Ruff and
-full strict Mypy pass (440 Python files).
+core coverage is 93.35%. Ruff and
+full strict Mypy pass (461 Python files).
 Authenticated HTTP/SSE regressions cover chat ownership, guarded text and
 citations, plus ASGI 2.3/2.4 disconnect persistence; the earlier socket-blocked
 run is recorded in the [boundary evidence](docs/reviews/http-stream-results-2026-10-23.json).
@@ -543,15 +548,48 @@ chat replies retain their partial text and cannot become canned business replies
 completion requires the stream's explicit terminator. Next and its ESLint config
 were upgraded from 16.3.8 to 16.4.3; runtime npm audit reports zero advisories
 (development dependencies excluded). Browser visual/interaction verification was
-unavailable. Real feedback message IDs and staff-to-customer messaging remain
-open product gaps; see the [frontend evidence](docs/reviews/frontend-response-results-2026-10-28.json).
+unavailable. This is the round-17 baseline; see the
+[frontend evidence](docs/reviews/frontend-response-results-2026-10-28.json).
+The round-18 iteration passes 227 frontend tests (172 Jest + 55 protocol), lint,
+strict TypeScript and the 11-page static build. It carries committed message IDs/status through REST,
+opt-in SSE and history, and restricts feedback to completed assistant replies.
+The shared Demo page still requires an existing token to rate replies and has
+no new sign-in flow in that round. See the
+[message/feedback contract](docs/design/message-feedback.md) and
+[verification results](docs/reviews/message-feedback-results-2026-10-28.json).
+
+The round-20 companion frontend adds `/support/` with real sign-in, private customer sessions,
+assigned staff messaging and a saved final explanation plus closure. Its complete suite passes
+263 tests (208 Jest + 55 protocol), lint, strict TypeScript and a 12-page static build.
+That round passed 3232 backend tests, including 83 new default cases. Existing 93.35% coverage
+measures the selected core modules; it does not measure chat/coordinator/handoff/API code.
+Private sessions also enforce owner checks in Demo mode, private feedback requires ownership,
+and QA access requires admin in both modes. Shared legacy tickets have no private human channel.
+
+Apply migration `a31e8d7f6290` and drain all old app instances **before** allowing private
+consultations. Private sessions/human rows/nonzero automation generations block downgrade;
+restarting old Demo binaries can bypass privacy. Local SQLite migration round trips and
+schema alignment pass. PostgreSQL advisory-lock coordination has a separate bounded pool and
+CI-selected independent-connection regression, but was not executed on real PG this round;
+both local Docker socket contexts were unavailable. No browser, production or real payment
+acceptance is claimed. See the [human conversation contract](docs/design/human-conversation.md)
+and [round-20 evidence](docs/reviews/human-conversation-results-2026-10-28.json).
+
+Round21 makes customer resolution evidence consistent across AI and human messages.
+New human customer messages use the existing conservative confirmation/reopen policy in
+the same transaction as their text; UUID replay cannot overwrite a later result, and staff
+text/closure is not customer confirmation. Human rows do not increase bot-served cohorts.
+The workspace also prevents delayed GET/ACK responses from regressing ticket state and
+rejects invalid JSON enum types. No new outcome API, schema or confirmation buttons were added.
+Full regression: 3288 backend tests (3 existing opt-in skipped), and 272 frontend tests
+(217 Jest + 55 protocol), lint/types and 12 static pages. See the [followup evidence](docs/reviews/human-followup-results-2026-10-28.json).
 
 | Metric | Value |
 |--------|-------|
-| Maintained test results | **3010 passed, 3 opt-in skipped** |
-| Maintained core coverage | **93.29%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
-| Python files (app/) | 440 |
-| Python files in app/tests/ | 228 (222 test_ modules) |
+| Maintained test results | **3288 passed, 3 opt-in skipped** |
+| Maintained core coverage | **93.35%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
+| Python files (app/) | 461 |
+| Python files in app/tests/ | 243 (237 test_ modules) |
 
 ---
 
@@ -563,12 +601,12 @@ open product gaps; see the [frontend evidence](docs/reviews/frontend-response-re
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 3010 passing core tests, 93.29% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
+- [x] 3288 passing core tests, 93.35% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)
 - [x] Cross-session user memory (user_facts + TTL recall cache)
-- [x] Human handoff: tickets, queue position, AHT, knowledge-gap closeout, assigned-agent paginated transcript
+- [x] Human handoff: private login workspace, assigned-agent context, bidirectional human messages, atomic final reply/closure and claimed-session automation pause
 - [x] Postgres checkpointer (AsyncPostgresSaver, MemorySaver fallback)
 - [x] Prometheus alert rules (SLA / TTFT / claim gate / handoff queue)
 - [x] Epoch-scoped cache pyramid (L0 answer / L1 semantic / L2 retrieval)
@@ -623,7 +661,7 @@ If this project helped you, please ⭐ star the repo — it helps others discove
 - **意图切换与恢复**:State Stack 推栈保存/弹栈恢复;已执行任务为终态,不再挂起或自动恢复(防止二次执行)
 - **声明门控流式输出**:句子缓冲 + 策展事实校验,越界声明拦截/改写后才放出
 - **跨会话用户记忆**:user_facts 长期画像 + TTL 召回缓存
-- **转人工兜底**:情绪/复杂度触发工单(队列位置、AHT),知识缺口记录与闭环
+- **人工接续**:情绪/复杂度触发工单，登录后私人咨询、客服领取与双向消息、最终说明和关闭同事务；接单后暂停机器人，旧共享 Demo 仅原历史和行政关闭
 - **GraphRAG**:Neo4j 知识图谱 + Text-to-Cypher + 社区发现
 - **混合检索**:向量 + BM25 → RRF 融合 → Cross-Encoder 重排序
 - **全链路可观测**:OpenTelemetry + Prometheus 指标(TTFT/时长/结果)+ SLA/策略门控告警规则

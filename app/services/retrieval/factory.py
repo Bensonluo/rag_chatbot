@@ -24,6 +24,7 @@ from app.services.retrieval.vector_base import VectorClient
 
 if TYPE_CHECKING:
     from app.services.embeddings.base import EmbeddingServiceBase
+    from app.services.retrieval.publication import PublicationGuard
 
 
 class RetrievalFactory:
@@ -101,6 +102,7 @@ class RetrievalFactory:
         vector_client: VectorClient,
         vector_weight: float = 0.5,
         keyword_search: KeywordSearch | None = None,
+        publication_guard: PublicationGuard | None = None,
     ) -> HybridSearchService:
         """
         Create a hybrid search service.
@@ -128,6 +130,7 @@ class RetrievalFactory:
             vector_client=vector_client,
             keyword_search=keyword_search,
             vector_weight=vector_weight,
+            publication_guard=publication_guard,
         )
 
     @staticmethod
@@ -153,7 +156,10 @@ class RetrievalFactory:
             int: Number of chunks fed into the keyword index
         """
         chunks = await vector_client.list_chunks(max_chunks=max_chunks)
-        if chunks:
+        if hybrid_search.publication_guard is not None:
+            chunks = await hybrid_search.publication_guard.filter_documents(chunks)
+            await hybrid_search.keyword_search.rebuild(chunks)
+        elif chunks:
             await hybrid_search.keyword_search.add_documents(chunks)
         return len(chunks)
 
@@ -285,6 +291,7 @@ class RetrievalFactory:
         use_metadata_enrichment: bool = True,
         vector_weight: float = 0.5,
         reranker_top_n: int = 5,
+        publication_guard: PublicationGuard | None = None,
     ) -> dict[str, Any]:
         """
         Create a complete retrieval pipeline.
@@ -309,6 +316,7 @@ class RetrievalFactory:
         hybrid_search = RetrievalFactory.create_hybrid_search(
             vector_client=vector_client,
             vector_weight=vector_weight,
+            publication_guard=publication_guard,
         )
 
         # Create reranker
@@ -333,4 +341,5 @@ class RetrievalFactory:
             "hybrid_search": hybrid_search,
             "reranker": reranker,
             "metadata_service": metadata_service,
+            "publication_guard": publication_guard,
         }

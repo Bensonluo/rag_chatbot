@@ -25,6 +25,7 @@ from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.database.document import Document, DocumentVersion
 from app.services.documents.ingestion import DocumentIngestionService
 from app.services.documents.metadata import PIPELINE_VERSION
+from app.services.retrieval.kb_epoch import bump_kb_epoch
 
 logger = logging.getLogger(__name__)
 ServiceFactory = Callable[[dict[str, Any]], Awaitable[DocumentIngestionService]]
@@ -347,7 +348,15 @@ class DocumentJobService:
             await lock_db.execute(
                 update(DocumentVersion).where(DocumentVersion.id == version.id).values(**completion)
             )
-            return True
+        # The external-index write invalidates caches before this transaction
+        # commits. Rotate again after the durable pointer/status is visible;
+        # every reader still checks publication if Redis is unavailable.
+        try:
+            async with asyncio.timeout(1.0):
+                await bump_kb_epoch()
+        except Exception:
+            logger.warning("Committed knowledge epoch publication unavailable", exc_info=True)
+        return True
 
     async def delete(self, document_id: str, service: DocumentIngestionService) -> dict[str, Any]:
         async with self.sessions() as db, db.begin():

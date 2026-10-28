@@ -14,6 +14,7 @@ from app.api.deps import (
     get_auth_service,
     get_current_active_user,
 )
+from app.api.deps.private_response import PrivateAPIRoute
 from app.core.exceptions import ConflictError, ValidationError
 from app.models.database.user import User
 from app.models.schemas.user import (
@@ -27,7 +28,7 @@ from app.services.auth_service import AuthenticationService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/auth", tags=["authentication"])
+router = APIRouter(prefix="/auth", tags=["authentication"], route_class=PrivateAPIRoute)
 
 
 @router.post(

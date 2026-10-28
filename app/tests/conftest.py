@@ -194,6 +194,16 @@ async def app_client(db_session, monkeypatch):
 
     app.dependency_overrides[get_db] = override_get_db
 
+    from app.services.chat.coordination import SessionCoordinator, get_session_coordinator
+
+    maker = async_sessionmaker(db_session.bind, expire_on_commit=False)
+    coordinator = SessionCoordinator(maker)
+    app.dependency_overrides[get_session_coordinator] = lambda: coordinator
+    from app.api.v1.sessions import get_session_chat_service
+    from app.services.chat.chat_service import ChatService
+
+    app.dependency_overrides[get_session_chat_service] = lambda: ChatService(graph=None)
+
     # Create test client
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
@@ -231,3 +241,29 @@ async def test_token(app_client: AsyncClient) -> str:
     token = response.json()["access_token"]
     assert isinstance(token, str)
     return token
+
+
+@pytest.fixture
+def forbid_external_sockets(monkeypatch):
+    """Explicitly opt isolated HTTP fixtures out of developer service URLs."""
+    import socket
+
+    from redis.exceptions import ConnectionError as RedisConnectionError
+
+    from app.middleware.rate_limiter_redis import _RedisClientHolder
+
+    attempts = []
+
+    def reject(*args, **kwargs):
+        attempts.append(True)
+        raise AssertionError("Isolated HTTP test attempted external network access")
+
+    def local_redis_outage():
+        raise RedisConnectionError("Isolated HTTP test: no Redis transport")
+
+    monkeypatch.setattr(_RedisClientHolder, "get", local_redis_outage)
+    monkeypatch.setattr(socket.socket, "connect", reject)
+    monkeypatch.setattr(socket.socket, "connect_ex", reject)
+    monkeypatch.setattr(socket, "getaddrinfo", reject)
+    yield
+    assert attempts == []

@@ -27,6 +27,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from app.services.chat.metrics import CACHE_FEEDBACK_EVICTIONS
+from app.services.retrieval.cache_policy import SEMANTIC_CACHE_NAMESPACE
 from app.services.retrieval.kb_epoch import EPOCH_UNAVAILABLE, get_kb_epoch
 
 if TYPE_CHECKING:
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 _L0_INDEX = "answer_resp_index"
 _L1_INDEX = "semantic_resp_index"
-_L1_NAMESPACE = "semantic_answers"
+_L1_NAMESPACE = SEMANTIC_CACHE_NAMESPACE
 
 _default_redis: Redis[str] | None = None
 

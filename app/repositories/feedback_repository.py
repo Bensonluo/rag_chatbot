@@ -2,11 +2,12 @@
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database.message import Message
 from app.models.database.session import ChatSession
+from app.models.enums.message import MessageRole, MessageStatus
 
 
 class FeedbackRepository:
@@ -15,7 +16,9 @@ class FeedbackRepository:
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
 
-    async def get_owned_message(self, message_id: int, user_id: int) -> Message | None:
+    async def get_owned_message(
+        self, message_id: int, user_id: int, *, allow_shared: bool = False
+    ) -> Message | None:
         """The message when its session belongs to user_id, else None.
 
         Feedback is an object-level authorization surface (review #1):
@@ -23,10 +26,17 @@ class FeedbackRepository:
         another user's message, and a foreign id must read exactly like
         a missing one (BOLA guidance).
         """
+        access = ChatSession.user_id == user_id
+        if allow_shared:
+            access = or_(
+                access,
+                func.coalesce(ChatSession.session_metadata["access_mode"].as_string(), "")
+                != "private",
+            )
         stmt = (
             select(Message)
             .join(ChatSession, Message.session_id == ChatSession.id)
-            .where(Message.id == message_id, ChatSession.user_id == user_id)
+            .where(Message.id == message_id, access)
         )
         return (await self._db.execute(stmt)).scalar_one_or_none()
 
@@ -36,8 +46,13 @@ class FeedbackRepository:
         rating: int,
         text: str | None = None,
     ) -> Message | None:
-        """Update a message with user feedback. Returns the message or None if not found."""
-        message = await self._db.get(Message, message_id)
+        """Rate a completed assistant answer, else return an indistinguishable miss."""
+        statement = select(Message).where(
+            Message.id == message_id,
+            Message.role == MessageRole.ASSISTANT,
+            Message.status == MessageStatus.COMPLETED,
+        )
+        message = (await self._db.execute(statement)).scalar_one_or_none()
         if message is None:
             return None
 

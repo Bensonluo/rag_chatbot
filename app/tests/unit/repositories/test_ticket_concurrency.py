@@ -15,6 +15,7 @@ from app.models.database.ticket import HandoffTicket
 from app.models.database.user import User
 from app.models.enums.message import MessageRole
 from app.repositories.ticket_repository import TicketRepository
+from app.services.chat.coordination import ConversationBusyError, SessionCoordinator
 from app.services.handoff.service import HandoffService
 
 
@@ -175,3 +176,38 @@ async def test_transcript_read_serializes_with_resolve_on_postgresql(ticket_data
     assert resolved.status == "resolved"
     with pytest.raises(LookupError, match="^Ticket history not found$"):
         await HandoffService(maker).get_ticket_history(ticket_id, 42)
+
+
+async def test_conversation_gate_coordinates_independent_connections(ticket_database):
+    maker, ticket_id = ticket_database
+    engine = maker.kw["bind"]
+    # PostgreSQL runs in CI against its disposable URL. The advisory lock
+    # connection pool must be separate from nested business transactions.
+    lock_engine = create_async_engine(engine.url, pool_size=1, max_overflow=0)
+    other_lock_engine = create_async_engine(engine.url, pool_size=1, max_overflow=0)
+    locks = async_sessionmaker(lock_engine, expire_on_commit=False)
+    other_locks = async_sessionmaker(other_lock_engine, expire_on_commit=False)
+    first, second = SessionCoordinator(maker, locks), SessionCoordinator(maker, other_locks)
+    async with maker() as db:
+        ticket = await db.get(HandoffTicket, ticket_id)
+        session_id = ticket.session_id
+    try:
+        async with first.hold(session_id):
+            with pytest.raises(ConversationBusyError):
+                async with second.hold(session_id):
+                    pytest.fail("competing conversation action entered")
+            # Claim is gated by the same conversation while ordinary reads
+            # and durable writes retain access to the business connection pool.
+            with pytest.raises(ConversationBusyError):
+                await HandoffService(maker, coordinator=second).claim_ticket(ticket_id, 42)
+            state = await second.state(session_id)
+            assert state.claimed_ticket_id is None
+            async with maker() as db:
+                db.add(Message(session_id=session_id, role=MessageRole.USER, content="Gate held"))
+                await db.commit()
+        claimed = await HandoffService(maker, coordinator=second).claim_ticket(ticket_id, 42)
+        assert claimed["status"] == "claimed"
+        assert (await first.state(session_id)).claimed_ticket_id == ticket_id
+    finally:
+        await lock_engine.dispose()
+        await other_lock_engine.dispose()

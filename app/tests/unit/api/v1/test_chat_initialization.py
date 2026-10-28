@@ -7,6 +7,17 @@ import pytest
 from app.config.settings import settings
 
 
+async def test_missing_human_channel_schema_fails_before_provider_initialization() -> None:
+    from app.api.v1.chat import initialize_chat_service
+
+    db = AsyncMock()
+    db.execute.side_effect = RuntimeError("migration not applied")
+    with patch("app.services.llm.LLMFactory.create_from_settings") as provider:
+        with pytest.raises(RuntimeError, match="migration not applied"):
+            await initialize_chat_service(db)
+        provider.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_graph_client_is_exposed_to_graph_api_when_enabled(
     monkeypatch: pytest.MonkeyPatch,

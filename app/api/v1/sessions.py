@@ -17,6 +17,8 @@ from app.api.deps import (
     get_session_repository,
 )
 from app.api.deps.authorization import require_qa_reviewer
+from app.api.deps.private_response import PrivateAPIRoute
+from app.core.exceptions import NotFoundError
 from app.models.database.session import ChatSession
 from app.models.database.user import User
 from app.models.schemas.session import (
@@ -28,11 +30,26 @@ from app.models.schemas.session import (
 )
 from app.repositories.session_repository import SessionRepository
 from app.repositories.ticket_repository import TicketRepository
+from app.services.chat.chat_service import ChatService
+from app.services.chat.coordination import (
+    ConversationBusyError,
+    CoordinationUnavailableError,
+    HumanHandlingError,
+    SessionCoordinator,
+    get_session_coordinator,
+)
 from app.services.session_service import SessionService
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/sessions", tags=["sessions"])
+router = APIRouter(prefix="/sessions", tags=["sessions"], route_class=PrivateAPIRoute)
+
+
+def get_session_chat_service() -> ChatService:
+    # Lazy import avoids the chat router's session-service dependency cycle.
+    from app.api.v1.chat import get_chat_service
+
+    return get_chat_service()
 
 
 @router.get("/containment-stats")
@@ -305,6 +322,8 @@ async def delete_session(
     session_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
     session_service: Annotated[SessionService, Depends(get_session_service)],
+    coordinator: Annotated[SessionCoordinator, Depends(get_session_coordinator)],
+    chat_service: Annotated[ChatService, Depends(get_session_chat_service)],
 ) -> None:
     """
     Delete a chat session.
@@ -313,7 +332,21 @@ async def delete_session(
     All messages associated with the session will also be deleted.
     """
     try:
-        await session_service.delete_session(session_id, current_user.id)
+        async with coordinator.hold(session_id):
+            await session_service.get_session_by_id(session_id, current_user.id)
+            state = await coordinator.state(session_id)
+            if state.claimed_ticket_id is not None:
+                raise HumanHandlingError("Human support is handling this conversation")
+            await chat_service.discard_session_state(session_id, state.epoch)
+            await session_service.delete_session(session_id, current_user.id)
+    except ConversationBusyError as e:
+        raise HTTPException(409, "A conversation action is still in progress") from e
+    except HumanHandlingError as e:
+        raise HTTPException(423, "Human support is handling this conversation") from e
+    except CoordinationUnavailableError as e:
+        raise HTTPException(503, "Conversation coordination is unavailable") from e
+    except NotFoundError as e:
+        raise HTTPException(404, "Session not found") from e
     except HTTPException:
         raise
     except Exception as e:

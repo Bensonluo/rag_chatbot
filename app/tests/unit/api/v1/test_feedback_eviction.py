@@ -27,6 +27,7 @@ def _message(message_id: int, rating: int, content: str) -> Mock:
 @pytest.fixture
 def repo(monkeypatch: pytest.MonkeyPatch) -> Mock:
     repo = Mock()
+    repo.get_owned_message = AsyncMock(return_value=Mock())
     repo.submit_feedback = AsyncMock()
     monkeypatch.setattr(feedback_api, "FeedbackRepository", lambda db: repo)
     return repo

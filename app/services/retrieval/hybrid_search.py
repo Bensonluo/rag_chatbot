@@ -5,13 +5,16 @@ Implements Reciprocal Rank Fusion (RRF) to combine results from
 vector similarity search and keyword-based search.
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import math
 import re
 from collections import Counter, defaultdict
 from collections.abc import Awaitable, Callable
-from typing import Any
+from dataclasses import replace
+from typing import TYPE_CHECKING, Any
 
 from app.core.exceptions import ValidationError
 from app.services.retrieval.vector_base import (
@@ -20,6 +23,9 @@ from app.services.retrieval.vector_base import (
     VectorClientError,
     VectorSearchRequest,
 )
+
+if TYPE_CHECKING:
+    from app.services.retrieval.publication import PublicationGuard
 
 logger = logging.getLogger(__name__)
 
@@ -295,6 +301,7 @@ class HybridSearchService:
         vector_client: VectorClient,
         keyword_search: KeywordSearch,
         vector_weight: float = 0.5,
+        publication_guard: PublicationGuard | None = None,
     ) -> None:
         """
         Initialize hybrid search service.
@@ -312,6 +319,7 @@ class HybridSearchService:
         if not (0.0 <= vector_weight <= 1.0):
             raise ValidationError(f"vector_weight must be between 0.0 and 1.0, got {vector_weight}")
 
+        self.publication_guard = publication_guard
         self.vector_client = vector_client
         self.keyword_search = keyword_search
         self.vector_weight = vector_weight
@@ -342,6 +350,14 @@ class HybridSearchService:
         # without the scope applied, and a business filter key can never
         # override it (ACL wins on collision).
         request = request.with_merged_filters()
+        delivery_top_k = request.top_k
+        if self.publication_guard is not None:
+            from app.config.settings import settings
+
+            # Bound candidate acquisition by the requested/configured pool,
+            # then filter before ranking. Failed new revisions must not fill
+            # every delivery slot while a published hit sits just below them.
+            request = replace(request, top_k=max(request.top_k, settings.RETRIEVAL_CANDIDATE_POOL))
 
         vector_results = []
         keyword_results = []
@@ -365,6 +381,16 @@ class HybridSearchService:
         if not vector_results and not keyword_results:
             raise VectorClientError("Both vector and keyword search failed")
 
+        if self.publication_guard is not None:
+            # One publication snapshot covers both legs. Do not catch policy
+            # failures here: keyword fallback cannot turn unknown into evidence.
+            approved = await self.publication_guard.filter_results(
+                [*vector_results, *keyword_results]
+            )
+            approved_ids = {id(result) for result in approved}
+            vector_results = [result for result in vector_results if id(result) in approved_ids]
+            keyword_results = [result for result in keyword_results if id(result) in approved_ids]
+
         # Combine results using RRF
         combined = self._reciprocal_rank_fusion(
             vector_results,
@@ -372,7 +398,7 @@ class HybridSearchService:
         )
 
         # Apply top_k limit
-        return combined[: request.top_k]
+        return combined[:delivery_top_k]
 
     def _reciprocal_rank_fusion(
         self,

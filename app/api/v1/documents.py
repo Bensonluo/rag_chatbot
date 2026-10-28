@@ -18,6 +18,7 @@ from sqlalchemy import select
 from app.api.database import async_session_maker
 from app.api.deps import get_current_active_user
 from app.api.deps.authorization import require_kb_writer
+from app.api.deps.publication import get_publication_guard
 from app.config.settings import get_settings
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.database.document import Document, DocumentVersion
@@ -28,6 +29,7 @@ from app.services.documents.metadata import validate_metadata
 from app.services.embeddings import EmbeddingFactory
 from app.services.embeddings.cached_embeddings import CachedEmbeddingService
 from app.services.retrieval.factory import RetrievalFactory
+from app.services.retrieval.publication import PublicationGuard, PublicationUnavailableError
 from app.services.retrieval.qdrant_client import QdrantClient
 from app.services.retrieval.vector_base import VectorSearchRequest
 
@@ -215,6 +217,8 @@ async def get_qdrant_client() -> AsyncGenerator[QdrantClient, None]:
 
 
 def _api_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, PublicationUnavailableError):
+        return HTTPException(503, "Published knowledge is temporarily unavailable")
     if isinstance(exc, ValidationError):
         return HTTPException(422, str(exc))
     if isinstance(exc, ConflictError):
@@ -405,13 +409,19 @@ async def search_documents(
     request: SearchRequest,
     current_user: User = Depends(get_current_active_user),
     qdrant_client: QdrantClient = Depends(get_qdrant_client),
+    publication_guard: PublicationGuard = Depends(get_publication_guard),
 ) -> SearchResponse:
     if current_user is None:
         raise HTTPException(401, "Authentication required")
     try:
         results = await qdrant_client.search(
-            VectorSearchRequest(query=request.query, top_k=request.top_k, filters=request.filters)
+            VectorSearchRequest(
+                query=request.query,
+                top_k=max(request.top_k, get_settings().RETRIEVAL_CANDIDATE_POOL),
+                filters=request.filters,
+            )
         )
+        results = (await publication_guard.filter_results(results))[: request.top_k]
         return SearchResponse(
             query=request.query,
             total_count=len(results),

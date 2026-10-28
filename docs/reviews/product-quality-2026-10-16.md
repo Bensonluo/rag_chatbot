@@ -368,3 +368,77 @@ SSE 解析校验 MIME、UTF-8、CR/LF、注释与命名事件，EOF 残帧不派
 环境为 macOS arm64、Node 26.0.0 / npm 12.2.0，Node 22 / Ubuntu 远程 CI 未运行。CUA 无浏览器，原生返回 cgWindowNotFound，仅完成升级前本地 Next HTTP/SSR 200 检查，未冒充水合/视觉/交互验收；临时服务已停止。后端 445 份源码/配置 SHA 与第十六轮全量快照一致，保留 3010/3/5、93.29% 成绩而不称本轮重跑。没有真实模型、生产业务写入、推送或部署。
 
 证据见[前端回复结果](frontend-response-results-2026-10-28.json)，前端合同位于 companion `portfolio-fe/docs/rag-chat-response-contract.md`。按用户最新要求，完成验证后提交第十五至十七轮，用户 Compose 和规划日志保留。总体目标继续，下一轮优先核验真实消息身份与状态，恢复可正确归属的反馈，随后继续人工接续、知识一致性和企业边界。
+
+
+## 第十八轮：反馈绑定已提交的真实回答（2026-10-28）
+
+按用户要求先提交上一轮：后端 `9eaa34e`、前端 `5103ea3`，未推送，然后继续本轮。上一轮删除了按界面序号评分的不可靠路径；重新核实发现数据库已有 id/status/user_rating，但持久化返回值、服务和 HTTP DTO 丢失它们。实际 SQLite 还确认 USER/SYSTEM 及 FAILED/PENDING assistant 都会接受评分；只补前端按钮无法修复写入规则。
+
+持久化现在将本轮用户、assistant 与会话解决状态变更放在同一事务，flush 后复制标量，仅 commit 成功发布不可变回执。真实 INSERT 触发器拒写及注入的 commit 异常均不产生回执、不留下半轮用户消息；提交后的压缩/事实提取调度失败不撤销已确认身份。聊天保持持久化 fail-open：正文可接收而没有可评分身份，不伪造持久化成功。
+
+REST 增加可空 message_id/status，历史增加真实 message_id/status/user_rating；旧内存和 NULL 状态保留未知。流式请求默认不增加事件，显式 include_completion 才在正常提交后、DONE 前收到命名 completion。前端只在正安全整数 ID、会话一致、非空正文及完整 DONE 后绑定当前本地回复；坏/冲突回执、后续正文、EOF、取消和错误不能启用评价，不通过末条历史或正文相似度猜 ID。
+
+评分写入限定 COMPLETED ASSISTANT，保留 -1/0/1 和 strict owner 规则，外人、非 owner 管理员与缺失 ID 同为 404。拒绝不产生评分指标或缓存驱逐。页面逐条同步防重复提交，只有 success/ID/rating 三字段确认一致才改变选中状态；失败可见、保持原票且不自动重试。匿名只提示登录，不新增自动认证或放宽接口；共享 Demo 尚无新登录入口。
+
+先红证据：backend 初始 28 新单元为 **23 失败/5 对照通过**，随后增加 commit、housekeeping、NULL 状态 3 项，最终 31 项绿。独立真实 JWT/FastAPI/编译图/外键 SQLite 测试在隔离旧提交上重放 **20 失败/2 通过**，明确是实现后的 baseline replay，部分停在缺 ID 前置断言，不能当成 20 个独立缺陷；当前 **22/22** 通过。实际 ASGI 发送 completion 时用独立 SQL session 观察到提交，验证同/跨会话同文并发各有独立 ID、真实触发器拒写 0 孤行、失败部分正文保存 FAILED 且不可评分、评分权限与副作用。模型 provider 和缓存 IO 是本地替身，socket 外连尝试为 0。
+
+真实前端组件 → ApiClient → native ReadableStream/HTTP 的新增评价套件先 **15 失败/9 保守对照通过**，最终 24 项绿，原 148 Jest 全部保留。协议首轮 52 项为 11 失败/41 通过，增加 3 项终止/取消/零分控制后最终 55 项绿。独立 API 额外 78 个畸形/顺序/身份场景通过，未计入默认测试数。完整前端 **172 Jest + 55 Node = 227 项通过**，lint、严格 TypeScript 与 **11 个静态页**构建通过；本轮包/锁/环境未变，沿用上一轮运行依赖审计 0 的锁快照，没有冒称重新审计。
+
+最终完整后端默认回归 **3063 passed, 3 skipped, 5 warnings in 139.39s**，核心覆盖 **93.29%**（4994 statements/335 missed）。Ruff lint/format **456 文件**、strict Mypy app **443 文件**与 CLI **2 文件**、pip check、两仓 diff check 全部通过。首次全量类型检查发现新增测试缺 None/type 缩窄与旧测试返回 union 缺新事件，已补精确断言及类型，不添加 ignore、跳过或放宽门禁。456 后端与 4 前端改动源码/测试 SHA 均匹配最终冻结。三个 opt-in 与五条既有警告保留。
+
+证据见[消息反馈结果](message-feedback-results-2026-10-28.json)，当前协议见[回答身份与反馈](../design/message-feedback.md)。未执行真实 PostgreSQL、Redis 驱逐、模型质量、生产业务、浏览器视觉/水合或远程 CI；没有安装包、更改全局环境、推送或部署。本轮新改动未提交，用户 Compose 和规划日志保留。整体目标仍 active；匿名登录、真人发送/接收与领取后机器人协调、知识非原子发布、企业隔离和容量仍是后续独立事项，不能以评分链路通过宣称产品整体完成。
+
+
+## 第十九轮：未发布候选不能成为新知识证据（2026-10-28）
+
+上一轮为实际进展：回答身份与反馈已贯通、完整 3063/227 门禁通过。先核对当前工作区与第十八轮冻结 SHA，没有重新提交或推送；继续北极星中知识运营与客户答复的闭环。当前实际 Jobs/Ingestion、local Qdrant SDK、Hybrid、编译图与持久化复现三类失败：新 upsert 后退休清理失败、首次发布失败、真实 SQLite 触发器拒绝最终登记 UPDATE。任务为 failed/processing，active 仍旧版或为空，客户 prompt 与持久引用却含未发布版本；README 已披露非原子发布，这是一项已知设计缺口的具体关闭，不称作新回归。
+
+采用[发布资格合同](../design/knowledge-publication.md)：一批一条 SQL JOIN 核对已提交 active pointer 与真实版本归属；未登记、缺版本、混合失效或不完整来源均拒绝。登记失败默认 3 秒有界并返回 typed 不可用，不降为 legacy 许可。已有 active partial 同版本重试仍是已发布，不因 attempt 的 processing/failed 误撤销资格。Graph 独立 source sets 不 zip；来源裁剪/坏形状传播 incomplete，达到 50 项亦保守拒绝。Qdrant vector/scroll 在覆盖 metadata 前保留原始身份冲突标记。
+
+同策略覆盖生产初始化、Hybrid 两腿/RRF/交付前、BM25 warm/refresh/本地发布、RAG/Agent 知识工具、L0/L1 整答、L2 失效后重检、Graph 消费及独立文档/图查询 HTTP。有界候选扩取不能保证无限脏点下完整召回。L0/L1/L2 使用固定 published-v1 namespace，淘汰无法恢复来源完整性的旧缓存，不批量删 Redis。worker 登记提交后再次旋转 epoch，等待最多 1 秒；Redis 失败不撤销已提交发布，仍按每次读资格保证正确性。
+
+独立审查发现并修复两个新回归：L1 reader 换 namespace、差评驱逐仍删旧 hash，原实际回归 1 失败/10 对照通过，改为共用轻量常量后 11 项通过；知识资格又让 source-free 寒暄缓存永远 miss，实际 normal/stream 两次 Hello 产生两次本地模型调用，新增 2 失败/1 policy-empty 对照通过。现仅 L1 的明确 greeting/chitchat 且完全没有来源/引用可按纯会话重用，任何无引用 policy 仍拒绝。真实 FAQ fresh 与 L0 cache 对照正常，未靠禁用所有知识或缓存取得通过。
+
+先后证据区分：独立全链路 9 项矩阵在隔离旧发布模块、保留第十八轮持久化的环境重放 **8 失败/1 健康历史对照通过**；8 项止于 Hybrid 候选可见性断言，另有本轮修改前的三类完整 prompt/citation 复现，不能把 8 当独立缺陷或冒称全部字面先写测试。消费侧初始 14 项为 13 红/1 对照，后扩至 16；core 初期只有缺 module 的导入失败不算行为红，随后 collector 3 项及坏 source_type 2 项确实先红。Qdrant 原始身份 5 项也先红。最终新增 **86 项**：guard40、消费16、实际发布9、HTTP/启动/提交后epoch10、旧namespace迁移3、Qdrant身份5、实际L1寒暄3，均纳入默认测试；定向联合 105 项、最后 guard/消费/发布/小聊 68 项、缓存/身份/驱逐 38 项有重叠，不相加冒充全量。
+
+联调曾有一处 root 测试隔离遗漏：新 API guard 依赖未替换，旧 integration 尝试用环境默认非 loopback PostgreSQL 做读取并返回 503；这条路径只有 SELECT、没有业务写入，不能声称整个回合零外连尝试。已改为隔离 SQLite guard，并硬拦截 socket.connect/connect_ex、断言零尝试。修复后真实本地 lifecycle 通过。原内部 BM25 即时断言改为“预提交候选不入库、提交后的首读重建后精确新 IDs”，后者断言仍保留。四个既有 fixture 只替换新增 epoch IO，时序、失败与有界等待有独立实际 SQL 控制；semantic 旧 payload 用例改为当前 namespace，另测旧 namespace 不迁移。静态检查暴露的 helper 类型、方法 monkeypatch 和空列表连等已精确修正，未加 ignore 或放宽门禁。
+
+最终完整默认回归 **3149 passed, 3 skipped, 5 warnings in 142.00s**，核心覆盖 **93.35%**（5236 statements/348 missed）。Ruff lint/format **466 文件**、strict Mypy app **453 文件**与 CLI **2 文件**、pip check、diff check 通过；466 份源码/测试 SHA 与完整回归冻结一致。三个 opt-in 和五条既有警告保留。前端四个改动源文件与上轮验证 SHA 一致，保留其 227 项及 11 页静态成绩，不冒称本轮重跑或浏览器验收。
+
+设计参考 [PostgreSQL 16 的单语句快照](https://www.postgresql.org/docs/16/transaction-iso.html)与 [Qdrant alias](https://qdrant.tech/documentation/manage-data/collections/#collection-aliases)；它们是设计依据，不是本项目真实 PG/多存储执行证据。资格按获取证据时判断，非分布式事务、逐 token 撤回或模型语义证明；旧点已删时允许明确暂不可用，retry 后恢复。未登记的旧 vector/graph 语料需以同 document_id 重入持久化任务，不能手工假标发布；全部线上实例升级前不宣称线上已具备此合同。当前默认 Docker socket 不存在、无原生 PG 工具，本轮没有完成真实 PostgreSQL 并发与故障验收，也未验证 Neo4j/Redis 传输、付费模型、生产业务、容量或浏览器行为。没有安装包、更改全局环境、迁移、提交、推送或部署。
+
+前后与最终证据见[发布资格结果](knowledge-publication-results-2026-10-28.json)。第十八/十九轮 WIP 保留，用户 Compose 和本地规划不纳产品提交。整体目标继续 active；人工发送/接收及领取后机器人协调、匿名登录、企业隔离、容量、真实依赖及更强的分阶段发布可用性仍未完成，不能以本轮门禁宣称整个产品完成。
+
+
+## 第二十轮：私人咨询与人工双向接续（2026-10-28）
+
+在第十八、十九轮 WIP 上继续，原提交仍为 backend `9eaa34e`、frontend `5103ea3`。实际本地 JWT/FastAPI/SQLite/编译图复现：接单 HTTP 已返回后 mock_refund 才执行，且 claimed 会话仍能执行业务；旧接口没有人工发送/接收，resolve 的正文没有交付。选定补齐客户与客服的真实闭环，公开共享体验继续单独处理。
+
+配套 `/support/` 完成真实注册/登录/me、客户私人咨询、AI/转人工、客服队列/领取/原上下文、双方人工消息、最终说明和结束处理。独立 handoff_messages 使用服务端作者与 UUID 幂等，不冒 assistant、不污染机器人质量指标。最终正文、关闭和 automation_epoch 同事务，旧无正文 resolve 仅行政关闭；人工作业结束不等于客户问题确认解决。轮询跟随实际游标，结果不明保留草稿及原不可变重试；不自动重发 POST。
+
+共享 SessionCoordinator 串行化图/工具/持久化/流收尾与接单、写入、关闭、清除和删除。PG 采用独立有界 pool 的 try advisory transaction lock，避免持有父会话行锁或嵌套业务 pool 自锁；SQLite 仅同一引擎、同进程。忙返回409，已领取的新机器人请求423；SSE 预检后竞争仍在响应体重查，只返回错误控制数据。关闭推进新 checkpoint generation，旧退款确认不能复活；删除先清掉所有 generation，不能在 Demo ID 重用后找回私人旧状态。
+
+根复核补出 Demo 私人反馈和质检旧入口：反馈 now probes owner/private even under Demo，质检两模式都需 admin；旧 chat/history/clear/stream 也核 owner，历史实际读取重查，body user_id 不能授予私人权限。认证及会话各路由使用 no-store，包括可处理的 auth/validation 失败。共享旧票不能写/读私人消息，私人上下文不进入匿名共享 bot。新增迁移支持已有 ORM schema 采用；有 private 行、人工行或非零 epoch 时都拒绝降级，避免旧二进制绕开权限。部署必须排空所有旧实例，guard 不能阻止人为直接重启旧镜像。
+
+最终新增83默认案例：实际 HTTP/SQL/编译图49、服务10、迁移6、协调器16、已有 CI 选定文件新增独立连接竞争1、缺 schema 就绪1。原 worker 独立验证44 actual cases；根新增五项并复核后续补丁和最终完整门禁，不冒称主代理最后补丁另有独立审查。前端36新例通过实际 React 和 SupportApi/fetch，含丢回执、同 UUID、分页、权限撤销、取消迟到响应、角色及伪造响应。三个 worker 后期用量受限，已有交付保留，最终复核由根完成。
+
+首轮完整回归25失败/3207通过：22条旧测试缺新 privacy 依赖隔离，尝试环境默认 PG 连接并 DNS 失败，尚未执行 SQL；3条旧 Mock 没有异步隐私 reader。未初始化图提前503；其余改为明确公共 adapter 或本地SQLite。不能说整轮零外连尝试。随后硬拦截 DNS/socket 暴露旧 middleware Redis seam：114通过但18 teardown错误，均被拦截；补本地 Redis outage 后114通过且零尝试。期间一轮过早启动的全量在255通过时中止，不计最终成绩。
+
+最终完整 **3232 passed, 3 skipped, 5 warnings in 152.40s**；既有核心 **93.35%**（5236/348），该范围不含新增 chat/coordinator/handoff/API，不把核心比例当作这些功能覆盖。Ruff lint/format474、strict Mypy app460+CLI2、pipcheck/diff绿。SQLite完整迁移 upgrade/downgrade/reupgrade/model check通过；六项迁移含private-only拒回滚。两Docker socket均不存在/不可连接，无真实PG；新增PG竞争已纳现有CI文件，不能宣称执行通过。前端 **208 Jest+55 Node=263**、lint/tsc、12静态页绿，导出RAG HTML入口及support页已解析核对；没有浏览器水合/视觉验收。483后端源码与80前端源码/配置SHA和完整验证快照一致。
+
+无包安装/全局环境变更、生产调用或迁移、提交、推送、部署；本地Compose与规划保留。详见[私人会话合同](../design/human-conversation.md)和[本轮证据](human-conversation-results-2026-10-28.json)。真实PG/多副本/容量、外部业务幂等与结果、企业隔离、浏览器及人工作业后的明确解决证据仍需继续。完整产品目标没有完成，goal工具当前为usageLimited，本轮依据用户明确继续执行，未标记complete。
+
+
+## 第二十一轮：客户后续消息与工单显示一致性（2026-10-28）
+
+开轮核对20轮483后端/80前端源码冻结一致，沿用3232/263基线和原提交9eaa34e/5103ea3；18–20轮WIP与用户文件保留。实际JWT/HTTP/外键SQLite/编译图复现：人工客户Problem solved正文已提交但resolved_at仍空；已有AI解决证据后人工明确仍需帮助，resolved_at和sessions_resolved仍保留、reopened0。工作人员关闭不设用户解决状态本来正确，不能把它当作客户确认；闭合后已有AI和再次人工入口，不误称全无继续路径。
+
+共享函数原样复用保守全句确认与SQL，保留Persister旧静态入口；Handoff仅在owner/private/active与UUID仲裁通过的新customer写入中调用，和正文同事务。旧正/负UUID重放在调用前返回，不能刷新时间、重复重开或覆盖后来的确认/求助；staff文字与final/admin关闭不调用。实际INSERT及state UPDATE触发器拒写验证原子回滚。识别正则AST未变，仍按会话而非问题粒度；未知/礼貌/疑问等不作为解决确认，不以人工正文增机器人served分母。无新schema/outcome API/按钮。
+
+实际React+SupportApi另复现两个视图竞态：旧GET使claimed退回open、旧#8 ACK覆盖已观察#9。前端按同scope最新票ID和open<claimed<resolved合并，旧null不擦票，消息独立并入，GET cursor不被POST跳过。原React key负责换scope重挂，实测旧请求abort、游标从0、旧回执不串线。严格先验字符串枚举，数组不能String化冒充status/author/AI role/token_type；后端claim保护原本仍在，视图问题不冒称发生了越权工具执行。
+
+新增32服务单元+24独立实际HTTP/SQL/graph共56默认case。单位先红17/25控制（含旧10），最小实际API1字面红；后扩24不冒充全部先红。32新单元与原模块160通过，实际24通过；中英文精度、旧UUID双向重放、拒写回滚、staff/close、humanonly0分母及botserved cross-tab验证完整。前端先红7/旧36控制，补closure与keyed scope后45专项；新9默认，其中状态/作用域5和strict类型4。另backendworker53内存helper/actualSupportApi独立控制不混入默认总数。
+
+最终完整 **3288 passed,3 skipped,5 warnings in 164.23s**；既有选定核心 **93.35%**（5236/348），不含chat/handoff/API。Ruff475、strict Mypy app461+CLI2、pipcheck/diff通过，484后端/80前端源码与完整验证快照一致。前端 **217Jest+55Node=272**、lint/tsc、12页静态build通过。独立复核同事务与replay/staff路径、原regex AST、FE类型/scope/cursor/ID反馈边界及合同通过；最后文档复核由root负责，不声称有浏览器或远程CI验收。
+
+本轮无包安装/环境变更、新schema迁移、外部业务/模型、生产操作、提交、推送、部署。PG/多副本/容量、真实业务幂等与结果、企业隔离、浏览器及更明确的结构化客户结果仍需后续验证；不重复把上轮SQLite链路当作本轮PG证明。合同见[私人会话](../design/human-conversation.md)，前后证据见[后续消息结果](human-followup-results-2026-10-28.json)。完整目标未完成，goal工具仍usageLimited，按本次明确继续完成有界迭代。

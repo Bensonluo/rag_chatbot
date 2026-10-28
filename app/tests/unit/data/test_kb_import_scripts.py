@@ -141,6 +141,7 @@ async def test_graph_disabled_allocates_no_client(monkeypatch):
 
 @pytest.fixture
 async def runner(monkeypatch, graph_client: AsyncMock):
+    monkeypatch.setattr("app.services.documents.jobs.bump_kb_epoch", AsyncMock())
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

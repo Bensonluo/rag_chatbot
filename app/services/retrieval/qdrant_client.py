@@ -21,6 +21,28 @@ if TYPE_CHECKING:
     from app.services.embeddings.base import EmbeddingServiceBase
 
 
+def _retrieval_metadata(payload: dict[str, Any], point_id: object) -> dict[str, Any]:
+    """Preserve unusable-identity evidence before adapting storage payloads."""
+    raw = payload.get("metadata")
+    metadata = dict(raw) if isinstance(raw, dict) else {}
+    invalid = raw is not None and not isinstance(raw, dict)
+    document_id = payload.get("document_id")
+    if document_id is not None:
+        invalid |= not isinstance(document_id, str) or not document_id.strip()
+        invalid |= (
+            metadata.get("document_id") is not None and metadata["document_id"] != document_id
+        )
+    chunk_id = str(point_id)
+    invalid |= metadata.get("chunk_id") is not None and metadata["chunk_id"] != chunk_id
+    invalid |= payload.get("chunk_id") is not None and payload["chunk_id"] != chunk_id
+    if payload.get("version_id") is not None:
+        invalid |= metadata.get("version_id") != payload["version_id"]
+    if invalid:
+        metadata["provenance_incomplete"] = True
+    metadata["chunk_id"] = chunk_id
+    return metadata
+
+
 class _InjectedClientModel:
     """Minimal SDK model used only with an injected test/demo client."""
 
@@ -181,7 +203,7 @@ class QdrantClient(VectorClient):
                     document_id=str(payload.get("document_id", hit.id)),
                     content=payload.get("content", ""),
                     score=float(hit.score),
-                    metadata={**(payload.get("metadata") or {}), "chunk_id": str(hit.id)},
+                    metadata=_retrieval_metadata(payload, hit.id),
                 )
                 results.append(result)
 
@@ -465,8 +487,7 @@ class QdrantClient(VectorClient):
                         "id": str(point.id),
                         "content": payload.get("content", ""),
                         "metadata": {
-                            **(payload.get("metadata") or {}),
-                            "chunk_id": str(point.id),
+                            **_retrieval_metadata(payload, point.id),
                             "document_id": str(payload.get("document_id", point.id)),
                         },
                     }

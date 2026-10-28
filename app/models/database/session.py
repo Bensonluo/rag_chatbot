@@ -67,6 +67,17 @@ class ChatSession(Base, TimestampMixin):
         nullable=False,
         comment="Times a resolved session was reopened by a follow-up message",
     )
+    automation_epoch: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+
+    @property
+    def is_private(self) -> bool:
+        """Server-owned access scope; unmarked legacy demo rows remain shared."""
+        return bool(
+            isinstance(self.session_metadata, dict)
+            and self.session_metadata.get("access_mode") == "private"
+        )
 
     # Relationships
     user: Mapped[User] = relationship(

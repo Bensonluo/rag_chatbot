@@ -33,6 +33,8 @@ from app.services.chat.chat_service import STREAM_ERROR, ChatService
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
+pytestmark = pytest.mark.usefixtures("forbid_external_sockets")
+
 
 # ── Part A: a graphless service must be refused, not served ─────────────────
 
@@ -85,10 +87,13 @@ class TestGraphlessServiceRefusal:
         chunks = [c async for c in ChatService(graph=None).process_message_stream(1, "你好", 0)]
         assert chunks == [STREAM_ERROR]
 
-    def test_chat_endpoint_maps_unavailable_graph_to_503(self) -> None:
+    def test_chat_endpoint_maps_unavailable_graph_to_503(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Direct hits during the degraded window get retryable 503
         semantics, not a generic 500."""
         app = create_app()
+        monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
         app.dependency_overrides[get_chat_service] = lambda: ChatService(graph=None)
         response = TestClient(app).post("/api/v1/chat", json={"message": "你好", "session_id": 1})
         assert response.status_code == 503

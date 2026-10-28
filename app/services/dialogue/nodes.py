@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from app.services.handoff.service import HandoffService
     from app.services.intent.base import IntentDetector
     from app.services.llm.base import LLMMessage, LLMServiceBase
+    from app.services.retrieval.publication import PublicationGuard
     from app.services.retrieval.retrieval_cache import RetrievalCacheService
     from app.services.retrieval.vector_base import SearchResult
     from app.services.slot_filling.base import SlotFiller, SlotFillingResult
@@ -289,6 +290,9 @@ class NodeFactory:
         self._slot_filler = slot_filler
         self._tool_registry = tool_registry
         self._retrieval_pipeline = retrieval_pipeline or {}
+        self._publication_guard: PublicationGuard | None = self._retrieval_pipeline.get(
+            "publication_guard"
+        )
         self._llm_service = llm_service
         self._guardrail_service = guardrail_service
         self._graph_retrieval_service = graph_retrieval_service
@@ -369,7 +373,7 @@ class NodeFactory:
             return {"route_after_cache": "miss", "shared_cache_blocked": True}
 
         cached = await self._answer_cache.get(state.get("message", ""))
-        if cached is None:
+        if cached is None or not await self._cached_answer_published(cached):
             return {"route_after_cache": "miss"}
 
         updates: dict[str, Any] = {
@@ -903,6 +907,10 @@ class NodeFactory:
                 graph_results = await self._graph_retrieval_service.search(
                     query, entity_hints=entity_hints or None
                 )
+                if self._publication_guard is not None:
+                    graph_results = await self._publication_guard.filter_graph_results(
+                        graph_results
+                    )
                 if graph_results:
                     retrieved_docs = [_graph_doc_to_dict(r) for r in graph_results]
                     sources = _extract_sources(retrieved_docs)
@@ -943,6 +951,8 @@ class NodeFactory:
                     # bypass it and zero recall on every filter miss).
                     try:
                         hits = await hybrid_search.search(request)
+                        if self._publication_guard is not None:
+                            hits = await self._publication_guard.filter_results(hits)
                         return list(hits)
                     except VectorClientError:
                         leg_failures += 1
@@ -981,6 +991,18 @@ class NodeFactory:
                 if self._retrieval_cache is not None:
                     cache_epoch = await self._retrieval_cache.capture_epoch()
                     cached_docs = await self._retrieval_cache.get(query, cache_key_filters)
+                    if cached_docs is not None and self._publication_guard is not None:
+                        try:
+                            approved_docs = await self._publication_guard.filter_documents(
+                                cached_docs
+                            )
+                            # A partial cache hit cannot refill the requested
+                            # candidate pool; search live instead.
+                            if len(approved_docs) != len(cached_docs):
+                                cached_docs = None
+                        except Exception:  # noqa: BLE001 - unknown cache evidence is a miss
+                            logger.warning("Publication unavailable; bypassing retrieval cache")
+                            cached_docs = None
                     if cached_docs is not None:
                         retrieved_docs = cached_docs
                         sources = _extract_sources(retrieved_docs)
@@ -1351,7 +1373,9 @@ class NodeFactory:
         if self._semantic_cache is not None and not cache_state.get("shared_cache_blocked"):
             cache_epoch = await self._semantic_cache.capture_epoch()
             cached = await self._semantic_cache.get(message)
-            if cached is not None:
+            if cached is not None and await self._cached_answer_published(
+                cached, allow_source_free=True
+            ):
                 updates: dict[str, Any] = {
                     "response": cached.response,
                     "sources": cached.sources,
@@ -1405,6 +1429,30 @@ class NodeFactory:
         )
         response["response"] = _maybe_append_resume_hint(response.get("response", ""), state)
         return response
+
+    async def _cached_answer_published(
+        self, answer: CachedAnswer, *, allow_source_free: bool = False
+    ) -> bool:
+        """Reject a cached body whole when any supporting source is not published."""
+        if self._publication_guard is None:
+            return True
+        # L1 also stores genuinely source-free conversational turns. They
+        # make no publication claim; widening the cache intent allowlist
+        # must never turn an unreferenced policy body into such a turn.
+        if (
+            allow_source_free
+            and answer.intent in {"greeting", "chitchat"}
+            and not answer.sources
+            and not getattr(answer, "citations", [])
+        ):
+            return True
+        try:
+            return await self._publication_guard.answer_allowed(
+                answer.sources, getattr(answer, "citations", [])
+            )
+        except Exception:  # noqa: BLE001 - policy uncertainty is a cache miss
+            logger.warning("Publication unavailable; bypassing cached answer")
+            return False
 
     async def _maybe_put_semantic(
         self,

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_current_user
+from app.api.deps.publication import get_publication_guard
 from app.api.v1 import documents
 from app.config.settings import settings
 from app.core.exceptions import ValidationError
@@ -23,6 +24,7 @@ from app.services.documents.jobs import DocumentJobService
 from app.services.embeddings import EmbeddingFactory
 from app.services.embeddings.base import EmbeddingServiceBase
 from app.services.retrieval.factory import RetrievalFactory
+from app.services.retrieval.publication import PublicationGuard
 from app.services.retrieval.vector_base import SearchResult
 
 PREFIX = "/api/v1/documents"
@@ -43,6 +45,7 @@ async def test_queued_job_with_previous_embedding_configuration_fails_before_cli
 
 @pytest.fixture
 async def api(monkeypatch):
+    monkeypatch.setattr("app.services.documents.jobs.bump_kb_epoch", AsyncMock())
     monkeypatch.setattr(settings, "DEMO_MODE", False)
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
     async with engine.begin() as connection:
@@ -62,6 +65,7 @@ async def api(monkeypatch):
     admin = User(id=7, email="admin@example.test", is_admin=True, is_active=True)
     app.dependency_overrides[get_current_user] = lambda: admin
     app.dependency_overrides[documents.get_document_jobs] = lambda: jobs
+    app.dependency_overrides[get_publication_guard] = lambda: PublicationGuard(sessions)
     service = SimpleNamespace(
         close=AsyncMock(),
         delete_document=AsyncMock(return_value={"document_id": "policy", "deleted_chunks": 2}),
@@ -391,11 +395,20 @@ async def test_search_vector_construction_failure_still_closes_embedding_provide
 
 @pytest.mark.parametrize("fail_search", [False, True])
 async def test_search_releases_owned_vector_and_embedding_clients(api, monkeypatch, fail_search):
+    revision = (await upload(api, document_id="doc")).json()
+    await process(api)
     embeddings = SimpleNamespace(close=AsyncMock())
     vector = SimpleNamespace(
         client=SimpleNamespace(close=AsyncMock()),
         search=AsyncMock(
-            return_value=[SearchResult("doc", "Policy", 0.9, {"chunk_id": "chunk"})],
+            return_value=[
+                SearchResult(
+                    "doc",
+                    "Policy",
+                    0.9,
+                    {"chunk_id": "chunk", "version_id": revision["version_id"]},
+                )
+            ],
             side_effect=RuntimeError("vector offline") if fail_search else None,
         ),
     )

@@ -1,0 +1,122 @@
+{
+  "round": 21,
+  "date": "2026-10-28",
+  "status": "bounded followup consistency iteration verified; whole product objective not complete",
+  "baseline": {
+    "backend_previous_full": 3232,
+    "frontend_previous_full": 263,
+    "backend_source_files_verified_unchanged_at_start": 483,
+    "frontend_source_files_verified_unchanged_at_start": 80,
+    "backend_head": "9eaa34e6536ef49198b214ba2e374dadb098c1e5",
+    "frontend_head": "5103ea3f31148cce9e0887cdb55c4ca7c09ef676",
+    "wip": "Rounds18/19/20 and user local Compose/planning preserved"
+  },
+  "confirmed_before": {
+    "backend": "Actual JWT/HTTP/SQLite foreign keys/shared SessionCoordinator/compiled graph: customer human Problem solved committed with resolved_at=None; prior AI-positive then human need-help left resolved_at populated, reopened_count0 and sessions_resolved1.",
+    "backend_audit": "/tmp/rag-round21-human-resolution-audit.json",
+    "minimal_literal_red": "/tmp/rag-round21-human-resolution-minimal-red.log",
+    "frontend": "Actual React/SupportApi: delayed GET regressed claimed->open; delayed old-ticket ACK replaced newer ticket9 with ticket8. These are view-state bugs; backend claim protection remained in place.",
+    "frontend_audit": "/tmp/rag-round21-support-audit.log",
+    "parser": "JSON arrays passed String-based enum checks for ticket status, author, AI role and Bearer token_type.",
+    "scope_choice": "Existing natural-language customer confirmation and repeat-help paths already exist. Fix their consistency; no new structured outcome API, button, table, schema or interpretation of issue identity."
+  },
+  "implemented": {
+    "shared_policy": "Existing conservative classifier and SQL moved unchanged into resolution.apply_resolution_transition; ChatMessagePersister static wrapper preserved. New customer human messages call it after owner/private/active-ticket checks and after exact UUID replay/conflict arbitration, within the same message transaction.",
+    "semantics": "Explicit whole-utterance customer confirmation sets resolved_at; any other nonempty message reopens an already-resolved session once. Thanks, questions, quotes, conditions and mixed new requests are not positive confirmations. Existing parser and policy unchanged; session-level reopen does not identify the same issue.",
+    "idempotency_and_failure": "Old positive/negative replay cannot overwrite later state or change timestamp/count; rejected or foreign/closed new sends have no signal effect. Actual human INSERT and resolution UPDATE failures roll back the transaction. Staff messages/final close/admin close do not become customer confirmation.",
+    "metrics": "Bot-served cohorts and containment formula unchanged. Human evidence changes resolved/reopened cross-tabs only when the session already belongs to bot-served cohort; human-only sessions never inflate bot served/completed/failed/resolved counts.",
+    "ticket_view": "Within existing keyed scope, retain highest observed ticket ID and nondecreasing open<claimed<resolved stage. Stale null and old GET/ACK cannot regress current ticket; messages merge independently and GET cursor alone advances. Existing session/ticket React keys reset scope.",
+    "wire_types": "Require actual JSON strings before enum matching for ticket.status, human.author_kind, AI role and login.token_type; arrays cannot be accepted by String coercion."
+  },
+  "validation": {
+    "new_backend_default_cases": {
+      "service_unit": 32,
+      "actual_http_sql_graph": 24,
+      "total": 56
+    },
+    "backend_full": {
+      "command": ".venv/bin/python -m pytest",
+      "passed": 3288,
+      "skipped": 3,
+      "warnings": 5,
+      "seconds": 164.23,
+      "log": "/tmp/rag-round21-backend-full.log",
+      "core_coverage": {
+        "statements": 5236,
+        "missed": 348,
+        "percent": 93.35
+      },
+      "coverage_scope": "Existing core modules only; chat/handoff/API are outside this percentage. No changes to coverage/test gates."
+    },
+    "focused_backend": {
+      "joint_service_modules": 160,
+      "unit_red": "17 failures and25 controls including10 prior cases, not17 distinct business bugs",
+      "independent_red": "One minimal actual API/SQL confirmation case failed literally before source fix; remaining matrix expanded later",
+      "actual_final": 24,
+      "network": "Reused actual round20 fixture explicitly overrides local DB/auth/service/coordinator and blocks socket.connect/connect_ex with zero-attempt assertion. No environment-default DB IO in new evaluations."
+    },
+    "frontend": {
+      "new_cases": 9,
+      "new_ticket_state_and_scope": 5,
+      "new_strict_wire_cases": 4,
+      "support_cases": 45,
+      "jest": 217,
+      "node": 55,
+      "total": 272,
+      "lint": "passed",
+      "typescript": "passed",
+      "static_pages": 12,
+      "test_log": "/tmp/rag-round21-frontend-full.log",
+      "lint_log": "/tmp/rag-round21-frontend-lint.log",
+      "types_log": "/tmp/rag-round21-frontend-types.log",
+      "build_log": "/tmp/rag-round21-frontend-build.log",
+      "red": "7 failing counterexamples,36 old passing controls; later two extra closure/scope controls brought final support total45",
+      "scope": "Actual React/SupportApi with controlled HTTP; no live browser or backend/frontend end-to-end acceptance."
+    },
+    "static": {
+      "ruff_lint": "passed",
+      "ruff_format_files": 475,
+      "strict_mypy_app_files": 461,
+      "strict_mypy_cli_files": 2,
+      "pip_check": "passed",
+      "diff_check": "passed"
+    },
+    "independent_review": {
+      "backend": "Verifier inspected same-transaction customer write/replay guard/staff path and unchanged regex AST. Report /tmp/rag-round21-human-resolution-verification.json",
+      "frontend": "Backend worker inspected strict parsing and merge/scope/cursor plus53 additional in-memory helper/actual SupportApi controls, not added to default counts. Report /tmp/rag-round21-support-independent-review.json",
+      "contract": "Frontend worker reviewed root contract/metrics/north-star drafts; historical20 frontend counts were clarified after review. No code blockers.",
+      "final_document_review": "Frontend worker independently checked final README/review/JSON,56 new backend and9 new frontend case counts,historical20 distinction,8 named source SHA,matching JSON mirror,local links and proof limits; no blockers. Root final mechanical report: /tmp/rag-round21-final-document-verification.json."
+    }
+  },
+  "source_sha256": {
+    "app/services/chat/resolution.py": "4cd21e1570ad9916f452ad113d747d4cb2c3ea179e4954c5236752069e97a431",
+    "app/services/chat/persistence.py": "d5024405bac5c83397af7683653bc288dbbf1f8e4ee83908972de3b918ee1fef",
+    "app/services/handoff/service.py": "135976ce679527e9bb3d36ff57066ef781bac45720160bbed933c600eb54a117",
+    "app/tests/unit/services/handoff/test_human_messages.py": "c82a1e82df7b0472c4c1c9189c35b63a8c50448eadf0166b1390fbb6c10cd34f",
+    "app/tests/evaluation/test_human_resolution.py": "3ab278ca2b8ee86ec25cb670be0c39f0673957546f7659a33f512667279a59d6"
+  },
+  "frontend_source_sha256": {
+    "lib/support-api.ts": "e3791ca4628cf722b4e970014e902dfee6194f60a04e8153f5347a2e771c61c7",
+    "components/support/useHumanThread.ts": "80daeed30898cb9b864fd31dbb6166579bbb3d8028fc16f2e1b9a0c66214fe35",
+    "components/support/__tests__/support-workspace.test.tsx": "d0e13df4e9dbf646c5226c79aa25a4e2a24fda0bcaa7027a9615cbeea114608e"
+  },
+  "manifests": {
+    "backend": {
+      "path": "/tmp/rag-round21-final-source.json",
+      "files": 484,
+      "sha256": "eb1071218078463023cc703d9ee0b07cc67a19c2a57d7099c05f8f0cfe57a9f1"
+    },
+    "frontend": {
+      "path": "/tmp/rag-round21-frontend-final-source.json",
+      "files": 80,
+      "sha256": "32ad6849a50d4a5e547e3590154590d6716eaae95cc4d9e65b57b0f289150bb4"
+    }
+  },
+  "limits": [
+    "No new structured customer outcome UI/API or issue-identity model. Natural-language conservative rules remain intentionally limited; courtesy on a resolved session still follows the prior nonconfirmation/reopen policy.",
+    "Ticket ordering assumes current backend increasing IDs and forward-only lifecycle; view monotonicity is not real-time synchronization or arbitrary event-version support.",
+    "No schema/migration, dependency/environment, production service, paid model, commit, push or deployment operations this round. Existing uncommitted work and user files preserved.",
+    "Existing PostgreSQL/multi-replica/provider idempotency, browser/hydration, real business/semantic quality, tenancy and capacity acceptance remain unverified this round. No new claim of real PG execution from SQLite.",
+    "Historical round20 and earlier results remain historical snapshots. Whole objective not complete; goal tool observed usageLimited, current explicit Continue handled as manual iteration."
+  ]
+}

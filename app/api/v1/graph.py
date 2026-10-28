@@ -19,7 +19,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_active_user, require_admin
+from app.api.deps.publication import get_publication_guard
+from app.config.settings import settings
 from app.models.database.user import User
+from app.services.retrieval.publication import PublicationGuard, PublicationUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +121,7 @@ async def graph_schema(
 async def graph_query(
     request: GraphQueryRequest,
     current_user: User = Depends(get_current_active_user),  # noqa: ARG001
+    publication_guard: PublicationGuard = Depends(get_publication_guard),
 ) -> GraphQueryResponse:
     """Execute a natural language query via Text-to-Cypher."""
     from app.services.graph.retrieval import TextToCypherService
@@ -127,12 +131,14 @@ async def graph_query(
 
     try:
         llm_service = LLMFactory.create_from_settings()
+        candidate_limit = max(request.max_results, settings.RETRIEVAL_CANDIDATE_POOL)
         t2c = TextToCypherService(
             llm_service=llm_service,
             graph_client=client,
-            max_results=request.max_results,
+            max_results=candidate_limit,
         )
-        results = await t2c.query(request.query, max_results=request.max_results)
+        results = await t2c.query(request.query, max_results=candidate_limit)
+        results = (await publication_guard.filter_graph_results(results))[: request.max_results]
         return GraphQueryResponse(
             results=[
                 {
@@ -145,6 +151,8 @@ async def graph_query(
             ],
             count=len(results),
         )
+    except PublicationUnavailableError as e:
+        raise HTTPException(503, "Published knowledge is temporarily unavailable") from e
     except Exception as e:
         logger.error("Graph query failed: %s", e)
         raise HTTPException(status_code=500, detail="Graph query failed") from e

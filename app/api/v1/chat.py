@@ -21,19 +21,30 @@ from starlette.types import Send
 
 from app.api.deps import get_current_user
 from app.api.deps.authorization import ensure_session_access, resolve_chat_identity
+from app.api.deps.private_response import PrivateAPIRoute
+from app.api.deps.publication import get_publication_guard
 from app.api.v1.sessions import get_session_service
 from app.config.settings import settings
 from app.middleware.rate_limiter_redis import EndpointRateLimiter, client_ip_from_request
 from app.models.database.user import User
+from app.models.enums.message import MessageStatus
 from app.models.schemas.citation import SourceCitation
 from app.services.chat.chat_service import (
     HEARTBEAT,
     STREAM_ERROR,
     ChatService,
     CitationEvent,
+    CompletionEvent,
     GraphUnavailableError,
 )
 from app.services.chat.citations import normalize_citations
+from app.services.chat.coordination import (
+    ConversationAccessError,
+    ConversationBusyError,
+    CoordinationUnavailableError,
+    HumanHandlingError,
+    get_session_coordinator,
+)
 from app.services.chat.factory import ChatServiceFactory
 from app.services.embeddings import EmbeddingFactory
 from app.services.handoff.containment_metrics import start_containment_refresher
@@ -52,7 +63,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter(prefix="/chat", tags=["chat"], route_class=PrivateAPIRoute)
 
 # Global chat service instance (initialized on startup)
 _chat_service: ChatService | None = None
@@ -89,6 +100,15 @@ async def initialize_chat_service(
     from app.config.settings import get_settings
 
     settings = get_settings()
+    from sqlalchemy import select
+
+    from app.models.database.handoff_message import HandoffMessage
+    from app.models.database.session import ChatSession
+
+    # A graph alone cannot provide the private support contract on an older
+    # schema. Refuse chat readiness before constructing external providers.
+    await db.execute(select(ChatSession.automation_epoch).limit(0))
+    await db.execute(select(HandoffMessage.id).limit(0))
     llm_service = LLMFactory.create_from_settings()
 
     # Two tiers, one budget: classification/extraction (rerank, slot
@@ -111,7 +131,10 @@ async def initialize_chat_service(
     session_repo = SessionRepository(db)
 
     # ── Retrieval pipeline ────────────────────────────────────────────────
-    retrieval_pipeline: dict[str, Any] | None = None
+    # Keep the publication policy even when a retrieval dependency cannot
+    # initialize: cached answers still need committed-source verification.
+    publication_guard = get_publication_guard()
+    retrieval_pipeline: dict[str, Any] = {"publication_guard": publication_guard}
     try:
         embedding_service = EmbeddingFactory.create_from_settings()
         qdrant_client = RetrievalFactory.create_vector_client(
@@ -121,11 +144,10 @@ async def initialize_chat_service(
             api_key=settings.VECTOR_API_KEY,
             embedding_service=embedding_service,
         )
-        retrieval_pipeline = {
-            "hybrid_search": RetrievalFactory.create_hybrid_search(
-                vector_client=qdrant_client,
-            ),
-        }
+        retrieval_pipeline["hybrid_search"] = RetrievalFactory.create_hybrid_search(
+            vector_client=qdrant_client,
+            publication_guard=publication_guard,
+        )
         # Publish this process's keyword leg as the delete-time purge
         # target (see purge_keyword_document): a deleted document must
         # leave the BM25 index when the vectors leave Qdrant, not one
@@ -302,6 +324,7 @@ async def initialize_chat_service(
         ),
         gap_recorder=create_knowledge_gap_recorder(),
         checkpointer=checkpointer,
+        coordinator=get_session_coordinator(),
     )
     if _chat_service.graph is None:
         # Factory-level graceful fallback keeps a graphless service for
@@ -329,10 +352,11 @@ class ChatRequest(BaseModel):
     """Chat message request."""
 
     message: str = Field(..., min_length=1, description="User message")
-    session_id: int = Field(..., gt=0, description="Session ID")
+    session_id: int = Field(..., gt=0, le=2_147_483_647, description="Session ID")
     user_id: int | None = Field(None, gt=0, description="User ID (optional)")
     max_tokens: int | None = Field(None, gt=0, le=4096, description="Max tokens for response")
     include_citations: bool = Field(False, description="Emit the final citations event in SSE")
+    include_completion: bool = Field(False, description="Emit committed reply identity in SSE")
 
 
 class ChatResponse(BaseModel):
@@ -345,6 +369,8 @@ class ChatResponse(BaseModel):
     citations: list[SourceCitation] = Field(default_factory=list)
     metadata: dict[str, Any] | None = None
     dialogue_state: dict[str, Any] | None = None
+    message_id: int | None = None
+    status: str | None = None
 
 
 class ChatMessageResponse(BaseModel):
@@ -355,6 +381,9 @@ class ChatMessageResponse(BaseModel):
     timestamp: str | None = None
     sources: list[str] | None = None
     citations: list[SourceCitation] = Field(default_factory=list)
+    message_id: int | None = None
+    status: str | None = None
+    user_rating: int | None = None
 
 
 class ChatHistoryResponse(BaseModel):
@@ -362,6 +391,26 @@ class ChatHistoryResponse(BaseModel):
 
     messages: list[ChatMessageResponse]
     session_id: int
+
+
+def _stored_message_fields(message: Any) -> dict[str, Any]:
+    """Legacy service adapters may not carry durable-message fields yet."""
+    message_id = getattr(message, "message_id", None)
+    processing_status = getattr(message, "status", None)
+    return {
+        "message_id": message_id if type(message_id) is int and message_id > 0 else None,
+        "status": (
+            processing_status
+            if isinstance(processing_status, str)
+            and processing_status in {member.value for member in MessageStatus}
+            else None
+        ),
+    }
+
+
+def _stored_user_rating(message: Any) -> int | None:
+    rating = getattr(message, "user_rating", None)
+    return rating if type(rating) is int and rating in {-1, 0, 1} else None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────
@@ -382,14 +431,22 @@ async def chat(
     # 401/403 must not be swallowed into a 500 by the handler below
     # (review 2026-09-26, #1).
     user_id = resolve_chat_identity(current_user, request.user_id)
+    if isinstance(chat_service, ChatService) and chat_service.graph is None:
+        raise HTTPException(503, "Chat service graph not initialized")
     await ensure_session_access(request.session_id, current_user, session_service)
 
     try:
+        identity_options = (
+            {"authenticated_user_id": current_user.id if current_user else None}
+            if isinstance(chat_service, ChatService)
+            else {}
+        )
         response = await chat_service.process_message(
             session_id=request.session_id,
             message=request.message,
             user_id=user_id or 0,
             max_tokens=request.max_tokens,
+            **identity_options,
         )
 
         # Build dialogue_state from metadata when present
@@ -412,8 +469,21 @@ async def chat(
             ],
             metadata=response.metadata,
             dialogue_state=dialogue_state,
+            **_stored_message_fields(response),
         )
 
+    except ConversationAccessError as e:
+        raise HTTPException(404, "Session not found") from e
+    except ConversationBusyError as e:
+        raise HTTPException(409, "A conversation action is still in progress") from e
+    except HumanHandlingError as e:
+        raise HTTPException(423, "Human support is handling this conversation") from e
+    except CoordinationUnavailableError as e:
+        raise HTTPException(503, "Conversation coordination is unavailable") from e
+    except TimeoutError as e:
+        raise HTTPException(
+            504, "Conversation processing timed out; verify its status before retrying"
+        ) from e
     except GraphUnavailableError as e:
         # Degraded window before /ready flips: retryable 503, not a
         # generic 500 (review 2026-09-26, #12).
@@ -479,23 +549,45 @@ async def chat_stream(
     # Same identity rule as the non-streaming entry (review 2026-09-26, #1):
     # token identity in strict mode, body id only under DEMO_MODE.
     user_id = resolve_chat_identity(current_user, request.user_id)
+    if isinstance(chat_service, ChatService) and chat_service.graph is None:
+        raise HTTPException(503, "Chat service graph not initialized")
     await ensure_session_access(request.session_id, current_user, session_service)
 
     try:
+        if isinstance(chat_service, ChatService):
+            await chat_service.assert_automation_available(
+                request.session_id, current_user.id if current_user else None
+            )
 
         async def generate() -> AsyncIterator[str]:
-            citation_options = {"include_citations": True} if request.include_citations else {}
+            stream_options: dict[str, Any] = {}
+            if request.include_citations:
+                stream_options["include_citations"] = True
+            if request.include_completion:
+                stream_options["include_completion"] = True
+            if isinstance(chat_service, ChatService):
+                stream_options["authenticated_user_id"] = current_user.id if current_user else None
             async with aclosing(
                 chat_service.process_message_stream(
                     session_id=request.session_id,
                     message=request.message,
                     user_id=user_id or 0,
                     stream_max_seconds=settings.CHAT_STREAM_MAX_SECONDS,
-                    **citation_options,
+                    **stream_options,
                 )
             ) as stream:
                 async for chunk in stream:
-                    if isinstance(chunk, CitationEvent):
+                    if isinstance(chunk, CompletionEvent):
+                        if request.include_completion:
+                            payload = json.dumps(
+                                {
+                                    "message_id": chunk.message_id,
+                                    "session_id": chunk.session_id,
+                                    "status": chunk.status,
+                                }
+                            )
+                            yield f"event: completion\ndata: {payload}\n\n"
+                    elif isinstance(chunk, CitationEvent):
                         if request.include_citations:
                             payload = json.dumps(
                                 {"citations": normalize_citations(chunk.citations)},
@@ -523,6 +615,14 @@ async def chat_stream(
             media_type="text/event-stream",
         )
 
+    except ConversationAccessError as e:
+        raise HTTPException(404, "Session not found") from e
+    except ConversationBusyError as e:
+        raise HTTPException(409, "A conversation action is still in progress") from e
+    except HumanHandlingError as e:
+        raise HTTPException(423, "Human support is handling this conversation") from e
+    except CoordinationUnavailableError as e:
+        raise HTTPException(503, "Conversation coordination is unavailable") from e
     except Exception as e:
         logger.error("Failed to process streaming message: %s", e)
         raise HTTPException(
@@ -547,9 +647,15 @@ async def get_chat_history(
     """
     await ensure_session_access(session_id, current_user, session_service)
     try:
+        identity_options = (
+            {"authenticated_user_id": current_user.id if current_user else None}
+            if isinstance(chat_service, ChatService)
+            else {}
+        )
         messages = await chat_service.get_chat_history(
             session_id=session_id,
             limit=limit,
+            **identity_options,
         )
 
         return ChatHistoryResponse(
@@ -559,6 +665,8 @@ async def get_chat_history(
                     content=msg.content,
                     timestamp=msg.timestamp,
                     sources=msg.sources if isinstance(msg.sources, list) else None,
+                    user_rating=_stored_user_rating(msg),
+                    **_stored_message_fields(msg),
                     citations=[
                         SourceCitation.model_validate(citation)
                         for citation in normalize_citations(getattr(msg, "citations", None))
@@ -569,6 +677,12 @@ async def get_chat_history(
             session_id=session_id,
         )
 
+    except ConversationAccessError as e:
+        raise HTTPException(404, "Session not found") from e
+    except ConversationBusyError as e:
+        raise HTTPException(409, "A conversation action is still in progress") from e
+    except CoordinationUnavailableError as e:
+        raise HTTPException(503, "Conversation coordination is unavailable") from e
     except Exception as e:
         logger.error("Failed to get chat history: %s", e)
         raise HTTPException(
@@ -592,7 +706,20 @@ async def clear_chat_history(
     """
     await ensure_session_access(session_id, current_user, session_service)
     try:
-        await chat_service.clear_chat_history(session_id=session_id)
+        identity_options = (
+            {"authenticated_user_id": current_user.id if current_user else None}
+            if isinstance(chat_service, ChatService)
+            else {}
+        )
+        await chat_service.clear_chat_history(session_id=session_id, **identity_options)
+    except ConversationAccessError as e:
+        raise HTTPException(404, "Session not found") from e
+    except ConversationBusyError as e:
+        raise HTTPException(409, "A conversation action is still in progress") from e
+    except HumanHandlingError as e:
+        raise HTTPException(423, "Human support is handling this conversation") from e
+    except CoordinationUnavailableError as e:
+        raise HTTPException(503, "Conversation coordination is unavailable") from e
     except Exception as e:
         logger.error("Failed to clear chat history: %s", e)
         raise HTTPException(

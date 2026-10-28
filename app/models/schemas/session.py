@@ -35,6 +35,7 @@ class SessionResponse(SessionBase):
     created_at: datetime
     updated_at: datetime
     message_count: int = 0
+    is_private: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

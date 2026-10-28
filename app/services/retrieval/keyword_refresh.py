@@ -63,6 +63,8 @@ async def publish_keyword_document(document_id: str, payloads: list[dict[str, An
         for payload in payloads
     ]
     try:
+        if hybrid.publication_guard is not None:
+            chunks = await hybrid.publication_guard.filter_documents(chunks)
         async with hybrid.keyword_index_lock:
             hybrid.keyword_epoch = None
             await hybrid.keyword_search.remove_document(document_id)
@@ -140,6 +142,8 @@ async def _refresh_locked(
     for _ in range(3):
         epoch = await get_kb_epoch() if tracked else None
         chunks = await vector_client.list_chunks(max_chunks=max_chunks)
+        if hybrid_search.publication_guard is not None:
+            chunks = await hybrid_search.publication_guard.filter_documents(chunks)
         if tracked and epoch != await get_kb_epoch():
             continue
         await hybrid_search.keyword_search.rebuild(chunks)

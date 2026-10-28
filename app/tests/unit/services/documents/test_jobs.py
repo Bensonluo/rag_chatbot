@@ -28,7 +28,9 @@ from app.services.retrieval.qdrant_client import QdrantClient
 
 
 @pytest.fixture
-async def jobs() -> AsyncIterator[DocumentJobService]:
+async def jobs(monkeypatch) -> AsyncIterator[DocumentJobService]:
+    # These cases test SQL/job transitions; epoch IO has dedicated controls.
+    monkeypatch.setattr("app.services.documents.jobs.bump_kb_epoch", AsyncMock())
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", poolclass=StaticPool)
     async with engine.begin() as connection:
         await connection.run_sync(

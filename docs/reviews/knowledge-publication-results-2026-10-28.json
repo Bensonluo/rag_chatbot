@@ -1,0 +1,201 @@
+{
+  "date": "2026-10-28",
+  "round": 19,
+  "status": "implemented_full_regression_passed_not_committed",
+  "committed_checkpoint": {
+    "backend": "9eaa34e6536ef49198b214ba2e374dadb098c1e5",
+    "frontend": "5103ea3f31148cce9e0887cdb55c4ca7c09ef676"
+  },
+  "previous_goal_turn": "progress: real reply identity/status/feedback iteration18, backend3063 and frontend227 passed; preserved uncommitted work",
+  "selected_problem": "A documented non-atomic publication window exposed failed, processing or uncommitted version candidates through actual Hybrid retrieval, model prompts and persisted citations while the committed registry still pointed to an older revision or no active version.",
+  "before": {
+    "current_worktree_reproductions": [
+      "replacement upsert succeeds then retirement fails",
+      "first publication fails after candidate upsert",
+      "real SQLite trigger rejects final registry UPDATE"
+    ],
+    "evidence": [
+      "/tmp/rag-round19-publication-before.json",
+      "/tmp/rag-round19-publication-boundaries-before.json"
+    ],
+    "minimal_contract_failure": "/tmp/rag-round19-publication-contract-before.log",
+    "independent_matrix": {
+      "failed": 8,
+      "healthy_control_passed": 1,
+      "method": "Isolated old publication modules with current iteration18 persistence, plus guard construction adapter. Replay after implementation, not a literal test-before-all-app-edits claim. Eight failures stop at actual Hybrid candidate visibility; earlier current-worktree probes separately establish prompt/citation contamination.",
+      "log": "/tmp/rag-round19-publication-visibility-red.log"
+    },
+    "note": "Already disclosed in README as a cross-store consistency limit; not an undisclosed new regression."
+  },
+  "decision": {
+    "authority": "Committed active document pointer plus actual version ownership; attempt status alone does not revoke a previously activated same version",
+    "strict_eligibility": "All document evidence needs registered active matching version; raw unregistered legacy corpus must be reingested through retained-source jobs",
+    "snapshot": "One SQL statement per batch; qualification at evidence acquisition, not an atomic transaction across retrieval/generation/requests or a guarantee to retract streamed tokens after later publication",
+    "failure": "Typed registry unavailable, default3s budget; knowledge caches miss and fresh retrieval degrades; direct search/query503; no legacy fallback",
+    "graph": "Independent source sets resolved by real version owner, never zipped; incomplete, missing or mixed-invalid provenance drops entire result; saturated50 source sets conservatively rejected",
+    "cache": "Knowledge answer body is all-or-nothing; L2 invalid batch refills; fixed published-v1 namespaces exclude pre-policy payloads; shared L1 reader/evictor constant",
+    "independent_sources": "Explicit FAQ citations and L1 source-free greeting/chitchat remain usable; arbitrary unreferenced policy never gets this exception",
+    "writer": "After durable completion commit, rotate epoch again with1s bound; Redis failure cannot revoke activation and cannot replace read qualification",
+    "availability": "May withhold all evidence if old physical points were removed before registry publication failed. Retry recovers; no claim of preserved old-index availability."
+  },
+  "coverage_paths": [
+    "Production chat initialization retains guard even if vector initialization fails",
+    "Vector/BM25/RRF before ranking/delivery with bounded candidate expansion",
+    "BM25 warmup/refresh/local publication",
+    "RAG node and Agent tool via the guarded Hybrid",
+    "L0 exact, L1 semantic knowledge bodies and L2 document cache consumption",
+    "Graph node results and natural-language graph HTTP query",
+    "Authenticated direct document search",
+    "History snapshots retained without reinterpretation"
+  ],
+  "targeted": {
+    "new_tests": {
+      "publication_guard": 40,
+      "publication_consumption": 16,
+      "actual_publication_visibility": 9,
+      "production_wiring_epoch_and_http": 10,
+      "old_cache_namespace_migration": 3,
+      "raw_qdrant_identity": 5,
+      "actual_smalltalk_semantic_cache": 3,
+      "total": 86
+    },
+    "joint_before_final_smalltalk": {
+      "passed": 105,
+      "log": "/tmp/rag-round19-joint-final.log"
+    },
+    "final_guard_consumption_visibility_smalltalk": {
+      "passed": 68,
+      "log": "/tmp/rag-round19-source-free-final.log"
+    },
+    "root_cache_identity_eviction": {
+      "passed": 38,
+      "log": "/tmp/rag-round19-root-cache-identity.log"
+    },
+    "real_components": [
+      "SQLite with foreign keys and SQL activation-refusal trigger",
+      "Actual durable Jobs/Ingestion and Qdrant SDK local engine",
+      "Actual Hybrid, keyword refresh and compiled dialogue graph",
+      "Actual ChatService/Persister with iteration18 committed reply receipts",
+      "Actual semantic cache and cache-eviction implementation using local transport",
+      "Actual ASGI document/graph HTTP routes and PublicationGuard",
+      "Real startup wiring with dependency construction boundaries replaced"
+    ],
+    "substitutes": [
+      "Deterministic embeddings and local model provider",
+      "Local Redis/epoch transport",
+      "Graph HTTP candidate provider; no actual Neo4j execution"
+    ],
+    "counts_overlap": "Targeted sets overlap and are not summed as a full-suite count or independent bugs."
+  },
+  "secondary_findings_fixed": {
+    "qdrant_identity": {
+      "red_failed": 5,
+      "cause": "Raw document/chunk/version conflicts were overwritten during payload adaptation",
+      "log": "/tmp/rag-round19-qdrant-identity-red.log"
+    },
+    "l1_eviction": {
+      "red_failed": 1,
+      "red_controls_passed": 10,
+      "cause": "New namespace reader with old namespace eviction; fixed via shared namespace constants"
+    },
+    "l1_smalltalk": {
+      "red_failed": 2,
+      "red_control_passed": 1,
+      "cause": "Knowledge qualification incorrectly rejected all source-free greetings, causing repeated model calls",
+      "log": "/tmp/rag-round19-publication-smalltalk-red.log"
+    },
+    "graph_metadata": {
+      "red_failed": 2,
+      "cause": "Unhashable source_type list/dict; fixed to reject invalid evidence without crashing a batch"
+    }
+  },
+  "validation": {
+    "backend_full": {
+      "passed": 3149,
+      "skipped": 3,
+      "warnings": 5,
+      "seconds": 142.0,
+      "core_coverage_percent": 93.35,
+      "core_statements": 5236,
+      "core_missed": 348,
+      "log": "/tmp/rag-round19-backend-full.log"
+    },
+    "ruff_files": 466,
+    "mypy_app_files": 453,
+    "mypy_cli_files": 2,
+    "pip_check": true,
+    "git_diff_check": true,
+    "frozen_python_files": 466,
+    "frontend": {
+      "source_matches_previous_verified_snapshot": true,
+      "tests_rerun_this_round": false,
+      "previous_jest": 172,
+      "previous_node": 55,
+      "previous_total": 227,
+      "previous_static_pages": 11,
+      "browser_verified": false
+    },
+    "native_postgres_tools_found": false,
+    "docker_standard_socket": "Unavailable: /var/run/docker.sock missing; no daemon installation/start performed",
+    "postgres_validation_completed_this_round": false
+  },
+  "test_isolation_and_existing_tests": {
+    "initial_new_dependency_miswire": "The preexisting integration fixture did not override the new guard dependency, attempted to use environment-default nonloopback PostgreSQL for a SELECT and returned503. This was not a production write. Fixed to isolated SQLite guard and hard socket.connect/connect_ex blocking with zero-attempt assertion. Do not claim the entire turn had zero external connection attempts.",
+    "subsequent_isolated_integration": "Current guarded lifecycle passes with no external socket attempts",
+    "fixture_epoch": "Four existing job/API/CLI/lifespan test fixtures replace only new epoch IO; actual commit/epoch timing, failure, bounded wait and local transport are tested separately",
+    "bm25_assertion": "Old immediate-index assertion now requires precommit candidates absent and exact new chunk IDs after next read rebuild; after-read requirement retained",
+    "cache_payload_assertions": "Existing semantic cache tests now seed/assert current namespace; old namespace migration is tested separately",
+    "static_fixes": "Typed local helpers, monkeypatch method replacements, explicit module imports and separate empty-list assertions; no type ignores, threshold change or new skips"
+  },
+  "source_sha256": {
+    "app/api/deps/publication.py": "cae86e94fad009c4613b3cf80f6377db88f9d15af06fc97cf529d79b75b853ad",
+    "app/api/v1/chat.py": "48053ca818ef49674e0db6978716ad3a650cb646d748ccbf2433ed41d0af66bf",
+    "app/api/v1/documents.py": "84620d73f58f089b031baf965e44402bc73abce7b109aef5b9c2c3e8f7ae763a",
+    "app/api/v1/graph.py": "e68a2fdfe4a91f4a8778578a321b807590d9c086e26de73752e710bbfa8e582c",
+    "app/services/chat/answer_cache.py": "c582eafc93958803fde3df351d57b7ded253cdb2cb705c4d81b76716c027dd61",
+    "app/services/chat/cache_eviction.py": "bc687a27c7a49bda804de75aa06d5d30649d75ca06cb1bb4ef2952181e71fcbb",
+    "app/services/chat/semantic_cache.py": "3c6d223b2414d2ba311a9942b17197cc9709ab1b7f69110d2403a8e17e27ece1",
+    "app/services/dialogue/nodes.py": "348caec32067743092b064f2ee6e4cef900a0bd16c9da5e91200dae4b36160f7",
+    "app/services/documents/jobs.py": "f88ff7973d897a5e3693faea616342c28e1e1a491b0adcdde1c0c1d84a5a6dad",
+    "app/services/graph/provenance.py": "3a16d1570b8853778e24cbf853b0982ea942e7306ab9bdaa6889a1c963d24edd",
+    "app/services/retrieval/cache_policy.py": "025e5ff09584141e472361d754d001fb4247783a63eb1297a91e29d9e04b2399",
+    "app/services/retrieval/factory.py": "11c8d44a86f3b76179ef2f957ede95f4a96f6e1ce91ad559b12cb2a739a2e050",
+    "app/services/retrieval/hybrid_search.py": "fb4208d6fccafd6396188a1437083d95acb0d19d894f5c19cf74a88bf9bbe6ec",
+    "app/services/retrieval/keyword_refresh.py": "f5de82ed30cbd1a7ab50502cd3fcfdb94a08b8974542c08bd05339d232d7e4cc",
+    "app/services/retrieval/publication.py": "c91e349e0391991a813b3c595decf60a75950e22436e95f9e9586704f48a6482",
+    "app/services/retrieval/qdrant_client.py": "598bed87e3e51bd0164d21432a2257ac6069f2b9dcb3152e6e9fc9da0f7fda31",
+    "app/services/retrieval/retrieval_cache.py": "9401cc4d5e559f07e6e037519970c47a03081d87b52b98ef800a3c8e2f3fe139",
+    "app/tests/evaluation/test_publication_smalltalk.py": "55549922b009f2b1ca611133a7d181a69d560acfe21fe9e30cc9fd3a26050936",
+    "app/tests/evaluation/test_publication_visibility.py": "b3c1ffe85bb880f40fe733288fdfe60e625b4aa80a4117aae19f20e9fee46d2a",
+    "app/tests/integration/test_document_pipeline.py": "687b38b3e14dea1369962176bf304b5caa5a5907097600c445b85229857a4b86",
+    "app/tests/unit/api/v1/test_document_jobs_api.py": "94f718ee509d845ff82ba3e8cebe3e251975fb655b464c25dc9a70418a4924b2",
+    "app/tests/unit/api/v1/test_publication_wiring.py": "a3ec5381577516121cbc6b0a31e7153669e47698ec78b68009c885bc33e1b908",
+    "app/tests/unit/data/test_kb_import_scripts.py": "2077666b63562a11507e97b3723354d501e1b84e56ae13c6f68f02b3a062b7e6",
+    "app/tests/unit/services/chat/test_semantic_cache.py": "dae6306037727f8c0e791852b934f9b121b9c04868b2d926b90309a75af7162c",
+    "app/tests/unit/services/dialogue/test_publication_consumption.py": "23ae0ac9cdd7a83f8795c175d59a943c0e19047d491a7cf6afb760574e6a8e55",
+    "app/tests/unit/services/documents/test_jobs.py": "7d396e91544471dc140fe628dbe87e0af32a4eb84b8f31e58603d25b6d090250",
+    "app/tests/unit/services/retrieval/test_publication_cache_migration.py": "7fcc4e76c489bd6b32ef9f190433e5cb3caf6aebb53977d2bad4f15e0d1a5163",
+    "app/tests/unit/services/retrieval/test_publication_guard.py": "0dce2e9cc692a01dd8d73bb52cd2f8bcd5094c200a37fa817031334ebb4d1daa",
+    "app/tests/unit/services/retrieval/test_qdrant_publication_identity.py": "c6c063c9574ea8d60c626dc92a5976f31c5f1d8864f3a68ab7095475d9195e2c",
+    "app/tests/unit/test_lifespan.py": "68c113a0af3c2e6e1bdfa61583d1e6273656224dc77cfad27fb6cb42f0981372"
+  },
+  "manifest": {
+    "path": "/tmp/rag-round19-final-source.json",
+    "sha256": "fcced71c160894c748effbb7d3c556c10f4061595500ebdf8a966020dfc36b66",
+    "files": 466
+  },
+  "sources": [
+    "https://www.postgresql.org/docs/16/transaction-iso.html",
+    "https://qdrant.tech/documentation/manage-data/collections/#collection-aliases"
+  ],
+  "limits": [
+    "No cross-store atomicity, preserved-old-index guarantee, unlimited recall, latency or capacity result",
+    "No real PostgreSQL concurrency, Neo4j, Redis transport eviction, paid-model semantics, browser or production business validation",
+    "Qualification verifies version identity, not arbitrary model entailment or cryptographic integrity of third-party index writes",
+    "All old instances must be drained/upgraded before claiming the deployed system uses the policy",
+    "Unregistered vector/graph data and incomplete graph provenance are intentionally withheld pending supported reingestion",
+    "No package/global environment change, migration, commit, push or deployment this round; user Compose and local planning preserved",
+    "Human staff send/receive and claimed-ticket coordination, anonymous sign-in, tenancy and production capacity remain open"
+  ],
+  "goal_status": "active; bounded publication iteration verified, full product goal not complete"
+}

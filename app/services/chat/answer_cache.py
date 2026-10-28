@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 from app.services.chat.cache_eviction import record_response_index
 from app.services.chat.citations import normalize_citations
 from app.services.chat.metrics import ANSWER_CACHE_HITS, ANSWER_CACHE_MISSES
+from app.services.retrieval.cache_policy import ANSWER_CACHE_PREFIX
 from app.services.retrieval.kb_epoch import EPOCH_UNAVAILABLE, get_kb_epoch
 
 if TYPE_CHECKING:
@@ -187,7 +188,9 @@ class AnswerCacheService:
                 (normalize_message(message), epoch, self._model_tag, self._persona_tag)
             ).encode()
         ).hexdigest()
-        return f"answer:{digest}", epoch
+        # Pre-policy cache payloads may have lost graph provenance while
+        # normalizing citations. Do not migrate those answers by replaying them.
+        return f"{ANSWER_CACHE_PREFIX}:{digest}", epoch
 
     def _client(self) -> Redis[str]:
         if self._redis is None:

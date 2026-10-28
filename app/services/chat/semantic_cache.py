@@ -39,11 +39,12 @@ from app.services.chat.answer_cache import CachedAnswer, normalize_message
 from app.services.chat.cache_eviction import record_response_index
 from app.services.chat.citations import normalize_citations
 from app.services.dialogue.i18n import detect_language
+from app.services.retrieval.cache_policy import SEMANTIC_CACHE_NAMESPACE
 from app.services.retrieval.kb_epoch import EPOCH_UNAVAILABLE
 
 logger = logging.getLogger(__name__)
 
-_NAMESPACE = "semantic_answers"
+_NAMESPACE = SEMANTIC_CACHE_NAMESPACE
 
 
 class EmbeddingSeam(Protocol):

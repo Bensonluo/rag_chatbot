@@ -167,7 +167,9 @@ class TestSemanticCacheHits:
         # language scope keeps serving them to zh queries.
         redis = FakeRedis()
         service, _ = _make_service(redis=redis)
-        await redis.hset("semantic_answers:e1", "你好呀", _entry(_answer(), [1.0, 0.0]))
+        await redis.hset(
+            "semantic_answers:published-v1:e1", "你好呀", _entry(_answer(), [1.0, 0.0])
+        )
         cached = await service.get("你好呀")
         assert cached is not None
         assert cached.citations == []
@@ -247,14 +249,14 @@ class TestSemanticCacheBoundaries:
             CachedAnswer(response="7天无理由。", sources=["doc"], intent="question"),
         )
 
-        assert await redis.hlen("semantic_answers:e1") == 0
+        assert await redis.hlen("semantic_answers:published-v1:e1") == 0
 
     async def test_disabled_flag_is_full_noop(self):
         redis = FakeRedis()
         service, _ = _make_service(redis=redis, enabled=False)
         await service.put("七天无理由退货是多久", _answer())
 
-        assert await redis.hlen("semantic_answers:e1") == 0
+        assert await redis.hlen("semantic_answers:published-v1:e1") == 0
         assert await service.get("七天无理由退货是多久") is None
 
     async def test_full_store_refuses_new_entries(self):
@@ -265,7 +267,7 @@ class TestSemanticCacheBoundaries:
             "7天能退货吗", CachedAnswer(response="另一条", sources=[], intent="chitchat")
         )
 
-        assert await redis.hlen("semantic_answers:e1") == 1
+        assert await redis.hlen("semantic_answers:published-v1:e1") == 1
 
     async def test_epoch_change_isolates_entries(self):
         # One shared store: isolation must come from the epoch namespace,

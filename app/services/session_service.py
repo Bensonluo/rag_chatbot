@@ -65,10 +65,15 @@ class SessionService:
             title=title or "New Chat",
             memory_type=memory_type,
             context_window=context_window,
+            session_metadata={"access_mode": "private"},
         )
 
         created_session = await self.session_repository.create(session)
         return created_session
+
+    async def is_private_session(self, session_id: int) -> bool:
+        session = await self.session_repository.get_by_id(session_id, ChatSession)
+        return session is not None and session.is_private
 
     async def get_user_sessions(
         self,

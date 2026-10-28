@@ -28,6 +28,8 @@ from app.config.settings import settings
 from app.core.exceptions import NotFoundError
 from app.models.database.user import User
 
+pytestmark = pytest.mark.usefixtures("forbid_external_sockets")
+
 
 @pytest.fixture(autouse=True)
 def _no_chat_rate_limit(monkeypatch: Any) -> None:
@@ -71,6 +73,7 @@ def _session_service(owned: bool) -> Mock:
     missing session must give (existence is not leaked).
     """
     service = Mock()
+    service.is_private_session = AsyncMock(return_value=False)
     if owned:
         service.get_session_by_id = AsyncMock(return_value=Mock(user_id=7))
     else:

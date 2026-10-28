@@ -6,6 +6,7 @@ SQLite exercises sequential persistence; it does not validate PostgreSQL locks.
 """
 
 import json
+import socket
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, Mock
 
@@ -17,6 +18,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_current_user
+from app.api.deps.publication import get_publication_guard
 from app.api.v1 import documents
 from app.config.settings import settings
 from app.models.database.base import Base
@@ -35,6 +37,7 @@ from app.services.intent.base import IntentResult
 from app.services.retrieval import kb_epoch, keyword_refresh
 from app.services.retrieval.factory import RetrievalFactory
 from app.services.retrieval.hybrid_search import HybridSearchService, KeywordSearch
+from app.services.retrieval.publication import PublicationGuard
 from app.services.retrieval.qdrant_client import QdrantClient
 from app.services.retrieval.vector_base import VectorSearchRequest
 
@@ -95,6 +98,14 @@ class LocalEpochStore:
 
 @pytest.mark.asyncio
 async def test_queued_policy_replacement_and_delete_preserve_provenance(monkeypatch):
+    connection_attempts = []
+
+    def deny_connection(*args, **kwargs):
+        connection_attempts.append(True)
+        raise AssertionError("Document lifecycle test must not contact external services")
+
+    monkeypatch.setattr(socket.socket, "connect", deny_connection)
+    monkeypatch.setattr(socket.socket, "connect_ex", deny_connection)
     monkeypatch.setattr(settings, "DEMO_MODE", False)
     monkeypatch.setattr(settings, "GRAPH_RAG_ENABLED", False)
     monkeypatch.setattr(settings, "EMBEDDING_PROVIDER", "local")
@@ -136,7 +147,8 @@ async def test_queued_policy_replacement_and_delete_preserve_provenance(monkeypa
     monkeypatch.setattr(EmbeddingFactory, "create_from_settings", lambda: embeddings)
     monkeypatch.setattr(RetrievalFactory, "create_vector_client", vector_factory)
     vector = vector_factory()
-    hybrid = HybridSearchService(vector, KeywordSearch())
+    publication_guard = PublicationGuard(session_maker)
+    hybrid = HybridSearchService(vector, KeywordSearch(), publication_guard=publication_guard)
     keyword_refresh.register_keyword_index(hybrid)
 
     cache = AnswerCacheService(redis_url="redis://unused", ttl_seconds=60)
@@ -152,7 +164,7 @@ async def test_queued_policy_replacement_and_delete_preserve_provenance(monkeypa
             intent_detector=detector,
             slot_filler=None,
             tool_registry=ToolRegistry(),
-            retrieval_pipeline={"hybrid_search": hybrid},
+            retrieval_pipeline={"hybrid_search": hybrid, "publication_guard": publication_guard},
             llm_service=llm,
             answer_cache=cache,
         ),
@@ -163,6 +175,7 @@ async def test_queued_policy_replacement_and_delete_preserve_provenance(monkeypa
     app = FastAPI()
     app.include_router(documents.router, prefix="/api/v1")
     app.dependency_overrides[documents.get_document_jobs] = lambda: jobs
+    app.dependency_overrides[get_publication_guard] = lambda: publication_guard
     app.dependency_overrides[get_current_user] = lambda: User(
         id=9,
         email="author@example.test",
@@ -288,9 +301,12 @@ async def test_queued_policy_replacement_and_delete_preserve_provenance(monkeypa
             new_ids = {chunk["id"] for chunk in new_chunks}
             assert len(new_chunks) == 1
             assert not (old_ids & new_ids)
-            assert set(hybrid.keyword_search.documents) == new_ids
+            # Pre-commit candidates are withheld from BM25. The committed
+            # epoch makes the next read rebuild from published revisions.
+            assert hybrid.keyword_search.documents == {}
             assert (await client.get(version_url + "/source")).content == original
             hits = await hybrid.search(VectorSearchRequest("Refund", top_k=20))
+            assert set(hybrid.keyword_search.documents) == new_ids
             assert len(hits) == 1
             assert "three days" in hits[0].content
             assert hits[0].metadata is not None
@@ -326,3 +342,4 @@ async def test_queued_policy_replacement_and_delete_preserve_provenance(monkeypa
     finally:
         await raw.close()
         await engine.dispose()
+        assert connection_attempts == []

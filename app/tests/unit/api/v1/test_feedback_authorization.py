@@ -105,20 +105,18 @@ class TestStrictModeOwnership:
         assert response.json()["detail"] == "Message 999 not found"
 
 
-class TestDemoModeUnchanged:
+class TestDemoModeSharedAccess:
     @pytest.fixture(autouse=True)
     def _demo_mode(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(settings, "DEMO_MODE", True)
 
-    def test_ownership_probe_never_runs(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Demo posture: seeded users own the demo messages — strict
-        ownership would break the public demo, so the probe is absent
-        and the existence check alone decides."""
-        repo = _repo(owned=False)
+    def test_shared_access_probe_runs(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Demo permits public seeded rows but still probes private access."""
+        repo = _repo(owned=True)
         client = _client(_user(), repo, monkeypatch)
 
         response = _post_rating(client)
 
         assert response.status_code == 200
-        repo.get_owned_message.assert_not_awaited()
+        repo.get_owned_message.assert_awaited_once_with(5, 7, allow_shared=True)
         repo.submit_feedback.assert_awaited_once()

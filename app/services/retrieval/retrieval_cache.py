@@ -29,6 +29,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 from app.services.chat.answer_cache import normalize_message
+from app.services.retrieval.cache_policy import RETRIEVAL_CACHE_NAMESPACE
 from app.services.retrieval.kb_epoch import EPOCH_UNAVAILABLE
 from app.services.retrieval.metrics import (
     RETRIEVAL_CACHE_HITS,
@@ -37,7 +38,7 @@ from app.services.retrieval.metrics import (
 
 logger = logging.getLogger(__name__)
 
-_NAMESPACE = "retrieval_results"
+_NAMESPACE = RETRIEVAL_CACHE_NAMESPACE
 
 
 class RedisSeam(Protocol):

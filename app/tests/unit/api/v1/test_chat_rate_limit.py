@@ -8,11 +8,14 @@ from redis import exceptions as redis_exceptions
 
 from app.api.v1 import chat as chat_module
 from app.api.v1.chat import get_chat_service
+from app.api.v1.sessions import get_session_service
 from app.config.settings import settings
 from app.middleware.rate_limiter_redis import (
     EndpointRateLimiter,
     _RedisClientHolder,
 )
+
+pytestmark = pytest.mark.usefixtures("forbid_external_sockets")
 
 
 class _FakeRedis:
@@ -91,7 +94,10 @@ class TestChatEndpointRateLimit:
     def client(self):
         from app.main import create_app
 
-        return TestClient(create_app())
+        app = create_app()
+        public_sessions = Mock(is_private_session=AsyncMock(return_value=False))
+        app.dependency_overrides[get_session_service] = lambda: public_sessions
+        return TestClient(app)
 
     @pytest.fixture
     def mock_chat_service(self):

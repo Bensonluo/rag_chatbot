@@ -1,6 +1,8 @@
-# 客服读取工单会话上下文
+# 客服工作台与工单会话上下文
 
-客服先领取工单，再读取该工单关联的已持久化会话。接口在 demo 和 strict 模式下均要求有效的、未停用的管理员账号，而且账号必须是该工单当前的接单人。
+配套前端新增 `/support/` 登录工作台，客户可创建私人咨询，客服可领取、回复和发送最终说明后结束处理。公开演示页提供入口；当前为本地改动，尚未发布。完整身份、消息、并发和升级条件见[私人会话合同](../design/human-conversation.md)。
+
+以下为原 AI 历史接口：客服先领取工单，再读取该工单关联的已持久化会话。接口在 demo 和 strict 模式下均要求有效的、未停用的管理员账号，而且账号必须是该工单当前的接单人。
 
 ```bash
 # 使用客服账号的 JWT；工单号由创建转接请求的结果提供
@@ -24,7 +26,7 @@ curl -H "Authorization: Bearer $STAFF_TOKEN" \
 
 成功和权限 404 响应均带有 `Cache-Control: private, no-store`。每次请求重新核对当前工单状态和接单人；解决后，后续历史请求被拒绝。PostgreSQL 下，工单锁贯穿权限检查和历史数据投影；已获准的在途响应不是可瞬间撤回的下载。SQLite 不验证 PostgreSQL 的行锁行为。
 
-通用 `/api/v1/chat/history` 的 strict 所有权规则保持独立：客服不能仅凭管理员身份通过该接口读取客户会话。此功能也不改变已有工单摘要列表对管理员的可见范围。
+通用 `/api/v1/chat/history` 的私人会话所有权规则在 Demo 与 strict 模式下均生效：客服不能仅凭管理员身份通过该接口读取客户会话。此功能也不改变已有工单摘要列表对管理员的可见范围。
 
 ## 大额退款审核
 
@@ -49,3 +51,5 @@ curl -H "Authorization: Bearer $STAFF_TOKEN" \
 流程测试使用真实 JWT、编译图、FAQ 实现、临时 SQLite 和消息持久化，验证客户聊天、转接、领取、历史引用及解决后拒绝访问。FAQ 向量为本地替身，LLM 调用为零，不测真实模型或向量服务质量。PostgreSQL 的读锁与解决操作竞争测试位于已有 `test_ticket_concurrency.py`，通过专用的 `RAG_TEST_DATABASE_URL` 在隔离测试库执行；现有 CI PostgreSQL 步骤会运行该文件。
 
 退款审核专项另覆盖实际工具确认、工单写入拒绝、跨订单重试、订单权限、活动工单复用、取消、正常与流式正文，以及 strict JWT HTTP 最终确认；禁止 socket 外部连接。结果及限制见[退款审核验证记录](../reviews/refund-review-results-2026-10-28.json)。这些本地 SQLite 结果不替代生产 PostgreSQL、真实支付、浏览器或代理验证。
+
+人工消息使用独立的 `/handoff/sessions/{id}/messages`（客户）与 `/handoff/tickets/{id}/messages`（客服）增量接口，不混入上面的原 AI 历史。`resolve=true` 将最终说明、关闭和新 automation_epoch 同事务提交；旧无正文 `/resolve` 仅行政关闭，不表示给客户送达说明或确认问题解决。领取成功后机器人暂停，新请求 423；竞争中的操作 409。共享旧 Demo 工单没有私人消息通道。

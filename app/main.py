@@ -99,6 +99,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Close the dialogue checkpointer's connection pool
     await checkpointer_manager.stop()
 
+    from app.services.chat.coordination import close_session_coordinator
+
+    await close_session_coordinator()
+
     # Close the shared rate-limit Redis connection
     from app.middleware.rate_limiter_redis import close_rate_limit_redis
 

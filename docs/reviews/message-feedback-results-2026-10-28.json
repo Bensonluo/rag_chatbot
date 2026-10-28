@@ -1,0 +1,146 @@
+{
+  "date": "2026-10-28",
+  "round": 18,
+  "status": "implemented_full_regression_passed_not_committed",
+  "committed_before_iteration": {
+    "backend": "9eaa34e6536ef49198b214ba2e374dadb098c1e5",
+    "frontend": "5103ea3f31148cce9e0887cdb55c4ca7c09ef676",
+    "pushed": false
+  },
+  "problem": [
+    "Database reply ID/status/rating were dropped by persistence/service/HTTP adapters, preventing reliable customer feedback",
+    "Feedback write path accepted user/system and non-completed assistant rows",
+    "Separate per-row commits left an orphan user message when assistant insertion failed"
+  ],
+  "contract": {
+    "persistence": "User+assistant+resolution transition commit together; immutable receipt published only after commit; failure returns None, post-commit housekeeping cannot revoke receipt",
+    "rest": "Optional message_id/status",
+    "stream": "include_completion false by default; named completion {message_id,session_id,status:completed} only after successful normal persistence, before DONE",
+    "history": "Optional real message_id/status/user_rating; memory/unknown status remains unknown",
+    "frontend": "Positive safe integer identity matching session; receipt stays private until nonempty answer+DONE; invalid/conflicting receipt or later content invalidates identity, no guessed last-history ID",
+    "feedback": "Only completed assistant; active-user authentication unchanged; strict foreign/non-owner-admin/missing all404; -1/0/1 retained",
+    "ui": "Per-message pending gate; acknowledged success/id/rating must match before selected state changes; fixed local failures, no automatic retry; anonymous sign-in prompt without new sign-in flow"
+  },
+  "before": {
+    "backend_new_initial": {
+      "failed": 23,
+      "passed_controls": 5,
+      "later_cases": 3,
+      "log": "/tmp/rag-round18-backend-receipts-red.log"
+    },
+    "independent_real_routes": {
+      "failed": 20,
+      "passed_controls": 2,
+      "method": "Post-implementation replay against isolated git-archive of9eaa34e, not literal tests-before-code; some failures stop at missing-ID precondition",
+      "log": "/tmp/rag-round18-feedback-identity-baseline-full.log"
+    },
+    "frontend_actual_component_api": {
+      "failed": 15,
+      "passed_controls": 9,
+      "log": "/tmp/rag-round18-chat-feedback-before.log"
+    },
+    "frontend_protocol_initial": {
+      "failed": 11,
+      "passed": 41,
+      "total": 52,
+      "later_control_cases": 3,
+      "log": "/tmp/rag-round18-api-red.log"
+    },
+    "note": "Scenario failures overlap and are not independent bug counts."
+  },
+  "validation": {
+    "backend": {
+      "passed": 3063,
+      "skipped": 3,
+      "warnings": 5,
+      "seconds": 139.39,
+      "core_coverage_percent": 93.29,
+      "core_statements": 4994,
+      "core_missed": 335,
+      "environment": "macOS / Python3.12.13 / pytest9.0.3",
+      "log": "/tmp/rag-round18-backend-full.log",
+      "new_unit": 31,
+      "new_actual_http": 22,
+      "ruff_lint_format_files": 456,
+      "mypy_app_files": 443,
+      "mypy_cli_files": 2,
+      "pip_check": true,
+      "source_sha_matched": 456,
+      "warnings_scope": "Existing four short JWT test-key warnings and one Starlette422 deprecation; existing three opt-in skips unchanged"
+    },
+    "frontend": {
+      "jest": 172,
+      "jest_suites": 8,
+      "node_protocol": 55,
+      "total": 227,
+      "new_component_actual_api": 24,
+      "new_node_protocol": 26,
+      "log": "/tmp/rag-round18-frontend-full.log",
+      "lint": true,
+      "strict_tsc": true,
+      "static_pages_including_not_found": 11,
+      "environment": "macOS arm64 / Node26.0.0 / npm12.2.0",
+      "browser_verified_this_round": false,
+      "remote_node22_ci_run": false,
+      "dependencies_changed_this_round": false,
+      "runtime_audit": "Previous round clean-install audit0 with dev excluded; lock pins unchanged, not rerun this round"
+    },
+    "independent_frontend_api_matrix": {
+      "cases": 78,
+      "passed": 78,
+      "counted_in_default_suite": false,
+      "artifact": "/tmp/rag-round18-frontend-api-independent-audit.json"
+    },
+    "both_git_diff_checks": true
+  },
+  "actual_route_evidence": {
+    "components": [
+      "Real strict JWT/HTTP routes",
+      "Actual compiled dialogue graph and ChatService",
+      "Actual persister and feedback repository",
+      "SQLite foreign keys and real INSERT rejection trigger",
+      "Independent SQL session at completion frame send",
+      "Actual Prometheus counter deltas"
+    ],
+    "controls": [
+      "Overlapping identical replies within/across sessions have distinct IDs",
+      "REST/SSE/SQL/history identity and rating match",
+      "No receipt/orphan turn after assistant rejection",
+      "Partial producer failure persists FAILED and cannot be rated",
+      "Invalid role/status/auth/owner/missing does not write/rate/evict",
+      "Zero/positive/downvote behavior retains current semantics"
+    ],
+    "substitutes": [
+      "Deterministic local model provider",
+      "Cache eviction IO captured, no real Redis"
+    ],
+    "socket_connect_attempts": 0
+  },
+  "source_sha256": {
+    "backend": {
+      "app/api/v1/chat.py": "2d487aca85aa8718db46a53b588644200f038928e69498febf1a14d446a4772b",
+      "app/repositories/feedback_repository.py": "9c88867e7b2c84dbe272e719a3fcd02c72ad0a778b34aee0fd2bbaa8f3810962",
+      "app/services/chat/chat_service.py": "c081e24685a31b679535c02d1038783a2ae8ad89a43a7cd6681cf27eab5b7fe4",
+      "app/services/chat/persistence.py": "b78dbc8c0fc348a761d1d092c7c56ba32b900d24603a17453675e5e471501ee7",
+      "app/tests/unit/services/dialogue/test_output_redaction.py": "61d0d9608d0c866c707b8cf8b333e023dfd80acd579ed2c24ada0effc31edbb7",
+      "app/tests/evaluation/test_feedback_identity.py": "2c314e3a92deb609cfb67dc2d74e862626aff4359dd8e681a1f6016107fed34a",
+      "app/tests/unit/repositories/test_feedback_eligibility.py": "8927e80ea8b7db6ffb660261f4b34b045d463880a7c37a092e09b4f15e1b4fde",
+      "app/tests/unit/services/chat/test_completion_receipts.py": "b0309aa00842ab56a735fc3f2400085f7673f22c62e95f4cd5661d874d4dae9a"
+    },
+    "frontend": {
+      "lib/api.ts": "a3fe6f13664ac441ddfb2d5c12018e3f6c51c5e0e5a2c92db51951fe95db3924",
+      "lib/__tests__/api-citations.test.mjs": "934a07e3036dfab8e100d8cec014fdb147979840a0eda3dbe7d5311040b2be80",
+      "components/projects/ChatInterfaceUpdated.tsx": "0ff66451a6191d58f20c5beb42c1e53198bd7eda82fe7309a34d13d3ba72d0bc",
+      "components/__tests__/chat-feedback.test.tsx": "8e5805bfaff462f26459479e73b382ba7b435c1f3d51a18699f76ff09cfde97d"
+    }
+  },
+  "limits": [
+    "No PostgreSQL execution, real model quality, real Redis eviction, microphone, production business operation or browser visual/hydration acceptance",
+    "No new package/environment/global changes, migration, remoteCI, push or deployment",
+    "Current public page shares session1 and requires an existing authorized token for ratings; anonymous login experience still open",
+    "Message completed and feedback do not prove customer resolution or payment success",
+    "Human staff sending/receiving, claimed-ticket bot coordination, non-atomic knowledge publication, tenant isolation and production capacity remain open",
+    "New round18 product changes remain uncommitted; user Compose and planning logs preserved"
+  ],
+  "goal": "Overall product goal remains active; this is a bounded verified feedback iteration."
+}

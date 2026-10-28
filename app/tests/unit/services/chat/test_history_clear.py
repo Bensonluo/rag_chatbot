@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_db
 from app.api.v1 import chat as chat_api
 from app.config.settings import settings
 from app.models.database.base import Base
@@ -22,6 +22,8 @@ from app.models.database.user_fact import UserFactRecord
 from app.models.enums.message import MessageRole
 from app.services.chat.chat_service import ChatService
 from app.services.chat.persistence import ChatMessagePersister
+
+pytestmark = pytest.mark.usefixtures("forbid_external_sockets")
 
 
 @pytest.fixture
@@ -38,6 +40,12 @@ async def clear_stack(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[tuple[An
     app.include_router(chat_api.router, prefix="/api/v1")
     app.dependency_overrides[chat_api.get_chat_service] = lambda: service
     app.dependency_overrides[get_current_user] = lambda: None
+
+    async def local_db():
+        async with sessions() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = local_db
     try:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app), base_url="http://test"

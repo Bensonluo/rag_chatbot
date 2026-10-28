@@ -19,6 +19,12 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from datetime import UTC, datetime
+from typing import Any
+
+from sqlalchemy import update
+
+from app.models.database.session import ChatSession
 
 # Match the complete utterance, not a positive word inside a denial,
 # question, quotation, hypothetical, or a request for further help.
@@ -67,3 +73,27 @@ def is_resolution_confirmation(text: str) -> bool:
         return False
     normalized = unicodedata.normalize("NFKC", text).replace("’", "'").strip()
     return _CONFIRMATION.fullmatch(normalized) is not None
+
+
+async def apply_resolution_transition(dbsession: Any, session_id: int, user_message: str) -> None:
+    """Apply the existing customer confirmation/reopen policy in the caller's transaction.
+
+    Confirmation refreshes resolution; any other nonempty customer message
+    reopens an already-resolved session once. This function neither commits
+    nor swallows failures, so callers can commit the message and its signal
+    together. Human-channel replay must return before calling this function.
+    """
+    if not user_message:
+        return
+    if is_resolution_confirmation(user_message):
+        await dbsession.execute(
+            update(ChatSession)
+            .where(ChatSession.id == session_id)
+            .values(resolved_at=datetime.now(UTC))
+        )
+        return
+    await dbsession.execute(
+        update(ChatSession)
+        .where(ChatSession.id == session_id, ChatSession.resolved_at.is_not(None))
+        .values(resolved_at=None, reopened_count=ChatSession.reopened_count + 1)
+    )

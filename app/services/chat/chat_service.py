@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +20,13 @@ import anyio
 from app.config.settings import settings
 from app.models.enums.message import MessageStatus
 from app.services.chat.citations import normalize_citations
+from app.services.chat.coordination import (
+    ConversationAccessError,
+    ConversationBusyError,
+    CoordinationUnavailableError,
+    HumanHandlingError,
+    SessionCoordinator,
+)
 from app.services.chat.metrics import (
     CHAT_FIRST_TOKEN_SECONDS,
     CHAT_STREAM_DURATION_SECONDS,
@@ -88,6 +96,8 @@ class ChatResponse:
     sources: list[str] | None = None
     metadata: dict[str, Any] | None = None
     citations: list[dict[str, Any]] = field(default_factory=list)
+    message_id: int | None = None
+    status: str | None = None
 
 
 @dataclass
@@ -108,6 +118,27 @@ class ChatMessage:
     timestamp: str | None = None
     sources: list[str] | None = None
     citations: list[dict[str, Any]] = field(default_factory=list)
+    message_id: int | None = None
+    status: str | None = None
+    user_rating: int | None = None
+
+
+@dataclass(frozen=True)
+class PersistedReply:
+    """Identity and processing status copied from a committed assistant row."""
+
+    message_id: int
+    session_id: int
+    status: str
+
+
+@dataclass(frozen=True)
+class CompletionEvent:
+    """Opted-in identity of a durably stored, normally completed stream reply."""
+
+    message_id: int
+    session_id: int
+    status: str = "completed"
 
 
 @dataclass(frozen=True)
@@ -136,6 +167,7 @@ class ChatService:
         persister: ChatMessagePersister | None = None,
         gap_recorder: KnowledgeGapRecorder | None = None,
         answer_cache: AnswerCacheService | None = None,
+        coordinator: SessionCoordinator | None = None,
     ) -> None:
         self.graph = graph
         self.llm_service = llm_service
@@ -144,6 +176,27 @@ class ChatService:
         self.persister = persister
         self.gap_recorder = gap_recorder
         self.answer_cache = answer_cache
+        self.coordinator = coordinator
+
+    async def _automation_thread(self, session_id: int, authenticated_user_id: int | None) -> str:
+        assert self.coordinator is not None
+        from app.services.chat.persistence import ensure_demo_session_row
+
+        await ensure_demo_session_row(self.coordinator.sessions, session_id)
+        state = await self.coordinator.state(session_id)
+        if state.is_private and authenticated_user_id != state.owner_id:
+            raise ConversationAccessError("Session unavailable")
+        if state.claimed_ticket_id is not None:
+            raise HumanHandlingError("Human support is handling this conversation")
+        return state.thread_id(session_id)
+
+    async def assert_automation_available(
+        self, session_id: int, authenticated_user_id: int | None = None
+    ) -> None:
+        """Short preflight before SSE headers; the body reacquires its own gate."""
+        if self.coordinator is not None:
+            async with self.coordinator.hold(session_id):
+                await self._automation_thread(session_id, authenticated_user_id)
 
     @traced_stage("cs.pipeline")
     async def process_message(
@@ -151,7 +204,27 @@ class ChatService:
         session_id: int,
         message: str,
         user_id: int,
+        max_tokens: int | None = None,
+        *,
+        authenticated_user_id: int | None = None,
+    ) -> ChatResponse:
+        if self.coordinator is None:
+            return await self._process_message(session_id, message, user_id, max_tokens)
+        async with self.coordinator.hold(session_id):
+            async with asyncio.timeout(settings.CHAT_STREAM_MAX_SECONDS):
+                thread_id = await self._automation_thread(session_id, authenticated_user_id)
+                return await self._process_message(
+                    session_id, message, user_id, max_tokens, thread_id=thread_id
+                )
+
+    async def _process_message(
+        self,
+        session_id: int,
+        message: str,
+        user_id: int,
         max_tokens: int | None = None,  # noqa: ARG002 - reserved for LLM budget wiring
+        *,
+        thread_id: str | None = None,
     ) -> ChatResponse:
         """
         Process a user message through the LangGraph dialogue graph.
@@ -168,7 +241,7 @@ class ChatService:
         if self.graph is None:
             raise GraphUnavailableError("dialogue graph is not initialized")
         cache_epoch = await self.answer_cache.capture_epoch() if self.answer_cache else None
-        config = {"configurable": {"thread_id": str(session_id)}}
+        config = {"configurable": {"thread_id": thread_id or str(session_id)}}
         budget: BudgetState | None = None
         async with enter_llm_budget(settings.CHAT_LLM_CALL_BUDGET) as budget_state:
             budget = budget_state
@@ -203,8 +276,9 @@ class ChatService:
         if executed_tools:
             metadata["executed_tools"] = executed_tools
 
+        persisted_reply: PersistedReply | None = None
         if self.persister is not None:
-            await self.persister.persist_turn(
+            receipt = await self.persister.persist_turn(
                 session_id=session_id,
                 user_id=user_id,
                 user_message=message,
@@ -213,6 +287,8 @@ class ChatService:
                 sources=result.get("sources"),
                 metadata=metadata,
             )
+            if isinstance(receipt, PersistedReply):
+                persisted_reply = receipt
         if self.gap_recorder is not None:
             await self.gap_recorder.record_if_gap(
                 query=message,
@@ -232,6 +308,8 @@ class ChatService:
             sources=result.get("sources"),
             metadata=metadata,
             citations=citations,
+            message_id=persisted_reply.message_id if persisted_reply else None,
+            status=persisted_reply.status if persisted_reply else None,
         )
 
     @traced_stage("cs.pipeline.stream")
@@ -243,7 +321,66 @@ class ChatService:
         heartbeat_seconds: float = 15.0,
         stream_max_seconds: float = 120.0,
         include_citations: bool = False,
-    ) -> AsyncGenerator[str | TraceEvent | CitationEvent, None]:
+        include_completion: bool = False,
+        *,
+        authenticated_user_id: int | None = None,
+    ) -> AsyncGenerator[str | TraceEvent | CitationEvent | CompletionEvent, None]:
+        options: dict[str, Any] = {
+            "heartbeat_seconds": heartbeat_seconds,
+            "stream_max_seconds": stream_max_seconds,
+            "include_citations": include_citations,
+            "include_completion": include_completion,
+        }
+        if self.coordinator is None:
+            async with aclosing(
+                self._process_message_stream(session_id, message, user_id, **options)
+            ) as stream:
+                async for chunk in stream:
+                    yield chunk
+            return
+        final_events: list[CitationEvent | CompletionEvent] = []
+        try:
+            async with self.coordinator.hold(session_id):
+                async with asyncio.timeout(
+                    stream_max_seconds + _STREAM_FINALIZE_TIMEOUT_SECONDS + 1
+                ):
+                    thread_id = await self._automation_thread(session_id, authenticated_user_id)
+                    async with aclosing(
+                        self._process_message_stream(
+                            session_id, message, user_id, **options, thread_id=thread_id
+                        )
+                    ) as stream:
+                        async for chunk in stream:
+                            if isinstance(chunk, (CitationEvent, CompletionEvent)):
+                                final_events.append(chunk)
+                            else:
+                                yield chunk
+        except (
+            ConversationBusyError,
+            CoordinationUnavailableError,
+            HumanHandlingError,
+            ConversationAccessError,
+            TimeoutError,
+        ):
+            # A claim may win after the HTTP preflight. No graph/business
+            # operation is retried, and no completion receipt is invented.
+            yield STREAM_ERROR
+            return
+        for event in final_events:
+            yield event
+
+    async def _process_message_stream(
+        self,
+        session_id: int,
+        message: str,
+        user_id: int,
+        heartbeat_seconds: float = 15.0,
+        stream_max_seconds: float = 120.0,
+        include_citations: bool = False,
+        include_completion: bool = False,
+        *,
+        thread_id: str | None = None,
+    ) -> AsyncGenerator[str | TraceEvent | CitationEvent | CompletionEvent, None]:
         """
         Process a user message with true token streaming.
 
@@ -272,6 +409,7 @@ class ChatService:
             heartbeat_seconds: Idle window before yielding a heartbeat
             stream_max_seconds: Total budget before the stream is cut off
             include_citations: Emit a final citation event after a completed turn
+            include_completion: Emit committed reply identity after a completed turn
 
         Yields:
             Response text, heartbeats and trace events; an opted-in completed
@@ -285,7 +423,9 @@ class ChatService:
             return
         cache_epoch = await self.answer_cache.capture_epoch() if self.answer_cache else None
         queue: asyncio.Queue[str | TraceEvent | None] = asyncio.Queue()
-        config = {"configurable": {"thread_id": str(session_id), "stream_queue": queue}}
+        config = {
+            "configurable": {"thread_id": thread_id or str(session_id), "stream_queue": queue}
+        }
         # The sentinel is enqueued only after the graph task settles, so
         # the consumer can never exit before the task is observed done.
         # Budget scope wraps the whole stream: the graph task inherits
@@ -323,6 +463,7 @@ class ChatService:
         first_token_seen = False
         outcome = "completed"
         result: dict[str, Any] = {}
+        persisted_reply: PersistedReply | None = None
         try:
             while True:
                 remaining = deadline - loop.time()
@@ -422,7 +563,7 @@ class ChatService:
                         executed_tools = result.get("executed_tools") or []
                         if executed_tools:
                             metadata["executed_tools"] = executed_tools
-                        await self.persister.persist_turn(
+                        receipt = await self.persister.persist_turn(
                             session_id=session_id,
                             user_id=user_id,
                             user_message=message,
@@ -436,6 +577,8 @@ class ChatService:
                             ),
                             metadata=metadata,
                         )
+                        if isinstance(receipt, PersistedReply):
+                            persisted_reply = receipt
                 if finalization.cancel_called:
                     logger.warning("Chat stream finalization timed out (session=%s)", session_id)
                     if outcome == "completed":
@@ -451,6 +594,16 @@ class ChatService:
 
         if include_citations and outcome == "completed":
             yield CitationEvent(citations=normalize_citations(result.get("citations")))
+        if (
+            include_completion
+            and outcome == "completed"
+            and persisted_reply is not None
+            and persisted_reply.status == MessageStatus.COMPLETED.value
+        ):
+            yield CompletionEvent(
+                message_id=persisted_reply.message_id,
+                session_id=persisted_reply.session_id,
+            )
 
     async def _maybe_cache_answer(
         self,
@@ -508,7 +661,18 @@ class ChatService:
         self,
         session_id: int,
         limit: int = 50,
+        *,
+        authenticated_user_id: int | None = None,
     ) -> list[ChatMessage]:
+        if self.coordinator is None:
+            return await self._get_chat_history(session_id, limit)
+        async with self.coordinator.hold(session_id):
+            state = await self.coordinator.state(session_id)
+            if state.is_private and authenticated_user_id != state.owner_id:
+                raise ConversationAccessError("Session unavailable")
+            return await self._get_chat_history(session_id, limit)
+
+    async def _get_chat_history(self, session_id: int, limit: int) -> list[ChatMessage]:
         """
         Get chat history for a session.
 
@@ -527,9 +691,28 @@ class ChatService:
         # Memory strategies return MessageContent dicts, not ORM objects.
         return [ChatMessage(role=msg["role"], content=msg["content"]) for msg in context[:limit]]
 
-    async def clear_chat_history(self, session_id: int) -> None:
+    async def clear_chat_history(
+        self, session_id: int, *, authenticated_user_id: int | None = None
+    ) -> None:
+        if self.coordinator is None:
+            await self.discard_session_state(session_id)
+            return
+        async with self.coordinator.hold(session_id):
+            await self._automation_thread(session_id, authenticated_user_id)
+            state = await self.coordinator.state(session_id)
+            await self.discard_session_state(session_id, state.epoch)
+            from sqlalchemy import delete
+
+            from app.models.database.handoff_message import HandoffMessage
+
+            async with self.coordinator.sessions() as db, db.begin():
+                await db.execute(
+                    delete(HandoffMessage).where(HandoffMessage.session_id == session_id)
+                )
+
+    async def discard_session_state(self, session_id: int, epoch: int = 0) -> None:
         """
-        Clear chat history for a session.
+        Clear all checkpoint generations and bot history. Caller holds its gate.
 
         Resetting the conversation must reset the whole dialogue, not
         just the legacy memory strategy: a staged irreversible action
@@ -546,6 +729,10 @@ class ChatService:
             await self.memory_strategy.clear_session(session_id=session_id)
         checkpointer = getattr(self.graph, "checkpointer", None)
         if checkpointer is not None:
-            await checkpointer.adelete_thread(str(session_id))
+            for version in range(epoch + 1):
+                thread_id = (
+                    str(session_id) if version == 0 else f"{session_id}:automation:{version}"
+                )
+                await checkpointer.adelete_thread(thread_id)
         if self.persister is not None:
             await self.persister.clear_history(session_id)

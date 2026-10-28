@@ -17,13 +17,29 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager, nullcontext
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from app.core.exceptions import ConflictError
+from app.models.database.handoff_message import HandoffMessage
+from app.models.database.session import ChatSession
 from app.models.database.ticket import PRIORITY_HIGH, PRIORITY_NORMAL, HandoffTicket
 from app.models.enums.message import MessageRole
 from app.models.schemas.citation import SourceCitation
-from app.models.schemas.handoff import HandoffHistoryMessage, HandoffHistoryResponse
+from app.models.schemas.handoff import (
+    HandoffConversationMessage,
+    HandoffConversationPage,
+    HandoffConversationTicket,
+    HandoffHistoryMessage,
+    HandoffHistoryResponse,
+    HandoffMessageAcknowledgement,
+    HandoffMessageCreate,
+    HandoffStaffMessageCreate,
+)
 from app.repositories.ticket_repository import (
     TICKET_STATUS_CLAIMED,
     TICKET_STATUS_OPEN,
@@ -31,7 +47,11 @@ from app.repositories.ticket_repository import (
     TicketRepository,
 )
 from app.services.chat.citations import normalize_citations
+from app.services.chat.resolution import apply_resolution_transition
 from app.services.handoff.summarizer import SummaryLLM
+
+if TYPE_CHECKING:
+    from app.services.chat.coordination import SessionCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +62,14 @@ REASON_REFUND_THRESHOLD = "refund_threshold"  # amount over auto-process bar
 REASON_AGENT = "agent"  # agent loop judged the task unresolvable
 
 VALID_REASONS = frozenset({REASON_EXPLICIT, REASON_EMOTION, REASON_REFUND_THRESHOLD, REASON_AGENT})
+
+
+class RequiresPrivateSessionError(ConflictError):
+    """Shared demo tickets cannot receive private human conversation content."""
+
+    def __init__(self) -> None:
+        super().__init__("requires_private_session")
+
 
 # Reason → queue tier. Angry users and high-value refund disputes are
 # churn/chargeback risks: they jump the FIFO queue ahead of explicit
@@ -85,6 +113,7 @@ class HandoffService:
         llm_service: SummaryLLM | None = None,
         summary_history_messages: int = 20,
         summary_timeout_seconds: float = 3.0,
+        coordinator: SessionCoordinator | None = None,
     ) -> None:
         """
         Args:
@@ -100,6 +129,21 @@ class HandoffService:
         self._llm_service = llm_service
         self._summary_history_messages = summary_history_messages
         self._summary_timeout_seconds = summary_timeout_seconds
+        self._coordinator = coordinator
+
+    def _hold_session(self, session_id: int) -> AbstractAsyncContextManager[None]:
+        return (
+            self._coordinator.hold(session_id) if self._coordinator is not None else nullcontext()
+        )
+
+    async def _ticket_session(self, ticket_id: int) -> int:
+        async with self._session_maker() as session:
+            session_id = await session.scalar(
+                select(HandoffTicket.session_id).where(HandoffTicket.id == ticket_id)
+            )
+        if not isinstance(session_id, int):
+            raise LookupError("Ticket unavailable")
+        return session_id
 
     # ── Chat path (never raises) ─────────────────────────────────────────────
 
@@ -210,7 +254,22 @@ class HandoffService:
         async with self._session_maker() as session:
             repo = TicketRepository(session)
             tickets = await repo.list_by_status(status, skip=skip, limit=limit)
-            return [_ticket_to_dict(t) for t in tickets]
+            privacy = {}
+            if tickets:
+                rows = await session.execute(
+                    select(ChatSession.id, ChatSession.session_metadata).where(
+                        ChatSession.id.in_({ticket.session_id for ticket in tickets})
+                    )
+                )
+                privacy = {
+                    identifier: isinstance(metadata, dict)
+                    and metadata.get("access_mode") == "private"
+                    for identifier, metadata in rows
+                }
+            return [
+                {**_ticket_to_dict(ticket), "is_private": privacy.get(ticket.session_id, False)}
+                for ticket in tickets
+            ]
 
     async def claim_ticket(self, ticket_id: int, agent_id: int) -> dict[str, Any]:
         """
@@ -219,9 +278,9 @@ class HandoffService:
         Raises:
             LookupError: Ticket not found or already claimed.
         """
-        async with self._session_maker() as session:
-            repo = TicketRepository(session)
-            ticket = await repo.claim(ticket_id, agent_id)
+        session_id = await self._ticket_session(ticket_id)
+        async with self._hold_session(session_id), self._session_maker() as session:
+            ticket = await TicketRepository(session).claim(ticket_id, agent_id)
             if ticket is None:
                 raise LookupError(f"Ticket {ticket_id} is not claimable")
             return _ticket_to_dict(ticket)
@@ -295,12 +354,251 @@ class HandoffService:
         Raises:
             LookupError: Ticket not found or already resolved.
         """
-        async with self._session_maker() as session:
-            repo = TicketRepository(session)
-            ticket = await repo.resolve(ticket_id, agent_id)
-            if ticket is None:
+        session_id = await self._ticket_session(ticket_id)
+        async with (
+            self._hold_session(session_id),
+            self._session_maker() as session,
+            session.begin(),
+        ):
+            ticket = await session.scalar(
+                select(HandoffTicket)
+                .where(HandoffTicket.id == ticket_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if ticket is None or ticket.status not in {TICKET_STATUS_OPEN, TICKET_STATUS_CLAIMED}:
                 raise LookupError(f"Ticket {ticket_id} is not resolvable")
+            await self._resolve_in_transaction(session, ticket, agent_id)
+            await session.flush()
+            await session.refresh(ticket)
             return _ticket_to_dict(ticket)
+
+    @staticmethod
+    async def _resolve_in_transaction(session: Any, ticket: HandoffTicket, agent_id: int) -> None:
+        chat = await session.get(ChatSession, ticket.session_id, with_for_update=True)
+        if chat is None:
+            raise LookupError("Conversation unavailable")
+        ticket.status = TICKET_STATUS_RESOLVED
+        if ticket.assigned_to is None:
+            ticket.assigned_to = agent_id
+        chat.automation_epoch += 1
+        # Ticket closure is not evidence that the customer's problem is solved.
+
+    @staticmethod
+    async def _owned_session(session: Any, session_id: int, user_id: int) -> ChatSession:
+        chat = await session.scalar(
+            select(ChatSession).where(ChatSession.id == session_id, ChatSession.user_id == user_id)
+        )
+        if not isinstance(chat, ChatSession) or not chat.is_private:
+            raise LookupError("Conversation unavailable")
+        return chat
+
+    async def get_customer_messages(
+        self, session_id: int, user_id: int, after_id: int = 0, limit: int = 100
+    ) -> HandoffConversationPage:
+        _validate_channel_page(session_id, user_id, after_id, limit)
+        async with self._session_maker() as session:
+            await self._owned_session(session, session_id, user_id)
+            ticket = await session.scalar(
+                select(HandoffTicket)
+                .where(HandoffTicket.session_id == session_id)
+                .order_by(HandoffTicket.id.desc())
+                .limit(1)
+            )
+            return await _conversation_page(session, session_id, ticket, after_id, limit)
+
+    async def get_staff_messages(
+        self, ticket_id: int, agent_id: int, after_id: int = 0, limit: int = 100
+    ) -> HandoffConversationPage:
+        _validate_channel_page(ticket_id, agent_id, after_id, limit)
+        async with self._session_maker() as session, session.begin():
+            ticket = await TicketRepository(session).get_claimed_for_history(ticket_id, agent_id)
+            if ticket is None:
+                raise LookupError("Conversation unavailable")
+            chat = await session.get(ChatSession, ticket.session_id)
+            if chat is None or not chat.is_private:
+                raise LookupError("Conversation unavailable")
+            return await _conversation_page(session, ticket.session_id, ticket, after_id, limit)
+
+    async def send_customer_message(
+        self, session_id: int, user_id: int, client_message_id: str, content: str
+    ) -> HandoffMessageAcknowledgement:
+        request = HandoffMessageCreate(client_message_id=client_message_id, content=content)
+        _validate_channel_page(session_id, user_id, 0, 1)
+        # Do not reveal whether a foreign session currently holds a busy lock.
+        async with self._session_maker() as session:
+            await self._owned_session(session, session_id, user_id)
+        async with self._hold_session(session_id):
+            return await self._send_channel_message(
+                session_id, user_id, "customer", request.client_message_id, request.content
+            )
+
+    async def send_staff_message(
+        self,
+        ticket_id: int,
+        agent_id: int,
+        client_message_id: str,
+        content: str,
+        resolve: bool = False,
+    ) -> HandoffMessageAcknowledgement:
+        request = HandoffStaffMessageCreate(
+            client_message_id=client_message_id, content=content, resolve=resolve
+        )
+        _validate_channel_page(ticket_id, agent_id, 0, 1)
+        async with self._session_maker() as session:
+            ticket = await session.scalar(
+                select(HandoffTicket).where(
+                    HandoffTicket.id == ticket_id,
+                    HandoffTicket.assigned_to == agent_id,
+                    HandoffTicket.claimed_at.is_not(None),
+                    HandoffTicket.status.in_((TICKET_STATUS_CLAIMED, TICKET_STATUS_RESOLVED)),
+                )
+            )
+            if ticket is None:
+                raise LookupError("Conversation unavailable")
+            session_id = ticket.session_id
+            chat = await session.get(ChatSession, session_id)
+            if chat is None:
+                raise LookupError("Conversation unavailable")
+            if not chat.is_private:
+                raise RequiresPrivateSessionError()
+        async with self._hold_session(session_id):
+            return await self._send_channel_message(
+                session_id,
+                agent_id,
+                "staff",
+                request.client_message_id,
+                request.content,
+                ticket_id=ticket_id,
+                resolve=request.resolve,
+            )
+
+    async def _send_channel_message(
+        self,
+        session_id: int,
+        author_id: int,
+        kind: str,
+        client_id: str,
+        content: str,
+        *,
+        ticket_id: int | None = None,
+        resolve: bool = False,
+    ) -> HandoffMessageAcknowledgement:
+        # The unique key remains the final arbitration point for callers
+        # using this service without the production session coordinator.
+        for attempt in range(2):
+            try:
+                async with self._session_maker() as session, session.begin():
+                    if kind == "customer":
+                        await self._owned_session(session, session_id, author_id)
+                        ticket = await session.scalar(
+                            select(HandoffTicket)
+                            .where(HandoffTicket.session_id == session_id)
+                            .order_by(HandoffTicket.id.desc())
+                            .limit(1)
+                            .with_for_update()
+                            .execution_options(populate_existing=True)
+                        )
+                    else:
+                        ticket = await session.scalar(
+                            select(HandoffTicket)
+                            .where(
+                                HandoffTicket.id == ticket_id,
+                                HandoffTicket.session_id == session_id,
+                                HandoffTicket.assigned_to == author_id,
+                                HandoffTicket.claimed_at.is_not(None),
+                            )
+                            .with_for_update()
+                            .execution_options(populate_existing=True)
+                        )
+                        if ticket is None:
+                            raise LookupError("Conversation unavailable")
+                        chat = await session.get(ChatSession, session_id)
+                        if chat is None:
+                            raise LookupError("Conversation unavailable")
+                        if not chat.is_private:
+                            raise RequiresPrivateSessionError()
+                    existing = await session.scalar(
+                        select(HandoffMessage)
+                        .where(
+                            HandoffMessage.session_id == session_id,
+                            HandoffMessage.client_message_id == client_id,
+                        )
+                        .order_by(HandoffMessage.id)
+                        .limit(1)
+                    )
+                    if existing is not None:
+                        if (
+                            ticket is None
+                            or existing.ticket_id != ticket.id
+                            or existing.author_user_id != author_id
+                            or existing.author_kind != kind
+                            or existing.content != content
+                            or existing.resolves_ticket != resolve
+                        ):
+                            raise ConflictError("Message identifier conflicts with a prior send")
+                        return HandoffMessageAcknowledgement(
+                            message=_conversation_message(existing),
+                            ticket=_conversation_ticket(ticket),
+                            reused=True,
+                        )
+                    allowed = (
+                        {TICKET_STATUS_OPEN, TICKET_STATUS_CLAIMED}
+                        if kind == "customer"
+                        else {TICKET_STATUS_CLAIMED}
+                    )
+                    if ticket is None or ticket.status not in allowed:
+                        if kind == "staff":
+                            raise LookupError("Conversation unavailable")
+                        raise ConflictError("There is no active human conversation")
+                    if kind == "customer":
+                        await apply_resolution_transition(session, session_id, content)
+                    message = HandoffMessage(
+                        session_id=session_id,
+                        ticket_id=ticket.id,
+                        author_user_id=author_id,
+                        author_kind=kind,
+                        client_message_id=client_id,
+                        content=content,
+                        resolves_ticket=resolve,
+                    )
+                    session.add(message)
+                    if resolve:
+                        await self._resolve_in_transaction(session, ticket, author_id)
+                    await session.flush()
+                    return HandoffMessageAcknowledgement(
+                        message=_conversation_message(message),
+                        ticket=_conversation_ticket(ticket),
+                        reused=False,
+                    )
+            except IntegrityError:
+                if attempt:
+                    raise
+        raise RuntimeError("Unreachable human message retry")
+
+    async def get_recent_context(self, session_id: int, limit: int = 20) -> list[dict[str, str]]:
+        if (
+            type(session_id) is not int
+            or not 1 <= session_id <= 2_147_483_647
+            or type(limit) is not int
+            or not 1 <= limit <= 100
+        ):
+            raise ValueError("Invalid human context scope")
+        async with self._session_maker() as session:
+            chat = await session.get(ChatSession, session_id)
+            if chat is None or not chat.is_private:
+                return []
+            rows = (
+                await session.scalars(
+                    select(HandoffMessage)
+                    .where(HandoffMessage.session_id == session_id)
+                    .order_by(HandoffMessage.id.desc())
+                    .limit(limit)
+                )
+            ).all()
+            return [
+                {"author_kind": row.author_kind, "content": row.content} for row in reversed(rows)
+            ]
 
     async def queue_stats(self) -> dict[str, int | float | None]:
         """Queue counts plus wait-time SLA dimensions for the agent dashboard.
@@ -390,5 +688,66 @@ def _ticket_to_dict(ticket: HandoffTicket) -> dict[str, Any]:
 def create_handoff_service(llm_service: SummaryLLM | None = None) -> HandoffService:
     """Build the default handoff service bound to the app's session maker."""
     from app.api.database import async_session_maker
+    from app.services.chat.coordination import get_session_coordinator
 
-    return HandoffService(session_maker=async_session_maker, llm_service=llm_service)
+    return HandoffService(
+        session_maker=async_session_maker,
+        llm_service=llm_service,
+        coordinator=get_session_coordinator(),
+    )
+
+
+def _validate_channel_page(scope: int, actor: int, after_id: int, limit: int) -> None:
+    if any(type(value) is not int or not 1 <= value <= 2_147_483_647 for value in (scope, actor)):
+        raise LookupError("Conversation unavailable")
+    if (
+        type(after_id) is not int
+        or not 0 <= after_id <= 2_147_483_647
+        or type(limit) is not int
+        or not 1 <= limit <= 100
+    ):
+        raise ValueError("Invalid conversation pagination")
+
+
+def _conversation_ticket(ticket: HandoffTicket) -> HandoffConversationTicket:
+    return HandoffConversationTicket.model_validate(
+        {"id": ticket.id, "status": ticket.status, "assigned_to": ticket.assigned_to}
+    )
+
+
+def _conversation_message(message: HandoffMessage) -> HandoffConversationMessage:
+    return HandoffConversationMessage.model_validate(
+        {
+            "id": message.id,
+            "session_id": message.session_id,
+            "ticket_id": message.ticket_id,
+            "author_kind": message.author_kind,
+            "author_user_id": message.author_user_id,
+            "client_message_id": message.client_message_id,
+            "content": message.content,
+            "timestamp": _as_utc(message.created_at).isoformat(),
+        }
+    )
+
+
+async def _conversation_page(
+    session: Any, session_id: int, ticket: HandoffTicket | None, after_id: int, limit: int
+) -> HandoffConversationPage:
+    rows = list(
+        (
+            await session.scalars(
+                select(HandoffMessage)
+                .where(HandoffMessage.session_id == session_id, HandoffMessage.id > after_id)
+                .order_by(HandoffMessage.id)
+                .limit(limit + 1)
+            )
+        ).all()
+    )
+    page = rows[:limit]
+    return HandoffConversationPage(
+        session_id=session_id,
+        ticket=_conversation_ticket(ticket) if ticket is not None else None,
+        messages=[_conversation_message(row) for row in page],
+        next_after_id=page[-1].id if page else after_id,
+        has_more=len(rows) > limit,
+    )

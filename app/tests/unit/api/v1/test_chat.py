@@ -7,19 +7,25 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.v1.chat import get_chat_service
+from app.api.v1.sessions import get_session_service
 from app.config.settings import settings
 from app.services.chat.chat_service import STREAM_ERROR
+
+pytestmark = pytest.mark.usefixtures("forbid_external_sockets")
 
 
 class TestChatEndpoints:
     """Test chat API endpoints"""
 
     @pytest.fixture
-    def client(self):
+    def client(self, monkeypatch):
         """Create test client"""
         from app.main import create_app
 
         app = create_app()
+        monkeypatch.setattr(settings, "RATE_LIMIT_ENABLED", False)
+        public_sessions = Mock(is_private_session=AsyncMock(return_value=False))
+        app.dependency_overrides[get_session_service] = lambda: public_sessions
         return TestClient(app)
 
     @pytest.fixture

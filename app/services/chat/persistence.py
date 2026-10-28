@@ -14,20 +14,18 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, update
+from sqlalchemy import delete
 
 from app.models.database.message import Message
-from app.models.database.session import ChatSession
 from app.models.enums.message import MessageRole, MessageStatus
 from app.repositories.message_repository import MessageRepository
 from app.repositories.user_fact_repository import UserFactRepository
-from app.services.chat.chat_service import ChatMessage
+from app.services.chat.chat_service import ChatMessage, PersistedReply
 from app.services.chat.citations import normalize_citations
 from app.services.chat.compressor import SessionCompressor
-from app.services.chat.resolution import is_resolution_confirmation
+from app.services.chat.resolution import apply_resolution_transition
 from app.services.chat.user_fact_extractor import UserFactExtractor
 
 logger = logging.getLogger(__name__)
@@ -35,6 +33,15 @@ logger = logging.getLogger(__name__)
 # Dedicated owner for auto-created demo sessions (finding ③): demo
 # traffic is anonymous, but chat_sessions.user_id is NOT NULL.
 _DEMO_USER_EMAIL = "demo-visitor@local.invalid"
+
+
+def _stored_processing_status(value: object) -> str | None:
+    """Preserve known status without treating legacy missing values as success."""
+    if isinstance(value, MessageStatus):
+        return value.value
+    if isinstance(value, str) and value in {member.value for member in MessageStatus}:
+        return value
+    return None
 
 
 async def ensure_demo_session_row(session_maker: Callable[[], Any], session_id: int) -> None:
@@ -125,18 +132,19 @@ class ChatMessagePersister:
         sources: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         status: MessageStatus = MessageStatus.COMPLETED,
-    ) -> None:
+    ) -> PersistedReply | None:
         """Persist one dialogue turn (user + assistant messages).
 
-        Never raises: persistence problems are logged and swallowed so a
-        database hiccup cannot fail an in-flight chat response.
+        Returns an immutable assistant identity only after its transaction
+        commits. Persistence failures remain fail-open, without inventing a
+        feedback target; the user and assistant rows commit together.
         """
         if not user_message and not response:
-            return
+            return None
+        receipt: PersistedReply | None = None
         try:
             await ensure_demo_session_row(self._session_maker, session_id)
             async with self._session_maker() as session:
-                repo = MessageRepository(session)
                 await self._apply_resolution_transition(session, session_id, user_message)
                 assistant_metadata = dict(metadata or {})
                 citations = normalize_citations(assistant_metadata.get("citations"))
@@ -151,7 +159,7 @@ class ChatMessagePersister:
                     # Message has no user_id column; keep attribution in
                     # metadata until the ownership migration promotes it.
                     user_metadata = {"user_id": user_id} if user_id else None
-                    await repo.create(
+                    session.add(
                         Message(
                             session_id=session_id,
                             role=MessageRole.USER,
@@ -162,60 +170,51 @@ class ChatMessagePersister:
                         )
                     )
                 if response:
-                    await repo.create(
-                        Message(
-                            session_id=session_id,
-                            role=MessageRole.ASSISTANT,
-                            content=response,
-                            status=status,
-                            message_metadata=assistant_metadata or None,
-                        )
+                    assistant = Message(
+                        session_id=session_id,
+                        role=MessageRole.ASSISTANT,
+                        content=response,
+                        status=status,
+                        message_metadata=assistant_metadata or None,
+                    )
+                    session.add(assistant)
+                    await session.flush()
+                    # Copy scalars before commit expires ORM attributes. The
+                    # candidate is never returned if flush/commit fails.
+                    candidate = PersistedReply(
+                        message_id=assistant.id,
+                        session_id=session_id,
+                        status=status.value,
                     )
                 await session.commit()
-            # Compression and fact extraction are post-durability
-            # housekeeping: scheduled off the request path so the
-            # user-visible turn never waits on an LLM call.
-            self._schedule_compression(session_id)
-            self._schedule_extraction(session_id)
+                if response:
+                    receipt = candidate
         except Exception as exc:  # noqa: BLE001 - availability over durability
             logger.warning(
                 "Failed to persist chat turn (session=%s): %s",
                 session_id,
                 exc,
             )
+            return None
+        # Housekeeping cannot revoke the identity of an already committed
+        # reply. It remains best effort and off the model request path.
+        try:
+            self._schedule_compression(session_id)
+            self._schedule_extraction(session_id)
+        except Exception as exc:  # noqa: BLE001 - post-commit best effort
+            logger.warning(
+                "Failed to schedule chat housekeeping (session=%s): %s",
+                session_id,
+                exc,
+            )
+        return receipt
 
     @staticmethod
     async def _apply_resolution_transition(
         dbsession: Any, session_id: int, user_message: str
     ) -> None:
-        """Session resolution state machine (review 2026-09-26, #11).
-
-        Confirmation wins over reopen by construction — the confirm
-        branch runs first, so a resolve phrase on an already-resolved
-        session just refreshes the timestamp (repeated "解决了" never
-        reopens). Any other user message on a resolved session flips it
-        open and counts the reopen. Runs inside the caller's fail-open
-        transaction: a missing row (strict mode, deleted session) is a
-        no-op UPDATE, and any failure degrades to untracked resolution,
-        never a failed chat turn.
-        """
-        if not user_message:
-            return
-        if is_resolution_confirmation(user_message):
-            await dbsession.execute(
-                update(ChatSession)
-                .where(ChatSession.id == session_id)
-                .values(resolved_at=datetime.now(UTC))
-            )
-            return
-        await dbsession.execute(
-            update(ChatSession)
-            .where(
-                ChatSession.id == session_id,
-                ChatSession.resolved_at.is_not(None),
-            )
-            .values(resolved_at=None, reopened_count=ChatSession.reopened_count + 1)
-        )
+        """Compatibility entry for the shared customer resolution policy."""
+        await apply_resolution_transition(dbsession, session_id, user_message)
 
     async def get_history(
         self,
@@ -266,6 +265,9 @@ class ChatMessagePersister:
                             role=msg.role.value,
                             content=msg.content,
                             timestamp=msg.created_at.isoformat(),
+                            message_id=msg.id,
+                            status=_stored_processing_status(msg.status),
+                            user_rating=msg.user_rating,
                             sources=(
                                 [source for source in sources if isinstance(source, str)]
                                 if isinstance(sources, list) and msg.role == MessageRole.ASSISTANT

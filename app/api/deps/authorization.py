@@ -2,10 +2,10 @@
 
 One switch, ``DEMO_MODE``, selects the posture:
 
-- demo (default): the public demo keeps its documented behavior —
+- demo (default): unmarked public sessions keep shared behavior —
   anonymous visitors chat under a body-supplied ``user_id`` and read
   or clear history by bare session id (the demo DB's sessions are
-  owned by seeded users, so strict ownership would break it).
+  owned by seeded users). Private sessions always require their owner.
 - strict (``DEMO_MODE=false``): identity comes only from the
   authenticated context. Chat requires login, a body ``user_id``
   contradicting the token is refused, and history and message-processing
@@ -36,6 +36,10 @@ class AnySessionService(Protocol):
 
     async def get_session_by_id(self, session_id: int, user_id: int) -> object:
         """Return the session when the user owns it, else raise NotFoundError."""
+        ...
+
+    async def is_private_session(self, session_id: int) -> bool:
+        """Whether this session carries the server-owned private marker."""
         ...
 
 
@@ -74,12 +78,16 @@ async def ensure_session_access(
 ) -> None:
     """Object-level check before chat processing or history access (strict posture).
 
-    Demo posture returns without touching the session service. Strict:
+    Demo posture checks the server-owned privacy marker first. Private and strict:
     the caller must be authenticated and own the session; a foreign or
     missing session is 404 (indistinguishable on purpose).
     """
     if settings.DEMO_MODE:
-        return
+        privacy_reader = getattr(session_service, "is_private_session", None)
+        # Internal legacy service adapters have no private-session feature;
+        # the production SessionService always supplies the scoped reader.
+        if privacy_reader is None or not await privacy_reader(session_id):
+            return
     if current_user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -116,12 +124,9 @@ def require_qa_reviewer(current_user: User | None) -> None:
 
     The review queue and verdicts read other users' transcripts and
     shape the resolution KPI — an ops surface, not a customer one.
-    Demo posture: any authenticated user (the endpoint's auth
-    dependency already rejected anonymous; the demo DB has no secrets
-    worth gatekeeping from its own users). Strict: admin only.
+    This surface can include private customer content. Admin is required
+    in both public Demo and strict modes.
     """
-    if settings.DEMO_MODE:
-        return
     if current_user is None or not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
