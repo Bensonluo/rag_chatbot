@@ -11,7 +11,7 @@ from collections.abc import AsyncGenerator, Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import pytest
 from fastapi import FastAPI
@@ -705,7 +705,7 @@ async def test_guest_explicit_english_quantity_must_not_default_to_one(
             assert (row.stage, row.sku_id, row.quantity) == ("cart", "ANC-BLACK", 2)
 
 
-async def test_replayed_shopping_action_fences_a_refund_staged_after_the_first_click(
+async def test_new_shopping_text_fences_a_refund_staged_after_the_first_purchase_message(
     shopping: GuestHttp,
 ) -> None:
     own = await _bootstrap(shopping.first)
@@ -713,18 +713,6 @@ async def test_replayed_shopping_action_fences_a_refund_staged_after_the_first_c
         "/api/v1/guest/chat", headers=_BROWSER, json=_body(own, "想买耳机")
     )
     assert shown.status_code == 200
-    view = shown.json()["ui"]
-    action = next(item for item in view["actions"] if item["kind"] == "select_sku")
-    body = {
-        **_scope(own),
-        "action_ref": action["action_ref"],
-        "expected_version": action["expected_version"],
-        "client_request_id": str(uuid4()),
-        "input": {"quantity": 1},
-    }
-    url = f"/api/v1/guest/commerce/purchases/{view['purchase_id']}/actions"
-    first = await shopping.first.post(url, headers=_BROWSER, json=body)
-    assert first.status_code == 200
     async with shopping.case.maker() as db:
         row = await db.get(ChatSession, own["session"]["id"])
         assert row is not None
@@ -737,23 +725,24 @@ async def test_replayed_shopping_action_fences_a_refund_staged_after_the_first_c
     thread = str(own["session"]["id"]) + (f":automation:{epoch}" if epoch else "")
     state = await shopping.case.chat.graph.aget_state({"configurable": {"thread_id": thread}})
     assert state.values.get("pending_confirmation")
-    replay = await shopping.first.post(
-        url, headers=_BROWSER, json={**body, "client_request_id": str(uuid4())}
+    resumed = await shopping.first.post(
+        "/api/v1/guest/chat", headers=_BROWSER, json=_body(own, "第二款黑色，两副")
     )
-    assert replay.status_code == 200
-    assert (
-        replay.json()["message_receipt"]["message_id"]
-        == first.json()["message_receipt"]["message_id"]
-    )
+    assert resumed.status_code == 200
     async with shopping.case.maker() as db:
         row = await db.get(ChatSession, own["session"]["id"])
         assert row is not None and row.automation_epoch > epoch
+        new_epoch = row.automation_epoch
     refunds = len(shopping.case.calls.refunds)
     confirmation = await shopping.first.post(
         "/api/v1/guest/chat", headers=_BROWSER, json=_body(own, "确认退款")
     )
     assert confirmation.status_code == 200
     assert len(shopping.case.calls.refunds) == refunds
+    fresh = await shopping.case.chat.graph.aget_state(
+        {"configurable": {"thread_id": f"{own['session']['id']}:automation:{new_epoch}"}}
+    )
+    assert not fresh.values.get("pending_confirmation")
 
 
 async def test_guest_commerce_native_planner_failure_ends_with_an_explicit_stream_error(

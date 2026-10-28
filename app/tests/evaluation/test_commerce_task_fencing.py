@@ -2,6 +2,8 @@
 
 Real Cookie HTTP, SQL domain/provider, registry and AgentService are reused.
 Only native model replies and a timing-local Message INSERT fault are controlled.
+The purchase loop itself advances only through /guest/chat text — an order is
+created by the explicit quoted-stage phrase after the state is displayed again.
 """
 
 import json
@@ -19,7 +21,6 @@ from app.services.dialogue.tools import MOCK_ORDERS
 from app.services.llm.base import LLMMessage, LLMResponse
 from app.tests.evaluation.test_guest_commerce_flow import (
     ShopHttp,
-    _act,
     _boot,
     _chat,
     _counts,
@@ -143,10 +144,10 @@ async def test_successful_shopping_tool_then_native_failure_preserves_fence_and_
 ) -> None:
     browser = await _boot(shop.browsers.first)
     view = await _search(shop, shop.browsers.first, browser)
-    if kind == "quote":
-        selected = await _act(shop.browsers.first, browser, view, "select_sku", quantity=2)
-        assert selected.status_code == 200
-        view = _ui(selected.json())
+    selected = await _chat(shop.browsers.first, browser, "黑色2个")
+    assert selected.status_code == 200, selected.text
+    view = _ui(selected.json())
+    assert view["stage"] == "cart"
     old_epoch = await _stage_owned_refund(shop, browser, monkeypatch)
     before_history = await _history(shop.browsers.first, browser)
     planner = NativePlanner(
@@ -178,10 +179,15 @@ async def test_successful_shopping_tool_then_native_failure_preserves_fence_and_
     assert await _counts(shop) == {"order": 0, "payment": 0}
     await _assert_old_proposal_cannot_execute(shop, browser, old_epoch)
     if kind == "quote":
-        # A status GET only exposes the known quote. An explicit new UI action
-        # can still create exactly one order/payment entry after the model fails.
-        accepted = await _act(shop.browsers.first, browser, actual, "commit_checkout")
-        assert accepted.status_code == 200
+        # A status read only exposes the known quote. Re-displaying it by text
+        # and confirming explicitly still creates exactly one order/payment
+        # entry after the model failed mid-turn.
+        shop.conversation.provider = None
+        redisplayed = await _chat(shop.browsers.first, browser, "查询订单")
+        assert redisplayed.status_code == 200, redisplayed.text
+        assert _ui(redisplayed.json())["stage"] == "quoted"
+        accepted = await _chat(shop.browsers.first, browser, "确认下单")
+        assert accepted.status_code == 200, accepted.text
         assert _ui(accepted.json())["stage"] == "awaiting_payment"
         assert await _counts(shop) == {"order": 1, "payment": 1}
 
@@ -243,18 +249,11 @@ async def test_message_insert_failure_keeps_the_shopping_fence_and_recoverable_c
     await _assert_old_proposal_cannot_execute(shop, browser, old_epoch)
 
 
-@pytest.mark.parametrize("entry", ["chat", "action"])
 async def test_fence_sql_failure_stops_the_model_and_purchase_before_any_business_effect(
-    shop: ShopHttp, monkeypatch: pytest.MonkeyPatch, entry: str
+    shop: ShopHttp, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     browser = await _boot(shop.browsers.first)
-    view = await _search(shop, shop.browsers.first, browser)
-    if entry == "action":
-        selected = await _act(shop.browsers.first, browser, view, "select_sku", quantity=2)
-        assert selected.status_code == 200
-        quoted = await _act(shop.browsers.first, browser, _ui(selected.json()), "prepare_checkout")
-        assert quoted.status_code == 200
-        view = _ui(quoted.json())
+    await _search(shop, shop.browsers.first, browser)
     old_epoch = await _stage_owned_refund(shop, browser, monkeypatch)
     before_history = await _history(shop.browsers.first, browser)
     before_business = await _business(shop)
@@ -273,10 +272,7 @@ async def test_fence_sql_failure_stops_the_model_and_purchase_before_any_busines
 
     event.listen(engine, "before_cursor_execute", fail_epoch_update)
     try:
-        if entry == "chat":
-            response = await _chat(shop.browsers.first, browser, "购买耳机")
-        else:
-            response = await _act(shop.browsers.first, browser, view, "commit_checkout")
+        response = await _chat(shop.browsers.first, browser, "购买耳机")
     finally:
         event.remove(engine, "before_cursor_execute", fail_epoch_update)
     assert response.status_code == 503
@@ -312,31 +308,31 @@ async def test_same_rag_task_can_still_confirm_its_legitimate_owned_refund(
     assert await _epoch(shop, browser) == old_epoch
 
 
-@pytest.mark.parametrize("invalid", ["foreign", "old-key", "wrong-descriptor-version"])
-async def test_rejected_purchase_scope_or_original_descriptor_does_not_fence_a_task(
+@pytest.mark.parametrize("invalid", ["foreign", "old-key"])
+async def test_rejected_chat_scope_does_not_fence_a_task(
     shop: ShopHttp, monkeypatch: pytest.MonkeyPatch, invalid: str
 ) -> None:
     browser = await _boot(shop.browsers.first)
-    view = await _search(shop, shop.browsers.first, browser)
+    await _search(shop, shop.browsers.first, browser)
     old_epoch = await _stage_owned_refund(shop, browser, monkeypatch)
     client = shop.browsers.first
     scope = browser
     if invalid == "foreign":
         await _boot(shop.browsers.second)
         client = shop.browsers.second
-    elif invalid == "old-key":
-        scope = {**browser, "session": {**browser["session"], "session_key": str(uuid4())}}
     else:
-        view = {
-            **view,
-            "actions": [
-                {**action, "expected_version": action["expected_version"] + 1}
-                for action in view["actions"]
-            ],
-        }
+        scope = {**browser, "session": {**browser["session"], "session_key": str(uuid4())}}
     before_history = await _history(shop.browsers.first, browser)
     before_business = await _business(shop)
-    response = await _act(client, scope, view, "select_sku", quantity=2)
+    response = await client.post(
+        "/api/v1/guest/chat",
+        headers={"Origin": "http://localhost:3000", "X-Rag-Guest": "1"},
+        json={
+            "session_id": scope["session"]["id"],
+            "expected_session_key": scope["session"]["session_key"],
+            "message": "确认下单",
+        },
+    )
     assert response.status_code == (404 if invalid == "foreign" else 409)
     assert await _epoch(shop, browser) == old_epoch
     assert await _business(shop) == before_business

@@ -666,46 +666,60 @@ head remains `c53a7d9e8421` and clients must
 adopt the new private feedback/QA contract. See the [quality mutation contract](docs/design/quality-mutations.md)
 and [round26 evidence](docs/reviews/quality-mutations-results-2026-10-28.json).
 
-### Public visitor chat and mock purchasing (2026-10-28)
+### Public visitor chat and Agent text commerce (current)
 
-The public website now uses server-issued HttpOnly session cookies and a private
+The public website uses server-issued HttpOnly session cookies and a private
 conversation per browser, without registration. The existing `/support/` workspace
-is retained; further product work focuses on the public experience.
+is retained; product work focuses on the public experience.
 
-Public chat can search mock products, select a SKU/quantity, prepare a quote, then
-create a mock order and simulate payment through separate explicit buttons.
-The bounded Agent uses a request-local tool registry and a replaceable planner;
-`PurchaseService` owns durable purchase state, confirmation versions, idempotency
-and recovery through `CommercePort`. Order confirmation/payment are unavailable
-as model tools. Unknown results query the original operation, and clearing chat
-does not delete or repeat a purchase. All commerce is visibly simulated.
+Mock shopping is now an Agent orchestration demo with no purchase buttons. The
+bounded Agent searches products, selects SKU/quantity, prepares a quote, creates
+an order and settles mock payment entirely through chat text. `commit_checkout`
+and `mock_pay` are Agent tools only when the current turn carries a fresh,
+explicit authorization for the latest displayed purchase version; handlers
+recheck owner, stage, confirmation/payment and generation. The two irreversible
+steps require separate confirmations.
+
+`PurchaseService` keeps durable purchase state, immutable quotes, version CAS,
+operation idempotency and recovery through the stateful `MockCommercePort`.
+Unknown or processing results only query the original operation; clearing chat
+does not delete or repeat a purchase. The server renders catalog, cart, quote,
+order and payment facts as assistant text, and the model cannot invent success.
+All commerce is visibly simulated.
+
+Current text-commerce gate: Ruff, formatting and strict Mypy pass; the complete
+suite passes **3726 tests with 3 configured skips, 5 warnings** (core coverage
+93.57%). A real browser then completed catalog → SKU/quantity → quote →
+explicit text order → separate text payment → status query against SQLite and
+`MockCommercePort`, with zero purchase-action requests and zero
+`commerce_actions` rows. A second visitor could not see the first order.
 
 New migrations are `d64b8c0f9532` (anonymous visitors) and `e75c9d1064a3`
 (commerce framework), following `c53a7d9e8421`. Drain old API instances before
 upgrading and use the matching frontend. `GUEST_COOKIE_SECURE=true` requires
 HTTPS; disable it only for local HTTP. Cookie identity represents its browser,
 with no real-person or cross-device recovery promise. See the
-[public commerce contract](docs/design/public-commerce.md). Final local verification:
-3709 backend tests pass (3 skips, 5 warnings, 261.84s; selected core93.57%),
-398 frontend checks pass (343 Jest +55 Node), plus strict types/lint/12-page build.
-Native Chrome passed Cookie/CORS, the full mock order/payment journey, history
-recovery, clear-with-retained-purchase and expired-visitor isolation. Browser
-versions and the final small follow-up changes are recorded separately in the
+[public commerce contract](docs/design/public-commerce.md). The round27 numbers
+below are the historical button-card baseline, not the current text-only gate:
+3709 backend tests, 398 frontend checks, strict types/lint/build and a native
+Chrome mock journey passed then. See
 [round27 evidence](docs/reviews/public-commerce-results-2026-10-28.json).
-This does not verify real payments, production HTTPS/PostgreSQL or deployment.
+Current text-commerce gate results are recorded with this workspace's final run.
+Neither run verifies real payments, production HTTPS/PostgreSQL or deployment.
 
-### Reliability milestone (2026-10-28)
+### Historical button reliability milestone (2026-10-28)
 
-Public mock shopping now commits its conversation task boundary before invoking
-Agent or business operations. A failed fence blocks the operation; later model
-errors, cancellation or chat-save failures cannot reactivate an earlier refund
-proposal. Commerce requests wait at most 30 seconds, then offer explicit status
-recovery without automatically submitting the transaction again. Complete local
-checks pass: **3720 backend** and **407 frontend** tests, plus lint, strict types
-and a 12-page build. The new timeout path was checked with real React and
-controlled fetch; the prior milestone used real Chrome for the complete mock
-purchase. See the [milestone record](docs/reviews/public-purchase-milestone-2026-10-28.md)
-and [reliability evidence](docs/reviews/public-commerce-reliability-2026-10-28.json).
+The preceding button-card implementation committed its conversation task
+boundary before invoking Agent or business operations. A failed fence blocked
+the operation; later model errors, cancellation or chat-save failures could not
+reactivate an earlier refund proposal. Commerce requests waited at most 30
+seconds, then required explicit status recovery without resubmission. Its local
+gate passed **3720 backend** and **407 frontend** tests plus lint, strict types
+and a 12-page build. The timeout path used real React and controlled fetch; the
+prior milestone used real Chrome. These reliability semantics carry forward,
+while its action-ref UI contract is obsolete. See the
+[milestone record](docs/reviews/public-purchase-milestone-2026-10-28.md) and
+[reliability evidence](docs/reviews/public-commerce-reliability-2026-10-28.json).
 
 | Metric | Value |
 |--------|-------|

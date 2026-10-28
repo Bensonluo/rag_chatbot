@@ -1,10 +1,12 @@
-"""Request-local shopping tools. Order confirmation and payment are HTTP actions.
+"""Request-local shopping tools executed by the bounded commerce Agent.
 
-This registry is created only after visitor-cookie authentication. It is never
-registered in the legacy shared-Demo graph, whose body user_id is not authority.
+Order and payment tools are registered only for a turn carrying a fresh,
+explicit text authorization. Handlers re-check that binding, so a model or
+product-text injection cannot supply the authorization itself.
 """
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
@@ -14,6 +16,13 @@ from app.models.database.commerce import PurchaseSession
 from app.models.schemas.commerce import CommerceView
 from app.services.commerce.service import PurchaseService
 from app.services.dialogue.tools import ToolDefinition, ToolRegistry
+
+
+@dataclass(frozen=True)
+class CommerceAuthorization:
+    kind: str
+    purchase_id: str
+    expected_version: int
 
 
 async def current_purchase(service: PurchaseService, owner: int) -> CommerceView | None:
@@ -31,7 +40,10 @@ async def current_purchase(service: PurchaseService, owner: int) -> CommerceView
 
 
 def create_commerce_tools(
-    service: PurchaseService, owner: int, views: list[CommerceView]
+    service: PurchaseService,
+    owner: int,
+    views: list[CommerceView],
+    authorization: CommerceAuthorization | None = None,
 ) -> ToolRegistry:
     """Bind one verified principal in a local closure, never a model argument."""
     if type(owner) is not int or owner <= 0:
@@ -84,6 +96,30 @@ def create_commerce_tools(
     async def status(args: dict[str, Any]) -> CommerceView:
         return await target(args)
 
+    async def commit(args: dict[str, Any]) -> CommerceView:
+        del args
+        if (
+            authorization is None
+            or authorization.kind != "commit_checkout"
+            or authorization.purchase_id == ""
+        ):
+            raise ValidationError("An explicit fresh order confirmation is required")
+        return await service.commit_checkout(
+            owner, authorization.purchase_id, authorization.expected_version
+        )
+
+    async def pay(args: dict[str, Any]) -> CommerceView:
+        del args
+        if (
+            authorization is None
+            or authorization.kind != "mock_pay"
+            or authorization.purchase_id == ""
+        ):
+            raise ValidationError("An explicit fresh payment confirmation is required")
+        return await service.mock_pay(
+            owner, authorization.purchase_id, authorization.expected_version
+        )
+
     definitions: list[
         tuple[
             str, str, dict[str, Any], list[str], Callable[[dict[str, Any]], Awaitable[CommerceView]]
@@ -133,6 +169,24 @@ def create_commerce_tools(
             status,
         ),
     ]
+    if authorization is not None:
+        definitions.append(
+            (
+                "commit_checkout",
+                "Create the displayed mock order only after an explicit order confirmation.",
+                {},
+                [],
+                commit,
+            )
+            if authorization.kind == "commit_checkout"
+            else (
+                "mock_pay",
+                "Settle the displayed mock payment only after an explicit payment confirmation.",
+                {},
+                [],
+                pay,
+            )
+        )
     for name, description, properties, required, handler in definitions:
 
         async def execute(

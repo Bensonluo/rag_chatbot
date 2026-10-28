@@ -1,4 +1,4 @@
-"""Typed mock-commerce facts and server-authored chat action blocks."""
+"""Typed mock-commerce facts projected into assistant chat text."""
 
 from datetime import datetime
 from typing import Annotated, Literal
@@ -16,7 +16,6 @@ CommerceStage = Literal[
     "paid",
     "failed",
 ]
-ActionKind = Literal["select_sku", "prepare_checkout", "commit_checkout", "mock_pay", "refresh"]
 
 
 class CommerceModel(BaseModel):
@@ -80,14 +79,6 @@ class PaymentSnapshot(CommerceModel):
     status: Literal["awaiting_payment", "processing", "paid", "failed"]
 
 
-class CommerceAction(CommerceModel):
-    action_ref: str
-    kind: ActionKind
-    label: str
-    expected_version: int
-    sku_id: str | None = None
-
-
 class CatalogBlock(CommerceModel):
     type: Literal["catalog"] = "catalog"
     title: str = "模拟商品目录"
@@ -138,4 +129,3 @@ class CommerceView(CommerceModel):
     stage: CommerceStage
     snapshot_at: datetime
     blocks: list[CommerceBlock]
-    actions: list[CommerceAction]

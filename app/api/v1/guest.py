@@ -6,7 +6,6 @@ checks. A numeric conversation ID or a model-provided identity grants no access.
 """
 
 import asyncio
-import hashlib
 import json
 import logging
 from collections.abc import AsyncIterator, Iterator
@@ -17,7 +16,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,9 +25,6 @@ from app.api.v1 import chat as chat_api
 from app.api.v1 import feedback as feedback_api
 from app.config.settings import settings
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
-from app.models.database.commerce import PurchaseAction
-from app.models.database.message import Message
-from app.models.enums.message import MessageRole, MessageStatus
 from app.models.schemas.feedback import FeedbackCreate, FeedbackResponse
 from app.models.schemas.session_key import SessionKey
 from app.services.chat.chat_service import ChatService
@@ -43,7 +38,7 @@ from app.services.chat.coordination import (
 )
 from app.services.chat.persistence import ChatMessagePersister
 from app.services.chat.session_identity import ConversationChangedError, require_session_key
-from app.services.commerce.conversation import CommerceConversation, describe
+from app.services.commerce.conversation import CommerceConversation
 from app.services.commerce.port import ProviderRejected
 from app.services.commerce.service import PurchaseService
 from app.services.commerce.tools import current_purchase
@@ -77,21 +72,6 @@ class GuestChatRequest(BaseModel):
 
     def chat_request(self) -> chat_api.ChatRequest:
         return chat_api.ChatRequest(**self.model_dump())
-
-
-class ActionInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    quantity: int = Field(ge=1, le=10, strict=True)
-
-
-class CommerceActionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    session_id: int = Field(gt=0, le=2_147_483_647, strict=True)
-    expected_session_key: SessionKey
-    action_ref: SessionKey
-    expected_version: int = Field(ge=0, le=2_147_483_647, strict=True)
-    client_request_id: SessionKey
-    input: ActionInput | None = None
 
 
 def get_guest_chat_service(
@@ -432,134 +412,4 @@ async def purchase_status(
         "session_id": session_id,
         "session_key": expected_session_key,
         "ui": view.model_dump(mode="json"),
-    }
-
-
-def _action_signature(purchase_id: str, body: CommerceActionRequest) -> str:
-    # Client retry IDs do not define business idempotency. The persisted action
-    # reference and its original inputs do, including the selected quantity.
-    payload = {
-        "purchase_id": purchase_id,
-        "action_ref": body.action_ref,
-        "expected_version": body.expected_version,
-        "quantity": body.input.quantity if body.input else None,
-    }
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
-
-
-async def _previous_action_message(
-    commerce: CommerceConversation,
-    body: CommerceActionRequest,
-    signature: str,
-) -> Message | None:
-    async with commerce.coordinator.sessions() as db:
-        messages = (
-            await db.scalars(
-                select(Message)
-                .where(
-                    Message.session_id == body.session_id,
-                    Message.role == MessageRole.ASSISTANT,
-                    or_(
-                        Message.message_metadata["commerce_action_ref"].as_string()
-                        == body.action_ref,
-                        Message.message_metadata["client_request_id"].as_string()
-                        == body.client_request_id,
-                    ),
-                )
-                .order_by(Message.id.desc())
-            )
-        ).all()
-        previous = None
-        for message in messages:
-            metadata = message.message_metadata or {}
-            if (
-                metadata.get("commerce_action_ref") == body.action_ref
-                or metadata.get("client_request_id") == body.client_request_id
-            ):
-                if metadata.get("commerce_action_signature") != signature:
-                    raise ConflictError("A retry cannot change the original purchase inputs")
-                previous = previous or message
-        return previous
-
-
-@router.post("/commerce/purchases/{purchase_id}/actions")
-async def purchase_action(
-    purchase_id: SessionKey,
-    body: CommerceActionRequest,
-    principal: Annotated[GuestPrincipal, Depends(get_guest_principal)],
-    commerce: Annotated[CommerceConversation, Depends(get_guest_commerce_conversation)],
-) -> dict[str, object]:
-    with commerce_errors():
-        async with commerce.coordinator.hold(body.session_id):
-            owner = principal.user.id
-            await commerce.validate(owner, body.session_id, body.expected_session_key, write=True)
-            # Check URL ownership before examining an action reference. A model
-            # or browser cannot substitute a foreign purchase into this call.
-            await commerce.purchases.status(owner, purchase_id)
-            async with commerce.coordinator.sessions() as db:
-                action = await db.get(PurchaseAction, body.action_ref)
-                if action is None or action.purchase_id != purchase_id:
-                    raise NotFoundError("Purchase action")
-            signature = _action_signature(purchase_id, body)
-            previous = await _previous_action_message(commerce, body, signature)
-            if action.expected_version != body.expected_version:
-                raise ConflictError("The action descriptor version changed")
-            if body.input is not None and action.kind != "select_sku":
-                raise ValidationError("This action does not accept quantity")
-            # A domain/provider commit can precede a later exception. Fence
-            # the prior dialogue task before attempting that business write,
-            # independently of the eventual domain or chat receipt.
-            await commerce.fence_previous_task(
-                owner, body.session_id, body.expected_session_key, purchase_id
-            )
-            if previous is not None and action.kind in {"select_sku", "prepare_checkout"}:
-                view = await commerce.purchases.status(owner, purchase_id)
-            else:
-                view = await commerce.purchases.execute_action(
-                    owner,
-                    body.action_ref,
-                    quantity=body.input.quantity if body.input else None,
-                    expected_version=body.expected_version,
-                )
-            receipt: dict[str, object] | None = None
-            if previous is not None:
-                receipt = {
-                    "message_id": previous.id,
-                    "status": previous.status.value,
-                    "content": previous.content,
-                    "ui": chat_api._stored_commerce_ui(
-                        (previous.message_metadata or {}).get("commerce_ui")
-                    ),
-                }
-            else:
-                content = describe(view)
-                saved = await commerce.persister.persist_turn(
-                    body.session_id,
-                    owner,
-                    "",
-                    content,
-                    intent="shopping",
-                    metadata={
-                        "commerce_ui": view.model_dump(mode="json"),
-                        "commerce_mode": "mock",
-                        "commerce_action_ref": body.action_ref,
-                        "commerce_action_signature": signature,
-                        "client_request_id": body.client_request_id,
-                    },
-                    status=MessageStatus.COMPLETED,
-                )
-                if saved is not None:
-                    receipt = {
-                        "message_id": saved.message_id,
-                        "status": saved.status,
-                        "content": content,
-                        "ui": view.model_dump(mode="json"),
-                    }
-    return {
-        "session_id": body.session_id,
-        "session_key": body.expected_session_key,
-        "purchase_id": purchase_id,
-        "client_request_id": body.client_request_id,
-        "ui": view.model_dump(mode="json"),
-        "message_receipt": receipt,
     }

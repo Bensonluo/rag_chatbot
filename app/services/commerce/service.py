@@ -2,9 +2,9 @@
 
 import asyncio
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, cast
-from uuid import UUID, uuid4, uuid5
+from uuid import uuid4
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -12,18 +12,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.database.commerce import (
-    PurchaseAction,
     PurchaseConfirmation,
     PurchaseOperation,
     PurchaseSession,
 )
 from app.models.schemas.commerce import (
-    ActionKind,
     CartBlock,
     CartSnapshot,
     CatalogBlock,
     CatalogItem,
-    CommerceAction,
     CommerceStage,
     CommerceView,
     OrderSnapshot,
@@ -415,55 +412,34 @@ class PurchaseService:
         await self._dispatch(owner_user_id, operation)
         return await self._view(await self._load(owner_user_id, purchase_id))
 
-    async def _read_action(
-        self,
-        owner: int,
-        action_ref: str,
-        kind: str | None = None,
-        expected_version: int | None = None,
-    ) -> tuple[PurchaseAction, PurchaseSession]:
+    async def _confirmation(self, row: PurchaseSession) -> PurchaseConfirmation:
+        if row.confirmation_id is None:
+            raise ConflictError("请先完成报价并确认当前内容")
         async with self.sessions() as db:
-            action = await db.get(PurchaseAction, action_ref)
-            if action is None:
-                raise NotFoundError("Purchase action")
-            row = await db.scalar(
-                select(PurchaseSession).where(
-                    PurchaseSession.id == action.purchase_id, PurchaseSession.owner_user_id == owner
-                )
-            )
-            if row is None:
-                raise NotFoundError("Purchase action")
-            if kind is not None and action.kind != kind:
-                raise ConflictError("购买动作类型不符")
-            if expected_version is not None and (
-                type(expected_version) is not int or action.expected_version != expected_version
-            ):
-                raise ConflictError("购买动作版本不符")
-            return action, row
+            confirmation = await db.get(PurchaseConfirmation, row.confirmation_id)
+        if confirmation is None or confirmation.purchase_id != row.id:
+            raise ConflictError("结算确认不可用")
+        if request_hash(confirmation.snapshot) != confirmation.snapshot_hash:
+            raise ConflictError("结算确认已损坏，不能下单")
+        return confirmation
 
-    async def commit_checkout(self, owner_user_id: int, action_ref: str) -> CommerceView:
-        action, row = await self._read_action(owner_user_id, action_ref, "commit_checkout")
-        async with self.sessions() as db:
-            confirmation = await db.get(
-                PurchaseConfirmation, str(action.payload.get("confirmation_id", ""))
-            )
-            if confirmation is None or confirmation.purchase_id != row.id:
-                raise ConflictError("结算确认不可用")
-            if request_hash(confirmation.snapshot) != confirmation.snapshot_hash:
-                raise ConflictError("结算确认已损坏，不能下单")
-            consumed = confirmation.operation_id is not None
-        if consumed:
+    async def commit_checkout(
+        self, owner_user_id: int, purchase_id: str, expected_version: int
+    ) -> CommerceView:
+        row = await self._load(owner_user_id, purchase_id)
+        confirmation = await self._confirmation(row)
+        if confirmation.operation_id is not None:
+            # Repeating a consumed confirmation replays current business state;
+            # the old display version must not become a second-order error.
             if (
                 row.order_id is not None
                 and row.payment_id is None
                 and row.active_operation_id is None
             ):
                 await self._payment(owner_user_id, row)
-            return await self._view(await self._load(owner_user_id, row.id))
-        self._version(row, action.expected_version)
-        if as_utc(action.expires_at) <= as_utc(self.clock()) or as_utc(
-            confirmation.expires_at
-        ) <= as_utc(self.clock()):
+            return await self.status(owner_user_id, row.id)
+        self._version(row, expected_version)
+        if as_utc(confirmation.expires_at) <= as_utc(self.clock()):
             raise ConflictError("报价已过期，请重新试算并确认")
         if (
             row.stage != "quoted"
@@ -492,6 +468,8 @@ class PurchaseService:
         row = await self._load(owner_user_id, row.id)
         if row.order_id is not None and row.active_operation_id is None:
             await self._payment(owner_user_id, row)
+        # Return the just-dispatched state without reconciling it: a transport
+        # result must stay unknown until the user explicitly queries it.
         return await self._view(await self._load(owner_user_id, row.id))
 
     async def _payment(self, owner: int, row: PurchaseSession) -> None:
@@ -515,8 +493,10 @@ class PurchaseService:
         )
         await self._dispatch(owner, operation)
 
-    async def mock_pay(self, owner_user_id: int, action_ref: str) -> CommerceView:
-        action, row = await self._read_action(owner_user_id, action_ref, "mock_pay")
+    async def mock_pay(
+        self, owner_user_id: int, purchase_id: str, expected_version: int
+    ) -> CommerceView:
+        row = await self._load(owner_user_id, purchase_id)
         async with self.sessions() as db:
             existing = await db.scalar(
                 select(PurchaseOperation).where(
@@ -527,13 +507,16 @@ class PurchaseService:
             )
         if existing is not None:
             return await self.status(owner_user_id, row.id)
-        self._version(row, action.expected_version)
-        if (
-            as_utc(action.expires_at) <= as_utc(self.clock())
-            or row.payment_id is None
-            or row.stage != "awaiting_payment"
-        ):
+        self._version(row, expected_version)
+        if row.active_operation_id is not None or row.stage != "awaiting_payment":
             raise ConflictError("当前模拟付款不可执行，请核实状态")
+        if row.payment_id is None:
+            if row.order_id is None:
+                raise ConflictError("当前模拟付款不可执行，请核实状态")
+            await self._payment(owner_user_id, row)
+            row = await self._load(owner_user_id, row.id)
+        if row.payment_id is None or row.active_operation_id is not None:
+            return await self.status(owner_user_id, row.id)
         operation = await self._reserve(
             owner_user_id,
             row.id,
@@ -596,82 +579,10 @@ class PurchaseService:
     async def reconcile(self, owner_user_id: int, purchase_id: str) -> CommerceView:
         return await self.status(owner_user_id, purchase_id)
 
-    async def execute_action(
-        self,
-        owner_user_id: int,
-        action_ref: str,
-        *,
-        quantity: int | None = None,
-        expected_version: int | None = None,
-    ) -> CommerceView:
-        action, row = await self._read_action(
-            owner_user_id, action_ref, expected_version=expected_version
-        )
-        if quantity is not None and action.kind != "select_sku":
-            raise ValidationError("此动作不接受数量修改")
-        if action.kind == "commit_checkout":
-            return await self.commit_checkout(owner_user_id, action_ref)
-        if action.kind == "mock_pay":
-            return await self.mock_pay(owner_user_id, action_ref)
-        if action.kind == "refresh":
-            return await self.status(owner_user_id, row.id)
-        if as_utc(action.expires_at) <= as_utc(self.clock()):
-            raise ConflictError("购买动作已过期，请刷新")
-        if action.kind == "select_sku":
-            return await self.set_cart_line(
-                owner_user_id,
-                row.id,
-                str(action.payload["sku_id"]),
-                1 if quantity is None else quantity,
-                action.expected_version,
-            )
-        return await self.prepare_checkout(owner_user_id, row.id, action.expected_version)
-
-    async def _action(
-        self,
-        row: PurchaseSession,
-        kind: ActionKind,
-        label: str,
-        payload: dict[str, Any],
-        *,
-        expires_at: datetime | None = None,
-    ) -> CommerceAction:
-        now = as_utc(self.clock())
-        expiry = as_utc(expires_at) if expires_at else now + timedelta(minutes=5)
-        bucket = 0 if expires_at else int(now.timestamp() // 300)
-        identifier = str(
-            uuid5(UUID(row.id), f"{row.version}:{kind}:{bucket}:{request_hash(payload)}")
-        )
-        async with self.sessions() as db:
-            existing = await db.get(PurchaseAction, identifier)
-            if existing is None:
-                db.add(
-                    PurchaseAction(
-                        id=identifier,
-                        purchase_id=row.id,
-                        kind=kind,
-                        expected_version=row.version,
-                        payload=payload,
-                        expires_at=expiry,
-                    )
-                )
-                try:
-                    await db.commit()
-                except IntegrityError:
-                    await db.rollback()
-        return CommerceAction(
-            action_ref=identifier,
-            kind=kind,
-            label=label,
-            expected_version=row.version,
-            sku_id=payload.get("sku_id"),
-        )
-
     async def _view(
         self, row: PurchaseSession, items: list[CatalogItem] | None = None
     ) -> CommerceView:
         blocks: list[Any] = []
-        actions: list[CommerceAction] = []
         if row.order_id is None and row.stage in {"shopping", "cart", "quoted", "failed"}:
             products = (
                 items
@@ -679,37 +590,15 @@ class PurchaseService:
                 else await self.port.search_products(row.owner_user_id, "")
             )
             blocks.append(CatalogBlock(items=products))
-            for item in products:
-                if item.available_quantity:
-                    actions.append(
-                        await self._action(
-                            row, "select_sku", "选择模拟商品", {"sku_id": item.sku_id}
-                        )
-                    )
         if row.cart_snapshot is not None:
             blocks.append(CartBlock(cart=CartSnapshot.model_validate(row.cart_snapshot)))
-        if row.stage in {"cart", "quoted"}:
-            actions.append(
-                await self._action(
-                    row,
-                    "prepare_checkout",
-                    "重新试算" if row.stage == "quoted" else "查看模拟结算",
-                    {},
+        if row.quote_snapshot is not None and row.confirmation_id is not None:
+            blocks.append(
+                QuoteBlock(
+                    confirmation_id=row.confirmation_id,
+                    quote=QuoteSnapshot.model_validate(row.quote_snapshot),
                 )
             )
-        if row.quote_snapshot is not None and row.confirmation_id is not None:
-            quote = QuoteSnapshot.model_validate(row.quote_snapshot)
-            blocks.append(QuoteBlock(confirmation_id=row.confirmation_id, quote=quote))
-            if row.stage == "quoted" and as_utc(quote.expires_at) > as_utc(self.clock()):
-                actions.append(
-                    await self._action(
-                        row,
-                        "commit_checkout",
-                        "确认模拟下单（不扣款）",
-                        {"confirmation_id": row.confirmation_id},
-                        expires_at=quote.expires_at,
-                    )
-                )
         if row.order_id is not None:
             quote = QuoteSnapshot.model_validate(row.quote_snapshot)
             blocks.append(
@@ -720,25 +609,6 @@ class PurchaseService:
                     total_minor=quote.total_minor,
                 )
             )
-            if row.stage == "awaiting_payment" and row.active_operation_id is None:
-                if row.payment_id is not None:
-                    actions.append(
-                        await self._action(
-                            row,
-                            "mock_pay",
-                            "确认模拟付款（不会真实扣款）",
-                            {"payment_id": row.payment_id},
-                        )
-                    )
-                elif row.confirmation_id is not None:
-                    actions.append(
-                        await self._action(
-                            row,
-                            "commit_checkout",
-                            "继续生成模拟付款入口",
-                            {"confirmation_id": row.confirmation_id},
-                        )
-                    )
         messages = {
             "shopping": "请选择模拟商品；本流程不会产生真实订单或扣款。",
             "cart": "模拟购物车已更新，尚未下单。",
@@ -757,12 +627,10 @@ class PurchaseService:
                 operation_id=row.active_operation_id,
             )
         )
-        actions.append(await self._action(row, "refresh", "核实模拟购买状态", {}))
         return CommerceView(
             purchase_id=row.id,
             version=row.version,
             stage=cast(CommerceStage, row.stage),
             snapshot_at=as_utc(self.clock()),
             blocks=blocks,
-            actions=actions,
         )
