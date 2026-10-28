@@ -8,11 +8,13 @@ generation surfaces — the slot-pipeline generators and the agent loop
 (context_note) — best-effort, so a memory read can never fail a chat.
 """
 
+import asyncio
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 from app.services.agent.service import AgentResult
 from app.services.dialogue.nodes import NodeFactory
+from app.services.observability.trace_events import TraceSink, trace_sink_active
 
 
 def _llm() -> Mock:
@@ -40,6 +42,42 @@ async def _system_content(llm: Mock, factory: NodeFactory, state: dict[str, Any]
     await factory._call_llm("您好", state=state)  # type: ignore[arg-type]
     messages = llm.generate.await_args.args[0]
     return str(messages[0].content)
+
+
+class TestTraceLifecycle:
+    @staticmethod
+    async def _events(factory: NodeFactory, state: dict[str, Any]) -> list[dict[str, Any]]:
+        queue: asyncio.Queue[Any] = asyncio.Queue()
+        with trace_sink_active(TraceSink(queue)):
+            await factory._recall_user_facts(state)  # type: ignore[arg-type]
+        return [event.payload() for event in [queue.get_nowait() for _ in range(queue.qsize())]]
+
+    async def test_successful_recall_closes_its_stage(self):
+        factory = _factory(_llm(), facts_provider=AsyncMock(return_value=["用户是 PLUS 会员"]))
+        events = await self._events(factory, {"session_id": 1, "user_id": 7})
+
+        assert [(event["stage"], event["status"]) for event in events] == [
+            ("cs.memory", "start"),
+            ("cs.memory", "detail"),
+            ("cs.memory", "end"),
+        ]
+        assert events[1]["detail"] == {"facts": ["用户是 PLUS 会员"]}
+        assert events[2]["ms"] is not None
+
+    async def test_provider_failure_ends_as_error_without_failing_chat(self):
+        factory = _factory(_llm(), facts_provider=AsyncMock(side_effect=RuntimeError("down")))
+        events = await self._events(factory, {"session_id": 1, "user_id": 7})
+
+        assert [(event["stage"], event["status"]) for event in events] == [
+            ("cs.memory", "start"),
+            ("cs.memory", "error"),
+        ]
+        assert events[1]["ms"] is not None
+
+    async def test_skipped_recall_emits_no_stage(self):
+        factory = _factory(_llm(), facts_provider=AsyncMock(return_value=["用户是 PLUS 会员"]))
+
+        assert await self._events(factory, {"session_id": 1}) == []
 
 
 class TestGenerationPathInjection:

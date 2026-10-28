@@ -2263,12 +2263,20 @@ class NodeFactory:
         user_id = state.get("user_id")
         if not user_id:
             return []
+        emit_trace("cs.memory", status="start")
+        started = time.perf_counter()
         try:
             facts = [fact for fact in await self._user_facts_provider(int(user_id)) if fact]
         except Exception:  # noqa: BLE001 - availability over personalization
             logger.warning("User facts recall failed; continuing without them")
+            emit_trace(
+                "cs.memory", status="error", ms=(time.perf_counter() - started) * 1000, facts=0
+            )
             return []
         emit_trace("cs.memory", facts=facts)
+        emit_trace(
+            "cs.memory", status="end", ms=(time.perf_counter() - started) * 1000, facts=len(facts)
+        )
         return facts
 
     async def _call_llm(
