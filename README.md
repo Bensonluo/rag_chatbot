@@ -283,7 +283,7 @@ rag_chatbot/
 | `SECRET_KEY` | JWT secret key | — | ✅ |
 | `GLM_API_KEY` | Zhipu AI GLM API key | — | (any primary LLM) |
 | `MINIMAX_API_KEY` | MiniMax backup + light-tier key | — | ❌ |
-| `KIMI_API_KEY` + `INTENT_LLM_PROVIDER=kimi` | Kimi Coding intent-only highspeed tier | — | ❌ |
+| `KIMI_API_KEY` | Kimi Coding generation fallback provider; optional intent override via `INTENT_LLM_PROVIDER=kimi` | — | ❌ |
 | `OPENAI_API_KEY` | OpenAI API key | — | (any primary LLM) |
 | `ANTHROPIC_API_KEY` | Anthropic API key | — | (any primary LLM) |
 | `EMBEDDING_PROVIDER` | Embedding source | `local` | ❌ |

@@ -222,14 +222,14 @@ class LLMFactory:
             ValidationError: If no LLM provider is configured
 
         Examples:
-            >>> # Auto-select provider (checks GLM first, then OpenAI, then Anthropic)
+            >>> # Auto-select provider (GLM → MiniMax → Kimi → OpenAI → Anthropic)
             >>> llm = LLMFactory.create_from_settings()
         """
         settings = get_settings()
 
         # Build the full configured chain in priority order: a hard
-        # failure on the primary serves from the next provider. MiniMax
-        # sits right after GLM as the domestic backup.
+        # failure on the primary serves from the next provider. MiniMax and
+        # Kimi are domestic coding-plan backups before global providers.
         providers: list[tuple[str, LLMServiceBase]] = []
         if settings.GLM_API_KEY:
             providers.append(
@@ -250,6 +250,17 @@ class LLMFactory:
                         provider="minimax",
                         api_key=settings.MINIMAX_API_KEY,
                         model=settings.MINIMAX_MODEL,
+                    ),
+                )
+            )
+        if settings.KIMI_API_KEY:
+            providers.append(
+                (
+                    "kimi",
+                    LLMFactory.create(
+                        provider="kimi",
+                        api_key=settings.KIMI_API_KEY,
+                        model=settings.KIMI_MODEL,
                     ),
                 )
             )
@@ -279,7 +290,7 @@ class LLMFactory:
         if not providers:
             raise ValidationError(
                 "No LLM provider configured. Please set at least one of: "
-                "GLM_API_KEY, MINIMAX_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY"
+                "GLM_API_KEY, MINIMAX_API_KEY, KIMI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY"
             )
 
         if not settings.LLM_RESILIENCE_ENABLED:

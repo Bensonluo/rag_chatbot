@@ -1,9 +1,8 @@
-"""Kimi Coding Plan wiring: explicit intent-only highspeed provider.
+"""Kimi Coding Plan wiring: generation fallback and optional intent override.
 
-Kimi is not inserted into the general resilience chain from this configuration.
-It exists so intent detection can use the membership's highspeed model without
-changing generation, Agent tool rounds, slots, summaries, or MiniMax light-tier
-consumers.
+Kimi enters the resilience chain after the two preferred domestic providers.
+It may also be explicitly selected for intent detection, but the default light
+tier remains MiniMax highspeed, which benchmarked faster on the live server.
 """
 
 from __future__ import annotations
@@ -109,8 +108,8 @@ class TestKimiProviderFactory:
         ):
             LLMFactory.create(provider="kimi")
 
-    def test_kimi_is_not_implicitly_added_to_generation_failover(self):
-        """Kimi serves intent only; a key must not alter the primary chain."""
+    def test_kimi_is_third_in_generation_failover_after_domestic_backups(self):
+        """Failover order: GLM, MiniMax, Kimi, then global providers."""
         from app.config.settings import settings
         from app.services.llm.factory import LLMFactory
         from app.services.llm.resilience import ResilientLLMService
@@ -118,15 +117,21 @@ class TestKimiProviderFactory:
         with (
             patch.object(settings, "GLM_API_KEY", "g"),
             patch.object(settings, "MINIMAX_API_KEY", "m"),
-            patch.object(settings, "OPENAI_API_KEY", None),
-            patch.object(settings, "ANTHROPIC_API_KEY", None),
             patch.object(settings, "KIMI_API_KEY", "kimi"),
+            patch.object(settings, "OPENAI_API_KEY", "o"),
+            patch.object(settings, "ANTHROPIC_API_KEY", "a"),
             patch.object(settings, "LLM_RESILIENCE_ENABLED", True),
         ):
             chain = LLMFactory.create_from_settings()
 
         assert isinstance(chain, ResilientLLMService)
-        assert [name for name, _ in chain._providers] == ["glm", "minimax"]
+        assert [name for name, _ in chain._providers] == [
+            "glm",
+            "minimax",
+            "kimi",
+            "openai",
+            "anthropic",
+        ]
 
 
 class TestKimiIntentWiring:
