@@ -29,6 +29,7 @@ from typing import Any
 
 from app.core.exceptions import ExternalServiceError
 from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
+from app.services.llm.reasoning_filter import ReasoningFilter, strip_reasoning
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +181,19 @@ class ResilientLLMService(LLMServiceBase):
                     response = await service.generate(
                         messages, max_tokens=max_tokens, temperature=temperature, **kwargs
                     )
+                    visible_content = strip_reasoning(response.content or "")
+                    if not visible_content.strip() and not response.tool_calls:
+                        breaker.record_failure()
+                        last_exc = ExternalServiceError(
+                            service=name,
+                            message="provider returned no visible response text",
+                            status_code=502,
+                        )
+                        logger.warning(
+                            "Provider %s returned no visible response text; trying next provider",
+                            name,
+                        )
+                        break
                     breaker.record_success()
                     return response
                 except ExternalServiceError as exc:
@@ -245,11 +259,31 @@ class ResilientLLMService(LLMServiceBase):
             for attempt in range(self._max_retries + 1):
                 yielded = False
                 try:
+                    reasoning_filter = ReasoningFilter()
                     async for chunk in service.generate_stream(
                         messages, max_tokens=max_tokens, temperature=temperature, **kwargs
                     ):
+                        visible = reasoning_filter.feed(chunk)
+                        if not visible:
+                            continue
                         yielded = True
-                        yield chunk
+                        yield visible
+                    visible_tail = reasoning_filter.flush()
+                    if visible_tail:
+                        yielded = True
+                        yield visible_tail
+                    if not yielded:
+                        breaker.record_failure()
+                        last_exc = ExternalServiceError(
+                            service=name,
+                            message="provider returned no visible stream text",
+                            status_code=502,
+                        )
+                        logger.warning(
+                            "Provider %s returned no visible stream text; trying next provider",
+                            name,
+                        )
+                        break
                     breaker.record_success()
                     return
                 except ExternalServiceError as exc:

@@ -203,6 +203,29 @@ class TestHybridIntentDetector:
         assert result.metadata.get("llm_intent") == "unknown"
 
     @pytest.mark.asyncio
+    async def test_llm_failure_keeps_rule_result(self):
+        """Light-tier LLM outages degrade to rules instead of failing the turn."""
+        from app.core.exceptions import ExternalServiceError
+        from app.services.intent.hybrid import HybridIntentDetector
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+
+        rule_based = RuleBasedIntentDetector()
+        llm_based = Mock()
+        llm_based.detect_with_confidence = AsyncMock(
+            side_effect=ExternalServiceError(service="minimax", message="empty response")
+        )
+        detector = HybridIntentDetector(
+            rule_based=rule_based, llm_based=llm_based, confidence_threshold=0.7
+        )
+
+        result = await detector.detect_with_confidence("现在天气怎么样")
+
+        assert result.intent == Intent.CHITCHAT
+        assert result.metadata is not None
+        assert result.metadata.get("fallback") == "llm_unavailable"
+        llm_based.detect_with_confidence.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_detect_with_context(self):
         """Test detection with conversation context"""
         # Arrange

@@ -6,6 +6,7 @@ Uses fast rule-based detection when confident, falls back to LLM for complex que
 
 from typing import Any
 
+from app.core.exceptions import ExternalServiceError
 from app.models.enums.intent import Intent
 from app.services.intent.base import IntentDetector, IntentResult
 from app.services.intent.llm_based import LLMIntentDetector
@@ -88,8 +89,24 @@ class HybridIntentDetector(IntentDetector):
                 },
             )
 
-        # Fall back to LLM for low confidence
-        llm_result = await self.llm_based.detect_with_confidence(query, context)
+        # Fall back to LLM for low confidence. Light-tier providers are
+        # deliberately outside the resilient chain; an outage/empty reasoning
+        # response must degrade to the deterministic rule signal, never fail
+        # the whole dialogue turn.
+        try:
+            llm_result = await self.llm_based.detect_with_confidence(query, context)
+        except ExternalServiceError:
+            return IntentResult(
+                intent=rule_result.intent,
+                confidence=rule_result.confidence,
+                metadata={
+                    "method": "rule_based",
+                    "fallback": "llm_unavailable",
+                    "threshold": self.confidence_threshold,
+                    "rule_intent": rule_result.intent.value,
+                    **(rule_result.metadata or {}),
+                },
+            )
 
         # The LLM fallback is an upgrade attempt, not a blind override.
         # When it comes back weaker than the rule layer (e.g. a reasoning

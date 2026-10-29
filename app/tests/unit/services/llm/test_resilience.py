@@ -99,6 +99,32 @@ class TestRetry:
         assert response.content == "from-openai"
         assert primary.generate_calls == 1  # 401 is never retried
 
+    async def test_empty_generate_response_fails_over(self):
+        class _EmptyResponseProvider(_FakeProvider):
+            async def generate(self, messages, max_tokens=None, temperature=None, **kwargs):
+                self.generate_calls += 1
+                return LLMResponse(content=" ", model=self.model)
+
+        primary = _EmptyResponseProvider("glm")
+        fallback = _FakeProvider("openai")
+        service = _chain(primary, fallback)
+        response = await service.generate(_MSGS)
+        assert response.content == "from-openai"
+        assert primary.generate_calls == 1
+
+    async def test_reasoning_only_generate_response_fails_over(self):
+        class _ThinkingOnlyProvider(_FakeProvider):
+            async def generate(self, messages, max_tokens=None, temperature=None, **kwargs):
+                self.generate_calls += 1
+                return LLMResponse(content="<think>reasoning only</think>", model=self.model)
+
+        primary = _ThinkingOnlyProvider("glm")
+        fallback = _FakeProvider("openai")
+        service = _chain(primary, fallback)
+        response = await service.generate(_MSGS)
+        assert response.content == "from-openai"
+        assert primary.generate_calls == 1
+
     async def test_all_providers_exhausted_raises_last_error(self):
         primary = _FakeProvider("glm", failures=99)
         fallback = _FakeProvider("openai", failures=99)
@@ -168,6 +194,35 @@ class TestStreamingFailover:
         service = _chain(primary, fallback)
         chunks = [c async for c in service.generate_stream(_MSGS)]
         assert chunks == ["chunk-openai-1", "chunk-openai-2"]
+
+    async def test_empty_stream_fails_over(self):
+        class _EmptyStreamProvider(_FakeProvider):
+            async def generate_stream(self, messages, max_tokens=None, temperature=None, **kw):
+                self.stream_calls += 1
+                if False:  # pragma: no cover - keeps this an async generator
+                    yield ""
+
+        primary = _EmptyStreamProvider("glm")
+        fallback = _FakeProvider("openai")
+        service = _chain(primary, fallback)
+        chunks = [c async for c in service.generate_stream(_MSGS)]
+        assert chunks == ["chunk-openai-1", "chunk-openai-2"]
+        assert primary.stream_calls == 1
+        assert fallback.stream_calls == 1
+
+    async def test_reasoning_only_stream_fails_over(self):
+        class _ThinkingOnlyStreamProvider(_FakeProvider):
+            async def generate_stream(self, messages, max_tokens=None, temperature=None, **kw):
+                self.stream_calls += 1
+                yield "<think>reasoning only</think>"
+
+        primary = _ThinkingOnlyStreamProvider("glm")
+        fallback = _FakeProvider("openai")
+        service = _chain(primary, fallback)
+        chunks = [c async for c in service.generate_stream(_MSGS)]
+        assert chunks == ["chunk-openai-1", "chunk-openai-2"]
+        assert primary.stream_calls == 1
+        assert fallback.stream_calls == 1
 
     async def test_midstream_failure_propagates_without_duplicate(self):
         """Once a token reached the consumer, failover must not restart."""
