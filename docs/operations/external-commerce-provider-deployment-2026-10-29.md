@@ -184,6 +184,40 @@ provider SQLite 在线备份：
 5. 浏览器仅调用 `/api/v1/guest/chat/stream`，没有 `/commerce/purchases/...` mutation 请求。
 
 
+## 2026-10-29 15:55 商品知识图谱融合
+
+- 后端运行时提交：`1316230 fix(commerce): strip reasoning from shopping advice`（包含 `d9c56fc feat(commerce): fuse product knowledge graph`）
+- `DEPLOYED_REVISION=1316230`
+- API image manifest list digest：`sha256:f96aa4afc27e519868c09398575e71eaa5916189815891b3de3e6263f8bec591`
+- commerce-provider image manifest list digest：`sha256:71650bb9fc3606d355bb5a603c90fe5c587329b10a19b387e60a5fa9d0fb78b2`
+- PostgreSQL Alembic 保持 `e75c9d1064a3 (head)`；无迁移、备份恢复或数据覆盖。前端无发布。
+- 部署后 provider health 为 healthy，API `/health` 为 200。
+
+变更：
+
+- 复用现有 Neo4j/GraphRAG 基础设施，把 provider 的 25 个类目和 81 个类目属性投影为商品图；LLM 语义规划器推断通用购物用途社区。本轮生产图：25 个 `CommerceCategory`、81 个 `CommerceAttribute`、7 个 `CommerceUseCase`。
+- 新增只读 `commerce_graph_context` Agent 工具；图谱只提供用途、搭配、替代和属性语义，SKU/价格/库存/限购仍以 commerce provider 为准。
+- 商品图投影采用原子替换，不写入 SKU、价格、库存或用户 alias；普通 support GraphRAG embedding 检索排除 `Commerce*` 投影节点。
+- 同一查询翻页结果并回 provider 原顺序；不同类目仍轮转均衡，整轮可见候选不超过 5 个。
+- 目录回复剥离模型 `<think>...</think>` 推理段，不在用户可见文本中暴露 reasoning tags。
+
+代表性验证：
+
+- Ruff check/format 与 strict Mypy 通过。
+- commerce/provider/evaluation 相关 43 项复测通过；graph/initialization 相关 33 项复测通过。
+- 按用户要求，本轮不重复运行 3803 项全量。
+
+生产浏览器验证：
+
+1. 新访客发送 `我想买一台电视，帮忙推荐`。
+2. 工具审计包含 `commerce_graph_context` 与 provider 类目/搜索工具；回复建议大屏显示器、投影仪，并说明目录没有“电视”独立类目。
+3. 可见权威候选仍为 5 个 SKU；整条回复唯一 SKU 引用数为 5；来源披露在单条回复中只出现一次。
+4. 用户可见回复无 `<think>` / `</think>`。
+5. Execution Chain 顺序为 Pipeline Entry → Intent → Agent Tool Loop；Intent 显示 `shopping` 与 `confidence 99%`。
+6. 浏览器仅调用 `/api/v1/guest/chat/stream`，没有 `/commerce/purchases/...` mutation 请求。
+
+
+
 ## 日志与已知非阻塞问题
 
 commerce-provider 日志无 traceback/error。API 主链路无 provider fallback 或 simulated planner。仍有一个既有非购物路径警告：MiniMax light tier 余额不足（HTTP 402），session compression 因此按设计 best-effort 失败；GLM 购物 Agent 与外部 provider 不受影响。
