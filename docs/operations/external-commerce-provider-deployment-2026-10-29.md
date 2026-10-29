@@ -218,6 +218,33 @@ provider SQLite 在线备份：
 
 
 
+## 2026-10-29 17:05 购物中切换意图恢复
+
+- 后端运行时提交：`0c20ed0 fix(llm): fail over on empty provider responses`
+- `DEPLOYED_REVISION=0c20ed0`
+- API image manifest list digest：`sha256:e6399180b6073965ac9f263c337105468ec236034b759992b41f1ffb2ca629c8`
+- commerce-provider image manifest list digest：`sha256:c33822bc3d70db39721d6a578e5b013bdfb3914e5811f1b9bc1bbd8194e36f4e`
+- PostgreSQL Alembic 保持 `e75c9d1064a3 (head)`；无迁移、备份恢复或数据覆盖。前端无发布。
+
+根因：
+
+- 用户先进入购物，再询问天气/知识图谱这类 support 问题时，外层 provider router 已正确切到 `support`。
+- 失败发生在 support graph 内部轻量意图识别：MiniMax 高速度层在 GLM 429 期间返回了无可见文本/推理段输出，原实现把该异常直接冒泡，导致整轮 `cs.intent` 失败。
+- 同时，主 LLM resilience 把“只有 reasoning tags、没有最终文本”的流当作成功，未继续尝试后续 provider。
+
+修复：
+
+- `HybridIntentDetector` 在轻量 LLM 不可用时保留 rule-based 结果并标记 `llm_unavailable`，不再让整个对话失败。
+- `ResilientLLMService` 将空文本、空流、reasoning-only 输出判定为当前 provider 失败，继续 Kimi/OpenAI/Anthropic 链。
+
+验证：
+
+- 新增 reasoning-only/empty response failover 与 hybrid intent outage 回归，相关 29 项通过。
+- Ruff/format/strict Mypy 通过；按用户要求未重复跑全量。
+- 生产 raw SSE 复现：购物 → `现在天气怎么样`；第二轮路由为 `support`，意图降级为 `chitchat`，direct 正常返回“请告诉我所在城市或区县”，无 `[STREAM_ERROR]`。
+
+
+
 ## 日志与已知非阻塞问题
 
 commerce-provider 日志无 traceback/error。API 主链路无 provider fallback 或 simulated planner。仍有一个既有非购物路径警告：MiniMax light tier 余额不足（HTTP 402），session compression 因此按设计 best-effort 失败；GLM 购物 Agent 与外部 provider 不受影响。
