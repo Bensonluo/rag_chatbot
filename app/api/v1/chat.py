@@ -214,7 +214,7 @@ async def initialize_chat_service(
     graph_retrieval_service = None
     global_search_service = None
     multi_path_fusion = None
-
+    commerce_graph_service = None
     try:
         if settings.GRAPH_RAG_ENABLED:
             from app.services.graph import GraphFactory
@@ -258,6 +258,29 @@ async def initialize_chat_service(
                     max_hops=settings.GRAPH_RAG_MAX_HOPS,
                 )
                 graph_retrieval_service._embedding_search = graph_embedding
+
+                # Product semantics use the same Neo4j infrastructure, but as
+                # a typed projection separate from document provenance. The
+                # provider taxonomy remains authoritative and no SKUs/prices
+                # are copied into the graph.
+                from app.api.database import async_session_maker
+                from app.services.commerce import create_commerce_port
+                from app.services.commerce.graph_service import CommerceGraphService
+
+                commerce_graph_service = CommerceGraphService(
+                    graph_client=graph_client,
+                    embedding_service=embedding_service,
+                    semantic_planner=llm_service,
+                )
+                try:
+                    taxonomy = await create_commerce_port(async_session_maker).catalog_categories(1)
+                    projected = await commerce_graph_service.refresh_projection(taxonomy)
+                    logger.info("Projected commerce taxonomy graph: %s", projected)
+                except Exception as e:
+                    logger.warning(
+                        "Commerce taxonomy graph projection failed; graph tool stays available for existing nodes: %s",
+                        e,
+                    )
 
                 if settings.GRAPH_RAG_COMMUNITY_ENABLED:
                     from app.services.graph.community import GlobalSearchService
@@ -309,6 +332,7 @@ async def initialize_chat_service(
         graph_retrieval_service=graph_retrieval_service,
         global_search_service=global_search_service,
         multi_path_fusion=multi_path_fusion,
+        commerce_graph_service=commerce_graph_service,
         slot_filler=slot_filler,
         guardrail_service=guardrail_service,
         persister=ChatMessagePersister(

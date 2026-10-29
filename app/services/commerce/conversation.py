@@ -46,13 +46,18 @@ COMMERCE_PROMPT = """你是公共网站的购物 LLM Agent。商品与交易由�
 不要期待固定话术；语义含糊时先追问，不要猜 SKU 或数量。必须结合当前候选、购物车和报价中的 ID/版本调用工具。
 面对含糊、新颖、开放式或用任意说法表达的商品需求，或当搜索结果为空时：先调用 discover_catalog 查看权威类目，
 由你（而不是任何词表）把用户需求映射到一个或多个标准类目名/属性值，再逐个用标准类目名搜索；
+若 commerce_graph_context 工具可用，开放式、搭配型、替代型或跨类目需求可先查询商品知识图谱获取语义关系；
+图谱结论只用于理解需求与组织建议，不得当作SKU、价格、库存、限购或可购买性事实。
 一个需求可以对应多次类目搜索。穷尽合理类目仍无结果，才提出一个聚焦问题（用途、预算或关键规格）。
+聚焦最新用户消息；不要反复提起历史未完成请求，除非用户明确回到该话题或它是当前购物车/报价的必要上下文。
 多类目/整套配置需求应逐个搜索相关标准类目（每类先取1–2个候选），但最终合并展示与推荐总数不得超过5个SKU；
 最终建议只能引用当前合并候选块中仍展示的SKU，不得推荐已被后续搜索挤出的旧候选。
 若类目多于可展示名额，先选最符合用户场景的类目与代表款，再说明可按偏好换一批。不要只保留或只搜索最后一个类目。用户未明确数量时不得默认加购。
 整体预算是组合总价约束，不是各类目固定配额：除非用户明确给出单项/类目价格上限，类目搜索不得设置 max_price；先取完整候选，再在组合层控制总价。
 带筛选搜索为空时不得宣称目录缺少该类目；先去掉非用户明确要求的筛选并复搜同一标准类目，仍为空才说明缺货/缺候选。
 多类目/整套配置搜索完成后，用最终回复给出2–3套具体组合建议：每套列SKU、适用场景和预估总价；
+初始推荐不要为了穷尽颜色/规格而自动翻页；一页最多5个候选已足够，只有用户要求更多、换一批或明确比较全类目时才分页。
+最终建议保持简洁，不要复述完整商品清单；最多点名每套组合的关键SKU和理由，颜色、库存、限购等细节以下方权威商品事实为准。
 建议可按“每项1件”作示意，但必须说明尚未加购，数量需用户确认。所有数字只能来自工具结果。
 不得编造库存、价格、订单或付款。
 报价不是下单，下单不是付款。只有当最新用户消息明确、无歧义地授权当前展示的报价/订单时，才分别调用下单或付款工具；一次不得同时推进两者。
@@ -226,9 +231,11 @@ class CommerceConversation:
         coordinator: SessionCoordinator,
         persister: ChatMessagePersister,
         provider: Any = None,
+        commerce_graph_service: Any = None,
     ) -> None:
         self.purchases, self.coordinator = purchases, coordinator
         self.persister, self.provider = persister, provider
+        self.commerce_graph_service = commerce_graph_service
 
     async def route(self, owner: int, message: str) -> CommerceRouteDecision:
         """Let the provider LLM make the semantic shopping/support decision."""
@@ -418,10 +425,16 @@ class CommerceConversation:
             )
             views: list[CommerceView] = []
             planner = CommercePlanner(self.provider)
-            registry = create_commerce_tools(self.purchases, owner, views, current)
-            # Six bounded rounds leave room for discovery → several standard
-            # category searches → final prose, still under the per-request
-            # LLM call budget (CHAT_LLM_CALL_BUDGET, default 8).
+            registry = create_commerce_tools(
+                self.purchases,
+                owner,
+                views,
+                current,
+                commerce_graph=self.commerce_graph_service,
+            )
+            # Six bounded rounds leave room for graph/discovery → several
+            # standard category searches → final prose, still under the
+            # per-request LLM call budget (CHAT_LLM_CALL_BUDGET, default 8).
             agent = AgentService(planner, registry, max_steps=6, system_prompt=COMMERCE_PROMPT)
             note = "Current authoritative mock purchase: " + (
                 current.model_dump_json() if current else "none"

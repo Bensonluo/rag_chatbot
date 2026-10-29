@@ -675,9 +675,10 @@ conversation per browser, without registration. The existing `/support/` workspa
 is retained; product work focuses on the public experience.
 
 Mock shopping is now an Agent orchestration demo with no purchase buttons. The
-bounded Agent discovers the provider's authoritative category taxonomy, maps
-open-ended natural-language needs onto one or more standard categories, performs
-structured multi-category search/pagination, understands references and
+bounded Agent queries the existing Neo4j product knowledge graph for use-case
+and category semantics, discovers the provider's authoritative category taxonomy,
+maps open-ended natural-language needs onto one or more standard categories,
+performs structured multi-category search/pagination, understands references and
 constraints, updates a multi-line cart, prepares a quote, creates an order and
 settles mock payment entirely through chat text. Catalog turns keep at most five
 typed candidates, balanced across the searched categories, while the LLM may

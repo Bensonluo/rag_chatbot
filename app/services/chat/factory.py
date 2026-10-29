@@ -103,6 +103,7 @@ class ChatServiceFactory:
         graph_retrieval_service: GraphRetrievalService | None = None,
         global_search_service: GlobalSearchService | None = None,  # noqa: ARG004
         multi_path_fusion: MultiPathRetrievalFusion | None = None,  # noqa: ARG004
+        commerce_graph_service: Any | None = None,
         slot_filler: SlotFiller | None = None,
         guardrail_service: GuardrailService | None = None,
         persister: ChatMessagePersister | None = None,
@@ -423,4 +424,6 @@ class ChatServiceFactory:
             gap_recorder=gap_recorder,
             answer_cache=answer_cache,
             coordinator=coordinator,
+            graph_retrieval_service=graph_retrieval_service,
+            commerce_graph_service=commerce_graph_service,
         )

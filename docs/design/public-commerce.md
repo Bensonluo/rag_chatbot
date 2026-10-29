@@ -28,6 +28,7 @@ flowchart LR
     G --> C[CommerceConversation<br/>上下文与工具权限]
     C --> A[有界 AgentService]
     A --> T[请求专属导购工具]
+    T --> K[Neo4j 商品图谱<br/>用途/类目/属性语义]
     T --> P[PurchaseService<br/>授权、版本、幂等、恢复]
     P --> X[ExternalCommercePort]
     X --> S[commerce-provider<br/>FastAPI + SQLite]
@@ -38,7 +39,7 @@ flowchart LR
 
 - `CommerceConversation` 在每轮构造请求局部工具 registry，不向旧共享 Demo 图注册购买工具。接受购物任务后先持久提升 automation epoch，再调用模型或工具；模型失败、请求取消或聊天保存失败不能复活旧退款提案。
 - `AgentService` 负责理解、规划和实际工具调用：请求是否购物、买什么、约束是什么、候选页中“1号/第二款/便宜的那个”指哪个、如何拆成多行、是否追问、是否足以授权，均由模型判断。
-- 常规工具：类目发现（标准类目与允许属性值）、结构化商品搜索（价格/属性/库存过滤、排序、分页）、SKU 详情、多行购物车更新、试算、状态查询。
+- 常规工具：商品知识图谱语义查询、类目发现（标准类目与允许属性值）、结构化商品搜索（价格/属性/库存过滤、排序、分页）、SKU 详情、多行购物车更新、试算、状态查询。
 - 受控工具：`commit_checkout` 与 `mock_pay` 只在当前阶段匹配且最新展示版本有效时注册；handler 再核对 owner、purchase、version、confirmation/payment 和 generation。模型传入 owner、金额、付款成功标记或外来 idempotency key 无效。
 - 一回合最多推进一个不可逆阶段。模糊确认、否定、疑问或组合的“确认下单并付款”均只澄清或查询，不写入。
 - 购物目录轮回复采用两层投影：模型可解释已检索事实并给出预算内组合建议，但必须标注尚未加购；权威 SKU、价格、库存、限购仍来自服务端 `CommerceView`。购物车、报价、订单、付款阶段不接受模型自由文本，模型不能宣布交易成功。
@@ -47,10 +48,19 @@ flowchart LR
 
 - commerce provider 通过 Bearer 保护的 `GET /commerce/categories` 暴露权威类目事实：25 个标准类目的 id、名称、描述和允许属性值。用户语言别名仍是 provider 内部检索索引，不进入语义层，也不作为可配置路由表。
 - 面对开放式需求（例如“预算 1500 配一个远程办公角落”），LLM Agent 先发现 taxonomy，再把需求映射到一个或多个标准类目并逐类搜索；不存在确定性查询重写器。
-- `create_commerce_tools()` 的请求局部状态按 `sku_id` 去重，并跨已搜索类目做轮转均衡；每轮可见 typed 候选总数硬上限为 5 个。第一次搜索保持单查询分页语义；后续搜索返回一个合并目录块和最新非目录块。合并只做展示层收敛，不替模型决定类目或搜索顺序；不同查询的 page token 不能合并，因此合并视图不带 `next_page_token`，但保留 provider 总量估计并提示可换一批。
+- `create_commerce_tools()` 的请求局部状态按 `sku_id` 去重；不同查询跨类目轮转均衡，同一查询的分页结果并回原 provider 顺序。每轮可见 typed 候选总数硬上限为 5 个。第一次搜索保持单查询分页语义；后续搜索返回一个合并目录块和最新非目录块。合并只做展示层收敛，不替模型决定类目或搜索顺序；不同查询的 page token 不能合并，因此合并视图不带 `next_page_token`，但保留 provider 总量估计并提示可换一批。
 - 模型组合建议只能引用当前合并候选块中仍展示的 SKU；购物车、报价、订单和付款仍以服务端事实为准。
 - 整体预算是组合总价约束，不是固定类目配额。除非用户明确给出单项/类目价格上限，LLM 不得在类目搜索上自行设置 `max_price`；先取完整候选，再在组合层控制总价。带筛选搜索为空时必须先去掉非用户筛选复搜，才能说明缺候选。
 - Agent 内部上限为 `max_steps=6`，每请求 LLM 预算仍为 `CHAT_LLM_CALL_BUDGET=8`；公开 IP/聊天限流不变。该上限只放宽规划轮数，不放宽滥用控制或交易确认门。
+
+## 商品知识图谱
+
+- 复用项目既有 Neo4j/GraphRAG 基础设施。API 启动时把 provider taxonomy 投影为 `CommerceCategory`、`CommerceAttribute` 节点和 `HAS_COMMERCE_ATTRIBUTE` 关系；不复制任何 SKU、价格、库存、限购或用户 alias。
+- 商品投影写入是原子替换：只删除带 `Commerce*` type 的投影节点/关系后重建，不触碰文档知识图谱；LLM 每次推断出的用途集合不会在重启间无限累积。
+- LLM 语义规划器从标准类目推断 `CommerceUseCase` 节点（如家庭影音、远程办公、移动差旅），并用 `SERVES_COMMERCE_USE_CASE` 连接相关类目。该推断是模型语义，不是固定短语表；输出只允许 provider 已有 category id。
+- 购物 Agent 获得只读 `commerce_graph_context` 工具，可用于理解用途、搭配、替代和跨类目关系。图谱结果永远标注 semantic-only；SKU、价格、库存、限购和可购买性仍必须由 commerce provider 工具验证。
+- Neo4j 不可用、投影失败或图谱为空时购物不降级到规则路由；Agent 仍可用 `discover_catalog` 和 provider 搜索。图谱工具调用与所有 Agent 工具一样进入 `cs.tool` 实时 trace。
+- 普通 support GraphRAG embedding 检索排除 `Commerce*` 投影节点，避免商品语义污染客服知识答案；购物侧通过显式 `entity_types` 只查商品投影。
 
 ## Provider 事实与本地编排状态
 

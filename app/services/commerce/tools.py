@@ -22,6 +22,7 @@ from app.models.schemas.commerce import (
     CatalogItem,
     CommerceView,
 )
+from app.services.commerce.graph_service import CommerceGraphService
 from app.services.commerce.port import CommerceSort
 from app.services.commerce.service import PurchaseService
 from app.services.dialogue.tools import ToolDefinition, ToolRegistry
@@ -106,24 +107,26 @@ def create_commerce_tools(
     owner: int,
     views: list[CommerceView],
     current: CommerceView | None,
+    commerce_graph: CommerceGraphService | None = None,
 ) -> ToolRegistry:
     """Bind one verified principal in a local closure, never a model argument."""
+
     if type(owner) is not int or owner <= 0:
         raise ValidationError("A verified visitor identity is required")
     registry = ToolRegistry()
-    catalog_batches: list[list[CatalogItem]] = []
+    catalog_batches: dict[str, list[CatalogItem]] = {}
+    catalog_total_estimates: dict[str, int] = {}
     seen_catalog_skus: set[str] = set()
-    catalog_total_estimate = 0
     search_batches = 0
 
     def balanced_catalog_candidates() -> list[CatalogItem]:
-        """Round-robin the provider rankings across searched categories."""
+        """Round-robin provider rankings across distinct search queries."""
 
         selected: list[CatalogItem] = []
         depth = 0
         while len(selected) < _VISIBLE_CANDIDATES_MAX:
             added = False
-            for batch in catalog_batches:
+            for batch in catalog_batches.values():
                 if depth >= len(batch):
                     continue
                 selected.append(batch[depth])
@@ -147,14 +150,14 @@ def create_commerce_tools(
         return result
 
     async def search(args: dict[str, Any]) -> CommerceView:
-        nonlocal catalog_total_estimate, search_batches
+        nonlocal catalog_total_estimates, search_batches
         query = args.get("query", "")
         if not isinstance(query, str) or len(query) > 500:
             raise ValidationError("Search query must be a bounded string")
         sort = args.get("sort", "relevance")
         if sort not in _SORTS:
             raise ValidationError("Catalog sort must be one of: " + ", ".join(_SORTS))
-        requested_page_size = args.get("page_size", 3)
+        requested_page_size = args.get("page_size", _AGENT_PAGE_SIZE_MAX)
         if type(requested_page_size) is not int or not 1 <= requested_page_size <= _PAGE_SIZE_MAX:
             raise ValidationError(f"Page size must be an integer from 1 to {_PAGE_SIZE_MAX}")
         page_size = min(requested_page_size, _AGENT_PAGE_SIZE_MAX)
@@ -176,13 +179,19 @@ def create_commerce_tools(
         for block in result.blocks:
             if not isinstance(block, CatalogBlock):
                 continue
-            catalog_total_estimate += max(block.total_estimate, len(block.items))
+            catalog_total_estimates[query] = max(
+                catalog_total_estimates.get(query, 0),
+                block.total_estimate,
+                len(block.items),
+            )
             for item in block.items:
                 if item.sku_id in seen_catalog_skus:
                     continue
                 seen_catalog_skus.add(item.sku_id)
                 batch.append(item)
-        catalog_batches.append(batch)
+        # Exact query identity groups provider pages back into one ordered
+        # category batch. Distinct queries still round-robin below.
+        catalog_batches.setdefault(query, []).extend(batch)
         visible_candidates = balanced_catalog_candidates()
         if search_batches == 1:
             return result
@@ -195,7 +204,9 @@ def create_commerce_tools(
                 "blocks": [
                     CatalogBlock(
                         items=visible_candidates,
-                        total_estimate=max(catalog_total_estimate, len(visible_candidates)),
+                        total_estimate=max(
+                            sum(catalog_total_estimates.values()), len(visible_candidates)
+                        ),
                     ),
                     *(block for block in result.blocks if not isinstance(block, CatalogBlock)),
                 ]
@@ -210,6 +221,24 @@ def create_commerce_tools(
         return {
             "catalog_categories": taxonomy.model_dump(mode="json"),
             "mode": "mock",
+        }
+
+    async def graph_context(args: dict[str, Any]) -> dict[str, Any]:
+        query = args.get("query", "")
+        if not isinstance(query, str) or not query.strip() or len(query) > 500:
+            raise ValidationError("Graph context query must be a bounded non-empty string")
+        top_k = args.get("top_k", 3)
+        if type(top_k) is not int or not 1 <= top_k <= 5:
+            raise ValidationError("Graph context top_k must be an integer from 1 to 5")
+        assert commerce_graph is not None
+        facts = await commerce_graph.search(query, top_k=top_k)
+        return {
+            "commerce_graph": {
+                "facts": [fact.__dict__ for fact in facts],
+                "semantic_only": True,
+                "authority": "semantic-context",
+            },
+            "mode": "semantic-context",
         }
 
     async def product(args: dict[str, Any]) -> CommerceView:
@@ -447,4 +476,32 @@ def create_commerce_tools(
             },
         )
     )
+
+    if commerce_graph is not None:
+        # Product graph context is semantic only: it stages no purchase view
+        # and never replaces provider SKU, price, stock or limit facts.
+        registry.register(
+            ToolDefinition(
+                name="commerce_graph_context",
+                intent="commerce:graph_context",
+                description=(
+                    "Search the existing product knowledge graph for semantic category "
+                    "relationships and attribute vocabulary. Read-only semantic context: "
+                    "use it to understand use cases, alternatives, compatibility and "
+                    "setup bundles, then verify every SKU, price, stock and limit with "
+                    "commerce provider tools. Never present graph output as availability."
+                ),
+                required_slots=["query"],
+                handler=graph_context,
+                parameters_schema={
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "minLength": 1, "maxLength": 500},
+                        "top_k": {"type": "integer", "minimum": 1, "maximum": 5},
+                    },
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+            )
+        )
     return registry

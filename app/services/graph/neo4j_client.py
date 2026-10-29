@@ -296,6 +296,63 @@ class Neo4jClient(GraphClient):
         except Exception as exc:
             raise GraphClientError(f"Document graph transaction failed: {exc}") from exc
 
+    async def replace_commerce_projection(
+        self, entities: list[GraphEntity], relations: list[GraphRelation]
+    ) -> dict[str, int]:
+        """Replace the typed product projection without touching document graphs."""
+
+        for entity in entities:
+            _sanitize_label(entity.type)
+        for relation in relations:
+            _sanitize_label(relation.relation_type)
+
+        async def replace(tx: Any) -> dict[str, int]:
+            await _transaction_query(
+                tx,
+                "MATCH (node) WHERE node.type STARTS WITH 'Commerce' DETACH DELETE node",
+                {},
+            )
+            for entity in entities:
+                safe_type = _sanitize_label(entity.type)
+                props: dict[str, Any] = {
+                    **entity.properties,
+                    "type": entity.type,
+                }
+                if entity.description:
+                    props["description"] = entity.description
+                if entity.embedding:
+                    props["embedding"] = entity.embedding
+                await _transaction_query(
+                    tx,
+                    f"""
+                    MERGE (node:Entity {{id: $id}})
+                    SET node:`{safe_type}`, node += $props
+                    """,
+                    {"id": entity.id, "props": props},
+                )
+            for relation in relations:
+                safe_relation = _sanitize_label(relation.relation_type)
+                relation_props: dict[str, Any] = {"id": relation.id}
+                if relation.description:
+                    relation_props["description"] = relation.description
+                await _transaction_query(
+                    tx,
+                    f"""
+                    MATCH (source:Entity {{id: $source_id}})
+                    MATCH (target:Entity {{id: $target_id}})
+                    MERGE (source)-[edge:`{safe_relation}`]->(target)
+                    SET edge += $props
+                    """,
+                    {
+                        "source_id": relation.source_entity_id,
+                        "target_id": relation.target_entity_id,
+                        "props": relation_props,
+                    },
+                )
+            return {"entities": len(entities), "relations": len(relations)}
+
+        return await self._document_transaction(replace)
+
     @staticmethod
     async def _lock_document(tx: Any, document_id: str) -> None:
         await _transaction_query(
@@ -387,7 +444,8 @@ class Neo4jClient(GraphClient):
         index_query = """
         CALL db.index.vector.queryNodes('entity_embedding', $k, $embedding)
         YIELD node, score
-        WHERE $entity_types IS NULL OR node.type IN $entity_types
+        WHERE ($entity_types IS NOT NULL AND node.type IN $entity_types)
+              OR ($entity_types IS NULL AND NOT node.type STARTS WITH 'Commerce')
         RETURN node.name AS name, node.type AS type, node.id AS id,
                node.description AS description, score,
                node.source_document_ids AS source_document_ids,
@@ -448,7 +506,8 @@ class Neo4jClient(GraphClient):
         MATCH (e:Entity)
         WHERE e.embedding IS NOT NULL
               AND size(e.embedding) = size($embedding)
-              AND ($entity_types IS NULL OR e.type IN $entity_types)
+              AND (($entity_types IS NOT NULL AND e.type IN $entity_types)
+                   OR ($entity_types IS NULL AND NOT e.type STARTS WITH 'Commerce'))
         WITH e,
              reduce(dot = 0.0, i IN range(0, size($embedding) - 1) |
                     dot + e.embedding[i] * $embedding[i]) AS dot,

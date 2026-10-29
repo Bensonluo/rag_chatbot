@@ -170,6 +170,8 @@ class ChatService:
         gap_recorder: KnowledgeGapRecorder | None = None,
         answer_cache: AnswerCacheService | None = None,
         coordinator: SessionCoordinator | None = None,
+        graph_retrieval_service: Any | None = None,
+        commerce_graph_service: Any | None = None,
     ) -> None:
         self.graph = graph
         self.llm_service = llm_service
@@ -179,6 +181,8 @@ class ChatService:
         self.gap_recorder = gap_recorder
         self.answer_cache = answer_cache
         self.coordinator = coordinator
+        self.graph_retrieval_service = graph_retrieval_service
+        self.commerce_graph_service = commerce_graph_service
 
     async def _automation_thread(
         self,

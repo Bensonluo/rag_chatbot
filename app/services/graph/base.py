@@ -99,6 +99,13 @@ class GraphClient(ABC):
         """
         raise NotImplementedError("Document-scoped graph writes are not supported")
 
+    async def replace_commerce_projection(
+        self, entities: list[GraphEntity], relations: list[GraphRelation]
+    ) -> dict[str, int]:
+        """Atomically replace typed Commerce nodes and relationships."""
+
+        raise NotImplementedError("Commerce projection replacement is not supported")
+
     async def delete_document_graph(self, document_id: str) -> dict[str, int]:
         """Delete this document's assertions, preserving other sources."""
         raise NotImplementedError("Document-scoped graph deletion is not supported")

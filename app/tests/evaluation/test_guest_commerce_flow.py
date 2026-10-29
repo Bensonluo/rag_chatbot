@@ -230,7 +230,7 @@ async def _search(shop: ShopHttp, client: AsyncClient, browser: dict[str, Any]) 
     content = response.json()["content"]
     # The public copy must distinguish simulated transactions from fabricated
     # catalog facts: provider source and no-real-charge are both user-visible.
-    assert "独立内部虚拟商城API" in content
+    assert content.count("独立内部虚拟商城API") == 1
     assert "不产生真实订单或扣款" in content
     return _ui(response.json())
 

@@ -126,6 +126,7 @@ def get_guest_commerce_conversation(
         coordinator,
         chat_service.persister or ChatMessagePersister(coordinator.sessions),
         provider=chat_service.llm_service,
+        commerce_graph_service=getattr(chat_service, "commerce_graph_service", None),
     )
 
 

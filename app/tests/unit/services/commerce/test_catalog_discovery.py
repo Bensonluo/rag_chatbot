@@ -38,11 +38,13 @@ from app.models.schemas.commerce import CatalogBlock, CatalogTaxonomy, CommerceV
 from app.services.agent.service import AgentService
 from app.services.commerce.conversation import COMMERCE_PROMPT, describe
 from app.services.commerce.external_port import ExternalCommercePort
+from app.services.commerce.graph_service import CommerceGraphService
 from app.services.commerce.mock_port import CATALOG, MockCommercePort
 from app.services.commerce.port import ProviderRejected, ProviderUnknown
 from app.services.commerce.service import PurchaseService
 from app.services.commerce.tools import create_commerce_tools
 from app.services.dialogue.tools import ToolResult
+from app.services.graph.base import GraphEntity, GraphRelation, GraphSearchResult
 from app.services.llm.base import LLMMessage, LLMResponse
 
 BASE_URL = "http://commerce.internal:8000"
@@ -95,6 +97,135 @@ class ScriptedPlanner:
                     "arguments": json.dumps(arguments, ensure_ascii=False),
                 }
             ],
+        )
+
+
+class RecordingGraphClient:
+    def __init__(self) -> None:
+        self.entities: list[GraphEntity] = []
+        self.relations: list[GraphRelation] = []
+
+    async def add_entities(self, entities: list[GraphEntity]) -> list[str]:
+        self.entities.extend(entities)
+        return [entity.id for entity in entities]
+
+    async def add_relations(self, relations: list[GraphRelation]) -> list[str]:
+        self.relations.extend(relations)
+        return [relation.id for relation in relations]
+
+    async def replace_commerce_projection(
+        self, entities: list[GraphEntity], relations: list[GraphRelation]
+    ) -> dict[str, int]:
+        self.entities = list(entities)
+        self.relations = list(relations)
+        return {"entities": len(entities), "relations": len(relations)}
+
+    async def search_entities_by_embedding(
+        self,
+        query_embedding: list[float],
+        top_k: int = 3,
+        entity_types: list[str] | None = None,
+    ) -> list[GraphSearchResult]:
+        del query_embedding
+        matches = [
+            entity
+            for entity in self.entities
+            if entity.type in (entity_types or [entity.type])
+            and (
+                entity.type == "CommerceUseCase"
+                or "音箱" in str(entity.properties.get("provider_name", ""))
+            )
+        ]
+        matches.sort(key=lambda entity: entity.type != "CommerceUseCase")
+        return [
+            GraphSearchResult(
+                content=entity.description or entity.name,
+                entities=[entity],
+                relations=[],
+                score=0.9,
+                source_type="graph_embedding",
+            )
+            for entity in matches[:top_k]
+        ]
+
+    async def execute_cypher(
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        del query
+        parameters = params or {}
+        if "use_case_id" in parameters:
+            use_case = next(
+                entity for entity in self.entities if entity.id == parameters["use_case_id"]
+            )
+            category_ids = [
+                relation.source_entity_id
+                for relation in self.relations
+                if relation.target_entity_id == use_case.id
+            ]
+            return [
+                {
+                    "use_case_name": use_case.properties["use_case_name"],
+                    "use_case_description": use_case.description,
+                    "category_id": category_id,
+                }
+                for category_id in category_ids
+            ]
+
+        entity = next(entity for entity in self.entities if entity.id == parameters["category_id"])
+        attribute_entities = [
+            other
+            for other in self.entities
+            if other.type == "CommerceAttribute"
+            and other.properties["category_id"] == entity.properties["category_id"]
+        ]
+        rows = [
+            {
+                "name": entity.properties["provider_name"],
+                "category_id": entity.properties["category_id"],
+                "description": entity.description,
+                "attribute_name": attribute.properties["attribute_name"],
+                "allowed_values": attribute.properties["allowed_values"],
+            }
+            for attribute in attribute_entities
+        ]
+        return rows or [
+            {
+                "name": entity.properties["provider_name"],
+                "category_id": entity.properties["category_id"],
+                "description": entity.description,
+                "attribute_name": None,
+                "allowed_values": None,
+            }
+        ]
+
+
+class StaticEmbeddings:
+    async def embed_single(self, text: str) -> list[float]:
+        del text
+        return [1.0]
+
+
+class ScriptUseCasePlanner:
+    async def generate(self, messages: list[LLMMessage], **kwargs: Any) -> LLMResponse:
+        del messages, kwargs
+        return LLMResponse(
+            content=json.dumps(
+                {
+                    "use_cases": [
+                        {
+                            "name": "家庭影音",
+                            "description": "用显示、声音和佩戴设备组成观影与听歌场景。",
+                            "category_ids": [
+                                "monitor-4k",
+                                "speaker-conference",
+                                "headphones-anc",
+                            ],
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            model="test",
         )
 
 
@@ -249,6 +380,89 @@ async def test_discover_tool_is_exported_with_an_empty_schema(shop) -> None:
     assert "authoritative" in discover["description"] and "Read-only" in discover["description"]
 
 
+async def test_product_graph_is_semantic_context_not_commerce_facts(shop) -> None:
+    """The existing graph holds category semantics; provider facts stay external."""
+
+    service, maker = shop
+    taxonomy = await service.discover_catalog(1)
+    graph = RecordingGraphClient()
+    product_graph = CommerceGraphService(graph, StaticEmbeddings())
+
+    projected = await product_graph.refresh_projection(taxonomy)
+    assert projected == {
+        "categories": len(taxonomy.categories),
+        "attributes": sum(len(category.attributes) for category in taxonomy.categories),
+        "use_cases": 0,
+        "relations": sum(len(category.attributes) for category in taxonomy.categories),
+    }
+    category_entities = [entity for entity in graph.entities if entity.type == "CommerceCategory"]
+    assert len(category_entities) == len(taxonomy.categories)
+    assert all(entity.embedding for entity in category_entities)
+    projection_json = json.dumps(
+        [entity.properties for entity in graph.entities], ensure_ascii=False, default=str
+    )
+    assert "alias" not in projection_json.lower()
+    assert "sku" not in projection_json.lower()
+    assert "price" not in projection_json.lower()
+
+    facts = await product_graph.search("家庭影音", top_k=1)
+    assert facts and "音箱" in facts[0].name
+    assert facts[0].attributes
+
+    views: list[CommerceView] = []
+    registry = create_commerce_tools(service, 1, views, None, commerce_graph=product_graph)
+    exported = {
+        schema["function"]["name"]: schema["function"] for schema in registry.to_function_schemas()
+    }
+    assert "commerce_graph_context" in exported
+    result = await registry.execute(
+        "commerce:graph_context", {"query": "家庭影音", "top_k": 1}, user_id=1
+    )
+    assert isinstance(result, ToolResult)
+    assert result.success
+    assert result.data["commerce_graph"]["semantic_only"] is True
+    assert "音箱" in result.data["commerce_graph"]["facts"][0]["name"]
+    assert views == []
+    assert await _count(maker, PurchaseSession) == 0
+
+
+async def test_llm_projects_product_use_case_communities(shop) -> None:
+    """The LLM infers graph use-case edges; provider categories remain nodes."""
+
+    service, _maker = shop
+    taxonomy = await service.discover_catalog(1)
+    graph = RecordingGraphClient()
+    product_graph = CommerceGraphService(
+        graph,
+        StaticEmbeddings(),
+        semantic_planner=ScriptUseCasePlanner(),
+    )
+    projected = await product_graph.refresh_projection(taxonomy)
+    attribute_count = sum(len(category.attributes) for category in taxonomy.categories)
+    assert projected == {
+        "categories": len(taxonomy.categories),
+        "attributes": attribute_count,
+        "use_cases": 1,
+        "relations": attribute_count + 3,
+    }
+
+    facts = await product_graph.search("家庭影音", top_k=1)
+    assert {fact.name for fact in facts} == {
+        "4K显示器",
+        "会议音箱",
+        "轻音降噪耳机",
+    }
+    assert all(fact.matched_use_cases for fact in facts)
+    assert all(fact.attributes for fact in facts)
+
+
+def test_graph_tool_is_absent_without_wired_graph(shop) -> None:
+    service, _maker = shop
+    registry = create_commerce_tools(service, 1, [], None)
+    exported = {schema["function"]["name"] for schema in registry.to_function_schemas()}
+    assert "commerce_graph_context" not in exported
+
+
 # --- the LLM owns open-need mapping ----------------------------------------
 
 
@@ -326,6 +540,35 @@ async def test_multi_category_need_keeps_every_searched_category(shop) -> None:
     ]
     assert len(numbered_products) == 5
     assert "本轮最多展示5个候选" in projection
+
+
+async def test_same_query_pagination_keeps_provider_order(shop) -> None:
+    """Paging one category must not interleave page one with page two."""
+
+    service, _maker = shop
+    views: list[CommerceView] = []
+    registry = create_commerce_tools(service, 1, views, None)
+    first_call = await registry.execute(
+        "commerce:search_products", {"query": "音箱", "page_size": 3}, user_id=1
+    )
+    assert isinstance(first_call, ToolResult)
+    assert first_call.success
+    first = next(block for block in views[-1].blocks if isinstance(block, CatalogBlock))
+    assert first.next_page_token is not None
+
+    second_call = await registry.execute(
+        "commerce:search_products",
+        {"query": "音箱", "page_size": 3, "page_token": first.next_page_token},
+        user_id=1,
+    )
+    assert isinstance(second_call, ToolResult)
+    assert second_call.success
+    merged = next(block for block in views[-1].blocks if isinstance(block, CatalogBlock))
+    assert 3 < len(merged.items) <= 5
+    assert [item.sku_id for item in merged.items[: len(first.items)]] == [
+        item.sku_id for item in first.items
+    ]
+    assert merged.next_page_token is None
 
 
 def test_semantic_layer_has_no_lexical_alias_table() -> None:
