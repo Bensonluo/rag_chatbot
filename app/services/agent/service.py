@@ -25,6 +25,7 @@ relaxed here:
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
@@ -44,6 +45,7 @@ from app.services.dialogue.i18n import GENERATION_LANG_DIRECTIVE, LANG_ZH, detec
 from app.services.dialogue.tools import ToolResult
 from app.services.llm.base import LLMMessage
 from app.services.llm.budget import LLMBudgetExceeded
+from app.services.observability.trace_events import TraceEvent
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +81,15 @@ _FALLBACK_RESPONSE = (
 # Audit-trace summaries are bounded so a chatty tool result cannot
 # bloat the persisted metadata.
 _TRACE_SUMMARY_MAX = 200
+
+
+TraceObserver = Callable[[TraceEvent], None]
+
+
+def _no_trace(event: TraceEvent) -> None:
+    """Default observer keeps non-commerce callers unchanged."""
+
+    del event
 
 
 @dataclass
@@ -145,18 +156,48 @@ class AgentService:
         context_note: str = "",
         history: list[LLMMessage] | None = None,
         session_id: int | None = None,
+        on_trace: TraceObserver | None = None,
     ) -> AgentResult:
         """Answer one user message, orchestrating tools as needed.
 
         Records the run's telemetry (outcome mix, tool-call depth) —
         see ``app/services/agent/metrics.py``.
         """
-        result = await self._run(
-            user_message=user_message,
-            user_id=user_id,
-            context_note=context_note,
-            history=history,
-            session_id=session_id,
+        observer = on_trace or _no_trace
+        started = time.perf_counter()
+        observer(
+            TraceEvent(stage="cs.agent", status="start", detail={"max_steps": self._max_steps})
+        )
+        try:
+            result = await self._run(
+                user_message=user_message,
+                user_id=user_id,
+                context_note=context_note,
+                history=history,
+                session_id=session_id,
+                observer=observer,
+            )
+        except BaseException as exc:
+            observer(
+                TraceEvent(
+                    stage="cs.agent",
+                    status="error",
+                    ms=(time.perf_counter() - started) * 1000,
+                    detail={"error_type": type(exc).__name__},
+                )
+            )
+            raise
+        observer(
+            TraceEvent(
+                stage="cs.agent",
+                status="end",
+                ms=(time.perf_counter() - started) * 1000,
+                detail={
+                    "tools": len(result.tool_trace),
+                    "truncated": result.truncated,
+                    "outcome": result.outcome,
+                },
+            )
         )
         record_agent_outcome(result.outcome, len(result.tool_trace))
         return result
@@ -168,6 +209,7 @@ class AgentService:
         context_note: str = "",
         history: list[LLMMessage] | None = None,
         session_id: int | None = None,
+        observer: TraceObserver | None = None,
     ) -> AgentResult:
         """Answer one user message, orchestrating tools as needed.
 
@@ -207,11 +249,28 @@ class AgentService:
         executed: list[str] = []
         trace: list[dict[str, Any]] = []
         evidence: list[dict[str, Any]] = []
+        emit = observer or _no_trace
 
         for step in range(self._max_steps):
+            model_started = time.perf_counter()
+            emit(
+                TraceEvent(
+                    stage="cs.generation",
+                    status="start",
+                    detail={"step": step, "tools": len(tools)},
+                )
+            )
             try:
                 response = await self._llm.generate_with_tools(messages, tools)
-            except LLMBudgetExceeded:
+            except LLMBudgetExceeded as exc:
+                emit(
+                    TraceEvent(
+                        stage="cs.generation",
+                        status="error",
+                        ms=(time.perf_counter() - model_started) * 1000,
+                        detail={"step": step, "error_type": type(exc).__name__},
+                    )
+                )
                 # The request's LLM call budget is spent: stop the loop
                 # with what has already run — degrading beats failing
                 # the whole turn.
@@ -223,6 +282,28 @@ class AgentService:
                     truncated=True,
                     outcome=OUTCOME_BUDGET_EXHAUSTED,
                 )
+            except BaseException as exc:
+                emit(
+                    TraceEvent(
+                        stage="cs.generation",
+                        status="error",
+                        ms=(time.perf_counter() - model_started) * 1000,
+                        detail={"step": step, "error_type": type(exc).__name__},
+                    )
+                )
+                raise
+            emit(
+                TraceEvent(
+                    stage="cs.generation",
+                    status="end",
+                    ms=(time.perf_counter() - model_started) * 1000,
+                    detail={
+                        "step": step,
+                        "tool_calls": len(response.tool_calls or []),
+                        "finish_reason": response.finish_reason,
+                    },
+                )
+            )
             calls = response.tool_calls or []
 
             if not calls:
@@ -262,14 +343,45 @@ class AgentService:
                     staged.executed_tools = executed
                     staged.tool_trace = trace
                     return staged
-                tool_result = await self._execute_call(
-                    call,
-                    messages,
-                    executed,
-                    trace,
-                    user_id,
-                    session_id,
-                    language=detect_language(user_message),
+                tool_started = time.perf_counter()
+                tool_name = str(call.get("name", ""))
+                emit(
+                    TraceEvent(
+                        stage="cs.tool",
+                        status="start",
+                        detail={"tool": tool_name, "step": step},
+                    )
+                )
+                try:
+                    tool_result = await self._execute_call(
+                        call,
+                        messages,
+                        executed,
+                        trace,
+                        user_id,
+                        session_id,
+                        language=detect_language(user_message),
+                    )
+                except BaseException as exc:
+                    emit(
+                        TraceEvent(
+                            stage="cs.tool",
+                            status="error",
+                            ms=(time.perf_counter() - tool_started) * 1000,
+                            detail={"tool": tool_name, "error_type": type(exc).__name__},
+                        )
+                    )
+                    raise
+                emit(
+                    TraceEvent(
+                        stage="cs.tool",
+                        status="end",
+                        ms=(time.perf_counter() - tool_started) * 1000,
+                        detail={
+                            "tool": tool_name,
+                            "ok": tool_result is not None and tool_result.success,
+                        },
+                    )
                 )
                 if (
                     call.get("name") == "search_knowledge_base"

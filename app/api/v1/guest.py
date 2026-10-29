@@ -8,10 +8,11 @@ checks. A numeric conversation ID or a model-provided identity grants no access.
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator, Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator, AsyncIterator, Iterator
+from contextlib import aclosing, contextmanager
 from datetime import timedelta
-from typing import Annotated
+from time import perf_counter
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
@@ -39,7 +40,7 @@ from app.services.chat.coordination import (
 from app.services.chat.persistence import ChatMessagePersister
 from app.services.chat.session_identity import ConversationChangedError, require_session_key
 from app.services.commerce import create_commerce_port
-from app.services.commerce.conversation import CommerceConversation
+from app.services.commerce.conversation import CommerceConversation, CommerceReply
 from app.services.commerce.port import ProviderRejected, ProviderUnknown
 from app.services.commerce.service import PurchaseService
 from app.services.commerce.tools import current_purchase
@@ -49,10 +50,23 @@ from app.services.guest_identity import (
     GuestIdentityUnavailableError,
     GuestPrincipal,
 )
+from app.services.observability.trace_events import TraceEvent
 from app.services.session_service import SessionService
 
 COOKIE_NAME = "rag_guest_session"
 logger = logging.getLogger(__name__)
+
+
+def _pipeline_trace(started: float, status: str, detail: dict[str, object]) -> str:
+    return chat_api._sse_trace_frame(
+        TraceEvent(
+            stage="cs.pipeline",
+            status=status,
+            ms=(perf_counter() - started) * 1000,
+            detail=detail,
+        )
+    )
+
 
 router = APIRouter(prefix="/guest", tags=["public visitor"], route_class=PrivateAPIRoute)
 
@@ -282,55 +296,196 @@ async def chat_stream(
     await require_guest_conversation(
         principal, session_service, body.session_id, body.expected_session_key
     )
-    with commerce_errors():
-        shopping = await commerce.should_handle(principal.user.id, body.message)
-        if shopping:
-            await chat_api._enforce_chat_rate_limit(request)
-            async with commerce.coordinator.hold(body.session_id):
-                await commerce.validate(
-                    principal.user.id, body.session_id, body.expected_session_key, write=True
+
+    async def generate() -> AsyncIterator[str]:
+        pipeline_started = perf_counter()
+        yield chat_api._sse_trace_frame(
+            TraceEvent(stage="cs.pipeline", status="start", detail={"path": "guest"})
+        )
+
+        router_started = perf_counter()
+        yield chat_api._sse_trace_frame(
+            TraceEvent(stage="cs.intent", status="start", detail={"router": "provider"})
+        )
+        try:
+            with commerce_errors():
+                shopping = await commerce.should_handle(principal.user.id, body.message)
+        except HTTPException as exc:
+            yield chat_api._sse_trace_frame(
+                TraceEvent(
+                    stage="cs.intent",
+                    status="error",
+                    ms=(perf_counter() - router_started) * 1000,
+                    detail={"error_type": type(exc).__name__},
                 )
-    if shopping:
+            )
+            yield chat_api._sse_trace_frame(
+                TraceEvent(
+                    stage="cs.pipeline",
+                    status="error",
+                    ms=(perf_counter() - pipeline_started) * 1000,
+                    detail={"error_type": type(exc).__name__},
+                )
+            )
+            yield "data: [STREAM_ERROR]\n\n"
+            return
+        except Exception as exc:
+            logger.warning("Public stream router failed (%s)", type(exc).__name__, exc_info=True)
+            yield chat_api._sse_trace_frame(
+                TraceEvent(
+                    stage="cs.intent",
+                    status="error",
+                    ms=(perf_counter() - router_started) * 1000,
+                    detail={"error_type": type(exc).__name__},
+                )
+            )
+            yield chat_api._sse_trace_frame(
+                TraceEvent(
+                    stage="cs.pipeline",
+                    status="error",
+                    ms=(perf_counter() - pipeline_started) * 1000,
+                    detail={"error_type": type(exc).__name__},
+                )
+            )
+            yield "data: [STREAM_ERROR]\n\n"
+            return
 
-        async def generate() -> AsyncIterator[str]:
+        route = "shopping" if shopping else "support"
+        yield chat_api._sse_trace_frame(
+            TraceEvent(
+                stage="cs.intent",
+                status="end",
+                ms=(perf_counter() - router_started) * 1000,
+                detail={"intent": route, "router": "provider"},
+            )
+        )
+
+        if not shopping:
             try:
-                with commerce_errors():
-                    async with asyncio.timeout(settings.CHAT_STREAM_MAX_SECONDS):
-                        reply = await commerce.respond(
-                            principal.user.id,
-                            body.session_id,
-                            body.expected_session_key,
-                            body.message,
-                        )
-                yield chat_api._sse_frame(reply.content)
-                if body.include_completion and reply.receipt is not None:
-                    payload = json.dumps(
-                        {
-                            "message_id": reply.receipt.message_id,
-                            "session_id": body.session_id,
-                            "session_key": body.expected_session_key,
-                            "status": reply.receipt.status,
-                        }
-                    )
-                    yield f"event: completion\ndata: {payload}\n\n"
-            except HTTPException:
-                yield "data: [STREAM_ERROR]\n\n"
+                support_response = await chat_api.chat_stream(
+                    body.chat_request(),
+                    request,
+                    current_user=principal.user,
+                    chat_service=chat_service,
+                    session_service=session_service,
+                )
             except Exception as exc:
-                # Error text can contain provider diagnostics. Expose only the
-                # protocol failure and never turn a failed planner into a reply.
-                # CancelledError remains a BaseException and is not swallowed.
-                logger.warning("Public shopping stream failed (%s)", type(exc).__name__)
-                yield "data: [STREAM_ERROR]\n\n"
-            yield "data: [DONE]\n\n"
+                if not isinstance(exc, HTTPException):
+                    logger.warning("Public support stream failed (%s)", type(exc).__name__)
+                yield _pipeline_trace(pipeline_started, "error", {"error_type": type(exc).__name__})
+                yield "data: [STREAM_ERROR]\n\ndata: [DONE]\n\n"
+                return
 
-        return chat_api._ClosingStreamingResponse(generate(), media_type="text/event-stream")
-    return await chat_api.chat_stream(
-        body.chat_request(),
-        request,
-        current_user=principal.user,
-        chat_service=chat_service,
-        session_service=session_service,
-    )
+            saw_done = False
+            support_failed = False
+            try:
+                async with aclosing(
+                    cast(AsyncGenerator[str, None], support_response.body_iterator)
+                ) as support_stream:
+                    async for raw_chunk in support_stream:
+                        chunk = raw_chunk.decode() if isinstance(raw_chunk, bytes) else raw_chunk
+                        if chunk == "data: [STREAM_ERROR]\n\n":
+                            support_failed = True
+                            yield _pipeline_trace(
+                                pipeline_started, "error", {"error_type": "StreamError"}
+                            )
+                            yield chunk
+                            continue
+                        if chunk == "data: [DONE]\n\n":
+                            saw_done = True
+                            if not support_failed:
+                                yield _pipeline_trace(pipeline_started, "end", {"route": route})
+                            yield chunk
+                            return
+                        yield chunk
+            except Exception as exc:
+                logger.warning("Public support stream failed (%s)", type(exc).__name__)
+                yield _pipeline_trace(pipeline_started, "error", {"error_type": type(exc).__name__})
+                yield "data: [STREAM_ERROR]\n\ndata: [DONE]\n\n"
+                return
+            if not saw_done:
+                if not support_failed:
+                    yield _pipeline_trace(pipeline_started, "end", {"route": route})
+                yield "data: [DONE]\n\n"
+            return
+
+        events: asyncio.Queue[TraceEvent | None] = asyncio.Queue()
+
+        async def execute() -> CommerceReply:
+            try:
+                return await commerce.respond(
+                    principal.user.id,
+                    body.session_id,
+                    body.expected_session_key,
+                    body.message,
+                    on_trace=events.put_nowait,
+                )
+            finally:
+                events.put_nowait(None)
+
+        task: asyncio.Task[CommerceReply] | None = None
+        try:
+            # The limiter precedes the session fence and billable Agent run.
+            await chat_api._enforce_chat_rate_limit(request)
+            task = asyncio.create_task(execute())
+
+            async with asyncio.timeout(
+                settings.CHAT_STREAM_MAX_SECONDS if settings.CHAT_STREAM_MAX_SECONDS > 0 else None
+            ):
+                while True:
+                    event = await events.get()
+                    if event is None:
+                        break
+                    yield chat_api._sse_trace_frame(event)
+                reply = await task
+            yield chat_api._sse_frame(reply.content)
+            if body.include_completion and reply.receipt is not None:
+                payload = json.dumps(
+                    {
+                        "message_id": reply.receipt.message_id,
+                        "session_id": body.session_id,
+                        "session_key": body.expected_session_key,
+                        "status": reply.receipt.status,
+                    }
+                )
+                yield f"event: completion\ndata: {payload}\n\n"
+            yield chat_api._sse_trace_frame(
+                TraceEvent(
+                    stage="cs.pipeline",
+                    status="end",
+                    ms=(perf_counter() - pipeline_started) * 1000,
+                    detail={"route": route},
+                )
+            )
+        except Exception as exc:
+            # Error text can contain provider diagnostics. Expose only the
+            # protocol failure and never turn a failed planner into a reply.
+            if not isinstance(exc, HTTPException):
+                logger.warning("Public shopping stream failed (%s)", type(exc).__name__)
+            if task is not None:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                while not events.empty():
+                    event = events.get_nowait()
+                    if event is not None:
+                        yield chat_api._sse_trace_frame(event)
+            yield chat_api._sse_trace_frame(
+                TraceEvent(
+                    stage="cs.pipeline",
+                    status="error",
+                    ms=(perf_counter() - pipeline_started) * 1000,
+                    detail={"error_type": type(exc).__name__},
+                )
+            )
+            yield "data: [STREAM_ERROR]\n\n"
+        finally:
+            if task is not None and not task.done():
+                task.cancel()
+            if task is not None:
+                await asyncio.gather(task, return_exceptions=True)
+        yield "data: [DONE]\n\n"
+
+    return chat_api._ClosingStreamingResponse(generate(), media_type="text/event-stream")
 
 
 @router.get("/history", response_model=chat_api.ChatHistoryResponse)

@@ -486,11 +486,11 @@ async def test_catalog_search_is_structured_filtered_sorted_and_paged(shop):
     assert [item.sku_id for item in mats.items] == ["MAT-04", "MAT-03", "MAT-02", "MAT-01"]
     first = await p.search_products(1, "", page_size=2)
     assert [item.sku_id for item in first.items] == ["ANC-02", "ANC-03"]
-    assert first.total_estimate == 26 and first.next_page_token == "2"
+    assert first.total_estimate == 30 and first.next_page_token == "2"
     second = await p.search_products(1, "", page_size=2, page_token=first.next_page_token)
     assert [item.sku_id for item in second.items] == ["ANC-04", "ANC-05"]
     newest = await p.search_products(1, "", sort="newest", page_size=3)
-    assert [item.sku_id for item in newest.items] == ["MOU-05", "MOU-04", "MOU-02"]
+    assert [item.sku_id for item in newest.items] == ["SPK-05", "SPK-04", "SPK-02"]
     assert await p.search_products(1, "不存在的冰箱商品") == CatalogPage(items=[], total_estimate=0)
     with pytest.raises(ProviderRejected):
         await p.search_products(1, "", page_size=0)

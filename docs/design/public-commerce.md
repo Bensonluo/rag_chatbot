@@ -70,7 +70,7 @@ flowchart LR
 
 `commerce-provider` 只监听内部 Docker 网络，不发布宿主端口；API 通过 `ExternalCommercePort` 和 Bearer token 访问。`CommerceView` 仍是服务端事实投影，没有 actions/action_ref。前端不解析该结构，也不发起购买专用 POST。
 
-SSE 输出文本帧、可选持久化 completion 和 DONE。completion 必须匹配原 session_key；没有有效 completion 时不显示普通“接收完成”，只提示聊天保存未确认、交易状态需查询。聊天保存失败不回滚业务，也不虚构 message ID。
+SSE 从消费者消息入口开始输出 `event: trace`：provider 路由、Agent 每轮模型调用、每个工具、最终 outcome 和错误都必须实时进入 Execution Chain；购物接管不是普通对话图的观测例外。文本帧、可选持久化 completion 和 DONE 随 trace 之后输出。completion 必须匹配原 session_key；没有有效 completion 时不显示普通“接收完成”，只提示聊天保存未确认、交易状态需查询。聊天保存失败不回滚业务，也不虚构 message ID。
 
 ## 千万变体边界
 

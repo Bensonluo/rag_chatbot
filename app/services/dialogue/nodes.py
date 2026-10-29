@@ -109,7 +109,7 @@ from app.services.handoff.service import (
 )
 from app.services.intent.rule_based import looks_like_handoff
 from app.services.observability.pipeline_tracer import traced_stage
-from app.services.observability.trace_events import emit_trace
+from app.services.observability.trace_events import TraceEvent, emit_trace
 from app.services.retrieval.metrics import (
     RETRIEVAL_FILTER_FALLBACKS,
     RETRIEVAL_FILTERED_SEARCHES,
@@ -1618,6 +1618,14 @@ class NodeFactory:
             block = "用户长期信息：" + "；".join(facts)
             context_note = f"{context_note}。{block}" if context_note else block
 
+        def agent_trace(event: TraceEvent) -> None:
+            emit_trace(
+                event.stage,
+                status=event.status,
+                ms=event.ms,
+                **event.detail,
+            )
+
         try:
             history = None
             if self._history_provider is not None:
@@ -1625,6 +1633,7 @@ class NodeFactory:
                     history = await self._turn_history(state)
                 except Exception:  # noqa: BLE001 - history is best-effort
                     logger.warning("History fetch failed; agent runs without prior turns")
+
             result = await self._agent_service.run(
                 user_message=state.get("message", ""),
                 user_id=state.get("user_id"),
@@ -1634,6 +1643,7 @@ class NodeFactory:
                 # tools (human handoff) open tickets against the real
                 # session, never a model-supplied one.
                 session_id=state.get("session_id"),
+                on_trace=agent_trace,
             )
         except NotImplementedError:
             logger.warning(

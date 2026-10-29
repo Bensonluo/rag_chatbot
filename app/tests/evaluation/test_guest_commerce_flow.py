@@ -5,6 +5,7 @@ rules: semantic routing, product references, quantities, and confirmation
 intent are represented as the model's chosen tool calls.
 """
 
+import asyncio
 import json
 import socket
 from collections.abc import AsyncGenerator, Generator
@@ -14,11 +15,13 @@ from typing import Any, cast
 from uuid import uuid4
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from httpx import ASGITransport, AsyncClient, Response
 from sqlalchemy import func, select
 
+from app.api.v1 import chat as chat_api
 from app.api.v1 import guest as guest_api
+from app.config.settings import settings
 from app.models.database.commerce import (
     MockCommerceObject,
     MockCommerceReceipt,
@@ -79,8 +82,6 @@ class ScriptedShoppingLLM:
         self, messages: list[LLMMessage], tools: list[dict[str, Any]]
     ) -> LLMResponse:
         del tools
-        if messages and messages[-1].role == "tool":
-            return LLMResponse(content="已根据外部工具结果处理。", model="test")
         plan = self.plans.pop(0) if self.plans else None
         if plan is None:
             return LLMResponse(content="请补充商品、偏好和数量。", model="test")
@@ -105,6 +106,11 @@ class ShopHttp:
     conversation: CommerceConversation
     clock: ShopClock
     provider: ScriptedShoppingLLM
+
+
+@dataclass
+class _InlineStreamResponse:
+    body_iterator: AsyncGenerator[str, None]
 
 
 @pytest.fixture
@@ -181,14 +187,19 @@ def _ui(value: dict[str, Any]) -> dict[str, Any]:
     return parsed.model_dump(mode="json")
 
 
-def _stream_parse(body: str) -> tuple[str, list[dict[str, Any]]]:
+def _stream_parse(body: str) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
     chunks: list[str] = []
     completions: list[dict[str, Any]] = []
+    traces: list[dict[str, Any]] = []
     for frame in filter(None, body.split("\n\n")):
         if frame.startswith("event: completion"):
             for line in frame.split("\n"):
                 if line.startswith("data: "):
                     completions.append(json.loads(line.split("data: ", 1)[1]))
+        elif frame.startswith("event: trace"):
+            for line in frame.split("\n"):
+                if line.startswith("data: "):
+                    traces.append(json.loads(line.split("data: ", 1)[1]))
         elif frame.startswith("data: ["):
             continue
         elif frame.startswith("data: "):
@@ -199,7 +210,7 @@ def _stream_parse(body: str) -> tuple[str, list[dict[str, Any]]]:
                     if line.startswith("data: ")
                 )
             )
-    return "\n".join(chunks), completions
+    return "\n".join(chunks), completions, traces
 
 
 async def _search(shop: ShopHttp, client: AsyncClient, browser: dict[str, Any]) -> dict[str, Any]:
@@ -400,10 +411,179 @@ async def test_provider_agent_completes_purchase_with_tools_only(
         if "order_id" in ordered
         else next(block for block in ordered["blocks"] if block["type"] == "payment")["order_id"]
     )
+
     paid = await _pay(shop, client, browser, ordered)
     assert paid["stage"] == "paid"
     assert await _counts(shop) == {"order": 1, "payment": 1}
     assert order_id
+
+
+async def test_stream_exposes_router_agent_and_tool_trace_from_entry(shop: ShopHttp) -> None:
+    client = shop.browsers.first
+    browser = await _boot(client)
+    response = await _chat(
+        client,
+        browser,
+        "我想买音箱",
+        stream=True,
+        shop=shop,
+        plan={"tool": "search_products", "arguments": {"query": "音箱"}},
+    )
+    assert response.status_code == 200, response.text
+    content, completions, traces = _stream_parse(response.text)
+
+    assert "商品：" in content
+    assert completions and completions[0]["status"] == "completed"
+    assert [(event["stage"], event["status"]) for event in traces] == [
+        ("cs.pipeline", "start"),
+        ("cs.intent", "start"),
+        ("cs.intent", "end"),
+        ("cs.agent", "start"),
+        ("cs.generation", "start"),
+        ("cs.generation", "end"),
+        ("cs.tool", "start"),
+        ("cs.tool", "end"),
+        ("cs.generation", "start"),
+        ("cs.generation", "end"),
+        ("cs.agent", "end"),
+        ("cs.pipeline", "end"),
+    ]
+    intent_end = traces[2]
+    assert intent_end["detail"]["intent"] == "shopping"
+    tool_events = [event for event in traces if event["stage"] == "cs.tool"]
+    assert all(event["detail"]["tool"] == "commerce_search_products" for event in tool_events)
+    assert tool_events[-1]["detail"]["ok"] is True
+
+
+async def test_agent_recovers_from_empty_search_with_broader_category(shop: ShopHttp) -> None:
+    client = shop.browsers.first
+    browser = await _boot(client)
+    shop.provider.routes.append("shopping")
+    shop.provider.plans.extend(
+        [
+            {"tool": "search_products", "arguments": {"query": "音响"}},
+            {"tool": "search_products", "arguments": {"query": "音箱"}},
+        ]
+    )
+    response = await client.post(
+        "/api/v1/guest/chat",
+        headers=_BROWSER,
+        json={**_scope(browser), "message": "我想买个音响，你有什么建议吗"},
+    )
+    assert response.status_code == 200, response.text
+    assert "音箱" in response.json()["content"]
+    assert shop.provider.plans == []
+
+
+async def test_terminal_empty_search_preserves_focused_clarification(shop: ShopHttp) -> None:
+    client = shop.browsers.first
+    browser = await _boot(client)
+    shop.provider.routes.append("shopping")
+    shop.provider.plans.append({"tool": "search_products", "arguments": {"query": "不存在的品类"}})
+    response = await _chat(
+        client,
+        browser,
+        "我想买一个不存在的东西",
+        shop=shop,
+        plan={"tool": "search_products", "arguments": {"query": "不存在的品类"}},
+    )
+    assert response.status_code == 200, response.text
+    content = response.json()["content"]
+    assert "没有找到匹配商品。" in content
+    assert "请选择模拟商品" not in content
+
+
+async def test_stream_exposes_provider_router_before_support_graph(shop: ShopHttp) -> None:
+    client = shop.browsers.second
+    browser = await _boot(client)
+    response = await _chat(client, browser, "你好", stream=True, shop=shop, route="support")
+    assert response.status_code == 200, response.text
+    _, _, traces = _stream_parse(response.text)
+    assert [(event["stage"], event["status"]) for event in traces[:3]] == [
+        ("cs.pipeline", "start"),
+        ("cs.intent", "start"),
+        ("cs.intent", "end"),
+    ]
+    assert traces[2]["detail"]["intent"] == "support"
+
+
+async def test_support_in_band_failure_emits_pipeline_error_and_done(
+    shop: ShopHttp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = shop.browsers.first
+    browser = await _boot(client)
+
+    async def support_stream() -> AsyncGenerator[str, None]:
+        yield "event: trace\n"
+        yield 'data: {"stage":"cs.generation","status":"error","detail":{}}\n\n'
+        yield "data: [STREAM_ERROR]\n\n"
+        yield "data: [DONE]\n\n"
+
+    async def fake_support_stream(*args: Any, **kwargs: Any) -> _InlineStreamResponse:
+        del args, kwargs
+        return _InlineStreamResponse(support_stream())
+
+    monkeypatch.setattr(chat_api, "chat_stream", fake_support_stream)
+    response = await _chat(client, browser, "失败", stream=True, shop=shop, route="support")
+    assert response.status_code == 200, response.text
+    assert response.text.endswith("data: [STREAM_ERROR]\n\ndata: [DONE]\n\n")
+    _, _, traces = _stream_parse(response.text)
+    assert (traces[-1]["stage"], traces[-1]["status"]) == ("cs.pipeline", "error")
+
+
+async def test_shopping_stream_timeout_emits_full_error_chain(
+    shop: ShopHttp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = shop.browsers.first
+    browser = await _boot(client)
+
+    class SlowProvider:
+        async def generate(self, messages: list[LLMMessage], **kwargs: Any) -> LLMResponse:
+            del messages, kwargs
+            return LLMResponse(content=json.dumps({"route": "shopping"}), model="slow-provider")
+
+        async def generate_with_tools(
+            self, messages: list[LLMMessage], tools: list[dict[str, Any]]
+        ) -> LLMResponse:
+            del messages, tools
+            await asyncio.sleep(0.05)
+            raise AssertionError("timeout should cancel this call")
+
+    original = shop.conversation.provider
+    shop.conversation.provider = SlowProvider()
+    monkeypatch.setattr(settings, "CHAT_STREAM_MAX_SECONDS", 0.01)
+    try:
+        response = await _chat(client, browser, "买东西", stream=True)
+    finally:
+        shop.conversation.provider = original
+    assert response.status_code == 200, response.text
+    assert response.text.endswith("data: [STREAM_ERROR]\n\ndata: [DONE]\n\n")
+    _, _, traces = _stream_parse(response.text)
+    statuses = [(event["stage"], event["status"]) for event in traces]
+    assert ("cs.generation", "error") in statuses
+    assert ("cs.agent", "error") in statuses
+    assert (traces[-1]["stage"], traces[-1]["status"]) == ("cs.pipeline", "error")
+
+
+async def test_rate_limit_rejects_before_agent_business_or_llm_run(
+    shop: ShopHttp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = shop.browsers.first
+    browser = await _boot(client)
+
+    async def reject(request: Any) -> None:
+        del request
+        raise HTTPException(status_code=429, detail="rate limited")
+
+    monkeypatch.setattr(chat_api, "_enforce_chat_rate_limit", reject)
+    response = await _chat(client, browser, "买东西", stream=True, shop=shop)
+    assert response.status_code == 200, response.text
+    assert response.text.endswith("data: [STREAM_ERROR]\n\ndata: [DONE]\n\n")
+    _, _, traces = _stream_parse(response.text)
+    statuses = [(event["stage"], event["status"]) for event in traces]
+    assert ("cs.agent", "start") not in statuses
+    assert (traces[-1]["stage"], traces[-1]["status"]) == ("cs.pipeline", "error")
+    assert await _operations(shop) == 0
 
 
 async def test_llm_clarification_without_tool_has_no_business_write(shop: ShopHttp) -> None:

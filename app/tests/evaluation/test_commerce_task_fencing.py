@@ -25,6 +25,7 @@ from app.tests.evaluation.test_guest_commerce_flow import (
     _history,
     _search,
     _status,
+    _stream_parse,
     _ui,
 )
 from app.tests.evaluation.test_guest_commerce_flow import shop as shop
@@ -140,8 +141,11 @@ async def test_successful_tool_then_native_failure_preserves_fence_and_recoverab
     )
     shop.conversation.provider = planner
     response = await _chat(shop.browsers.first, browser, "我选白色2个", stream=True)
-    assert response.status_code == 200
-    assert response.text == "data: [STREAM_ERROR]\n\ndata: [DONE]\n\n"
+    _, _, traces = _stream_parse(response.text)
+    assert response.text.endswith("data: [STREAM_ERROR]\n\ndata: [DONE]\n\n")
+    assert ("cs.tool", "end") in [(event["stage"], event["status"]) for event in traces]
+    assert ("cs.generation", "error") in [(event["stage"], event["status"]) for event in traces]
+    assert (traces[-1]["stage"], traces[-1]["status"]) == ("cs.pipeline", "error")
     assert planner.calls == 2
     assert await _history(shop.browsers.first, browser) == before_history
     recovered = await _status(shop.browsers.first, browser, view["purchase_id"])
@@ -164,8 +168,10 @@ async def test_native_first_call_failure_fences_old_proposal_without_business_ef
     planner = NativePlanner("commerce_update_cart_lines", {}, fail_first=True)
     shop.conversation.provider = planner
     response = await _chat(shop.browsers.first, browser, "继续选购", stream=True)
-    assert response.status_code == 200
-    assert response.text == "data: [STREAM_ERROR]\n\ndata: [DONE]\n\n"
+    _, _, traces = _stream_parse(response.text)
+    assert response.text.endswith("data: [STREAM_ERROR]\n\ndata: [DONE]\n\n")
+    assert ("cs.generation", "error") in [(event["stage"], event["status"]) for event in traces]
+    assert (traces[-1]["stage"], traces[-1]["status"]) == ("cs.pipeline", "error")
     assert planner.calls == 1
     assert await _history(shop.browsers.first, browser) == before_history
     shop.conversation.provider = original_provider

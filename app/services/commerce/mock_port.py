@@ -105,6 +105,16 @@ _FAMILY_SPECS: tuple[dict[str, Any], ...] = (
         "base_price_minor": 9900,
         "price_step_minor": 1200,
     },
+    {
+        "product_id": "speaker-conference",
+        "code": "SPK",
+        "family": "会议音箱",
+        "description": "模拟商品：会议室扩音与语音清晰播放；用于演示购物流程。",
+        "attribute": "connection",
+        "variants": ("蓝牙", "有线", "无线麦克风套装", "多功能播放器", "便携式"),
+        "base_price_minor": 59900,
+        "price_step_minor": 5000,
+    },
 )
 
 

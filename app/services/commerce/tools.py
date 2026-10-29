@@ -198,8 +198,9 @@ def create_commerce_tools(
         (
             "search_products",
             "Search the mock catalog with a short product query plus structured filters, sort and "
-            "paging; never places an order. Invite clarification when the customer's product "
-            "reference or budget is ambiguous.",
+            "paging; never places an order. If the result is empty, reinterpret the customer's "
+            "need as a broader standard product-category query and search again before asking a "
+            "focused clarification. Invite clarification when the reference or budget is ambiguous.",
             {
                 "query": {"type": "string", "maxLength": 500},
                 "min_price": {
