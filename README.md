@@ -697,11 +697,12 @@ Current text-commerce backend gate: Ruff, formatting and strict Mypy pass; the
 complete suite passes **3772 tests with 3 configured skips, 5 warnings** (core
 coverage 93.58%). A real local HTTP smoke drove the external adapter through
 search → multi-line cart → quote → order → payment → status, including stable
-request-key replay and refusal of a conflicting replay. Production rollout of
-this provider boundary is tracked in the deployment records; the earlier
-production text-commerce journey proved the chat/Agent contract with zero
-purchase-action requests. See the
-[deployment record](docs/operations/agent-text-commerce-deployment-2026-10-29.md).
+request-key replay and refusal of a conflicting replay. The production canary
+then completed the same text-only journey against the separate internal
+provider with three cart lines, one order, one payment and zero purchase-action
+requests. See the
+[external provider deployment record](docs/operations/external-commerce-provider-deployment-2026-10-29.md)
+and the earlier [Agent text-commerce record](docs/operations/agent-text-commerce-deployment-2026-10-29.md).
 
 New migrations are `d64b8c0f9532` (anonymous visitors) and `e75c9d1064a3`
 (commerce framework), following `c53a7d9e8421`. The 2026-10-29 deployment kept
