@@ -159,6 +159,31 @@ provider SQLite 在线备份：
 
 本次发布前发现并修正了一个真实规划缺陷：消息 `id=1327` 中模型把总预算拆成各类目 `max_price`，导致显示器/摄像头/椅子被错误报告为无结果。修正后的系统提示和工具参数说明明确：总预算在组合层控制，类目搜索不得自行设置单项价格上限；带筛选空结果必须去筛选复搜。消息 `id=1329` 证明修正后无自造 `max_price`。
 
+## 2026-10-29 14:00 候选上限与路由置信度更新
+
+- 后端运行时提交：`606cceb fix(commerce): cap visible candidates and trace confidence`
+- `DEPLOYED_REVISION=606cceb`
+- API image manifest list digest：`sha256:16e6f3979e3b75af07459b10664e0515422f3c702c36d9eb8416c2a39e6c3501`
+- commerce-provider image manifest list digest：`sha256:ea4e5a65129c4c5385e9a0fb6fb3a5d8fc93e80123cc4eb451f941d841bd265e`
+- PostgreSQL Alembic 保持 `e75c9d1064a3 (head)`；无迁移、备份恢复或数据覆盖。前端无发布。
+- 部署后 provider health 为 healthy，API `/health` 为 200。
+
+变更：
+
+- 每轮购物回复的权威 typed 候选硬上限为 5 个；多次类目搜索按各查询的 provider 排名轮转均衡，合并视图保留总量估计并提示可换一批。
+- 模型组合建议只能引用当前合并候选块中仍展示的 SKU；交易事实仍由服务端投影。
+- shopping/support 路由 LLM 输出 `confidence`，SSE 在业务执行前发出 `cs.intent detail:{intent,confidence,router,reason}`，现有 Execution Chain 恢复显示意图与置信度。
+- 代表性验证：Ruff check/format 与 strict Mypy 通过；commerce/provider/evaluation 相关 139 项通过；针对最终断言的 39 项复测通过。按用户要求，本轮不重复运行 3803 项全量。
+
+生产浏览器验证：
+
+1. 新访客发送 `我想买一台电视，帮忙推荐`。
+2. 权威候选正好 5 行：3 个显示器 SKU、2 个投影仪 SKU；整条回复唯一 SKU 引用数为 5。
+3. 回复提示“目录还有更多匹配商品；可说明偏好或要求换一批，本轮最多展示5个候选”。
+4. Execution Chain 顺序为 Pipeline Entry → Intent → Agent Tool Loop；Intent 卡片显示 `shopping` 与 `confidence 98%`。
+5. 浏览器仅调用 `/api/v1/guest/chat/stream`，没有 `/commerce/purchases/...` mutation 请求。
+
+
 ## 日志与已知非阻塞问题
 
 commerce-provider 日志无 traceback/error。API 主链路无 provider fallback 或 simulated planner。仍有一个既有非购物路径警告：MiniMax light tier 余额不足（HTTP 402），session compression 因此按设计 best-effort 失败；GLM 购物 Agent 与外部 provider 不受影响。
