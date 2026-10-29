@@ -27,6 +27,11 @@ from app.services.commerce.service import PurchaseService
 from app.services.dialogue.tools import ToolDefinition, ToolRegistry
 
 _SORTS = ("relevance", "price_asc", "price_desc", "newest")
+# One guest-facing turn keeps at most five typed candidates, even when the
+# model searches several provider categories. Provider paging remains larger;
+# this is the Agent presentation contract, not a provider catalog limit.
+_AGENT_PAGE_SIZE_MAX = 5
+_VISIBLE_CANDIDATES_MAX = 5
 _PAGE_SIZE_MAX = 50
 
 
@@ -106,9 +111,29 @@ def create_commerce_tools(
     if type(owner) is not int or owner <= 0:
         raise ValidationError("A verified visitor identity is required")
     registry = ToolRegistry()
-    catalog_candidates: list[CatalogItem] = []
+    catalog_batches: list[list[CatalogItem]] = []
     seen_catalog_skus: set[str] = set()
+    catalog_total_estimate = 0
     search_batches = 0
+
+    def balanced_catalog_candidates() -> list[CatalogItem]:
+        """Round-robin the provider rankings across searched categories."""
+
+        selected: list[CatalogItem] = []
+        depth = 0
+        while len(selected) < _VISIBLE_CANDIDATES_MAX:
+            added = False
+            for batch in catalog_batches:
+                if depth >= len(batch):
+                    continue
+                selected.append(batch[depth])
+                added = True
+                if len(selected) == _VISIBLE_CANDIDATES_MAX:
+                    break
+            if not added:
+                break
+            depth += 1
+        return selected
 
     async def target(args: dict[str, Any], *, create: bool = False) -> CommerceView:
         identifier = args.get("purchase_id")
@@ -122,16 +147,17 @@ def create_commerce_tools(
         return result
 
     async def search(args: dict[str, Any]) -> CommerceView:
-        nonlocal search_batches
+        nonlocal catalog_total_estimate, search_batches
         query = args.get("query", "")
         if not isinstance(query, str) or len(query) > 500:
             raise ValidationError("Search query must be a bounded string")
         sort = args.get("sort", "relevance")
         if sort not in _SORTS:
             raise ValidationError("Catalog sort must be one of: " + ", ".join(_SORTS))
-        page_size = args.get("page_size", 10)
-        if type(page_size) is not int or not 1 <= page_size <= _PAGE_SIZE_MAX:
+        requested_page_size = args.get("page_size", 3)
+        if type(requested_page_size) is not int or not 1 <= requested_page_size <= _PAGE_SIZE_MAX:
             raise ValidationError(f"Page size must be an integer from 1 to {_PAGE_SIZE_MAX}")
+        page_size = min(requested_page_size, _AGENT_PAGE_SIZE_MAX)
         page_token = args.get("page_token")
         if page_token is not None and (not isinstance(page_token, str) or not page_token):
             raise ValidationError("Page token must be a non-empty cursor string")
@@ -146,24 +172,31 @@ def create_commerce_tools(
             page_token=page_token,
         )
         search_batches += 1
+        batch: list[CatalogItem] = []
         for block in result.blocks:
             if not isinstance(block, CatalogBlock):
                 continue
+            catalog_total_estimate += max(block.total_estimate, len(block.items))
             for item in block.items:
-                if item.sku_id not in seen_catalog_skus:
-                    seen_catalog_skus.add(item.sku_id)
-                    catalog_candidates.append(item)
+                if item.sku_id in seen_catalog_skus:
+                    continue
+                seen_catalog_skus.add(item.sku_id)
+                batch.append(item)
+        catalog_batches.append(batch)
+        visible_candidates = balanced_catalog_candidates()
         if search_batches == 1:
             return result
         # A single open need can span several standard categories. The model
-        # chooses which provider categories to search; this presentation-only
-        # merge keeps every returned typed fact instead of dropping all but
-        # the final category. Per-query page tokens cannot be combined, so a
-        # merged page deliberately exposes the current bounded candidate set.
+        # chooses the categories; this presentation-only round-robin keeps the
+        # guest-facing typed set bounded while preserving category diversity.
+        # Per-query page tokens cannot be combined, so a merged page has none.
         return result.model_copy(
             update={
                 "blocks": [
-                    CatalogBlock(items=catalog_candidates, total_estimate=len(catalog_candidates)),
+                    CatalogBlock(
+                        items=visible_candidates,
+                        total_estimate=max(catalog_total_estimate, len(visible_candidates)),
+                    ),
                     *(block for block in result.blocks if not isinstance(block, CatalogBlock)),
                 ]
             }
@@ -273,7 +306,13 @@ def create_commerce_tools(
                     "description": "Exact catalog attribute filters from displayed items",
                 },
                 "sort": {"type": "string", "enum": list(_SORTS)},
-                "page_size": {"type": "integer", "minimum": 1, "maximum": _PAGE_SIZE_MAX},
+                "page_size": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": _AGENT_PAGE_SIZE_MAX,
+                    "default": 3,
+                    "description": "Candidates per category page; the turn displays at most five total",
+                },
                 "page_token": {
                     "type": "string",
                     "description": "Opaque cursor from a previous result page",

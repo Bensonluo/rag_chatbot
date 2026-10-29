@@ -76,7 +76,12 @@ class ScriptedShoppingLLM:
     async def generate(self, messages: list[LLMMessage], **kwargs: Any) -> LLMResponse:
         del messages, kwargs
         route = self.routes.pop(0) if self.routes else "shopping"
-        return LLMResponse(content=json.dumps({"route": route, "reason": "script"}), model="test")
+        return LLMResponse(
+            content=json.dumps(
+                {"route": route, "confidence": 0.97, "reason": "script"}, ensure_ascii=False
+            ),
+            model="test",
+        )
 
     async def generate_with_tools(
         self, messages: list[LLMMessage], tools: list[dict[str, Any]]
@@ -442,6 +447,7 @@ async def test_stream_exposes_router_agent_and_tool_trace_from_entry(shop: ShopH
     assert [(event["stage"], event["status"]) for event in traces] == [
         ("cs.pipeline", "start"),
         ("cs.intent", "start"),
+        ("cs.intent", "detail"),
         ("cs.intent", "end"),
         ("cs.agent", "start"),
         ("cs.generation", "start"),
@@ -453,8 +459,10 @@ async def test_stream_exposes_router_agent_and_tool_trace_from_entry(shop: ShopH
         ("cs.agent", "end"),
         ("cs.pipeline", "end"),
     ]
-    intent_end = traces[2]
-    assert intent_end["detail"]["intent"] == "shopping"
+    intent_detail = traces[2]
+    assert intent_detail["detail"]["intent"] == "shopping"
+    assert intent_detail["detail"]["confidence"] == 0.97
+    assert intent_detail["detail"]["router"] == "provider"
     tool_events = [event for event in traces if event["stage"] == "cs.tool"]
     assert all(event["detail"]["tool"] == "commerce_search_products" for event in tool_events)
     assert tool_events[-1]["detail"]["ok"] is True
@@ -504,12 +512,14 @@ async def test_stream_exposes_provider_router_before_support_graph(shop: ShopHtt
     response = await _chat(client, browser, "你好", stream=True, shop=shop, route="support")
     assert response.status_code == 200, response.text
     _, _, traces = _stream_parse(response.text)
-    assert [(event["stage"], event["status"]) for event in traces[:3]] == [
+    assert [(event["stage"], event["status"]) for event in traces[:4]] == [
         ("cs.pipeline", "start"),
         ("cs.intent", "start"),
+        ("cs.intent", "detail"),
         ("cs.intent", "end"),
     ]
     assert traces[2]["detail"]["intent"] == "support"
+    assert traces[2]["detail"]["confidence"] == 0.97
 
 
 async def test_support_in_band_failure_emits_pipeline_error_and_done(
@@ -545,7 +555,13 @@ async def test_shopping_stream_timeout_emits_full_error_chain(
     class SlowProvider:
         async def generate(self, messages: list[LLMMessage], **kwargs: Any) -> LLMResponse:
             del messages, kwargs
-            return LLMResponse(content=json.dumps({"route": "shopping"}), model="slow-provider")
+            return LLMResponse(
+                content=json.dumps(
+                    {"route": "shopping", "confidence": 0.9, "reason": "script"},
+                    ensure_ascii=False,
+                ),
+                model="slow-provider",
+            )
 
         async def generate_with_tools(
             self, messages: list[LLMMessage], tools: list[dict[str, Any]]

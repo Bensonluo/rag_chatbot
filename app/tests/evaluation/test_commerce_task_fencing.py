@@ -52,7 +52,11 @@ class NativePlanner:
     async def generate(self, messages: list[LLMMessage], **kwargs: Any) -> LLMResponse:
         del messages, kwargs
         return LLMResponse(
-            content=json.dumps({"route": "shopping", "reason": "native"}), model="native"
+            content=json.dumps(
+                {"route": "shopping", "confidence": 0.9, "reason": "native"},
+                ensure_ascii=False,
+            ),
+            model="native",
         )
 
     async def generate_with_tools(

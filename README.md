@@ -679,11 +679,14 @@ bounded Agent discovers the provider's authoritative category taxonomy, maps
 open-ended natural-language needs onto one or more standard categories, performs
 structured multi-category search/pagination, understands references and
 constraints, updates a multi-line cart, prepares a quote, creates an order and
-settles mock payment entirely through chat text. `commit_checkout` and
+settles mock payment entirely through chat text. Catalog turns keep at most five
+typed candidates, balanced across the searched categories, while the LLM may
+compose labeled bundle advice only from that displayed set. `commit_checkout` and
 `mock_pay` are Agent tools only when the current turn carries a fresh, explicit
 authorization for the latest displayed purchase version; handlers recheck owner,
 stage, confirmation/payment and generation. The two irreversible steps require
-separate confirmations.
+separate confirmations. The live Execution Chain publishes the provider router's
+intent and confidence before any business work.
 
 Commerce facts live in the separate internal `commerce-provider` FastAPI service:
 a deterministic 100,000,000-SKU addressable catalog with a 25-category taxonomy,

@@ -46,8 +46,9 @@ flowchart LR
 ## 开放式需求与类目发现
 
 - commerce provider 通过 Bearer 保护的 `GET /commerce/categories` 暴露权威类目事实：25 个标准类目的 id、名称、描述和允许属性值。用户语言别名仍是 provider 内部检索索引，不进入语义层，也不作为可配置路由表。
-- 面对开放式需求（例如“预算 1500 配一个远程办公角落”），LLM Agent 先发现 taxonomy，再把需求映射到一个或多个标准类目，逐类搜索 3–5 个候选，并在零结果时自行改写或澄清；不存在确定性查询重写器。
-- `create_commerce_tools()` 的请求局部状态累计多次搜索的 typed 候选并按 `sku_id` 去重。第一次搜索视图保持原分页语义；后续搜索后返回一个合并目录块和最新非目录块。合并只做展示层去重，不替模型决定类目或搜索顺序；不同查询的 page token 不能合并，因此合并视图不带 `next_page_token`。
+- 面对开放式需求（例如“预算 1500 配一个远程办公角落”），LLM Agent 先发现 taxonomy，再把需求映射到一个或多个标准类目并逐类搜索；不存在确定性查询重写器。
+- `create_commerce_tools()` 的请求局部状态按 `sku_id` 去重，并跨已搜索类目做轮转均衡；每轮可见 typed 候选总数硬上限为 5 个。第一次搜索保持单查询分页语义；后续搜索返回一个合并目录块和最新非目录块。合并只做展示层收敛，不替模型决定类目或搜索顺序；不同查询的 page token 不能合并，因此合并视图不带 `next_page_token`，但保留 provider 总量估计并提示可换一批。
+- 模型组合建议只能引用当前合并候选块中仍展示的 SKU；购物车、报价、订单和付款仍以服务端事实为准。
 - 整体预算是组合总价约束，不是固定类目配额。除非用户明确给出单项/类目价格上限，LLM 不得在类目搜索上自行设置 `max_price`；先取完整候选，再在组合层控制总价。带筛选搜索为空时必须先去掉非用户筛选复搜，才能说明缺候选。
 - Agent 内部上限为 `max_steps=6`，每请求 LLM 预算仍为 `CHAT_LLM_CALL_BUDGET=8`；公开 IP/聊天限流不变。该上限只放宽规划轮数，不放宽滥用控制或交易确认门。
 
@@ -78,7 +79,7 @@ flowchart LR
 
 `commerce-provider` 只监听内部 Docker 网络，不发布宿主端口；API 通过 `ExternalCommercePort` 和 Bearer token 访问。`CommerceView` 仍是服务端事实投影，没有 actions/action_ref。前端不解析该结构，也不发起购买专用 POST。
 
-SSE 从消费者消息入口开始输出 `event: trace`：provider 路由、Agent 每轮模型调用、每个工具、最终 outcome 和错误都必须实时进入 Execution Chain；购物接管不是普通对话图的观测例外。文本帧、可选持久化 completion 和 DONE 随 trace 之后输出。completion 必须匹配原 session_key；没有有效 completion 时不显示普通“接收完成”，只提示聊天保存未确认、交易状态需查询。聊天保存失败不回滚业务，也不虚构 message ID。
+SSE 从消费者消息入口开始输出 `event: trace`：provider 路由（含 `intent`、`confidence` 与 router）、Agent 每轮模型调用、每个工具、最终 outcome 和错误都必须实时进入 Execution Chain；购物接管不是普通对话图的观测例外。文本帧、可选持久化 completion 和 DONE 随 trace 之后输出。completion 必须匹配原 session_key；没有有效 completion 时不显示普通“接收完成”，只提示聊天保存未确认、交易状态需查询。聊天保存失败不回滚业务，也不虚构 message ID。
 
 ## 千万变体边界
 

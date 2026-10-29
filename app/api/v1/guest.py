@@ -260,7 +260,8 @@ async def chat(
         principal, session_service, body.session_id, body.expected_session_key
     )
     with commerce_errors():
-        if await commerce.should_handle(principal.user.id, body.message):
+        routing_decision = await commerce.route(principal.user.id, body.message)
+        if routing_decision.route == "shopping":
             await chat_api._enforce_chat_rate_limit(request)
             reply = await commerce.respond(
                 principal.user.id, body.session_id, body.expected_session_key, body.message
@@ -309,7 +310,7 @@ async def chat_stream(
         )
         try:
             with commerce_errors():
-                shopping = await commerce.should_handle(principal.user.id, body.message)
+                decision = await commerce.route(principal.user.id, body.message)
         except HTTPException as exc:
             yield chat_api._sse_trace_frame(
                 TraceEvent(
@@ -350,7 +351,19 @@ async def chat_stream(
             yield "data: [STREAM_ERROR]\n\n"
             return
 
-        route = "shopping" if shopping else "support"
+        route = decision.route
+        yield chat_api._sse_trace_frame(
+            TraceEvent(
+                stage="cs.intent",
+                status="detail",
+                detail={
+                    "intent": route,
+                    "confidence": decision.confidence,
+                    "router": "provider",
+                    "reason": decision.reason,
+                },
+            )
+        )
         yield chat_api._sse_trace_frame(
             TraceEvent(
                 stage="cs.intent",
@@ -359,6 +372,8 @@ async def chat_stream(
                 detail={"intent": route, "router": "provider"},
             )
         )
+
+        shopping = route == "shopping"
 
         if not shopping:
             try:

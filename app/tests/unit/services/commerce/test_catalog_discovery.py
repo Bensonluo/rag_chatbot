@@ -36,7 +36,7 @@ from app.models.database.commerce import (
 from app.models.database.user import User
 from app.models.schemas.commerce import CatalogBlock, CatalogTaxonomy, CommerceView
 from app.services.agent.service import AgentService
-from app.services.commerce.conversation import COMMERCE_PROMPT
+from app.services.commerce.conversation import COMMERCE_PROMPT, describe
 from app.services.commerce.external_port import ExternalCommercePort
 from app.services.commerce.mock_port import CATALOG, MockCommercePort
 from app.services.commerce.port import ProviderRejected, ProviderUnknown
@@ -298,16 +298,16 @@ async def test_zero_result_need_recovers_through_discovery(shop) -> None:
 
 
 async def test_multi_category_need_keeps_every_searched_category(shop) -> None:
-    """An open setup need keeps all provider facts, not only the final query."""
+    """An open setup need keeps category diversity within five visible SKUs."""
     service, _maker = shop
     views: list[CommerceView] = []
     registry = create_commerce_tools(service, 1, views, None)
     planner = ScriptedPlanner(
         [
             ("discover_catalog", {}),
-            ("search_products", {"query": "4K显示器", "page_size": 2}),
-            ("search_products", {"query": "机械键盘", "page_size": 2}),
-            ("search_products", {"query": "人体工学鼠标", "page_size": 2}),
+            ("search_products", {"query": "4K显示器", "page_size": 5}),
+            ("search_products", {"query": "机械键盘", "page_size": 5}),
+            ("search_products", {"query": "人体工学鼠标", "page_size": 5}),
         ]
     )
     agent = AgentService(planner, registry, max_steps=6, system_prompt=COMMERCE_PROMPT)
@@ -315,7 +315,17 @@ async def test_multi_category_need_keeps_every_searched_category(shop) -> None:
     catalog = next(block for block in views[-1].blocks if isinstance(block, CatalogBlock))
     names = "\n".join(item.name for item in catalog.items)
     assert all(term in names for term in ("4K显示器", "机械键盘", "人体工学鼠标"))
+    assert len(catalog.items) == 5
     assert len({item.sku_id for item in catalog.items}) == len(catalog.items)
+    assert catalog.total_estimate > len(catalog.items)
+    projection = describe(views[-1])
+    numbered_products = [
+        line
+        for line in projection.splitlines()
+        if len(line) > 3 and line[0].isdigit() and line[1:3] == ". "
+    ]
+    assert len(numbered_products) == 5
+    assert "本轮最多展示5个候选" in projection
 
 
 def test_semantic_layer_has_no_lexical_alias_table() -> None:
