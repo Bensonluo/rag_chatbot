@@ -133,6 +133,32 @@ provider SQLite 在线备份：
 
 备份通过 SQLite online backup 生成一致快照，未直接复制运行中的 db/wal 文件。
 
+## 2026-10-29 13:25 语义类目发现更新
+
+- 后端运行时提交：`a372fd2 fix(commerce): disclose virtual storefront data source`（包含前一提交 `66b1f47 feat(commerce): let agent discover catalog taxonomy`）
+- `DEPLOYED_REVISION=a372fd2`
+- API image manifest list digest：`sha256:326fb9daf9c042a1df4adfe28452444a2a639b34d17db90982bbb0cb86a46188`
+- commerce-provider image manifest list digest：`sha256:e12c9d1714991a05ee81adb2f0af3711d553d155f8ca6364ffea1fa9c0899663`
+- 前端无发布；公开页面仍只用 `/api/v1/guest/chat/stream`，无购买按钮或购买 mutation 请求。
+- PostgreSQL Alembic 保持 `e75c9d1064a3 (head)`；无迁移、downgrade、备份恢复或旧镜像回滚。provider SQLite volume 未清空。
+- 部署后 provider health 为 healthy，API `/health` 为 200。
+
+发布门禁：
+
+- Ruff check / format：517 个文件通过
+- strict Mypy：517 个文件无问题
+- pytest：**3803 passed / 3 configured skipped / 5 warnings**，核心 coverage **93.53%**
+
+生产浏览器验证：
+
+1. 新访客发送 `我要把小书房改成远程办公角落，预算1500以内，帮我配一套必备装备`。
+2. 回复先给出标注“尚未加购”的三套预算内组合，再附权威 SKU/价格/库存/限购事实；候选覆盖显示器、机械键盘、鼠标、耳机、摄像头、人体工学椅。
+3. 消息 `id=1329` metadata：`planner_mode=provider`，1 次 `commerce_discover_catalog`，6 次 `commerce_search_products`，0 次模型自造 `max_price`。
+4. 执行链从 Pipeline Entry / Intent 开始；浏览器网络无 `/commerce/purchases/...` 请求。
+5. 复测 `我想看看耳机` 时，回复明确声明“购物事实来自独立内部虚拟商城API；下单与付款仅模拟，不产生真实订单或扣款”，并展示 typed SKU 事实。
+
+本次发布前发现并修正了一个真实规划缺陷：消息 `id=1327` 中模型把总预算拆成各类目 `max_price`，导致显示器/摄像头/椅子被错误报告为无结果。修正后的系统提示和工具参数说明明确：总预算在组合层控制，类目搜索不得自行设置单项价格上限；带筛选空结果必须去筛选复搜。消息 `id=1329` 证明修正后无自造 `max_price`。
+
 ## 日志与已知非阻塞问题
 
 commerce-provider 日志无 traceback/error。API 主链路无 provider fallback 或 simulated planner。仍有一个既有非购物路径警告：MiniMax light tier 余额不足（HTTP 402），session compression 因此按设计 best-effort 失败；GLM 购物 Agent 与外部 provider 不受影响。

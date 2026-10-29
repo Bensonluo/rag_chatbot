@@ -705,12 +705,14 @@ search → multi-line cart → quote → order → payment → status, including
 request-key replay and refusal of a conflicting replay. The production canary
 then completed the same text-only journey against the separate internal
 provider with three cart lines, one order, one payment and zero purchase-action
-requests. A later production browser canary sent the open-ended
+A later production browser canary sent the open-ended
 “budget ¥1,500 remote-office setup” request and received labeled bundle advice
-plus candidates from monitor, keyboard, mouse, headset, webcam and dock
-categories; persisted metadata recorded `planner_mode=provider`, one
-`commerce_discover_catalog` call and seven category searches, with no purchase
-mutation. See the
+plus candidates from monitor, keyboard, mouse, headset, webcam and ergonomic
+chair categories; persisted metadata recorded `planner_mode=provider`, one
+`commerce_discover_catalog` call, six category searches and zero model-invented
+`max_price` filters, with no purchase mutation. The reply also disclosed that
+facts come from the separate internal virtual storefront API while ordering and
+payment remain simulated. See the
 [external provider deployment record](docs/operations/external-commerce-provider-deployment-2026-10-29.md)
 and the earlier [Agent text-commerce record](docs/operations/agent-text-commerce-deployment-2026-10-29.md).
 

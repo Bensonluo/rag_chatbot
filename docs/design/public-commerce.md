@@ -96,6 +96,6 @@ SSE 从消费者消息入口开始输出 `event: trace`：provider 路由、Agen
   app/tests/evaluation/test_guest_conversations.py
 ```
 
-覆盖 provider catalog/address space、taxonomy 发现、类目属性 wire contract、外部/mock 等价、开放式需求多类目搜索、跨搜索候选去重、别名表禁用、多行 cart、报价/订单/支付、幂等冲突、unknown-after-commit、SQLite 重开持久化、owner 隔离、HTTP wire contract、Agent 工具循环、两次独立文字确认、重复确认幂等、跨访客隔离、报价过期、购物车变更、政策插问恢复、processing 和消息保存失败。完整门禁结果以最新部署记录为准。2026-10-29 生产浏览器 canary 用“预算1500配置远程办公角落”验证：最终回复包含标注未加购的组合建议与权威候选事实，覆盖显示器、键盘、鼠标、耳机、摄像头、扩展坞等类目；消息 metadata 为 `planner_mode=provider`，工具审计含 1 次 `commerce_discover_catalog` 与 7 次 `commerce_search_products`，且浏览器未发起购买 mutation 请求。
+覆盖 provider catalog/address space、taxonomy 发现、类目属性 wire contract、外部/mock 等价、开放式需求多类目搜索、跨搜索候选去重、别名表禁用、多行 cart、报价/订单/支付、幂等冲突、unknown-after-commit、SQLite 重开持久化、owner 隔离、HTTP wire contract、Agent 工具循环、两次独立文字确认、重复确认幂等、跨访客隔离、报价过期、购物车变更、政策插问恢复、processing 和消息保存失败。完整门禁结果以最新部署记录为准。2026-10-29 生产浏览器 canary 用“预算1500配置远程办公角落”验证：最终回复包含标注未加购的组合建议与权威候选事实，覆盖显示器、键盘、鼠标、耳机、摄像头、人体工学椅等类目；消息 metadata 为 `planner_mode=provider`，工具审计含 1 次 `commerce_discover_catalog` 与 6 次 `commerce_search_products`，无模型自造 `max_price` 筛选，且浏览器未发起购买 mutation 请求。
 
 本合同不宣称真实支付、真实供应商、生产并发/容量、跨副本 Cookie 拓扑或浏览器支付认证。原[接入评估](conversational-commerce-assessment.md)保留历史设计；其中的按钮/结算页建议已被本文纯文本合同取代。
