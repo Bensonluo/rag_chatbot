@@ -112,9 +112,12 @@ def describe(view: CommerceView, *, english: bool = False) -> str:
         else "本次模拟操作被拒绝，请核对已保存状态。",
     }
     lines = [
-        "Mock shopping — no real order or charge."
-        if english
-        else "模拟购物演示，不产生真实订单或扣款。",
+        (
+            "Shopping facts come from a separate internal virtual storefront API; "
+            "ordering and payment are simulated — no real order or charge."
+            if english
+            else "购物事实来自独立内部虚拟商城API；下单与付款仅模拟，不产生真实订单或扣款。"
+        ),
         stages[view.stage],
     ]
     for block in view.blocks:
@@ -430,9 +433,10 @@ class CommerceConversation:
                 content = prefix + (
                     result.response.strip()
                     or (
-                        "This is mock shopping. Tell me the product, preferences and quantity."
+                        "This demo reads a separate virtual storefront API. "
+                        "Tell me the product, preferences and quantity."
                         if is_english(message)
-                        else "这是模拟购物，请说明商品、偏好和数量。"
+                        else "本演示读取独立虚拟商城API，请说明商品、偏好和数量。"
                     )
                 )
             if any(item.get("ok") is False for item in result.tool_trace):

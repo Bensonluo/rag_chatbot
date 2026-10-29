@@ -222,6 +222,11 @@ async def _search(shop: ShopHttp, client: AsyncClient, browser: dict[str, Any]) 
         plan={"tool": "search_products", "arguments": {"query": "降噪耳机"}},
     )
     assert response.status_code == 200, response.text
+    content = response.json()["content"]
+    # The public copy must distinguish simulated transactions from fabricated
+    # catalog facts: provider source and no-real-charge are both user-visible.
+    assert "独立内部虚拟商城API" in content
+    assert "不产生真实订单或扣款" in content
     return _ui(response.json())
 
 
