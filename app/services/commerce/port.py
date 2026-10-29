@@ -15,6 +15,7 @@ from app.models.schemas.commerce import (
     CatalogFilters,
     CatalogItem,
     CatalogPage,
+    CatalogTaxonomy,
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
@@ -52,6 +53,8 @@ class CommercePort(Protocol):
         page_size: int = 10,
         page_token: str | None = None,
     ) -> Awaitable[CatalogPage]: ...
+
+    def catalog_categories(self, owner_user_id: int) -> Awaitable[CatalogTaxonomy]: ...
 
     def get_product(self, owner_user_id: int, sku_id: str) -> Awaitable[CatalogItem]: ...
 

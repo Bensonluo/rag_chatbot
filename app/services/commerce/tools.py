@@ -17,7 +17,9 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.models.database.commerce import PurchaseSession
 from app.models.schemas.commerce import (
     CartLineSelection,
+    CatalogBlock,
     CatalogFilters,
+    CatalogItem,
     CommerceView,
 )
 from app.services.commerce.port import CommerceSort
@@ -104,6 +106,9 @@ def create_commerce_tools(
     if type(owner) is not int or owner <= 0:
         raise ValidationError("A verified visitor identity is required")
     registry = ToolRegistry()
+    catalog_candidates: list[CatalogItem] = []
+    seen_catalog_skus: set[str] = set()
+    search_batches = 0
 
     async def target(args: dict[str, Any], *, create: bool = False) -> CommerceView:
         identifier = args.get("purchase_id")
@@ -117,6 +122,7 @@ def create_commerce_tools(
         return result
 
     async def search(args: dict[str, Any]) -> CommerceView:
+        nonlocal search_batches
         query = args.get("query", "")
         if not isinstance(query, str) or len(query) > 500:
             raise ValidationError("Search query must be a bounded string")
@@ -130,7 +136,7 @@ def create_commerce_tools(
         if page_token is not None and (not isinstance(page_token, str) or not page_token):
             raise ValidationError("Page token must be a non-empty cursor string")
         view = await service.start(owner)
-        return await service.search(
+        result = await service.search(
             owner,
             view.purchase_id,
             query,
@@ -139,6 +145,39 @@ def create_commerce_tools(
             page_size=page_size,
             page_token=page_token,
         )
+        search_batches += 1
+        for block in result.blocks:
+            if not isinstance(block, CatalogBlock):
+                continue
+            for item in block.items:
+                if item.sku_id not in seen_catalog_skus:
+                    seen_catalog_skus.add(item.sku_id)
+                    catalog_candidates.append(item)
+        if search_batches == 1:
+            return result
+        # A single open need can span several standard categories. The model
+        # chooses which provider categories to search; this presentation-only
+        # merge keeps every returned typed fact instead of dropping all but
+        # the final category. Per-query page tokens cannot be combined, so a
+        # merged page deliberately exposes the current bounded candidate set.
+        return result.model_copy(
+            update={
+                "blocks": [
+                    CatalogBlock(items=catalog_candidates, total_estimate=len(catalog_candidates)),
+                    *(block for block in result.blocks if not isinstance(block, CatalogBlock)),
+                ]
+            }
+        )
+
+    async def discover(args: dict[str, Any]) -> dict[str, Any]:
+        # Read-only provider facts for the model's semantic mapping; no
+        # purchase session is started and no view is staged or mutated.
+        del args
+        taxonomy = await service.discover_catalog(owner)
+        return {
+            "catalog_categories": taxonomy.model_dump(mode="json"),
+            "mode": "mock",
+        }
 
     async def product(args: dict[str, Any]) -> CommerceView:
         view = await target(args)
@@ -198,9 +237,14 @@ def create_commerce_tools(
         (
             "search_products",
             "Search the mock catalog with a short product query plus structured filters, sort and "
-            "paging; never places an order. If the result is empty, reinterpret the customer's "
-            "need as a broader standard product-category query and search again before asking a "
-            "focused clarification. Invite clarification when the reference or budget is ambiguous.",
+            "paging; never places an order. For vague, novel or open-ended needs, and whenever a "
+            "search returns nothing, call discover_catalog first and use its standard category "
+            "names as queries — one need may map to several category searches — before asking a "
+            "focused clarification. Do not translate a whole-basket budget into arbitrary "
+            "per-category price caps: search each category without max_price unless the user "
+            "supplied that cap, then control the total while composing bundles. A zero after "
+            "filters means retry without those non-user filters before declaring a category "
+            "unavailable. Invite clarification when the reference or budget is ambiguous.",
             {
                 "query": {"type": "string", "maxLength": 500},
                 "min_price": {
@@ -211,7 +255,10 @@ def create_commerce_tools(
                 "max_price": {
                     "type": "number",
                     "minimum": 0,
-                    "description": "Upper price bound in yuan",
+                    "description": (
+                        "Upper price bound in yuan; use only for an explicit "
+                        "user per-item/category cap, never to allocate a whole-basket budget"
+                    ),
                 },
                 "in_stock": {"type": "boolean"},
                 "attributes": {
@@ -333,4 +380,32 @@ def create_commerce_tools(
                 },
             )
         )
+
+    # Discovery is pure provider facts: it stages no purchase view, so it is
+    # registered outside the CommerceView-producing loop.
+    registry.register(
+        ToolDefinition(
+            name="commerce_discover_catalog",
+            intent="commerce:discover_catalog",
+            description=(
+                "Discover the provider's authoritative product categories: standard "
+                "category names, descriptions and attribute vocabularies with allowed "
+                "values. Read-only: never changes cart, order or payment state. Use it "
+                "before searching when the customer's need is vague, novel or "
+                "open-ended, or whenever a search returned no results: decide yourself "
+                "how the need maps to one or more standard category names, then call "
+                "search_products once per chosen category; a single need may map to "
+                "several categories. Only after the plausible categories are exhausted "
+                "ask one focused clarification (use, budget or key specification)."
+            ),
+            required_slots=[],
+            handler=discover,
+            parameters_schema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+        )
+    )
     return registry

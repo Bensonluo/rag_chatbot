@@ -675,34 +675,42 @@ conversation per browser, without registration. The existing `/support/` workspa
 is retained; product work focuses on the public experience.
 
 Mock shopping is now an Agent orchestration demo with no purchase buttons. The
-bounded Agent understands references and constraints, performs structured catalog
-search/pagination, updates a multi-line cart, prepares a quote, creates an order
-and settles mock payment entirely through chat text. `commit_checkout` and
+bounded Agent discovers the provider's authoritative category taxonomy, maps
+open-ended natural-language needs onto one or more standard categories, performs
+structured multi-category search/pagination, understands references and
+constraints, updates a multi-line cart, prepares a quote, creates an order and
+settles mock payment entirely through chat text. `commit_checkout` and
 `mock_pay` are Agent tools only when the current turn carries a fresh, explicit
 authorization for the latest displayed purchase version; handlers recheck owner,
 stage, confirmation/payment and generation. The two irreversible steps require
 separate confirmations.
 
 Commerce facts live in the separate internal `commerce-provider` FastAPI service:
-a deterministic 100,000,000-SKU addressable catalog, SQLite-backed multi-line
-carts, quotes, stock deltas, orders, payments and idempotency receipts. The API
-reaches it only through `ExternalCommercePort`; provider failure makes shopping
-explicitly unavailable and never falls back to a local or regex planner.
-`PurchaseService` keeps only durable safety orchestration — owner binding,
-immutable quote confirmations, version CAS, operation idempotency and recovery.
-Unknown or processing results only query the original operation; clearing chat
-does not delete or repeat a purchase. The server renders catalog, cart, quote,
-order and payment facts as assistant text, and the model cannot invent success.
-All commerce is visibly simulated.
+a deterministic 100,000,000-SKU addressable catalog with a 25-category taxonomy,
+SQLite-backed multi-line carts, quotes, stock deltas, orders, payments and
+idempotency receipts. The API reaches it only through `ExternalCommercePort`;
+provider failure makes shopping explicitly unavailable and never falls back to a
+local or regex planner. `PurchaseService` keeps only durable safety orchestration —
+owner binding, immutable quote confirmations, version CAS, operation idempotency
+and recovery. Unknown or processing results only query the original operation;
+clearing chat does not delete or repeat a purchase. Catalog turns render the
+LLM's labeled bundle advice plus authoritative typed provider facts, while cart,
+quote, order and payment stages remain server-rendered and the model cannot
+invent success. All commerce is visibly simulated.
 
 Current text-commerce backend gate: Ruff, formatting and strict Mypy pass; the
-complete suite passes **3779 tests with 3 configured skips, 5 warnings** (core
-coverage 93.58%). A real local HTTP smoke drove the external adapter through
+complete suite passes **3803 tests with 3 configured skips, 5 warnings** (core
+coverage 93.53%). A real local HTTP smoke drove the external adapter through
 search → multi-line cart → quote → order → payment → status, including stable
 request-key replay and refusal of a conflicting replay. The production canary
 then completed the same text-only journey against the separate internal
 provider with three cart lines, one order, one payment and zero purchase-action
-requests. See the
+requests. A later production browser canary sent the open-ended
+“budget ¥1,500 remote-office setup” request and received labeled bundle advice
+plus candidates from monitor, keyboard, mouse, headset, webcam and dock
+categories; persisted metadata recorded `planner_mode=provider`, one
+`commerce_discover_catalog` call and seven category searches, with no purchase
+mutation. See the
 [external provider deployment record](docs/operations/external-commerce-provider-deployment-2026-10-29.md)
 and the earlier [Agent text-commerce record](docs/operations/agent-text-commerce-deployment-2026-10-29.md).
 

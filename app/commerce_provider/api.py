@@ -46,6 +46,7 @@ from app.models.schemas.commerce import (
     CartSnapshot,
     CatalogItem,
     CatalogPage,
+    CatalogTaxonomy,
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
@@ -156,6 +157,15 @@ def create_app(settings: CommerceProviderSettings | None = None) -> FastAPI:
             page_size=body.page_size,
             page_token=body.page_token,
         )
+
+    @app.get("/commerce/categories", response_model=CatalogTaxonomy, dependencies=protected)
+    async def catalog_categories(
+        owner_user_id: OwnerParam,
+        core: Annotated[CommerceProviderCore, Depends(get_core)],
+    ) -> CatalogTaxonomy:
+        """Read-only authoritative category taxonomy for open-language discovery."""
+
+        return await core.catalog_categories(owner_user_id)
 
     @app.get("/commerce/products/{sku_id}", response_model=CatalogItem, dependencies=protected)
     async def get_product(

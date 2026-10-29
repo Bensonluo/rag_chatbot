@@ -26,9 +26,12 @@ from app.models.schemas.commerce import (
     CartLine,
     CartLineSelection,
     CartSnapshot,
+    CatalogCategory,
     CatalogFilters,
     CatalogItem,
     CatalogPage,
+    CatalogTaxonomy,
+    CategoryAttribute,
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
@@ -140,6 +143,30 @@ def generate_catalog() -> tuple[dict[str, Any], ...]:
 
 
 CATALOG = generate_catalog()
+
+
+def generate_taxonomy() -> CatalogTaxonomy:
+    """Project the family spec into the authoritative category taxonomy."""
+
+    return CatalogTaxonomy(
+        categories=[
+            CatalogCategory(
+                category_id=str(spec["product_id"]),
+                name=str(spec["family"]),
+                description=str(spec["description"]),
+                attributes=[
+                    CategoryAttribute(
+                        name=str(spec["attribute"]),
+                        allowed_values=list(spec["variants"]),
+                    )
+                ],
+            )
+            for spec in _FAMILY_SPECS
+        ]
+    )
+
+
+TAXONOMY = generate_taxonomy()
 
 
 def utc_now() -> datetime:
@@ -283,6 +310,13 @@ class MockCommercePort:
             ),
             total_estimate=len(matched),
         )
+
+    async def catalog_categories(self, owner_user_id: int) -> CatalogTaxonomy:
+        """Read-only authoritative taxonomy; no catalog or purchase state changes."""
+
+        if type(owner_user_id) is not int or owner_user_id <= 0:
+            raise ProviderRejected("模拟访问身份无效")
+        return TAXONOMY
 
     async def get_product(self, owner_user_id: int, sku_id: str) -> CatalogItem:
         if type(owner_user_id) is not int or owner_user_id <= 0:

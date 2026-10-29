@@ -38,10 +38,18 @@ flowchart LR
 
 - `CommerceConversation` 在每轮构造请求局部工具 registry，不向旧共享 Demo 图注册购买工具。接受购物任务后先持久提升 automation epoch，再调用模型或工具；模型失败、请求取消或聊天保存失败不能复活旧退款提案。
 - `AgentService` 负责理解、规划和实际工具调用：请求是否购物、买什么、约束是什么、候选页中“1号/第二款/便宜的那个”指哪个、如何拆成多行、是否追问、是否足以授权，均由模型判断。
-- 常规工具：结构化商品搜索（价格/属性/库存过滤、排序、分页）、SKU 详情、多行购物车更新、试算、状态查询。
+- 常规工具：类目发现（标准类目与允许属性值）、结构化商品搜索（价格/属性/库存过滤、排序、分页）、SKU 详情、多行购物车更新、试算、状态查询。
 - 受控工具：`commit_checkout` 与 `mock_pay` 只在当前阶段匹配且最新展示版本有效时注册；handler 再核对 owner、purchase、version、confirmation/payment 和 generation。模型传入 owner、金额、付款成功标记或外来 idempotency key 无效。
 - 一回合最多推进一个不可逆阶段。模糊确认、否定、疑问或组合的“确认下单并付款”均只澄清或查询，不写入。
-- 助手文本由服务端 `CommerceView` 投影：目录页、SKU/规格、限购、多行小计、运费、总价、有效期、订单号、付款号和状态。模型自由文本不能宣布交易成功。
+- 购物目录轮回复采用两层投影：模型可解释已检索事实并给出预算内组合建议，但必须标注尚未加购；权威 SKU、价格、库存、限购仍来自服务端 `CommerceView`。购物车、报价、订单、付款阶段不接受模型自由文本，模型不能宣布交易成功。
+
+## 开放式需求与类目发现
+
+- commerce provider 通过 Bearer 保护的 `GET /commerce/categories` 暴露权威类目事实：25 个标准类目的 id、名称、描述和允许属性值。用户语言别名仍是 provider 内部检索索引，不进入语义层，也不作为可配置路由表。
+- 面对开放式需求（例如“预算 1500 配一个远程办公角落”），LLM Agent 先发现 taxonomy，再把需求映射到一个或多个标准类目，逐类搜索 3–5 个候选，并在零结果时自行改写或澄清；不存在确定性查询重写器。
+- `create_commerce_tools()` 的请求局部状态累计多次搜索的 typed 候选并按 `sku_id` 去重。第一次搜索视图保持原分页语义；后续搜索后返回一个合并目录块和最新非目录块。合并只做展示层去重，不替模型决定类目或搜索顺序；不同查询的 page token 不能合并，因此合并视图不带 `next_page_token`。
+- 整体预算是组合总价约束，不是固定类目配额。除非用户明确给出单项/类目价格上限，LLM 不得在类目搜索上自行设置 `max_price`；先取完整候选，再在组合层控制总价。带筛选搜索为空时必须先去掉非用户筛选复搜，才能说明缺候选。
+- Agent 内部上限为 `max_steps=6`，每请求 LLM 预算仍为 `CHAT_LLM_CALL_BUDGET=8`；公开 IP/聊天限流不变。该上限只放宽规划轮数，不放宽滥用控制或交易确认门。
 
 ## Provider 事实与本地编排状态
 
@@ -88,6 +96,6 @@ SSE 从消费者消息入口开始输出 `event: trace`：provider 路由、Agen
   app/tests/evaluation/test_guest_conversations.py
 ```
 
-覆盖 provider catalog/address space、多行 cart、报价/订单/支付、幂等冲突、unknown-after-commit、SQLite 重开持久化、owner 隔离、HTTP wire contract、Agent 工具循环、两次独立文字确认、重复确认幂等、跨访客隔离、报价过期、购物车变更、政策插问恢复、processing 和消息保存失败。完整门禁结果以最新部署记录为准。
+覆盖 provider catalog/address space、taxonomy 发现、类目属性 wire contract、外部/mock 等价、开放式需求多类目搜索、跨搜索候选去重、别名表禁用、多行 cart、报价/订单/支付、幂等冲突、unknown-after-commit、SQLite 重开持久化、owner 隔离、HTTP wire contract、Agent 工具循环、两次独立文字确认、重复确认幂等、跨访客隔离、报价过期、购物车变更、政策插问恢复、processing 和消息保存失败。完整门禁结果以最新部署记录为准。2026-10-29 生产浏览器 canary 用“预算1500配置远程办公角落”验证：最终回复包含标注未加购的组合建议与权威候选事实，覆盖显示器、键盘、鼠标、耳机、摄像头、扩展坞等类目；消息 metadata 为 `planner_mode=provider`，工具审计含 1 次 `commerce_discover_catalog` 与 7 次 `commerce_search_products`，且浏览器未发起购买 mutation 请求。
 
 本合同不宣称真实支付、真实供应商、生产并发/容量、跨副本 Cookie 拓扑或浏览器支付认证。原[接入评估](conversational-commerce-assessment.md)保留历史设计；其中的按钮/结算页建议已被本文纯文本合同取代。

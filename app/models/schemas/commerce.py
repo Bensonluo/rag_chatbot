@@ -47,6 +47,33 @@ class CatalogPage(CommerceModel):
     total_estimate: int = Field(ge=0)
 
 
+class CategoryAttribute(CommerceModel):
+    """One filterable catalog attribute with the provider's allowed values."""
+
+    name: str = Field(min_length=1, max_length=64)
+    allowed_values: list[str] = Field(min_length=1, max_length=32)
+
+
+class CatalogCategory(CommerceModel):
+    """Provider-owned product category; authoritative, not user language.
+
+    Deliberately carries no alias list: mapping an open user need onto
+    standard categories is the LLM Agent's semantic job, never a
+    provider-published phrase table.
+    """
+
+    category_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=1000)
+    attributes: list[CategoryAttribute] = Field(default_factory=list, max_length=16)
+
+
+class CatalogTaxonomy(CommerceModel):
+    """The full authoritative category taxonomy of the provider catalog."""
+
+    categories: list[CatalogCategory] = Field(min_length=1)
+
+
 class CartLineSelection(CommerceModel):
     sku_id: str = Field(min_length=1, max_length=64)
     quantity: int = Field(strict=True, ge=1)

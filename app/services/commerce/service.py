@@ -24,6 +24,7 @@ from app.models.schemas.commerce import (
     CatalogBlock,
     CatalogFilters,
     CatalogPage,
+    CatalogTaxonomy,
     CommerceStage,
     CommerceView,
     OrderSnapshot,
@@ -137,6 +138,14 @@ class PurchaseService:
             page_token=page_token,
         )
         return await self._view(row, page)
+
+    async def discover_catalog(self, owner_user_id: int) -> CatalogTaxonomy:
+        """Read the provider's authoritative categories; purchase state is untouched."""
+
+        try:
+            return await self.port.catalog_categories(owner_user_id)
+        except ProviderRejected as exc:
+            raise ValidationError(str(exc)) from exc
 
     async def get_product(self, owner_user_id: int, purchase_id: str, sku_id: str) -> CommerceView:
         row = await self._load(owner_user_id, purchase_id)

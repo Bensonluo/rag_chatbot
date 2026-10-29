@@ -35,7 +35,14 @@ from dataclasses import dataclass
 from typing import Literal
 
 from app.commerce_provider.errors import ProviderRejectedError
-from app.models.schemas.commerce import CatalogFilters, CatalogItem, CatalogPage
+from app.models.schemas.commerce import (
+    CatalogCategory,
+    CatalogFilters,
+    CatalogItem,
+    CatalogPage,
+    CatalogTaxonomy,
+    CategoryAttribute,
+)
 
 CommerceSort = Literal["relevance", "price_asc", "price_desc", "newest"]
 
@@ -510,6 +517,30 @@ class VirtualCatalog:
 
     def product_id(self, pair_index: int, model_index: int) -> str:
         return f"PRD-{pair_index:03d}-{model_index:05d}"
+
+    def taxonomy(self) -> CatalogTaxonomy:
+        """Publish the authoritative category taxonomy for open discovery.
+
+        Category ids, names, descriptions and attribute vocabularies are
+        provider facts. The internal search aliases stay private: mapping an
+        open user need onto standard categories is the LLM Agent's job, not a
+        provider-published phrase table.
+        """
+
+        return CatalogTaxonomy(
+            categories=[
+                CatalogCategory(
+                    category_id=spec.category_id,
+                    name=spec.name,
+                    description=spec.blurb,
+                    attributes=[
+                        CategoryAttribute(name=key, allowed_values=list(values))
+                        for key, values in spec.attrs
+                    ],
+                )
+                for spec in CATEGORIES
+            ]
+        )
 
     # --- fact projection ----------------------------------------------------
     def _unit_price(self, pair_index: int, model_index: int) -> int:

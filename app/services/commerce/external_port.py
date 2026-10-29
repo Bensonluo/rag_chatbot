@@ -15,6 +15,10 @@ path prefix. Optional keys are omitted when unset:
      "price_desc"|"newest", "filters"?: CatalogFilters, "page_size": int,
      "page_token"?: str}
     -> 200 CatalogPage
+  GET  {base}/commerce/categories?owner_user_id=int
+    -> 200 CatalogTaxonomy   (read-only authoritative category facts:
+    category id/name/description plus attribute names and allowed values;
+    never user-language alias lists)
   GET  {base}/commerce/products/{sku_id}?owner_user_id=int -> 200 CatalogItem
   POST {base}/commerce/cart/update
     {"owner_user_id": int, "cart_id"?: str, "expected_cart_version"?: int,
@@ -63,6 +67,7 @@ from app.models.schemas.commerce import (
     CatalogFilters,
     CatalogItem,
     CatalogPage,
+    CatalogTaxonomy,
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
@@ -207,6 +212,16 @@ class ExternalCommercePort:
         if page_token is not None:
             json_body["page_token"] = page_token
         return await self._call("POST", "/commerce/search", model=CatalogPage, json_body=json_body)
+
+    async def catalog_categories(self, owner_user_id: int) -> CatalogTaxonomy:
+        """Read the provider's authoritative category taxonomy (read-only)."""
+
+        return await self._call(
+            "GET",
+            "/commerce/categories",
+            model=CatalogTaxonomy,
+            params={"owner_user_id": owner_user_id},
+        )
 
     async def get_product(self, owner_user_id: int, sku_id: str) -> CatalogItem:
         return await self._get("/commerce/products/{}", sku_id, owner_user_id, CatalogItem)

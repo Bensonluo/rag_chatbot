@@ -39,6 +39,7 @@ from app.models.schemas.commerce import (
     CatalogFilters,
     CatalogItem,
     CatalogPage,
+    CatalogTaxonomy,
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
@@ -93,6 +94,7 @@ class CommerceProviderCore:
         self.quote_ttl_seconds = quote_ttl_seconds
         self.faults = faults
         self._stock_delta_cache: dict[str, int] | None = None
+        self._taxonomy: CatalogTaxonomy | None = None
 
     # --- shared plumbing ----------------------------------------------------
     @staticmethod
@@ -258,6 +260,14 @@ class CommerceProviderCore:
             page_token=page_token,
             stock_deltas=deltas,
         )
+
+    async def catalog_categories(self, owner_user_id: int) -> CatalogTaxonomy:
+        """Read-only category facts; no cart, order, payment or stock state."""
+
+        self._require_owner(owner_user_id)
+        if self._taxonomy is None:
+            self._taxonomy = await asyncio.to_thread(self.catalog.taxonomy)
+        return self._taxonomy
 
     async def get_product(self, owner_user_id: int, sku_id: str) -> CatalogItem:
         self._require_owner(owner_user_id)
