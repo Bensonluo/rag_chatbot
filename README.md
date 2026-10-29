@@ -135,7 +135,7 @@ cd rag_chatbot
 
 # Configure environment
 cp .env.example .env
-# Edit .env: set GLM_API_KEY (or OPENAI_API_KEY / ANTHROPIC_API_KEY)
+# Edit .env: set GLM_API_KEY (and optionally MINIMAX/KIMI for speed tiers)
 
 # Start the service stack (API + PostgreSQL + Redis + Qdrant + Neo4j)
 docker-compose up -d
@@ -281,9 +281,11 @@ rag_chatbot/
 | `REDIS_URL` | Redis connection string | — | ✅ |
 | `QDRANT_URL` | Qdrant vector DB URL | — | ✅ |
 | `SECRET_KEY` | JWT secret key | — | ✅ |
-| `GLM_API_KEY` | Zhipu AI GLM API key | — | (any LLM) |
-| `OPENAI_API_KEY` | OpenAI API key | — | (any LLM) |
-| `ANTHROPIC_API_KEY` | Anthropic API key | — | (any LLM) |
+| `GLM_API_KEY` | Zhipu AI GLM API key | — | (any primary LLM) |
+| `MINIMAX_API_KEY` | MiniMax backup + light-tier key | — | ❌ |
+| `KIMI_API_KEY` + `INTENT_LLM_PROVIDER=kimi` | Kimi Coding intent-only highspeed tier | — | ❌ |
+| `OPENAI_API_KEY` | OpenAI API key | — | (any primary LLM) |
+| `ANTHROPIC_API_KEY` | Anthropic API key | — | (any primary LLM) |
 | `EMBEDDING_PROVIDER` | Embedding source | `local` | ❌ |
 | `GRAPH_RAG_ENABLED` | Enable GraphRAG (needs Neo4j) | `false` | ❌ |
 
@@ -694,7 +696,7 @@ order and payment facts as assistant text, and the model cannot invent success.
 All commerce is visibly simulated.
 
 Current text-commerce backend gate: Ruff, formatting and strict Mypy pass; the
-complete suite passes **3772 tests with 3 configured skips, 5 warnings** (core
+complete suite passes **3779 tests with 3 configured skips, 5 warnings** (core
 coverage 93.58%). A real local HTTP smoke drove the external adapter through
 search → multi-line cart → quote → order → payment → status, including stable
 request-key replay and refusal of a conflicting replay. The production canary

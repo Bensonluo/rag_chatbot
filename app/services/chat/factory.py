@@ -178,9 +178,23 @@ class ChatServiceFactory:
             **memory_kwargs,
         )
 
-        # Create intent detector
+        # Create intent detector. Kimi can serve this one latency-sensitive
+        # call site without changing generation, agent tools, slots, rerank,
+        # summaries, or the MiniMax-backed light tier used elsewhere.
         intent_llm_service = light_llm_service
-        if settings.INTENT_GLM_MODEL and intent_type in ["llm_based", "hybrid"]:
+        if intent_type in ["llm_based", "hybrid"] and settings.INTENT_LLM_PROVIDER == "kimi":
+            if not settings.KIMI_API_KEY:
+                raise ValidationError("INTENT_LLM_PROVIDER=kimi requires KIMI_API_KEY")
+            from app.services.llm.factory import LLMFactory
+
+            intent_llm_service = BudgetedLLMService(
+                LLMFactory.create(
+                    provider="kimi",
+                    api_key=settings.KIMI_API_KEY,
+                    model=settings.KIMI_INTENT_MODEL,
+                )
+            )
+        elif settings.INTENT_GLM_MODEL and intent_type in ["llm_based", "hybrid"]:
             from app.services.llm.factory import LLMFactory
 
             intent_llm_service = BudgetedLLMService(

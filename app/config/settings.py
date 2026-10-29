@@ -92,6 +92,13 @@ class Settings(BaseSettings):
             "a single tier (light consumers use the primary model)."
         ),
     )
+    INTENT_LLM_PROVIDER: Literal["light", "kimi"] = Field(
+        default="light",
+        description=(
+            "Intent-only LLM source: light follows the shared classification "
+            "tier; kimi uses KIMI_INTENT_MODEL with KIMI_API_KEY."
+        ),
+    )
     CHAT_SUMMARY_THRESHOLD: int = Field(
         default=20, description="Messages before the first session summary on the chat path"
     )
@@ -315,6 +322,23 @@ class Settings(BaseSettings):
     MINIMAX_BASE_URL: str = Field(
         default="https://api.minimaxi.com/v1",
         description="MiniMax OpenAI-compatible endpoint (CN default)",
+    )
+
+    # Kimi Coding Plan: OpenAI-compatible membership endpoint. It is an
+    # intent-only speed provider by default; its highspeed model requires
+    # temperature=1, enforced by KimiCodingClient.
+    KIMI_API_KEY: str | None = Field(default=None, description="Kimi Coding Plan API key")
+    KIMI_MODEL: str = Field(
+        default="kimi-for-coding",
+        description="Kimi Coding model used for explicit provider construction",
+    )
+    KIMI_INTENT_MODEL: str = Field(
+        default="kimi-for-coding-highspeed",
+        description="Kimi Coding highspeed model for intent detection",
+    )
+    KIMI_BASE_URL: str = Field(
+        default="https://api.kimi.com/coding/v1",
+        description="Kimi Coding OpenAI-compatible endpoint (CN default)",
     )
 
     # LLM Resilience (retry + circuit breaker + provider failover)

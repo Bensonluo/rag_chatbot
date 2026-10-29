@@ -134,11 +134,17 @@ services:
       GLM_MODEL: ${GLM_MODEL:-glm-5.3-flash}
       GLM_BASE_URL: ${GLM_BASE_URL:-https://open.bigmodel.cn/api/coding/paas/v4/}
       INTENT_GLM_MODEL: ${INTENT_GLM_MODEL:-}
+      INTENT_LLM_PROVIDER: ${INTENT_LLM_PROVIDER:-light}
       # MiniMax: backup failover + speed (light) tier
       MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
       MINIMAX_MODEL: ${MINIMAX_MODEL:-MiniMax-M3}
       MINIMAX_LIGHT_MODEL: ${MINIMAX_LIGHT_MODEL:-MiniMax-M2.7-highspeed}
       MINIMAX_BASE_URL: ${MINIMAX_BASE_URL:-https://api.minimaxi.com/v1}
+      # Kimi Coding Plan: intent-only highspeed tier
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      KIMI_MODEL: ${KIMI_MODEL:-kimi-for-coding}
+      KIMI_INTENT_MODEL: ${KIMI_INTENT_MODEL:-kimi-for-coding-highspeed}
+      KIMI_BASE_URL: ${KIMI_BASE_URL:-https://api.kimi.com/coding/v1}
 
       # Virtual external commerce facts (no runtime mock fallback)
       COMMERCE_PROVIDER_MODE: external

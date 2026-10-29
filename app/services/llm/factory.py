@@ -12,6 +12,7 @@ from app.core.exceptions import ValidationError
 from app.services.llm.anthropic_client import AnthropicClient
 from app.services.llm.base import LLMServiceBase
 from app.services.llm.glm_client import GLMClient
+from app.services.llm.kimi_client import KimiCodingClient
 from app.services.llm.openai_client import OpenAIClient
 from app.services.llm.resilience import ResilientLLMService
 
@@ -40,10 +41,10 @@ class LLMFactory:
     """
     Factory for creating LLM service instances.
 
-    Supports multiple LLM providers (OpenAI, Anthropic, GLM, MiniMax) with unified interface.
+    Supports multiple LLM providers (OpenAI, Anthropic, GLM, MiniMax, Kimi Coding).
     """
 
-    SUPPORTED_PROVIDERS = ["openai", "anthropic", "glm", "minimax"]
+    SUPPORTED_PROVIDERS = ["openai", "anthropic", "glm", "minimax", "kimi"]
 
     @staticmethod
     def create(
@@ -149,6 +150,23 @@ class LLMFactory:
                 max_tokens=max_tokens,
                 temperature=temperature,
                 base_url=settings.MINIMAX_BASE_URL,
+            )
+
+        elif provider == "kimi":
+            api_key = api_key or settings.KIMI_API_KEY
+            if not api_key:
+                raise ValidationError("Kimi Coding API key not configured")
+
+            model = model or settings.KIMI_MODEL
+            # Kimi Coding speaks OpenAI Chat Completions, but its coding
+            # highspeed models require temperature=1. KimiCodingClient owns
+            # that provider constraint so intent callers can keep temp=0.
+            return KimiCodingClient(
+                api_key=api_key,
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                base_url=settings.KIMI_BASE_URL,
             )
 
         else:
