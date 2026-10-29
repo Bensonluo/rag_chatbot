@@ -4,7 +4,7 @@
 
 ## 版本与边界
 
-- 后端：`f35d776 feat(commerce): externalize facts to virtual provider`（`bugfix/refund-handoff-20261028` 与 `main` 均指向该提交）
+- 部署的后端运行时提交：`f35d776 feat(commerce): externalize facts to virtual provider`
 - 前端：保持 `cadcb3b fix(chat): remove public workspace notice`，无前端发布
 - API image manifest digest：`sha256:b7a32f16f6bddc2451c8ded269e655d5b701f3ad60912ff041d4e18e8c35a7c2`
 - commerce-provider image manifest digest：`sha256:195dfa320b45fc7d0518b526f350b2736cf6a253498b55c542a0b60a5fdfb40f`
