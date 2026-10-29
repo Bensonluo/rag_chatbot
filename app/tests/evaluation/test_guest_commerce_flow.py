@@ -89,7 +89,10 @@ class ScriptedShoppingLLM:
         del tools
         plan = self.plans.pop(0) if self.plans else None
         if plan is None:
-            return LLMResponse(content="请补充商品、偏好和数量。", model="test")
+            return LLMResponse(
+                content="<think>scripted semantic reasoning</think>请补充商品、偏好和数量。",
+                model="test",
+            )
         return LLMResponse(
             content="",
             model="test",
@@ -230,6 +233,8 @@ async def _search(shop: ShopHttp, client: AsyncClient, browser: dict[str, Any]) 
     content = response.json()["content"]
     # The public copy must distinguish simulated transactions from fabricated
     # catalog facts: provider source and no-real-charge are both user-visible.
+    assert "<think>" not in content
+    assert "请补充商品、偏好和数量。" in content
     assert content.count("独立内部虚拟商城API") == 1
     assert "不产生真实订单或扣款" in content
     return _ui(response.json())

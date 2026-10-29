@@ -37,6 +37,7 @@ from app.services.commerce.service import PurchaseService
 from app.services.commerce.tools import create_commerce_tools, current_purchase
 from app.services.llm.base import LLMMessage, LLMResponse
 from app.services.llm.budget import enter_llm_budget
+from app.services.llm.reasoning_filter import strip_reasoning
 
 logger = logging.getLogger(__name__)
 
@@ -453,7 +454,7 @@ class CommerceConversation:
             empty_catalog = _has_empty_catalog(view)
             if result.tool_trace and not empty_catalog:
                 facts = describe(view, english=is_english(message)) if view else ""
-                advice = result.response.strip()
+                advice = strip_reasoning(result.response).strip()
                 # Catalog browsing is recommendation prose over typed facts:
                 # keep the model's semantic bundle advice, then publish the
                 # authoritative provider projection it must stay accountable to.
@@ -468,7 +469,7 @@ class CommerceConversation:
                     content = f"{label}{advice}\n\n{facts}"
                 else:
                     # Tool results are authoritative; model prose cannot replace them.
-                    content = facts or result.response
+                    content = facts or strip_reasoning(result.response).strip()
             else:
                 # A no-result search is an empty fact, not a useful answer: keep
                 # the model's follow-up clarification while never adding catalog facts.
@@ -480,7 +481,7 @@ class CommerceConversation:
                     else ""
                 )
                 content = prefix + (
-                    result.response.strip()
+                    strip_reasoning(result.response).strip()
                     or (
                         "This demo reads a separate virtual storefront API. "
                         "Tell me the product, preferences and quantity."
