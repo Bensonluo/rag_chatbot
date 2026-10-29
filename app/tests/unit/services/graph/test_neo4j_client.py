@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.services.graph.base import GraphClientError, GraphEntity
+from app.services.graph.base import GraphClientError, GraphEntity, GraphRelation
 from app.services.graph.neo4j_client import Neo4jClient, _sanitize_label, _validate_read_only
 
 
@@ -92,6 +92,55 @@ class TestNeo4jClient:
         stats = await self.client.get_stats()
         assert stats["entities"] == 42
         assert stats["relations"] == 42
+
+    @pytest.mark.asyncio
+    async def test_replace_commerce_projection_runs_atomically(self):
+        transaction = AsyncMock()
+
+        async def execute_write(operation, *args, **kwargs):
+            return await operation(transaction)
+
+        class SessionContext:
+            async def __aenter__(self) -> "SessionContext":
+                return self
+
+            async def __aexit__(self, *args: object) -> bool:
+                return False
+
+        session = SessionContext()
+        session.execute_write = execute_write  # type: ignore[attr-defined]
+        self.client._driver.session = MagicMock(return_value=session)
+
+        category = GraphEntity(
+            id="commerce-category:speaker",
+            name="商品类目：音箱",
+            type="CommerceCategory",
+            description="音频播放",
+            properties={"commerce_projection": True},
+            embedding=[1.0],
+        )
+        attribute = GraphEntity(
+            id="commerce-attribute:speaker:connection",
+            name="音箱属性：连接",
+            type="CommerceAttribute",
+            description="蓝牙或有线",
+            properties={"commerce_projection": True},
+        )
+        relation = GraphRelation(
+            id="HAS_COMMERCE_ATTRIBUTE:speaker:connection",
+            source_entity_id=category.id,
+            target_entity_id=attribute.id,
+            relation_type="HAS_COMMERCE_ATTRIBUTE",
+            description="音箱拥有连接属性",
+        )
+
+        counts = await self.client.replace_commerce_projection([category, attribute], [relation])
+
+        assert counts == {"entities": 2, "relations": 1}
+        queries = [call.args[0] for call in transaction.run.await_args_list]
+        assert any("DETACH DELETE node" in query for query in queries)
+        assert any("CommerceCategory" in query for query in queries)
+        assert any("HAS_COMMERCE_ATTRIBUTE" in query for query in queries)
 
 
 class TestValidateReadOnly:
