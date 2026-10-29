@@ -16,6 +16,7 @@ on an affirmative ("确认" / "继续") or by restating the task.
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
+import pytest
 from langchain_core.runnables import RunnableConfig
 
 from app.models.enums.intent import Intent
@@ -209,6 +210,31 @@ class TestExecutedTaskNotSuspended:
         assert "state_stack" not in updates
         assert updates["filled_slots"] == {}
         assert updates["pending_confirmation"] is None
+        assert updates["task_executed"] is False
+
+    @pytest.mark.parametrize(
+        "destination",
+        ["return", "query_order", "track_shipping", "complaint", "handoff", "unknown"],
+    )
+    async def test_executed_refund_is_terminal_for_high_risk_module_switch(self, destination: str):
+        """Once refund executed, any abrupt switch away must not make it resumable."""
+        factory = _make_factory()
+        state: DialogueState = {
+            "intent": destination,
+            "prev_intent": "refund",
+            "task_executed": True,
+            "filled_slots": {"order_id": "ORD1001", "reason": "质量问题"},
+            "pending_slots": [],
+            "pending_confirmation": {
+                "intent": "refund",
+                "args": {"order_id": "ORD1001", "reason": "质量问题"},
+            },
+        }
+        updates = await factory.handle_switch_node(state)
+
+        assert "state_stack" not in updates
+        assert updates["pending_confirmation"] is None
+        assert updates["filled_slots"] == {}
         assert updates["task_executed"] is False
 
     async def test_switch_still_suspends_inflight_task(self):

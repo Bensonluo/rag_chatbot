@@ -733,6 +733,122 @@ async def test_policy_detour_preserves_cart_and_agent_continues(shop: ShopHttp) 
     assert _ui(continued.json())["stage"] == "quoted"
 
 
+_ABRUPT_SWITCH_SEQUENCES: tuple[tuple[tuple[str, str, dict[str, Any] | None], ...], ...] = (
+    (
+        ("support", "你好", None),
+        ("shopping", "我想买耳机", {"tool": "search_products", "arguments": {"query": "耳机"}}),
+        ("support", "讲个笑话", None),
+        ("support", "我要退款", None),
+        ("shopping", "再看看耳机", {"tool": "search_products", "arguments": {"query": "耳机"}}),
+    ),
+    (
+        ("support", "退货政策是什么？", None),
+        ("support", "我要投诉", None),
+        ("shopping", "我想买键盘", {"tool": "search_products", "arguments": {"query": "机械键盘"}}),
+        ("support", "查询订单", None),
+        ("support", "怎么修改密码", None),
+    ),
+    (
+        ("support", "我要退款", None),
+        ("support", "物流到哪了", None),
+        ("support", "你好", None),
+        (
+            "shopping",
+            "我想买鼠标",
+            {"tool": "search_products", "arguments": {"query": "人体工学鼠标"}},
+        ),
+        ("support", " warranty 是什么", None),
+    ),
+    (
+        ("support", "查询订单", None),
+        ("support", "讲个笑话", None),
+        ("support", "我要退货", None),
+        ("support", "退货政策是什么？", None),
+        ("shopping", "我想买耳机", {"tool": "search_products", "arguments": {"query": "耳机"}}),
+    ),
+)
+
+
+async def _run_abrupt_switch_sequence(
+    shop: ShopHttp,
+    client: AsyncClient,
+    browser: dict[str, Any],
+    sequence: tuple[tuple[str, str, dict[str, Any] | None], ...],
+) -> None:
+    refunds_before = list(shop.browsers.case.calls.refunds)
+    for route, message, plan in sequence:
+        response = await _chat(client, browser, message, shop=shop, route=route, plan=plan)
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["status"] == "completed"
+        assert (payload.get("ui") is not None) is (route == "shopping")
+        if route == "shopping":
+            assert _ui(payload)["stage"] == "shopping"
+    # Support detours never create provider orders/payments, and abrupt refund
+    # turns only collect slots unless an explicit confirmation later executes.
+    assert shop.browsers.case.calls.refunds == refunds_before
+    assert await _operations(shop) == 0
+    assert await _counts(shop) == {"order": 0, "payment": 0}
+
+
+@pytest.mark.parametrize("sequence", _ABRUPT_SWITCH_SEQUENCES)
+async def test_abrupt_public_guest_intent_switch_matrix(
+    shop: ShopHttp, sequence: tuple[tuple[str, str, dict[str, Any] | None], ...]
+) -> None:
+    client = shop.browsers.first
+    browser = await _boot(client)
+    await _run_abrupt_switch_sequence(shop, client, browser, sequence)
+
+
+@pytest.mark.parametrize(
+    "opener",
+    ["你好", "讲个笑话", "退货政策是什么？", "查询订单", "我要投诉", "物流到哪了"],
+)
+async def test_any_support_module_can_abruptly_switch_to_refund_without_execution(
+    shop: ShopHttp, opener: str
+) -> None:
+    client = shop.browsers.first
+    browser = await _boot(client)
+    first = await _chat(client, browser, opener, shop=shop, route="support")
+    assert first.status_code == 200
+    assert first.json().get("ui") is None
+
+    refund = await _chat(client, browser, "我要退款", shop=shop, route="support")
+    assert refund.status_code == 200
+    assert "订单" in refund.json()["content"]
+    assert shop.browsers.case.calls.refunds == []
+    assert await _operations(shop) == 0
+    assert await _counts(shop) == {"order": 0, "payment": 0}
+
+
+async def test_refund_mid_collection_can_detour_to_shopping_without_execution(
+    shop: ShopHttp,
+) -> None:
+    client = shop.browsers.first
+    browser = await _boot(client)
+    refund = await _chat(client, browser, "我要退款", shop=shop, route="support")
+    assert refund.status_code == 200
+    assert "订单" in refund.json()["content"]
+
+    shopping = await _chat(
+        client,
+        browser,
+        "我想买耳机",
+        shop=shop,
+        route="shopping",
+        plan={"tool": "search_products", "arguments": {"query": "耳机"}},
+    )
+    assert _ui(shopping.json())["stage"] == "shopping"
+    assert shop.browsers.case.calls.refunds == []
+
+    resumed = await _chat(client, browser, "我要退款", shop=shop, route="support")
+    assert resumed.status_code == 200
+    assert "订单" in resumed.json()["content"]
+    assert shop.browsers.case.calls.refunds == []
+    assert await _operations(shop) == 0
+    assert await _counts(shop) == {"order": 0, "payment": 0}
+
+
 async def test_order_timeout_query_never_pays_or_duplicates(shop: ShopHttp) -> None:
     client = shop.browsers.first
     browser = await _boot(client)
