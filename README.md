@@ -702,9 +702,7 @@ LLM's labeled bundle advice plus authoritative typed provider facts, while cart,
 quote, order and payment stages remain server-rendered and the model cannot
 invent success. All commerce is visibly simulated.
 
-Current text-commerce backend gate: Ruff, formatting and strict Mypy pass; the
-complete suite passes **3803 tests with 3 configured skips, 5 warnings** (core
-coverage 93.53%). A real local HTTP smoke drove the external adapter through
+Current text-commerce backend gate: Ruff, formatting and strict Mypy pass. For this graph update, the release gate intentionally runs targeted representative suites instead of the 3,800-test full suite at user request: commerce/provider/evaluation checks plus graph/initialization checks pass, and live production canaries below verify the new path. The earlier pre-graph full-suite baseline remains 3,803 passed / 3 skipped / 5 warnings. A real local HTTP smoke drove the external adapter through
 search → multi-line cart → quote → order → payment → status, including stable
 request-key replay and refusal of a conflicting replay. The production canary
 then completed the same text-only journey against the separate internal
