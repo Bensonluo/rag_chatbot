@@ -77,6 +77,7 @@ class CatalogTaxonomy(CommerceModel):
 class CartLineSelection(CommerceModel):
     sku_id: str = Field(min_length=1, max_length=64)
     quantity: int = Field(strict=True, ge=1)
+    provider: Literal["generated", "external"] | None = Field(default=None, exclude=True)
 
 
 class CartLine(CommerceModel):

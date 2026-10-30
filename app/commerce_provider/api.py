@@ -16,10 +16,12 @@ original request key".
 from __future__ import annotations
 
 import hmac
+import json
 import logging
 import sqlite3
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Header, Request
@@ -51,6 +53,7 @@ from app.models.schemas.commerce import (
     PaymentSnapshot,
     QuoteSnapshot,
 )
+from app.models.schemas.commerce_taxonomy import RegistryTaxonomy
 
 
 def _settings(request: Request) -> CommerceProviderSettings:
@@ -84,6 +87,17 @@ def get_faults(request: Request) -> FaultController:
     return controller
 
 
+def _load_taxonomy(path: str) -> RegistryTaxonomy | None:
+    if not path:
+        return None
+    source = Path(path)
+    try:
+        payload = json.loads(source.read_text(encoding="utf-8"))
+        return RegistryTaxonomy.model_validate(payload)
+    except Exception as exc:
+        raise RuntimeError(f"Invalid commerce taxonomy snapshot: {path}") from exc
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = _settings_from_app(app)
@@ -94,7 +108,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.commerce_faults = faults
     app.state.commerce_core = CommerceProviderCore(
         database,
-        VirtualCatalog(),
+        VirtualCatalog(_load_taxonomy(settings.taxonomy_path)),
         quote_ttl_seconds=settings.quote_ttl_seconds,
         faults=faults,
     )

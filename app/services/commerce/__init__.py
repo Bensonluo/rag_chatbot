@@ -23,17 +23,37 @@ def _shared_external_port(
 def create_commerce_port(
     sessions: async_sessionmaker[AsyncSession], *, config: Settings | None = None
 ) -> CommercePort:
-    """Explicit provider selection from settings; mock and external never mix.
+    """Explicit provider selection; an optional second supplier enables routing.
 
-    External mode is a composition choice, not a runtime fallback: when the
-    provider is missing or unreachable, the adapter fails every call loudly
-    instead of consulting a local commerce implementation.
+    External mode remains a composition choice, not a runtime fallback. When an
+    external supplier URL is configured, taxonomy-driven routing composes the
+    generated provider and external supplier behind one ``CommercePort``.
     """
     chosen = settings if config is None else config
+    generated: CommercePort
     if chosen.COMMERCE_PROVIDER_MODE == "external":
-        return _shared_external_port(
+        generated = _shared_external_port(
             chosen.COMMERCE_PROVIDER_URL,
             chosen.COMMERCE_PROVIDER_TOKEN,
             chosen.COMMERCE_PROVIDER_TIMEOUT_SECONDS,
         )
-    return MockCommercePort(sessions)
+    else:
+        generated = MockCommercePort(sessions)
+
+    if not chosen.COMMERCE_EXTERNAL_PROVIDER_URL:
+        return generated
+
+    from app.services.commerce.router import RouterCommercePort
+    from app.services.commerce.taxonomy import CommerceTaxonomyRegistry
+
+    external = _shared_external_port(
+        chosen.COMMERCE_EXTERNAL_PROVIDER_URL,
+        chosen.COMMERCE_EXTERNAL_PROVIDER_TOKEN,
+        chosen.COMMERCE_EXTERNAL_PROVIDER_TIMEOUT_SECONDS,
+    )
+    return RouterCommercePort(
+        generated=generated,
+        external=external,
+        registry=CommerceTaxonomyRegistry(sessions),
+        external_provider="external",
+    )

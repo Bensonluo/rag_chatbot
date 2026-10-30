@@ -25,6 +25,10 @@ class CommerceProviderSettings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = Field(default=8071, ge=1, le=65535)
     database_path: str = "commerce_provider.sqlite3"
+    taxonomy_path: str = Field(
+        default="",
+        description="Optional JSON taxonomy snapshot; empty uses the built-in generated taxonomy.",
+    )
     auth_token: str = DEFAULT_AUTH_TOKEN
     quote_ttl_seconds: int = Field(default=300, ge=1)
     faults_enabled: bool = False

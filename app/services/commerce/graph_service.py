@@ -14,6 +14,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from app.models.schemas.commerce import CatalogTaxonomy
+from app.models.schemas.commerce_taxonomy import RegistryTaxonomy
 from app.services.graph.base import GraphEntity, GraphRelation
 from app.services.llm.base import LLMMessage
 
@@ -66,8 +67,12 @@ class CommerceGraphService:
         self._embeddings = embedding_service
         self._semantic_planner = semantic_planner
 
-    async def refresh_projection(self, taxonomy: CatalogTaxonomy) -> dict[str, int]:
-        """Project provider category facts and LLM use-case communities.
+    async def refresh_projection(
+        self,
+        taxonomy: CatalogTaxonomy | RegistryTaxonomy,
+        semantic_data: Any | None = None,
+    ) -> dict[str, int]:
+        """Project provider category facts plus approved semantic metadata.
 
         This is an idempotent semantic index, not a second commerce fact
         source. No user-language alias, SKU, price or stock is written.
@@ -176,8 +181,61 @@ class CommerceGraphService:
                     )
                 )
 
+        if semantic_data is not None:
+            known_entity_ids = {entity.id for entity in entities}
+            for node in semantic_data.nodes:
+                if node.id in known_entity_ids:
+                    continue
+                known_entity_ids.add(node.id)
+                node_description = node.description or ""
+                entities.append(
+                    GraphEntity(
+                        id=node.id,
+                        name=node.name,
+                        type=node.node_type,
+                        description=node_description,
+                        properties={
+                            **node.properties,
+                            "source": node.source,
+                            "confidence": node.confidence,
+                            "status": node.status,
+                            "semantic_version": node.version,
+                            "commerce_projection": True,
+                        },
+                        embedding=(
+                            await self._embeddings.embed_single(f"{node.name} {node_description}")
+                            if self._embeddings is not None
+                            else None
+                        ),
+                    )
+                )
+            entity_ids = {entity.id for entity in entities}
+            for relation in semantic_data.relations:
+                source_id = self._resolve_semantic_ref(relation.source_ref)
+                target_id = self._resolve_semantic_ref(relation.target_ref)
+                if source_id not in entity_ids or target_id not in entity_ids:
+                    continue
+                relations.append(
+                    GraphRelation(
+                        id=relation.id,
+                        source_entity_id=source_id,
+                        target_entity_id=target_id,
+                        relation_type=relation.relation_type,
+                        description=relation.description or None,
+                        properties={
+                            **relation.properties,
+                            "source": relation.source,
+                            "confidence": relation.confidence,
+                            "status": relation.status,
+                            "semantic_version": relation.version,
+                        },
+                    )
+                )
+
         await self._graph.replace_commerce_projection(entities, relations)
-        use_case_count = sum(entity.type == _COMMERCE_USE_CASE_TYPE for entity in entities)
+        use_case_count = sum(
+            entity.type in {_COMMERCE_USE_CASE_TYPE, "CommerceUseCase"} for entity in entities
+        )
         return {
             "categories": len(taxonomy.categories),
             "attributes": max(len(entities) - len(taxonomy.categories) - use_case_count, 0),
@@ -185,7 +243,19 @@ class CommerceGraphService:
             "relations": len(relations),
         }
 
-    async def _infer_use_cases(self, taxonomy: CatalogTaxonomy) -> list[dict[str, Any]]:
+    @staticmethod
+    def _resolve_semantic_ref(ref: str) -> str:
+        """Resolve registry refs to the typed commerce projection IDs."""
+
+        if ref.startswith("category:"):
+            return f"commerce-category:{ref.removeprefix('category:')}"
+        if ref.startswith("node:"):
+            return ref.removeprefix("node:")
+        return ref
+
+    async def _infer_use_cases(
+        self, taxonomy: CatalogTaxonomy | RegistryTaxonomy
+    ) -> list[dict[str, Any]]:
         """Let the LLM infer generic use-case edges from provider categories."""
 
         if self._semantic_planner is None:

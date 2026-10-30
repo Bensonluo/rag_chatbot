@@ -43,6 +43,7 @@ from app.models.schemas.commerce import (
     CatalogTaxonomy,
     CategoryAttribute,
 )
+from app.models.schemas.commerce_taxonomy import RegistryCategory, RegistryTaxonomy
 
 CommerceSort = Literal["relevance", "price_asc", "price_desc", "newest"]
 
@@ -478,6 +479,41 @@ assert len(SERIES_WORDS) == SERIES_COUNT
 assert len(VARIANT_COLORS) == VARIANTS_PER_MODEL
 
 
+def taxonomy_from_specs(
+    specs: tuple[CategorySpec, ...] = CATEGORIES,
+    *,
+    taxonomy_version: str = "static-v1",
+) -> RegistryTaxonomy:
+    """Build the registry taxonomy from generated-category specs."""
+
+    return RegistryTaxonomy(
+        taxonomy_version=taxonomy_version,
+        categories=[
+            RegistryCategory(
+                category_id=spec.category_id,
+                name=spec.name,
+                description=spec.blurb,
+                attributes=[
+                    CategoryAttribute(name=key, allowed_values=list(values))
+                    for key, values in spec.attrs
+                ],
+                domain="office_electronics",
+                provider_policy="generated",
+                status="active",
+                provider_aliases=list(spec.aliases),
+                base_price_minor=spec.base_price_minor,
+            )
+            for spec in specs
+        ],
+    )
+
+
+def default_taxonomy() -> RegistryTaxonomy:
+    """Return the built-in taxonomy used when no registry version is active."""
+
+    return taxonomy_from_specs(CATEGORIES)
+
+
 @dataclass(frozen=True)
 class _TokenPlan:
     """How a tokenized query constrains the candidate stream."""
@@ -493,9 +529,34 @@ def _stable_hash(n: int, domain: str) -> int:
 
 
 class VirtualCatalog:
-    """Pure-function view over the fixed 100M-SKU address space."""
+    """Pure-function view over a bounded deterministic SKU address space."""
 
-    total_skus: int = TOTAL_SKUS
+    def __init__(self, taxonomy: CatalogTaxonomy | RegistryTaxonomy | None = None) -> None:
+        source = taxonomy or default_taxonomy()
+        registry_source = (
+            source
+            if isinstance(source, RegistryTaxonomy)
+            else RegistryTaxonomy.model_validate(source)
+        )
+        categories = [
+            category
+            for category in registry_source.categories
+            if category.status == "active" and category.provider_policy == "generated"
+        ]
+        if not categories:
+            raise ProviderRejectedError("Generated catalog requires at least one active category")
+        pair_count = len(categories) * BRAND_COUNT
+        models_per_pair = max(1, TOTAL_SKUS // (pair_count * VARIANTS_PER_MODEL))
+        self.taxonomy_version = registry_source.taxonomy_version
+        self._registry_taxonomy = RegistryTaxonomy(
+            taxonomy_version=registry_source.taxonomy_version,
+            categories=categories,
+        )
+        self._categories = categories
+        self.category_count = len(categories)
+        self.pair_count = pair_count
+        self.models_per_pair = models_per_pair
+        self.total_skus = pair_count * models_per_pair * VARIANTS_PER_MODEL
 
     # --- addressing ---------------------------------------------------------
     def sku_id(self, n: int) -> str:
@@ -506,12 +567,12 @@ class VirtualCatalog:
         if match is None:
             return None
         n = int(match.group(1))
-        return n if n < TOTAL_SKUS else None
+        return n if n < self.total_skus else None
 
     def decompose(self, n: int) -> tuple[int, int, int]:
         """Return ``(pair_index, model_index, variant_index)`` for a valid n."""
 
-        pair_index, rest = divmod(n, MODELS_PER_PAIR * VARIANTS_PER_MODEL)
+        pair_index, rest = divmod(n, self.models_per_pair * VARIANTS_PER_MODEL)
         model_index, variant_index = divmod(rest, VARIANTS_PER_MODEL)
         return pair_index, model_index, variant_index
 
@@ -519,36 +580,28 @@ class VirtualCatalog:
         return f"PRD-{pair_index:03d}-{model_index:05d}"
 
     def taxonomy(self) -> CatalogTaxonomy:
-        """Publish the authoritative category taxonomy for open discovery.
+        """Publish this provider's authoritative generated-category taxonomy."""
 
-        Category ids, names, descriptions and attribute vocabularies are
-        provider facts. The internal search aliases stay private: mapping an
-        open user need onto standard categories is the LLM Agent's job, not a
-        provider-published phrase table.
-        """
-
-        return CatalogTaxonomy(
-            categories=[
-                CatalogCategory(
-                    category_id=spec.category_id,
-                    name=spec.name,
-                    description=spec.blurb,
-                    attributes=[
-                        CategoryAttribute(name=key, allowed_values=list(values))
-                        for key, values in spec.attrs
-                    ],
-                )
-                for spec in CATEGORIES
-            ]
-        )
+        return self._registry_taxonomy.to_catalog_taxonomy()
 
     # --- fact projection ----------------------------------------------------
+    @staticmethod
+    def _category_attributes(category: CatalogCategory) -> list[tuple[str, tuple[str, ...]]]:
+        return [
+            (attribute.name, tuple(attribute.allowed_values)) for attribute in category.attributes
+        ]
+
+    def _category_base_price(self, category: RegistryCategory) -> int:
+        if category.base_price_minor is not None:
+            return category.base_price_minor
+        return 4_900 + _stable_hash(abs(hash(category.category_id)), "category-price") % 196_000
+
     def _unit_price(self, pair_index: int, model_index: int) -> int:
-        category = CATEGORIES[pair_index // BRAND_COUNT]
+        category = self._categories[pair_index // BRAND_COUNT]
         brand = BRANDS[pair_index % BRAND_COUNT]
         series_factor = 0.85 + 0.35 * ((model_index % SERIES_COUNT) % 8) / 7
         band_factor = 1 + 0.01 * (model_index % 25)
-        price = category.base_price_minor * brand.multiplier * series_factor * band_factor
+        price = self._category_base_price(category) * brand.multiplier * series_factor * band_factor
         return max(100, int(round(price / 100.0)) * 100)
 
     def _base_availability(self, n: int) -> int:
@@ -561,7 +614,7 @@ class VirtualCatalog:
     def _describe(
         self, pair_index: int, model_index: int, variant_index: int
     ) -> tuple[str, str, dict[str, str]]:
-        category = CATEGORIES[pair_index // BRAND_COUNT]
+        category = self._categories[pair_index // BRAND_COUNT]
         brand = BRANDS[pair_index % BRAND_COUNT]
         series = SERIES_WORDS[model_index % SERIES_COUNT]
         code = f"{series[0]}{model_index:04d}"
@@ -572,20 +625,20 @@ class VirtualCatalog:
             "颜色": VARIANT_COLORS[variant_index],
         }
         attr_text: list[str] = []
-        for ordinal, (key, vocab) in enumerate(category.attrs):
+        for ordinal, (key, vocab) in enumerate(self._category_attributes(category)):
             value = vocab[(model_index + 3 * ordinal) % len(vocab)]
             attributes[key] = value
             attr_text.append(f"{key}{value}")
         description = (
             f"模拟商品：{brand.name}{series}系列{category.name}"
-            f"（{'，'.join(attr_text[:4])}），{category.blurb}；用于演示购物流程。"
+            f"（{'，'.join(attr_text[:4])}），{category.description}；用于演示购物流程。"
         )
         return name, description, attributes
 
     def materialize(self, n: int, stock_delta: int = 0) -> CatalogItem:
         """Project the full catalog item for a SKU index."""
 
-        if not 0 <= n < TOTAL_SKUS:
+        if not 0 <= n < self.total_skus:
             raise ProviderRejectedError("模拟商品编号越界")
         pair_index, model_index, variant_index = self.decompose(n)
         name, description, attributes = self._describe(pair_index, model_index, variant_index)
@@ -647,14 +700,15 @@ class VirtualCatalog:
         text_terms: list[str] = []
         for token in tokens:
             pair_match: set[int] = set()
-            for category_index, category in enumerate(CATEGORIES):
-                if self._token_matches(token, (category.name, *category.aliases)):
+            for category_index, category in enumerate(self._categories):
+                aliases = (category.name, *category.provider_aliases)
+                if self._token_matches(token, aliases):
                     pair_match.update(self._category_pairs(category_index))
             for brand_index, brand in enumerate(BRANDS):
                 if self._token_matches(token, (brand.name, brand.slug)):
                     pair_match.update(
                         category_index * BRAND_COUNT + brand_index
-                        for category_index in range(CATEGORY_COUNT)
+                        for category_index in range(self.category_count)
                     )
             if pair_match:
                 pair_sets.append(frozenset(pair_match))
@@ -668,11 +722,13 @@ class VirtualCatalog:
                 series_ids.update(matched_series)
             else:
                 text_terms.append(token)
-        pairs = frozenset.intersection(*pair_sets) if pair_sets else frozenset(range(PAIR_COUNT))
+        pairs = (
+            frozenset.intersection(*pair_sets) if pair_sets else frozenset(range(self.pair_count))
+        )
         return _TokenPlan(tuple(sorted(pairs)), frozenset(series_ids), tuple(text_terms))
 
     def _blob(self, pair_index: int, model_index: int, variant_index: int) -> str:
-        category = CATEGORIES[pair_index // BRAND_COUNT]
+        category = self._categories[pair_index // BRAND_COUNT]
         brand = BRANDS[pair_index % BRAND_COUNT]
         name, description, attributes = self._describe(pair_index, model_index, variant_index)
         parts = [
@@ -681,7 +737,7 @@ class VirtualCatalog:
             brand.name,
             brand.slug,
             category.name,
-            *category.aliases,
+            *category.provider_aliases,
             *attributes.keys(),
             *attributes.values(),
         ]
@@ -749,7 +805,7 @@ def _search(
     budget_exhausted = False
 
     for pair_index in plan.pair_indexes:
-        category = CATEGORIES[pair_index // BRAND_COUNT]
+        category = catalog._categories[pair_index // BRAND_COUNT]
         brand = BRANDS[pair_index % BRAND_COUNT]
         if brand_filter is not None and brand.name not in brand_filter:
             continue
@@ -761,12 +817,18 @@ def _search(
             if key in {"品牌", "系列", "颜色"}:
                 continue
             ordinal = next(
-                (i for i, (attr_key, _) in enumerate(category.attrs) if attr_key == key), None
+                (
+                    i
+                    for i, (attr_key, _) in enumerate(catalog._category_attributes(category))
+                    if attr_key == key
+                ),
+                None,
             )
             if ordinal is None:
                 pair_possible = False
                 break
-            cat_checks.append((ordinal, category.attrs[ordinal][1], frozenset(allowed)))
+            attr_vocab = catalog._category_attributes(category)[ordinal][1]
+            cat_checks.append((ordinal, attr_vocab, frozenset(allowed)))
         if not pair_possible:
             continue
 
@@ -783,10 +845,10 @@ def _search(
         models: Iterator[int]
         if series_residues:
             models = heapq.merge(
-                *(range(r, MODELS_PER_PAIR, SERIES_COUNT) for r in sorted(series_residues))
+                *(range(r, catalog.models_per_pair, SERIES_COUNT) for r in sorted(series_residues))
             )
         else:
-            models = iter(range(MODELS_PER_PAIR))
+            models = iter(range(catalog.models_per_pair))
 
         for model_index in models:
             scanned += 1
@@ -806,7 +868,7 @@ def _search(
             for variant_index in range(VARIANTS_PER_MODEL):
                 if color_filter is not None and VARIANT_COLORS[variant_index] not in color_filter:
                     continue
-                n = (pair_index * MODELS_PER_PAIR + model_index) * VARIANTS_PER_MODEL
+                n = (pair_index * catalog.models_per_pair + model_index) * VARIANTS_PER_MODEL
                 n += variant_index
                 sku = catalog.sku_id(n)
                 available = catalog._base_availability(n) + stock_deltas.get(sku, 0)

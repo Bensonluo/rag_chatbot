@@ -273,8 +273,15 @@ async def initialize_chat_service(
                     semantic_planner=llm_service,
                 )
                 try:
+                    from app.services.commerce.taxonomy import CommerceTaxonomyRegistry
+
+                    taxonomy_registry = CommerceTaxonomyRegistry(async_session_maker)
                     taxonomy = await create_commerce_port(async_session_maker).catalog_categories(1)
-                    projected = await commerce_graph_service.refresh_projection(taxonomy)
+                    semantic_data = await taxonomy_registry.load_semantics()
+                    projected = await commerce_graph_service.refresh_projection(
+                        taxonomy,
+                        semantic_data,
+                    )
                     logger.info("Projected commerce taxonomy graph: %s", projected)
                 except Exception as e:
                     logger.warning(

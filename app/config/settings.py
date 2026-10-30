@@ -629,6 +629,22 @@ class Settings(BaseSettings):
         gt=0,
         description="Bounded timeout for every commerce provider HTTP call",
     )
+    COMMERCE_EXTERNAL_PROVIDER_URL: str = Field(
+        default="",
+        description=(
+            "Optional second commerce provider for externally mapped categories. "
+            "Empty keeps the existing single-provider behavior."
+        ),
+    )
+    COMMERCE_EXTERNAL_PROVIDER_TOKEN: str = Field(
+        default="",
+        description="Bearer token for the optional external commerce provider",
+    )
+    COMMERCE_EXTERNAL_PROVIDER_TIMEOUT_SECONDS: float = Field(
+        default=5.0,
+        gt=0,
+        description="Bounded timeout for optional external commerce provider calls",
+    )
 
     # Monitoring
     ENABLE_METRICS: bool = Field(default=True, description="Enable Prometheus metrics")

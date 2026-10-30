@@ -46,16 +46,26 @@ flowchart LR
 
 ## 开放式需求与类目发现
 
-- commerce provider 通过 Bearer 保护的 `GET /commerce/categories` 暴露权威类目事实：25 个标准类目的 id、名称、描述和允许属性值。用户语言别名仍是 provider 内部检索索引，不进入语义层，也不作为可配置路由表。
+- commerce provider 通过 Bearer 保护的 `GET /commerce/categories` 暴露权威类目事实：默认内置 25 个标准类目；启用 registry 后暴露 active taxonomy 中的 generated 类目 id、名称、描述和允许属性值。用户语言别名仍是 provider 内部检索索引，不进入语义层，也不作为可配置路由表。
 - 面对开放式需求（例如“预算 1500 配一个远程办公角落”），LLM Agent 先发现 taxonomy，再把需求映射到一个或多个标准类目并逐类搜索；不存在确定性查询重写器。
 - `create_commerce_tools()` 的请求局部状态按 `sku_id` 去重；不同查询跨类目轮转均衡，同一查询的分页结果并回原 provider 顺序。每轮可见 typed 候选总数硬上限为 5 个。第一次搜索保持单查询分页语义；后续搜索返回一个合并目录块和最新非目录块。合并只做展示层收敛，不替模型决定类目或搜索顺序；不同查询的 page token 不能合并，因此合并视图不带 `next_page_token`，但保留 provider 总量估计并提示可换一批。
 - 模型组合建议只能引用当前合并候选块中仍展示的 SKU；购物车、报价、订单和付款仍以服务端事实为准。
 - 整体预算是组合总价约束，不是固定类目配额。除非用户明确给出单项/类目价格上限，LLM 不得在类目搜索上自行设置 `max_price`；先取完整候选，再在组合层控制总价。带筛选搜索为空时必须先去掉非用户筛选复搜，才能说明缺候选。
 - Agent 内部上限为 `max_steps=6`，每请求 LLM 预算仍为 `CHAT_LLM_CALL_BUDGET=8`；公开 IP/聊天限流不变。该上限只放宽规划轮数，不放宽滥用控制或交易确认门。
 
+## 动态 taxonomy registry 与覆盖闭环
+
+- 商品类目生命周期从 provider 代码常量迁移到版本化 registry：`commerce_taxonomy_versions/categories/attributes`。active 版本是 generated provider、graph projection 与 provider router 的共同类目输入；无 active 版本时仅使用内置静态 taxonomy，不影响现有启动。
+- Admin 接口 `GET/POST /api/v1/commerce/admin/taxonomy/versions`、`POST /activate` 管理不可变版本和激活；`GET /taxonomy/export` 导出内部 registry 快照，供 standalone provider 通过 `COMMERCE_PROVIDER_TAXONOMY_PATH` 启动加载。
+- registry 保存公开 provider wire schema 之外的内部字段：父类目、domain、`generated/external/unsupported` policy、生命周期、provider 私有检索别名和 generated 底价。公开 `CatalogCategory` 仍只含 category_id/name/description/attributes，不把别名或路由表泄漏成语义合同。
+- coverage recorder 在购物工具首轮搜索后 fail-open 记录 zero/low-result 事件，包含 query、owner hash、精确命中类目和最近类目候选；记录失败不影响购物链路。
+- Admin coverage 接口支持事件列表、metrics、人工创建/审批 alias、use_case、relation 或 category proposal。审批通过后，alias/use_case/relation 写入 semantic registry 并刷新 Neo4j 商品投影；category proposal 会发布新的 active taxonomy version。低置信或未审核语义不进入图谱。
+- `CommerceGraphService.refresh_projection()` 同时消费 provider taxonomy 与已审核 semantic edges；所有语义节点/关系带 source/confidence/status/version，仍不写 SKU、价格、库存、限购或交易状态。
+- 当显式配置 `COMMERCE_EXTERNAL_PROVIDER_URL` 时，`RouterCommercePort` 按 active taxonomy 路由：generated 类目走原 provider，external 类目走第二 supplier adapter 并支持外部类目映射，unsupported domain 返回空 typed page；未配置第二 supplier 时保持原单 provider 行为，无运行时 fallback。
+
 ## 商品知识图谱
 
-- 复用项目既有 Neo4j/GraphRAG 基础设施。API 启动时把 provider taxonomy 投影为 `CommerceCategory`、`CommerceAttribute` 节点和 `HAS_COMMERCE_ATTRIBUTE` 关系；不复制任何 SKU、价格、库存、限购或用户 alias。
+- 复用项目既有 Neo4j/GraphRAG 基础设施。API 启动时把 active taxonomy 与已审核 semantic registry 投影为 `CommerceCategory`、`CommerceAttribute`、`CommerceAlias`、`CommerceUseCase` 节点和关系；不复制任何 SKU、价格、库存、限购或用户 alias。
 - 商品投影写入是原子替换：只删除带 `Commerce*` type 的投影节点/关系后重建，不触碰文档知识图谱；LLM 每次推断出的用途集合不会在重启间无限累积。
 - LLM 语义规划器从标准类目推断 `CommerceUseCase` 节点（如家庭影音、远程办公、移动差旅），并用 `SERVES_COMMERCE_USE_CASE` 连接相关类目。该推断是模型语义，不是固定短语表；输出只允许 provider 已有 category id。
 - 购物 Agent 获得只读 `commerce_graph_context` 工具，可用于理解用途、搭配、替代和跨类目关系。图谱结果永远标注 semantic-only；SKU、价格、库存、限购和可购买性仍必须由 commerce provider 工具验证。
@@ -105,6 +115,12 @@ SSE 从消费者消息入口开始输出 `event: trace`：provider 路由（含 
   app/tests/evaluation/test_guest_commerce_flow.py \
   app/tests/evaluation/test_commerce_task_fencing.py \
   app/tests/evaluation/test_guest_conversations.py
+```
+
+新增 registry/semantic/coverage/router 回归集中在：
+
+```sh
+.venv/bin/pytest --no-cov -q app/tests/unit/services/commerce/test_taxonomy_registry.py
 ```
 
 覆盖 provider catalog/address space、taxonomy 发现、类目属性 wire contract、外部/mock 等价、开放式需求多类目搜索、跨搜索候选去重、别名表禁用、多行 cart、报价/订单/支付、幂等冲突、unknown-after-commit、SQLite 重开持久化、owner 隔离、HTTP wire contract、Agent 工具循环、两次独立文字确认、重复确认幂等、跨访客隔离、报价过期、购物车变更、政策插问恢复、processing 和消息保存失败。完整门禁结果以最新部署记录为准。2026-10-29 生产浏览器 canary 用“预算1500配置远程办公角落”验证：最终回复包含标注未加购的组合建议与权威候选事实，覆盖显示器、键盘、鼠标、耳机、摄像头、人体工学椅等类目；消息 metadata 为 `planner_mode=provider`，工具审计含 1 次 `commerce_discover_catalog` 与 6 次 `commerce_search_products`，无模型自造 `max_price` 筛选，且浏览器未发起购买 mutation 请求。

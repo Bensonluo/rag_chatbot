@@ -22,6 +22,16 @@ from app.models.database.commerce import (  # noqa: F401
     PurchaseOperation,
     PurchaseSession,
 )
+from app.models.database.commerce_taxonomy import (  # noqa: F401
+    CommerceCoverageEvent,
+    CommerceCoverageReview,
+    CommerceExternalCategoryMapping,
+    CommerceSemanticNode,
+    CommerceSemanticRelation,
+    CommerceTaxonomyAttribute,
+    CommerceTaxonomyCategory,
+    CommerceTaxonomyVersion,
+)
 
 # Import all models to ensure they're registered with SQLAlchemy
 # (side-effect imports — removing them empties Base.metadata and would

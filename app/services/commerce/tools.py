@@ -6,6 +6,7 @@ Tool schemas expose structured search filters/sort/paging and a full multi-line
 cart payload, so the provider stays the only source of prices, names and limits.
 """
 
+import logging
 import math
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
@@ -22,12 +23,14 @@ from app.models.schemas.commerce import (
     CatalogItem,
     CommerceView,
 )
+from app.services.commerce.coverage import CommerceCoverageRecorder
 from app.services.commerce.graph_service import CommerceGraphService
 from app.services.commerce.port import CommerceSort
 from app.services.commerce.service import PurchaseService
 from app.services.dialogue.tools import ToolDefinition, ToolRegistry
 
 _SORTS = ("relevance", "price_asc", "price_desc", "newest")
+logger = logging.getLogger(__name__)
 # One guest-facing turn keeps at most five typed candidates, even when the
 # model searches several provider categories. Provider paging remains larger;
 # this is the Agent presentation contract, not a provider catalog limit.
@@ -108,6 +111,7 @@ def create_commerce_tools(
     views: list[CommerceView],
     current: CommerceView | None,
     commerce_graph: CommerceGraphService | None = None,
+    coverage_recorder: CommerceCoverageRecorder | None = None,
 ) -> ToolRegistry:
     """Bind one verified principal in a local closure, never a model argument."""
 
@@ -174,6 +178,18 @@ def create_commerce_tools(
             page_size=page_size,
             page_token=page_token,
         )
+        if coverage_recorder is not None and page_token is None:
+            result_count = sum(
+                len(block.items) for block in result.blocks if isinstance(block, CatalogBlock)
+            )
+            try:
+                await coverage_recorder.record_search(
+                    query=query,
+                    result_count=result_count,
+                    owner=owner,
+                )
+            except Exception as exc:  # pragma: no cover - fail-open telemetry
+                logger.warning("Commerce coverage recording failed: %s", exc)
         search_batches += 1
         batch: list[CatalogItem] = []
         for block in result.blocks:

@@ -121,12 +121,18 @@ def get_guest_commerce_conversation(
     coordinator: Annotated[SessionCoordinator, Depends(get_session_coordinator)],
     chat_service: Annotated[ChatService, Depends(get_guest_chat_service)],
 ) -> CommerceConversation:
+    from app.api.database import async_session_maker
+    from app.services.commerce.coverage import SqlCommerceCoverageRecorder
+    from app.services.commerce.taxonomy import CommerceTaxonomyRegistry
+
+    taxonomy_registry = CommerceTaxonomyRegistry(async_session_maker)
     return CommerceConversation(
         purchases,
         coordinator,
         chat_service.persister or ChatMessagePersister(coordinator.sessions),
         provider=chat_service.llm_service,
         commerce_graph_service=getattr(chat_service, "commerce_graph_service", None),
+        coverage_recorder=SqlCommerceCoverageRecorder(taxonomy_registry),
     )
 
 

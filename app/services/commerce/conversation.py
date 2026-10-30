@@ -233,10 +233,12 @@ class CommerceConversation:
         persister: ChatMessagePersister,
         provider: Any = None,
         commerce_graph_service: Any = None,
+        coverage_recorder: Any = None,
     ) -> None:
         self.purchases, self.coordinator = purchases, coordinator
         self.persister, self.provider = persister, provider
         self.commerce_graph_service = commerce_graph_service
+        self.coverage_recorder = coverage_recorder
 
     async def route(self, owner: int, message: str) -> CommerceRouteDecision:
         """Let the provider LLM make the semantic shopping/support decision."""
@@ -432,6 +434,7 @@ class CommerceConversation:
                 views,
                 current,
                 commerce_graph=self.commerce_graph_service,
+                coverage_recorder=self.coverage_recorder,
             )
             # Six bounded rounds leave room for graph/discovery → several
             # standard category searches → final prose, still under the
