@@ -245,6 +245,43 @@ provider SQLite 在线备份：
 
 
 
+## 2026-10-30 动态 Taxonomy Registry 里程碑
+
+- 后端运行时提交：`39371ef feat(commerce): add dynamic taxonomy registry`
+- `DEPLOYED_REVISION=39371ef13de8d909ae16e31c4ddec733529ecc83`
+- API image manifest list digest：`sha256:b5c24416d978fef607ef69c5f56f35b3988d23545de75c87fef940a827076498`
+- commerce-provider image manifest list digest：`sha256:42ba5ab2c158a844d2339bae0b668290056a4e54f4c302745b4ad676c6d812eb`
+- PostgreSQL Alembic：`e75c9d1064a3 -> f3a8b2c91d04 (head)`；新表仅承载 taxonomy lifecycle、semantic review metadata 与 coverage telemetry，不改写 SKU、价格、库存、购物车、订单、付款或旧访客数据。
+- 本次不是类目补丁：未新增鲜花/香水等静态类目；长期能力为动态 registry、admin 审核、coverage 闭环、语义投影与可选外部 provider 路由。
+
+部署前备份：
+
+|对象|路径|大小|SHA-256|
+|---|---|---:|---|
+|PostgreSQL|`/opt/rag_chatbot/backups/production/db_backup_20261030_181211_VtTHdrz2.sql.gz`|1,782,171 bytes|`c56a951ce2bfba4000a5800140601361157f4b32842d2b139237d58bd44e39c4`|
+|provider SQLite|`/opt/rag_chatbot/backups/commerce_provider/provider_backup_20261030_181213.sqlite3.gz`|4,198 bytes|`7b5cd3d3225a79c7caaba880ed0a14d277cb7a244b8b1017f4553f090ada778f|
+
+部署过程：先停止 API，同步源码，构建 API/provider 镜像，使用新镜像执行 `alembic upgrade head`，确认 `f3a8b2c91d04 (head)` 后启动 commerce-provider 与 API；旧 API 镜像和上述备份保留在服务器。
+
+部署后健康：
+
+|检查|结果|
+|---|---|
+|commerce-provider container|healthy / running|
+|API container|healthy / running|
+|API `/health` 与 `/ready`|200|
+|provider internal `/health` 与 authorized categories|200|
+|provider 无宿主端口|`{"8000/tcp":null}`|
+|公开 provider search|404|
+|Alembic|`f3a8b2c91d04 (head)`|
+|商品图谱投影|25 `CommerceCategory` / 81 `CommerceAttribute` / 8 `CommerceUseCase` / 107 relations|
+
+生产 canary：
+
+1. 新访客 Cookie 仅通过公开 chat 入口发送 `我想看看耳机`。
+2. 路由结果 `intent=shopping`，回复含 typed SKU 事实、模拟交易披露和“尚未加购”的 Agent 建议边界。
+3. 浏览器可见事实仍来自 provider 目录；未测试鲜花/香水，因本轮目标是长期架构而非静态类目补丁。
+
 ## 日志与已知非阻塞问题
 
 commerce-provider 日志无 traceback/error。API 主链路无 provider fallback 或 simulated planner。仍有一个既有非购物路径警告：MiniMax light tier 余额不足（HTTP 402），session compression 因此按设计 best-effort 失败；GLM 购物 Agent 与外部 provider 不受影响。
