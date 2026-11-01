@@ -2323,6 +2323,25 @@ class VirtualCatalog:
         self.pair_count = pair_count
         self.models_per_pair = models_per_pair
         self.total_skus = pair_count * models_per_pair * VARIANTS_PER_MODEL
+        # Pair -> category mapping. Static categories own BRAND_COUNT pairs
+        # each (uniform grid); a minted category with an LLM-authored
+        # brand_styles matrix owns exactly ONE pair whose model slots are
+        # the (brand, series) styles, so a search page spans brands instead
+        # of one static brand's whole series line.
+        self._pair_category_index: list[int] = [
+            category_index
+            for category_index in range(len(categories))
+            for _ in range(BRAND_COUNT)
+        ]
+        self._category_pair_start: list[int] = [
+            category_index * BRAND_COUNT for category_index in range(len(categories))
+        ]
+        self._category_pair_width: list[int] = [BRAND_COUNT] * len(categories)
+
+    def _category_of_pair(self, pair_index: int) -> RegistryCategory:
+        """Resolve a pair slot to its category across static and minted blocks."""
+
+        return self._categories[self._pair_category_index[pair_index]]
 
     # --- addressing ---------------------------------------------------------
     def sku_id(self, n: int) -> str:
@@ -2380,6 +2399,11 @@ class VirtualCatalog:
         ``n -> (pair, model, variant)`` mapping stays valid; minted categories
         continue the numeric SKU space after the static block. Reads are
         copy-on-write: searches see either the old or the new category list.
+
+        A category carrying its own ``brand_styles`` matrix occupies a single
+        pair (model slots ARE the styles); a legacy proposal without one keeps
+        the historical BRAND_COUNT-pair block so existing SKU names never
+        change under a live order.
         """
 
         if category.category_id in {item.category_id for item in self._categories}:
@@ -2392,12 +2416,22 @@ class VirtualCatalog:
             raise ProviderRejectedError(
                 f"动态类目 {category.category_id} 的变体维度 {category.variant_key} 不能与属性名重复"
             )
+        if category.brand_styles and len(category.brand_styles) > self.models_per_pair:
+            raise ProviderRejectedError(
+                f"动态类目 {category.category_id} 的品牌款式矩阵不得超过 "
+                f"{self.models_per_pair} 个组合"
+            )
         if self.find_category_by_name(category.name) is not None:
             raise ProviderRejectedError(f"类目名称已存在: {category.name}")
+        pairs_added = 1 if category.brand_styles else BRAND_COUNT
+        new_index = len(self._categories)
         self._categories = [*self._categories, category]
+        self._category_pair_start.append(self.pair_count)
+        self._category_pair_width.append(pairs_added)
+        self._pair_category_index = [*self._pair_category_index, *([new_index] * pairs_added)]
         self._dynamic_count += 1
         self.category_count += 1
-        self.pair_count += BRAND_COUNT
+        self.pair_count += pairs_added
         self.total_skus = self.pair_count * self.models_per_pair * VARIANTS_PER_MODEL
         self._registry_taxonomy = RegistryTaxonomy(
             taxonomy_version=self.taxonomy_version,
@@ -2417,7 +2451,14 @@ class VirtualCatalog:
         return 4_900 + _stable_hash(abs(hash(category.category_id)), "category-price") % 196_000
 
     def _unit_price(self, pair_index: int, model_index: int) -> int:
-        category = self._categories[pair_index // BRAND_COUNT]
+        category = self._category_of_pair(pair_index)
+        if category.brand_styles:
+            # Style-authored categories price by model position: a gentle
+            # ladder spreads the (brand, series) styles across price points
+            # the way a real shelf would, still anchored on the base price.
+            ladder = max(len(category.brand_styles) - 1, 1)
+            price = self._category_base_price(category) * (0.85 + 0.45 * model_index / ladder)
+            return max(100, int(round(price / 100.0)) * 100)
         brand = BRANDS[pair_index % BRAND_COUNT]
         series_factor = 0.85 + 0.35 * ((model_index % SERIES_COUNT) % 8) / 7
         band_factor = 1 + 0.01 * (model_index % 25)
@@ -2434,13 +2475,24 @@ class VirtualCatalog:
     def _describe(
         self, pair_index: int, model_index: int, variant_index: int
     ) -> tuple[str, str, dict[str, str]]:
-        category = self._categories[pair_index // BRAND_COUNT]
-        brand = BRANDS[pair_index % BRAND_COUNT]
-        series = SERIES_WORDS[model_index % SERIES_COUNT]
-        code = f"{series[0]}{model_index:04d}"
-        name = f"{brand.name} {series} {code} {category.name}"
+        category = self._category_of_pair(pair_index)
+        if category.brand_styles:
+            # Minted naming matrix: model slots ARE the LLM-authored
+            # (brand, series) styles — a shelf-like name with no synthetic
+            # letter codes.
+            if model_index >= len(category.brand_styles):
+                raise ProviderRejectedError("该商品款式不存在")
+            style = category.brand_styles[model_index]
+            brand_name, series = style.brand, style.series
+            name = f"{brand_name} {series} {category.name}"
+        else:
+            brand = BRANDS[pair_index % BRAND_COUNT]
+            series = SERIES_WORDS[model_index % SERIES_COUNT]
+            code = f"{series[0]}{model_index:04d}"
+            brand_name = brand.name
+            name = f"{brand_name} {series} {code} {category.name}"
         attributes = {
-            "品牌": brand.name,
+            "品牌": brand_name,
             "系列": series,
             category.variant_key: category.variant_values[variant_index],
         }
@@ -2450,7 +2502,7 @@ class VirtualCatalog:
             attributes[key] = value
             attr_text.append(f"{key}{value}")
         description = (
-            f"模拟商品：{brand.name}{series}系列{category.name}"
+            f"模拟商品：{brand_name}{series}系列{category.name}"
             f"（{'，'.join(attr_text[:4])}），{category.description}；用于演示购物流程。"
         )
         return name, description, attributes
@@ -2511,8 +2563,8 @@ class VirtualCatalog:
         return False
 
     def _category_pairs(self, category_index: int) -> range:
-        start = category_index * BRAND_COUNT
-        return range(start, start + BRAND_COUNT)
+        start = self._category_pair_start[category_index]
+        return range(start, start + self._category_pair_width[category_index])
 
     def _plan_tokens(self, tokens: list[str]) -> _TokenPlan:
         pair_sets: list[frozenset[int]] = []
@@ -2526,10 +2578,23 @@ class VirtualCatalog:
                     pair_match.update(self._category_pairs(category_index))
             for brand_index, brand in enumerate(BRANDS):
                 if self._token_matches(token, (brand.name, brand.slug)):
-                    pair_match.update(
-                        category_index * BRAND_COUNT + brand_index
-                        for category_index in range(self.category_count)
-                    )
+                    for category_index, category in enumerate(self._categories):
+                        # Static-grid categories own one pair per brand; a
+                        # brand_styles category brands its models, not its
+                        # pairs, so a static-brand token cannot select it.
+                        if not category.brand_styles:
+                            pair_match.add(
+                                self._category_pair_start[category_index] + brand_index
+                            )
+            for category_index, category in enumerate(self._categories):
+                # LLM-authored brand names resolve at category granularity:
+                # the whole (single-pair) category matches, the model loop
+                # narrows down to the exact style.
+                if category.brand_styles and any(
+                    self._token_matches(token, (style.brand, style.series))
+                    for style in category.brand_styles
+                ):
+                    pair_match.update(self._category_pairs(category_index))
             if pair_match:
                 pair_sets.append(frozenset(pair_match))
                 continue
@@ -2548,19 +2613,25 @@ class VirtualCatalog:
         return _TokenPlan(tuple(sorted(pairs)), frozenset(series_ids), tuple(text_terms))
 
     def _blob(self, pair_index: int, model_index: int, variant_index: int) -> str:
-        category = self._categories[pair_index // BRAND_COUNT]
-        brand = BRANDS[pair_index % BRAND_COUNT]
+        category = self._category_of_pair(pair_index)
         name, description, attributes = self._describe(pair_index, model_index, variant_index)
         parts = [
             name,
             description,
-            brand.name,
-            brand.slug,
             category.name,
             *category.provider_aliases,
             *attributes.keys(),
             *attributes.values(),
         ]
+        if category.brand_styles:
+            parts.extend(
+                word
+                for style in category.brand_styles
+                for word in (style.brand, style.series)
+            )
+        else:
+            brand = BRANDS[pair_index % BRAND_COUNT]
+            parts.extend((brand.name, brand.slug))
         return " ".join(parts).lower()
 
 
@@ -2624,10 +2695,12 @@ def _search(
     budget_exhausted = False
 
     for pair_index in plan.pair_indexes:
-        category = catalog._categories[pair_index // BRAND_COUNT]
-        brand = BRANDS[pair_index % BRAND_COUNT]
-        if brand_filter is not None and brand.name not in brand_filter:
-            continue
+        category = catalog._category_of_pair(pair_index)
+        styles = category.brand_styles
+        if styles is None:
+            brand = BRANDS[pair_index % BRAND_COUNT]
+            if brand_filter is not None and brand.name not in brand_filter:
+                continue
         # The variant axis (颜色/尺码/规格/...) filters at the variant loop;
         # every other attribute key resolves against the category vocabulary
         # and an unknown key makes the whole pair unable to satisfy it.
@@ -2653,25 +2726,37 @@ def _search(
         if not pair_possible:
             continue
 
-        series_residues: frozenset[int] = plan.series_ids
-        if series_filter is not None:
-            filter_residues = frozenset(
-                index for index, word in enumerate(SERIES_WORDS) if word in series_filter
-            )
-            series_residues = (
-                filter_residues if not series_residues else series_residues & filter_residues
-            )
-            if not series_residues:
-                continue
         models: Iterator[int]
-        if series_residues:
-            models = heapq.merge(
-                *(range(r, catalog.models_per_pair, SERIES_COUNT) for r in sorted(series_residues))
-            )
+        if styles is not None:
+            # Style-authored category: model slots ARE the (brand, series)
+            # styles; static SERIES_WORDS residues do not apply and brand /
+            # series filters resolve per style at the model loop.
+            models = iter(range(len(styles)))
         else:
-            models = iter(range(catalog.models_per_pair))
+            series_residues: frozenset[int] = plan.series_ids
+            if series_filter is not None:
+                filter_residues = frozenset(
+                    index for index, word in enumerate(SERIES_WORDS) if word in series_filter
+                )
+                series_residues = (
+                    filter_residues if not series_residues else series_residues & filter_residues
+                )
+                if not series_residues:
+                    continue
+            if series_residues:
+                models = heapq.merge(
+                    *(range(r, catalog.models_per_pair, SERIES_COUNT) for r in sorted(series_residues))
+                )
+            else:
+                models = iter(range(catalog.models_per_pair))
 
         for model_index in models:
+            if styles is not None:
+                style = styles[model_index]
+                if brand_filter is not None and style.brand not in brand_filter:
+                    continue
+                if series_filter is not None and style.series not in series_filter:
+                    continue
             scanned += 1
             if scanned > SCAN_LIMIT:
                 budget_exhausted = True

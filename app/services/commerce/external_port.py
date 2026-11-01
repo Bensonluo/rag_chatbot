@@ -259,6 +259,7 @@ class ExternalCommercePort:
         variant_values: list[str],
         base_price_minor: int,
         source_query: str = "",
+        brand_styles: list[dict[str, str]] | None = None,
     ) -> MintCategoryOutcome:
         """Mint a dynamic category (or return its normalized-name twin)."""
 
@@ -278,6 +279,8 @@ class ExternalCommercePort:
         }
         if source_query:
             json_body["source_query"] = source_query
+        if brand_styles is not None:
+            json_body["brand_styles"] = brand_styles
         return await self._call(
             "POST",
             "/commerce/categories/dynamic",

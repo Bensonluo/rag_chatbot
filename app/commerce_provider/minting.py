@@ -31,6 +31,12 @@ MAX_DYNAMIC_ATTRIBUTE_NAME_LENGTH = 16
 MAX_DYNAMIC_VALUE_LENGTH = 24
 MIN_BASE_PRICE_MINOR = 100  # ¥1
 MAX_BASE_PRICE_MINOR = 1_000_000  # ¥10,000
+# LLM-authored naming matrix: enough (brand, series) pairings to cover a
+# search page across 2+ brands, capped by the model slots per pair.
+MIN_BRAND_STYLES = 4
+MAX_BRAND_STYLES = 8
+MIN_BRANDS_IN_STYLES = 2
+MAX_BRAND_OR_SERIES_LENGTH = 16
 
 # Policy refusals: prescription/medical claims, weapons, adult content,
 # virtual goods and services, living animals. Deliberately narrow so kitchen
@@ -76,6 +82,52 @@ def allowed_domains(catalog: VirtualCatalog) -> frozenset[str]:
     return frozenset(domains)
 
 
+def _validate_brand_styles(
+    brand_styles: list[dict[str, Any]] | None,
+) -> list[dict[str, str]] | None:
+    """Normalize the LLM-authored naming matrix, or accept ``None`` as legacy.
+
+    Malformed proposals are refused (the mint is an explicit agent action,
+    not silent best-effort); an absent matrix keeps the fallback naming
+    grid so older callers and legacy rows behave exactly as before.
+    """
+
+    if brand_styles is None:
+        return None
+    if not isinstance(brand_styles, list) or not MIN_BRAND_STYLES <= len(brand_styles) <= MAX_BRAND_STYLES:
+        raise ProviderRejectedError(
+            f"品牌款式矩阵必须提供 {MIN_BRAND_STYLES}-{MAX_BRAND_STYLES} 个组合"
+        )
+    normalized: list[dict[str, str]] = []
+    seen_pairs: set[tuple[str, str]] = set()
+    for entry in brand_styles:
+        if not isinstance(entry, dict):
+            raise ProviderRejectedError("品牌款式矩阵每项须为 brand/series 对象")
+        brand = str(entry.get("brand", "")).strip()
+        series = str(entry.get("series", "")).strip()
+        if (
+            not brand
+            or not series
+            or len(brand) > MAX_BRAND_OR_SERIES_LENGTH
+            or len(series) > MAX_BRAND_OR_SERIES_LENGTH
+        ):
+            raise ProviderRejectedError(
+                f"品牌与系列名长度必须在 1-{MAX_BRAND_OR_SERIES_LENGTH} 个字符之间"
+            )
+        if _BLOCKLIST_PATTERN.search(brand) or _BLOCKLIST_PATTERN.search(series):
+            raise ProviderRejectedError("品牌或系列名属于平台不支持的类目范围")
+        pair = ("".join(brand.split()).lower(), "".join(series.split()).lower())
+        if pair in seen_pairs:
+            raise ProviderRejectedError(f"品牌款式组合重复: {brand} {series}")
+        seen_pairs.add(pair)
+        normalized.append({"brand": brand, "series": series})
+    if len({item["brand"] for item in normalized}) < MIN_BRANDS_IN_STYLES:
+        raise ProviderRejectedError(
+            f"品牌款式矩阵必须覆盖至少 {MIN_BRANDS_IN_STYLES} 个不同品牌，避免单一品牌霸屏"
+        )
+    return normalized
+
+
 def validate_proposal(
     *,
     name: str,
@@ -86,6 +138,7 @@ def validate_proposal(
     variant_key: str,
     variant_values: list[str],
     base_price_minor: int,
+    brand_styles: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Validate a mint proposal and return normalized construction fields.
 
@@ -154,6 +207,7 @@ def validate_proposal(
         "base_price_minor": base_price_minor,
         "variant_key": variant_key,
         "variant_values": variant_values,
+        "brand_styles": _validate_brand_styles(brand_styles),
         "attributes": [
             {"name": attribute_name, "allowed_values": values}
             for attribute_name, values in normalized_attributes

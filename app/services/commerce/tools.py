@@ -568,6 +568,26 @@ def create_commerce_tools(
         source_query = args.get("source_query", "")
         if not isinstance(source_query, str):
             source_query = ""
+        raw_styles = args.get("brand_styles")
+        brand_styles: list[dict[str, str]] | None = None
+        if raw_styles is not None:
+            # Shape gate here; shelf-quality rules (brand count, dedupe,
+            # blocklist) live in the provider's deterministic validator.
+            if not isinstance(raw_styles, list) or not all(
+                isinstance(entry, dict)
+                and isinstance(entry.get("brand"), str)
+                and isinstance(entry.get("series"), str)
+                and entry["brand"].strip()
+                and entry["series"].strip()
+                for entry in raw_styles
+            ):
+                raise ValidationError(
+                    "brand_styles must be a list of {brand, series} string pairs"
+                )
+            brand_styles = [
+                {"brand": entry["brand"].strip()[:16], "series": entry["series"].strip()[:16]}
+                for entry in raw_styles
+            ]
 
         outcome = await service.propose_category(
             owner,
@@ -579,6 +599,7 @@ def create_commerce_tools(
             variant_values=[value.strip() for value in variant_values],
             base_price_minor=base_price_minor,
             source_query=source_query,
+            brand_styles=brand_styles,
         )
         normalized = " ".join(outcome.category.name.strip().lower().split())
         minted_category_names.add(normalized)
@@ -750,6 +771,29 @@ def create_commerce_tools(
                         "minimum": 1,
                         "maximum": 10000,
                         "description": "Realistic entry price in yuan for this category",
+                    },
+                    "brand_styles": {
+                        "type": "array",
+                        "minItems": 4,
+                        "maxItems": 8,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "brand": {"type": "string", "minLength": 1, "maxLength": 16},
+                                "series": {"type": "string", "minLength": 1, "maxLength": 16},
+                            },
+                            "required": ["brand", "series"],
+                            "additionalProperties": False,
+                        },
+                        "description": (
+                            "Invented-but-shelf-realistic naming matrix for this "
+                            "category: 4-8 {brand, series} pairs covering 2-4 brands "
+                            "(interleave brands so one page mixes them). Brand/series "
+                            "names must FIT the category (食用油→金穗坊/澄香/鲁源坊, "
+                            "小榨原香/家庭装), be fictional — never real trademarks "
+                            "(金龙鱼/鲁花/苹果/华为 are forbidden) — and avoid generic "
+                            "series codes like Astro/Nova/Pro."
+                        ),
                     },
                     "source_query": {
                         "type": "string",

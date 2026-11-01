@@ -177,6 +177,39 @@ async def test_mint_tool_is_a_catalog_fact_not_a_purchase_view(shop) -> None:
     assert views == []  # no staged purchase view
 
 
+async def test_mint_tool_carries_brand_styles_to_the_provider(shop) -> None:
+    """The naming matrix rides the mint wire so the provider's LLM-authored
+    shelf replaces the static 恒锐/Astro grid; malformed matrices are
+    refused at the tool boundary before any provider call."""
+
+    service, _maker = shop
+    registry = create_commerce_tools(service, OWNER, [], None)
+    definition = registry.get_tool_by_name("commerce_propose_category")
+    assert definition is not None
+    # The LLM must be able to see the parameter.
+    assert "brand_styles" in definition.parameters_schema["properties"]
+
+    styles = [
+        {"brand": "金穗坊", "series": "小榨原香"},
+        {"brand": "澄香", "series": "家庭装"},
+        {"brand": "鲁源坊", "series": "轻食"},
+        {"brand": "金穗坊", "series": "礼享装"},
+    ]
+    result = await registry.execute(
+        "commerce:propose_category", {**MINT_ARGS, "brand_styles": styles}, user_id=OWNER
+    )
+    assert result.success, result.message
+    assert result.data["mint_result"]["status"] == "minted"
+
+    malformed = await registry.execute(
+        "commerce:propose_category",
+        {**MINT_ARGS, "brand_styles": [{"brand": "金穗坊"}]},
+        user_id=OWNER,
+    )
+    assert not malformed.success
+    assert "brand_styles" in malformed.message
+
+
 async def test_mint_dedupes_normalized_names_to_existing(shop) -> None:
     service, _maker = shop
     registry = create_commerce_tools(service, OWNER, [], None)

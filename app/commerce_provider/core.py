@@ -326,6 +326,14 @@ class CommerceProviderCore:
             "variant_key": category.variant_key,
             "variant_values": list(category.variant_values),
             "base_price_minor": category.base_price_minor,
+            "brand_styles": (
+                [
+                    {"brand": item.brand, "series": item.series}
+                    for item in category.brand_styles
+                ]
+                if category.brand_styles is not None
+                else None
+            ),
         }
 
     async def load_dynamic_categories(self) -> int:
@@ -340,8 +348,8 @@ class CommerceProviderCore:
         def work(connection: sqlite3.Connection) -> list[sqlite3.Row]:
             return connection.execute(
                 "SELECT category_key, name, description, domain, attributes_json, "
-                "variant_key, variant_values_json, base_price_minor, seq "
-                "FROM dynamic_categories ORDER BY seq"
+                "variant_key, variant_values_json, base_price_minor, seq, "
+                "brand_styles_json FROM dynamic_categories ORDER BY seq"
             ).fetchall()
 
         rows = await self.database.read(work)
@@ -350,6 +358,15 @@ class CommerceProviderCore:
             name = str(row["name"])
             if self.catalog.find_category_by_name(name) is not None:
                 continue
+            brand_styles_raw = row["brand_styles_json"]
+            brand_styles = (
+                [
+                    {"brand": str(item["brand"]), "series": str(item["series"])}
+                    for item in json.loads(str(brand_styles_raw))
+                ]
+                if brand_styles_raw
+                else None
+            )
             category = RegistryCategory(
                 category_id=str(row["category_key"]),
                 name=name,
@@ -359,6 +376,7 @@ class CommerceProviderCore:
                 variant_key=str(row["variant_key"]),
                 variant_values=json.loads(str(row["variant_values_json"])),
                 base_price_minor=int(row["base_price_minor"]),
+                brand_styles=brand_styles,
             )
             self.catalog.register_dynamic(category)
             loaded += 1
@@ -378,6 +396,7 @@ class CommerceProviderCore:
         variant_values: list[str],
         base_price_minor: int,
         source_query: str = "",
+        brand_styles: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Mint a dynamic category, or return the existing twin by name.
 
@@ -400,6 +419,7 @@ class CommerceProviderCore:
             variant_key=variant_key,
             variant_values=variant_values,
             base_price_minor=base_price_minor,
+            brand_styles=brand_styles,
         )
         arguments = {
             "name": fields["name"],
@@ -409,6 +429,7 @@ class CommerceProviderCore:
             "variant_key": fields["variant_key"],
             "variant_values": fields["variant_values"],
             "base_price_minor": fields["base_price_minor"],
+            "brand_styles": fields["brand_styles"],
             "source_query": source_query.strip()[:200],
         }
         digest = request_hash({"kind": "propose_category", "arguments": arguments})
@@ -465,8 +486,9 @@ class CommerceProviderCore:
                         "INSERT INTO dynamic_categories "
                         "(category_key, name, normalized_name, description, domain, "
                         "attributes_json, variant_key, variant_values_json, "
-                        "base_price_minor, source_query, seq, created_at) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "base_price_minor, source_query, seq, created_at, "
+                        "brand_styles_json) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             category_id,
                             fields["name"],
@@ -480,6 +502,11 @@ class CommerceProviderCore:
                             source_query.strip()[:200],
                             seq,
                             to_iso(self.clock()),
+                            (
+                                json.dumps(fields["brand_styles"], ensure_ascii=False)
+                                if fields["brand_styles"] is not None
+                                else None
+                            ),
                         ),
                     )
                 except sqlite3.IntegrityError as exc:

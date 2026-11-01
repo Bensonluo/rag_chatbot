@@ -75,6 +75,7 @@ class CommercePort(Protocol):
         variant_values: list[str],
         base_price_minor: int,
         source_query: str = "",
+        brand_styles: list[dict[str, str]] | None = None,
     ) -> Awaitable[MintCategoryOutcome]: ...
 
     def get_product(self, owner_user_id: int, sku_id: str) -> Awaitable[CatalogItem]: ...

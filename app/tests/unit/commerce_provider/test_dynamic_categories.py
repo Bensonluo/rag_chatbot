@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 
-from app.commerce_provider.catalog import VirtualCatalog
+from app.commerce_provider.catalog import BRAND_COUNT, VirtualCatalog
 from app.commerce_provider.core import CommerceProviderCore
 from app.commerce_provider.errors import ProviderConflictError, ProviderRejectedError
 from app.commerce_provider.faults import FaultController
@@ -15,6 +16,8 @@ from app.models.schemas.commerce import CartLineSelection
 from app.tests.unit.commerce_provider.conftest import AUTH_HEADERS
 
 OWNER = 1
+
+_STATIC_PAIRS = VirtualCatalog().pair_count
 
 CHOCOLATE = {
     "name": "糖果巧克力",
@@ -211,6 +214,132 @@ async def test_restart_reload_keeps_addressing_and_orders_stable(
     assert item.unit_price_minor == (await core.get_product(OWNER, sku)).unit_price_minor
     assert (await restarted.get_order(OWNER, order.order_id)).order_id == order.order_id
     assert restarted.catalog.dynamic_category_count == 2
+
+
+LARD_STYLES = [
+    {"brand": "金穗坊", "series": "小榨原香"},
+    {"brand": "澄香", "series": "家庭装"},
+    {"brand": "鲁源坊", "series": "轻食"},
+    {"brand": "金穗坊", "series": "礼享装"},
+    {"brand": "澄香", "series": "经典"},
+]
+
+
+async def test_mint_with_brand_styles_names_shelf_realistic_skus(
+    core: CommerceProviderCore,
+) -> None:
+    """The LLM-authored naming matrix replaces the static brand grid.
+
+    A minted category with brand_styles names its SKUs from the matrix
+    (金穗坊 小榨原香 猪油, never 恒锐 Astro A0000 猪油) and one search
+    page spans multiple brands instead of a single static brand's series
+    line.
+    """
+
+    result = await core.propose_category(
+        OWNER,
+        request_key="mint-styles-1",
+        name="猪油",
+        description="厨房烹饪用动物油脂",
+        domain="food",
+        attributes=[("工艺", ["冷榨", "热榨", "精炼"])],
+        variant_key="规格",
+        variant_values=["250g", "500g", "1kg", "2kg"],
+        base_price_minor=2300,
+        source_query="有猪油卖吗",
+        brand_styles=LARD_STYLES,
+    )
+    assert result["status"] == "minted"
+    assert result["category"]["brand_styles"] == LARD_STYLES
+
+    page = await core.search_products(OWNER, "猪油")
+    assert page.total_estimate > 0
+    matrix_brands = {style["brand"] for style in LARD_STYLES}
+    matrix_pairs = {(style["brand"], style["series"]) for style in LARD_STYLES}
+    seen_brands: set[str] = set()
+    for item in page.items:
+        assert "恒锐" not in item.name and "Astro" not in item.name
+        assert not re.search(r"[A-Z]\d{4}", item.name), item.name
+        brand = item.attributes["品牌"]
+        series = item.attributes["系列"]
+        assert (brand, series) in matrix_pairs
+        seen_brands.add(brand)
+    # One page mixes brands: the reason the static grid felt fake.
+    assert len(seen_brands) >= 2
+    assert seen_brands <= matrix_brands
+    # Brand tokens find the minted category (plan-level brand resolution).
+    assert (await core.search_products(OWNER, "金穗坊")).total_estimate > 0
+    # A style-authored category occupies exactly one pair.
+    assert core.catalog.pair_count == _STATIC_PAIRS + 1
+
+
+async def test_mint_without_brand_styles_keeps_legacy_grid_naming(
+    core: CommerceProviderCore,
+) -> None:
+    """Legacy proposals (no matrix) keep the historical BRAND_COUNT grid.
+
+    Existing minted categories and their SKU names must never change under
+    a live order: absent brand_styles falls back to the static grid.
+    """
+
+    result = await _mint(core, "mint-1")
+    assert result["category"]["brand_styles"] is None
+    item = (await core.search_products(OWNER, "巧克力")).items[0]
+    assert "恒锐" in item.name and re.search(r"[A-Z]\d{4}", item.name)
+    assert core.catalog.pair_count == _STATIC_PAIRS + BRAND_COUNT
+
+
+async def test_brand_styles_shape_is_enforced(core: CommerceProviderCore) -> None:
+    too_few = LARD_STYLES[:3]
+    with pytest.raises(ProviderRejectedError, match="4-8"):
+        await _mint(core, "mint-styles-1", name="猪油", brand_styles=too_few)
+    single_brand = [{"brand": "金穗坊", "series": f"系列{i}"} for i in range(4)]
+    with pytest.raises(ProviderRejectedError, match="品牌"):
+        await _mint(core, "mint-styles-2", name="猪油", brand_styles=single_brand)
+    duplicated = [
+        {"brand": "金穗坊", "series": "小榨原香"},
+        {"brand": "澄香", "series": "家庭装"},
+        {"brand": "鲁源坊", "series": "轻食"},
+        {"brand": "金穗坊 ", "series": " 小榨原香"},
+    ]
+    with pytest.raises(ProviderRejectedError, match="重复"):
+        await _mint(core, "mint-styles-3", name="猪油", brand_styles=duplicated)
+    blocklisted = [*LARD_STYLES[:3], {"brand": "处方", "series": "经典"}]
+    with pytest.raises(ProviderRejectedError):
+        await _mint(core, "mint-styles-4", name="猪油", brand_styles=blocklisted)
+    # Nothing above registered: the shelf stays clean for a valid retry.
+    assert core.catalog.dynamic_category_count == 0
+    valid = await _mint(core, "mint-styles-5", name="猪油", brand_styles=LARD_STYLES)
+    assert valid["status"] == "minted"
+
+
+async def test_brand_styles_survive_restart_with_stable_names(
+    core: CommerceProviderCore, tmp_path: Path
+) -> None:
+    await core.propose_category(
+        OWNER,
+        request_key="mint-styles-1",
+        name="猪油",
+        description="厨房烹饪用动物油脂",
+        domain="food",
+        attributes=[("工艺", ["冷榨", "热榨", "精炼"])],
+        variant_key="规格",
+        variant_values=["250g", "500g", "1kg", "2kg"],
+        base_price_minor=2300,
+        brand_styles=LARD_STYLES,
+    )
+    before = (await core.search_products(OWNER, "猪油")).items[0]
+
+    restarted = CommerceProviderCore(
+        Database(core.database.path), VirtualCatalog(), dynamic_category_limit=200
+    )
+    assert await restarted.load_dynamic_categories() == 1
+    after = await restarted.get_product(OWNER, before.sku_id)
+    assert after.name == before.name
+    assert after.unit_price_minor == before.unit_price_minor
+    assert after.attributes["品牌"] == before.attributes["品牌"]
+    # A style-authored reload keeps the single-pair footprint.
+    assert restarted.catalog.pair_count == _STATIC_PAIRS + 1
 
 
 def test_dynamic_mint_endpoint_roundtrip(client) -> None:

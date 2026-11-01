@@ -165,6 +165,7 @@ class PurchaseService:
         variant_values: list[str],
         base_price_minor: int,
         source_query: str = "",
+        brand_styles: list[dict[str, str]] | None = None,
     ) -> MintCategoryOutcome:
         """Mint a dynamic category (or dedupe to its existing twin).
 
@@ -186,6 +187,7 @@ class PurchaseService:
                 variant_values=variant_values,
                 base_price_minor=base_price_minor,
                 source_query=source_query,
+                brand_styles=brand_styles,
             )
         except ProviderRejected as exc:
             raise ValidationError(str(exc)) from exc

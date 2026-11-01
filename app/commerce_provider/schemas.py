@@ -80,6 +80,13 @@ class MintCategoryAttributeInput(CommerceModel):
     allowed_values: list[str] = Field(min_length=1, max_length=8)
 
 
+class MintBrandStyleInput(CommerceModel):
+    """One LLM-authored (brand, series) pairing for a minted category."""
+
+    brand: str = Field(min_length=1, max_length=16)
+    series: str = Field(min_length=1, max_length=16)
+
+
 class MintCategoryRequest(CommerceModel):
     """Proposal for minting a dynamic category (agent-driven, auditable)."""
 
@@ -93,6 +100,7 @@ class MintCategoryRequest(CommerceModel):
     variant_values: list[str] = Field(min_length=4, max_length=4)
     base_price_minor: int = Field(ge=1, le=100_000_000)
     source_query: str = Field(default="", max_length=300)
+    brand_styles: list[MintBrandStyleInput] | None = Field(default=None, min_length=4, max_length=8)
 
 
 class MintedCategoryView(CommerceModel):
@@ -104,6 +112,7 @@ class MintedCategoryView(CommerceModel):
     variant_key: str
     variant_values: list[str]
     base_price_minor: int | None = None
+    brand_styles: list[MintBrandStyleInput] | None = None
 
 
 class MintCategoryResult(CommerceModel):

@@ -76,6 +76,7 @@ class RouterCommercePort:
         variant_values: list[str],
         base_price_minor: int,
         source_query: str = "",
+        brand_styles: list[dict[str, str]] | None = None,
     ) -> MintCategoryOutcome:
         """Dynamic minting always targets the external provider.
 
@@ -97,6 +98,7 @@ class RouterCommercePort:
             variant_values=variant_values,
             base_price_minor=base_price_minor,
             source_query=source_query,
+            brand_styles=brand_styles,
         )
 
     async def _route_for_query(self, query: str) -> str | None:

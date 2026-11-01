@@ -255,6 +255,14 @@ def create_app(settings: CommerceProviderSettings | None = None) -> FastAPI:
                 variant_values=list(body.variant_values),
                 base_price_minor=body.base_price_minor,
                 source_query=body.source_query,
+                brand_styles=(
+                    [
+                        {"brand": item.brand, "series": item.series}
+                        for item in body.brand_styles
+                    ]
+                    if body.brand_styles is not None
+                    else None
+                ),
             )
         )
 

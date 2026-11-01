@@ -359,6 +359,7 @@ class MockCommercePort:
         variant_values: list[str],
         base_price_minor: int,
         source_query: str = "",
+        brand_styles: list[dict[str, str]] | None = None,
     ) -> MintCategoryOutcome:
         """Mint a dynamic category in memory (mock-mode wire emulation).
 
@@ -370,7 +371,7 @@ class MockCommercePort:
 
         if type(owner_user_id) is not int or owner_user_id <= 0:
             raise ProviderRejected("模拟访问身份无效")
-        del request_key, source_query
+        del request_key, source_query, brand_styles
         key = "".join(name.split()).lower()
         static_twin = next(
             (

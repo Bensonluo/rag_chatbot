@@ -116,7 +116,8 @@ CREATE TABLE IF NOT EXISTS dynamic_categories (
     base_price_minor    INTEGER NOT NULL,
     source_query        TEXT NOT NULL,
     seq                 INTEGER NOT NULL UNIQUE,
-    created_at          TEXT NOT NULL
+    created_at          TEXT NOT NULL,
+    brand_styles_json   TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_carts_owner ON carts(owner_user_id);
@@ -152,6 +153,18 @@ class Database:
         connection = self._new_connection()
         try:
             connection.executescript(SCHEMA)
+            # CREATE TABLE IF NOT EXISTS cannot evolve an existing file:
+            # minted-category naming landed after the first deployments, so
+            # older SQLite files need the column added in place (NULL keeps
+            # legacy rows on the fallback naming grid).
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(dynamic_categories)")
+            }
+            if "brand_styles_json" not in columns:
+                connection.execute(
+                    "ALTER TABLE dynamic_categories ADD COLUMN brand_styles_json TEXT"
+                )
         finally:
             connection.close()
 

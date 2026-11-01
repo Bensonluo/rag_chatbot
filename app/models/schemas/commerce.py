@@ -74,6 +74,13 @@ class CatalogTaxonomy(CommerceModel):
     categories: list[CatalogCategory] = Field(min_length=1)
 
 
+class MintBrandStyle(CommerceModel):
+    """One LLM-authored (brand, series) pairing on a minted category."""
+
+    brand: str = Field(min_length=1, max_length=16)
+    series: str = Field(min_length=1, max_length=16)
+
+
 class MintedCategory(CommerceModel):
     """A runtime-minted dynamic category (or its existing twin) as minted.
 
@@ -90,6 +97,7 @@ class MintedCategory(CommerceModel):
     variant_key: str = Field(min_length=1, max_length=32)
     variant_values: list[str] = Field(min_length=4, max_length=4)
     base_price_minor: int | None = Field(default=None, ge=0)
+    brand_styles: list[MintBrandStyle] | None = Field(default=None, max_length=8)
 
 
 class MintCategoryOutcome(CommerceModel):

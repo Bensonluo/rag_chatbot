@@ -10,6 +10,21 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.models.schemas.commerce import CatalogCategory, CatalogTaxonomy
 
 
+class BrandStyle(BaseModel):
+    """One LLM-authored (brand, series) pairing for a minted category.
+
+    Minted categories carry their own naming matrix instead of borrowing
+    the static ``BRANDS`` × ``SERIES_WORDS`` grid, so a runtime-minted
+    "食用油" reads like a real shelf (金穗坊 小榨原香) rather than the
+    static-catalog default (恒锐 Astro).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    brand: str = Field(min_length=1, max_length=16)
+    series: str = Field(min_length=1, max_length=16)
+
+
 class RegistryCategory(CatalogCategory):
     """Internal category lifecycle metadata not exposed on provider wires."""
 
@@ -21,6 +36,9 @@ class RegistryCategory(CatalogCategory):
     status: Literal["active", "planned", "deprecated"] = "active"
     provider_aliases: list[str] = Field(default_factory=list, max_length=32)
     base_price_minor: int | None = Field(default=None, ge=0)
+    # LLM-authored naming matrix for minted categories. Absent (legacy
+    # rows, static categories) falls back to the static naming grid.
+    brand_styles: list[BrandStyle] | None = Field(default=None, max_length=8)
     # Variant axis: the fourth SKU address dimension (颜色/尺码/规格/...).
     # Registry-internal only; the public provider wire stays 4-field.
     variant_key: str = Field(default="颜色", min_length=1, max_length=32)
