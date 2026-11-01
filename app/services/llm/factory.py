@@ -173,6 +173,34 @@ class LLMFactory:
             raise ValidationError(f"Provider {provider} not implemented")
 
     @staticmethod
+    def _create_resilient_light_chain() -> LLMServiceBase:
+        """Build MiniMax-primary light tier with GLM as domestic fallback."""
+        settings = get_settings()
+        return ResilientLLMService(
+            [
+                (
+                    "minimax",
+                    LLMFactory.create(
+                        provider="minimax",
+                        model=settings.MINIMAX_LIGHT_MODEL,
+                    ),
+                ),
+                (
+                    "glm",
+                    LLMFactory.create(
+                        provider="glm",
+                        model=settings.GLM_LIGHT_MODEL,
+                    ),
+                ),
+            ],
+            max_retries=settings.LLM_MAX_RETRIES,
+            backoff_base=settings.LLM_RETRY_BACKOFF_BASE,
+            circuit_failure_threshold=settings.LLM_CIRCUIT_FAILURE_THRESHOLD,
+            circuit_recovery_seconds=settings.LLM_CIRCUIT_RECOVERY_SECONDS,
+            tracer=_build_llm_tracer(),
+        )
+
+    @staticmethod
     def create_light_from_settings(primary: LLMServiceBase) -> LLMServiceBase:
         """Build the light (classification) tier for the primary provider.
 
@@ -181,9 +209,9 @@ class LLMFactory:
         structural analog of "never route with an LLM call if a regex
         will do"). Returns the primary unchanged when
         ``CHAT_LLM_LIGHT_MODEL`` is unset: single-tier deployments keep
-        today's behavior. Deliberately not wrapped in resilience —
-        light-tier consumers (hybrid intent, rule-based slots, score
-        fallback rerankers) degrade on their own when the model fails.
+        today's behavior. With MiniMax and GLM both configured, the light
+        tier is a resilience chain: MiniMax highspeed stays primary and GLM
+        serves as fallback while a MiniMax plan is temporarily exhausted.
 
         A configured MiniMax key takes the light tier even when
         ``CHAT_LLM_LIGHT_MODEL`` names another provider's model: the
@@ -191,6 +219,8 @@ class LLMFactory:
         quality-tolerant traffic (user directive 2026-09-30).
         """
         settings = get_settings()
+        if settings.MINIMAX_API_KEY and settings.GLM_API_KEY and settings.LLM_RESILIENCE_ENABLED:
+            return LLMFactory._create_resilient_light_chain()
         if settings.MINIMAX_API_KEY:
             return LLMFactory.create(
                 provider="minimax",

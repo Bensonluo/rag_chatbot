@@ -295,6 +295,10 @@ class Settings(BaseSettings):
         default=None,
         description="Optional intent-only GLM model; shares GLM_API_KEY and GLM_BASE_URL",
     )
+    GLM_LIGHT_MODEL: str = Field(
+        default="glm-5.3",
+        description="GLM fallback model for the MiniMax-led light (classification) tier",
+    )
     GLM_BASE_URL: str = Field(
         default="https://open.bigmodel.cn/api/coding/paas/v4/",
         description=(

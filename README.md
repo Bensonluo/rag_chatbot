@@ -282,7 +282,8 @@ rag_chatbot/
 | `QDRANT_URL` | Qdrant vector DB URL | — | ✅ |
 | `SECRET_KEY` | JWT secret key | — | ✅ |
 | `GLM_API_KEY` | Zhipu AI GLM API key | — | (any primary LLM) |
-| `MINIMAX_API_KEY` | MiniMax backup + light-tier key | — | ❌ |
+| `MINIMAX_API_KEY` | MiniMax generation backup and light-tier primary | — | ❌ |
+| `GLM_LIGHT_MODEL` | GLM fallback for the MiniMax-led light tier | `glm-5.3` | ❌ |
 | `KIMI_API_KEY` | Kimi Coding generation fallback provider; optional intent override via `INTENT_LLM_PROVIDER=kimi` | — | ❌ |
 | `OPENAI_API_KEY` | OpenAI API key | — | (any primary LLM) |
 | `ANTHROPIC_API_KEY` | Anthropic API key | — | (any primary LLM) |
