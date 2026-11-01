@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -69,6 +69,27 @@ class TraceSink:
         # Observability must never be able to fail the pipeline.
         with contextlib.suppress(Exception):
             self._queue.put_nowait(event)
+
+
+class CallbackTraceSink(TraceSink):
+    """Fan trace events out to an observer callback instead of a queue.
+
+    Bridges ``emit_trace`` emissions made from fire-and-forget
+    background tasks (e.g. the post-mint graph upsert) into pipelines
+    that forward events through an ``on_trace`` observer, so both
+    channels reach the same live stream. The callback variant is not
+    queue-bound: the observer already owns delivery.
+    """
+
+    __slots__ = ("_on_event",)
+
+    def __init__(self, on_event: Callable[[TraceEvent], None]) -> None:
+        self._on_event = on_event
+
+    def emit(self, event: TraceEvent) -> None:
+        # Observability must never be able to fail the pipeline.
+        with contextlib.suppress(Exception):
+            self._on_event(event)
 
 
 _current_sink: contextvars.ContextVar[TraceSink | None] = contextvars.ContextVar(

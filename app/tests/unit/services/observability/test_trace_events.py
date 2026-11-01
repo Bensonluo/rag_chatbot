@@ -14,6 +14,7 @@ import json
 
 from app.services.observability.pipeline_tracer import traced_stage
 from app.services.observability.trace_events import (
+    CallbackTraceSink,
     TraceEvent,
     TraceSink,
     emit_trace,
@@ -96,6 +97,45 @@ class TestTraceSink:
             pass
         emit_trace("cs.gone")
         assert queue.empty()
+
+
+class TestCallbackTraceSink:
+    async def test_emit_forwards_event_to_callback(self):
+        """Pipelines that forward events via an on_trace observer (the
+        guest shopping stream) must be able to bridge ContextVar
+        emissions onto the same channel."""
+        seen: list[TraceEvent] = []
+        sink = CallbackTraceSink(seen.append)
+
+        with trace_sink_active(sink):
+            emit_trace("cs.tool", status="start", tool="commerce_graph_upsert")
+            emit_trace(
+                "cs.tool", status="end", ms=640, tool="commerce_graph_upsert", ok=True
+            )
+
+        assert [e.status for e in seen] == ["start", "end"]
+        assert seen[-1].detail["tool"] == "commerce_graph_upsert"
+        assert seen[-1].detail["ok"] is True
+
+    async def test_emit_never_raises_on_broken_callback(self):
+        def broken(event: TraceEvent) -> None:
+            raise RuntimeError("observer detached")
+
+        with trace_sink_active(CallbackTraceSink(broken)):
+            emit_trace("cs.anything")  # must not raise
+
+    async def test_background_task_created_inside_scope_inherits_callback(self):
+        seen: list[TraceEvent] = []
+
+        async def fire_and_forget() -> None:
+            emit_trace("cs.tool", status="end", ms=1, tool="background")
+
+        with trace_sink_active(CallbackTraceSink(seen.append)):
+            task = asyncio.create_task(fire_and_forget())
+        await task
+
+        assert len(seen) == 1
+        assert seen[0].detail["tool"] == "background"
 
 
 class TestTracedStageEmission:

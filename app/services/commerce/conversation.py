@@ -7,6 +7,7 @@ mock provider own transaction facts; there is deliberately no regex planner.
 import json
 import logging
 import math
+from contextlib import nullcontext
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
@@ -41,7 +42,11 @@ from app.services.dialogue.tools import ToolDefinition
 from app.services.llm.base import LLMMessage, LLMResponse
 from app.services.llm.budget import enter_llm_budget
 from app.services.llm.reasoning_filter import strip_reasoning
-from app.services.observability.trace_events import TraceEvent
+from app.services.observability.trace_events import (
+    CallbackTraceSink,
+    TraceEvent,
+    trace_sink_active,
+)
 
 logger = logging.getLogger(__name__)
 _UNSUPPORTED_DOMAINS_KEY = "commerce_unsupported_domains"
@@ -630,14 +635,21 @@ class CommerceConversation:
                 )
             history = await self._bounded_history(session_id)
             async with enter_llm_budget(settings.CHAT_LLM_CALL_BUDGET):
-                result = await agent.run(
-                    message,
-                    user_id=owner,
-                    session_id=session_id,
-                    context_note=note,
-                    history=history,
-                    on_trace=on_trace,
-                )
+                # Unify the two trace channels: the agent emits through
+                # on_trace, while fire-and-forget tasks (post-mint graph
+                # upsert) emit through the ContextVar sink. Bridging here
+                # means every respond() caller — guest stream included —
+                # sees background events in the same live waterfall.
+                sink = CallbackTraceSink(on_trace) if on_trace is not None else None
+                with nullcontext() if sink is None else trace_sink_active(sink):
+                    result = await agent.run(
+                        message,
+                        user_id=owner,
+                        session_id=session_id,
+                        context_note=note,
+                        history=history,
+                        on_trace=on_trace,
+                    )
             view = views[-1] if views else await current_purchase(self.purchases, owner)
             empty_catalog = _has_empty_catalog(view)
             if result.tool_trace and not empty_catalog:

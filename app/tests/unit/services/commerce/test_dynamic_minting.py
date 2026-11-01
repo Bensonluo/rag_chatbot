@@ -284,6 +284,46 @@ async def test_mint_upsert_emits_background_trace_events(shop) -> None:
     assert end.detail["background"] is True
 
 
+async def test_respond_bridges_background_traces_into_the_observer_channel(shop) -> None:
+    """Regression pin: the guest shopping stream forwards events via
+    ``on_trace`` only, so ``emit_trace`` calls from fire-and-forget tasks
+    (the post-mint graph upsert) were silent no-ops there — the live
+    waterfall never showed the graph write. respond() must bridge the
+    ContextVar channel onto the observer it was given."""
+    from app.models.database.session import ChatSession
+    from app.services.chat.coordination import SessionCoordinator
+    from app.services.chat.persistence import ChatMessagePersister
+    from app.services.commerce.conversation import CommerceConversation
+    from app.services.observability.trace_events import TraceEvent
+
+    service, maker = shop
+    async with maker() as db:
+        session = ChatSession(id=1, user_id=OWNER, session_metadata={"access_mode": "private"})
+        db.add(session)
+        await db.commit()
+        key = session.session_key
+    graph = CommerceGraphService(RecordingGraphClient(), StaticEmbeddings())
+    conversation = CommerceConversation(
+        service,
+        SessionCoordinator(maker),
+        ChatMessagePersister(maker),
+        provider=ScriptedPlanner([("propose_category", MINT_ARGS)]),
+        commerce_graph_service=graph,
+    )
+    seen: list[TraceEvent] = []
+
+    reply = await conversation.respond(OWNER, 1, key, "我想吃巧克力", on_trace=seen.append)
+
+    assert reply.content
+    # The fire-and-forget upsert runs concurrently with the final reply.
+    for _ in range(10):
+        await asyncio.sleep(0)
+    upsert = [e for e in seen if e.detail.get("tool") == "commerce_graph_upsert"]
+    assert [e.status for e in upsert] == ["start", "end"]
+    assert upsert[-1].detail["ok"] is True
+    assert upsert[-1].detail["background"] is True
+
+
 async def test_existing_twin_does_not_upsert_again_and_failures_degrade(shop) -> None:
     service, _maker = shop
     graph_client = FailingGraphClient()
