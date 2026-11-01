@@ -253,7 +253,6 @@ async def bootstrap(
     service: Annotated[GuestIdentityService, Depends(get_guest_identity_service)],
 ) -> dict[str, object]:
     validate_guest_browser_request(request)
-    await chat_api._enforce_chat_rate_limit(request)
     try:
         issued = await service.bootstrap(request.cookies.get(COOKIE_NAME))
     except (GuestIdentityUnavailableError, SQLAlchemyError) as exc:

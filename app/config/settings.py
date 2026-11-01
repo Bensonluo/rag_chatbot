@@ -70,8 +70,12 @@ class Settings(BaseSettings):
         description="Paths excluded from rate limiting",
     )
     CHAT_RATE_LIMIT_REQUESTS_PER_MINUTE: int = Field(
-        default=10,
-        description="Tighter per-IP budget for LLM-backed chat endpoints (Redis-backed)",
+        default=30,
+        description=(
+            "Per-IP budget for LLM-backed chat endpoints. Page bootstrap does "
+            "not consume this budget; 30/min leaves room for several active "
+            "visitors behind one shared exit IP."
+        ),
     )
 
     CHAT_SYSTEM_PROMPT: str = Field(

@@ -14,7 +14,7 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, select, update
 from sqlalchemy.exc import OperationalError
@@ -268,6 +268,21 @@ async def test_cookie_bootstrap_is_private_secret_free_and_reuses_without_rotati
     assert reused.status_code == 200 and reused.json() == value
     assert "set-cookie" not in reused.headers
     assert await _snapshot(visitors) == before
+
+
+async def test_bootstrap_does_not_consume_chat_request_budget(
+    visitors: GuestHttp,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    checked: list[Request] = []
+
+    async def record(request: Request) -> None:
+        checked.append(request)
+
+    monkeypatch.setattr(chat_api, "_enforce_chat_rate_limit", record)
+    response = await visitors.first.post("/api/v1/guest/bootstrap", headers=_BROWSER, json={})
+    assert response.status_code == 200
+    assert checked == []
 
 
 async def test_independent_cookie_jars_get_distinct_visitors_and_cookie_possession_is_identity(
