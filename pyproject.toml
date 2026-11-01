@@ -235,6 +235,7 @@ testpaths = [
     "app/tests/unit/services/observability",
     "app/tests/unit/api/v1",
     "app/tests/unit/config/test_settings_secret_key.py",
+    "app/tests/unit/config/test_rate_limit_settings.py",
     "app/tests/unit/middleware",
     "app/tests/unit/services/test_session_service.py",
     "app/tests/unit/test_config.py",

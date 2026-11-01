@@ -139,11 +139,16 @@ class PurchaseService:
         )
         return await self._view(row, page)
 
-    async def discover_catalog(self, owner_user_id: int) -> CatalogTaxonomy:
+    async def discover_catalog(
+        self,
+        owner_user_id: int,
+        *,
+        category_ids: set[str] | None = None,
+    ) -> CatalogTaxonomy:
         """Read the provider's authoritative categories; purchase state is untouched."""
 
         try:
-            return await self.port.catalog_categories(owner_user_id)
+            return await self.port.catalog_categories(owner_user_id, category_ids=category_ids)
         except ProviderRejected as exc:
             raise ValidationError(str(exc)) from exc
 

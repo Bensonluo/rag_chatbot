@@ -2,8 +2,9 @@
 
 The package is self-contained and owns every commerce fact:
 
-- ``catalog``  — deterministic virtual catalog over a stable 100,000,000-SKU
-  address space (pure functions, never enumerated).
+- ``catalog``  — deterministic virtual catalog over a stable, taxonomy-derived
+  SKU address space (151 categories × 32 brands × 8 models × 4 variants;
+  pure functions, never enumerated).
 - ``storage``  — durable SQLite persistence (stdlib ``sqlite3`` via
   ``asyncio.to_thread``, WAL mode, explicit transactions).
 - ``core``     — reusable business core: carts, quotes, orders, payments,

@@ -384,13 +384,53 @@ async def test_discover_tool_stages_no_purchase_view(shop) -> None:
     result = await registry.execute("commerce:discover_catalog", {}, user_id=1)
     assert isinstance(result, ToolResult)
     assert result.success
-    categories = result.data["catalog_categories"]["categories"]
-    assert categories and categories[0]["name"]
+    # No-args discovery is the compact index: id + name per category, with a
+    # bounded detail pull as the second level.
+    index = result.data["catalog_category_index"]
+    assert index and index[0]["name"]
+    assert len(index) == result.data["category_count"]
+    assert set(index[0]) == {"category_id", "name"}
+    assert "catalog_categories" not in result.data
+    assert result.data["detail_hint"]
     assert views == []
     assert await _count(maker, PurchaseSession) == 0
 
 
-async def test_discover_tool_is_exported_with_an_empty_schema(shop) -> None:
+async def test_discover_tool_detail_pull_is_bounded_and_validated(shop) -> None:
+    service, maker = shop
+    taxonomy = await service.discover_catalog(1)
+    chosen = [category.category_id for category in taxonomy.categories[:3]]
+
+    views: list[CommerceView] = []
+    registry = create_commerce_tools(service, 1, views, None)
+    result = await registry.execute(
+        "commerce:discover_catalog", {"category_ids": chosen}, user_id=1
+    )
+    assert isinstance(result, ToolResult)
+    assert result.success
+    detail = result.data["catalog_categories"]["categories"]
+    assert [category["category_id"] for category in detail] == chosen
+    for category in detail:
+        assert set(category) == {"category_id", "name", "description", "attributes"}
+    assert views == []
+    assert await _count(maker, PurchaseSession) == 0
+
+    # Unknown ids are a definitive refusal, not an empty fact sheet.
+    missing = await registry.execute(
+        "commerce:discover_catalog", {"category_ids": ["does-not-exist"]}, user_id=1
+    )
+    assert isinstance(missing, ToolResult)
+    assert not missing.success
+
+    for invalid in ([], ["a"] * 17, ["x" * 65], [123]):
+        bad = await registry.execute(
+            "commerce:discover_catalog", {"category_ids": invalid}, user_id=1
+        )
+        assert isinstance(bad, ToolResult)
+        assert not bad.success
+
+
+async def test_discover_tool_is_exported_with_a_two_level_schema(shop) -> None:
     service, _maker = shop
     registry = create_commerce_tools(service, 1, [], None)
     exported = {
@@ -399,7 +439,18 @@ async def test_discover_tool_is_exported_with_an_empty_schema(shop) -> None:
     discover = exported["commerce_discover_catalog"]
     assert discover["parameters"] == {
         "type": "object",
-        "properties": {},
+        "properties": {
+            "category_ids": {
+                "type": "array",
+                "items": {"type": "string", "minLength": 1, "maxLength": 64},
+                "minItems": 1,
+                "maxItems": 16,
+                "description": (
+                    "Category ids from the compact index; omit to list all categories. "
+                    "Each id pull returns full attribute detail."
+                ),
+            },
+        },
         "required": [],
         "additionalProperties": False,
     }

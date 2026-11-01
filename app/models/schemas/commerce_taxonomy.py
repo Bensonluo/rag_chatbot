@@ -21,6 +21,12 @@ class RegistryCategory(CatalogCategory):
     status: Literal["active", "planned", "deprecated"] = "active"
     provider_aliases: list[str] = Field(default_factory=list, max_length=32)
     base_price_minor: int | None = Field(default=None, ge=0)
+    # Variant axis: the fourth SKU address dimension (颜色/尺码/规格/...).
+    # Registry-internal only; the public provider wire stays 4-field.
+    variant_key: str = Field(default="颜色", min_length=1, max_length=32)
+    variant_values: list[str] = Field(
+        default_factory=lambda: ["黑色", "白色", "银色", "灰色"], min_length=1, max_length=8
+    )
 
 
 class RegistryTaxonomy(BaseModel):

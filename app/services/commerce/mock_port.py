@@ -311,12 +311,24 @@ class MockCommercePort:
             total_estimate=len(matched),
         )
 
-    async def catalog_categories(self, owner_user_id: int) -> CatalogTaxonomy:
+    async def catalog_categories(
+        self,
+        owner_user_id: int,
+        *,
+        category_ids: set[str] | None = None,
+    ) -> CatalogTaxonomy:
         """Read-only authoritative taxonomy; no catalog or purchase state changes."""
 
         if type(owner_user_id) is not int or owner_user_id <= 0:
             raise ProviderRejected("模拟访问身份无效")
-        return TAXONOMY
+        if category_ids is None:
+            return TAXONOMY
+        categories = [
+            category for category in TAXONOMY.categories if category.category_id in category_ids
+        ]
+        if not categories:
+            raise ProviderRejected("模拟类目不存在")
+        return CatalogTaxonomy(categories=categories)
 
     async def get_product(self, owner_user_id: int, sku_id: str) -> CatalogItem:
         if type(owner_user_id) is not int or owner_user_id <= 0:

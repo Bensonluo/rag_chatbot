@@ -23,6 +23,9 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy import (
+    text as sa_text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.database.base import Base, TimestampMixin
@@ -71,6 +74,15 @@ class CommerceTaxonomyCategory(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
     provider_aliases: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     base_price_minor: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    variant_key: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="颜色", server_default="颜色"
+    )
+    variant_values: Mapped[list[str]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=lambda: ["黑色", "白色", "银色", "灰色"],
+        server_default=sa_text('\'["黑色", "白色", "银色", "灰色"]\''),
+    )
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 

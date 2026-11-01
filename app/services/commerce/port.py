@@ -54,7 +54,12 @@ class CommercePort(Protocol):
         page_token: str | None = None,
     ) -> Awaitable[CatalogPage]: ...
 
-    def catalog_categories(self, owner_user_id: int) -> Awaitable[CatalogTaxonomy]: ...
+    def catalog_categories(
+        self,
+        owner_user_id: int,
+        *,
+        category_ids: set[str] | None = None,
+    ) -> Awaitable[CatalogTaxonomy]: ...
 
     def get_product(self, owner_user_id: int, sku_id: str) -> Awaitable[CatalogItem]: ...
 

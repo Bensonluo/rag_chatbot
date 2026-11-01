@@ -130,6 +130,8 @@ class CommerceTaxonomyRegistry:
                     status=row.status,
                     provider_aliases=list(row.provider_aliases),
                     base_price_minor=row.base_price_minor,
+                    variant_key=row.variant_key,
+                    variant_values=list(row.variant_values),
                 )
                 for row in rows
                 if row.status != "deprecated"
@@ -194,6 +196,8 @@ class CommerceTaxonomyRegistry:
                         status=category.status,
                         provider_aliases=list(category.provider_aliases),
                         base_price_minor=category.base_price_minor,
+                        variant_key=category.variant_key,
+                        variant_values=list(category.variant_values),
                         position=position,
                     )
                 )

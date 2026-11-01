@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
@@ -66,6 +67,8 @@ def _category(
     policy: str = "generated",
     aliases: tuple[str, ...] = (),
     base_price: int = 10_000,
+    variant_key: str = "颜色",
+    variant_values: tuple[str, ...] = ("黑色", "白色", "银色", "灰色"),
 ) -> RegistryCategory:
     return RegistryCategory(
         category_id=key,
@@ -77,6 +80,8 @@ def _category(
         status="active",
         provider_aliases=list(aliases),
         base_price_minor=base_price,
+        variant_key=variant_key,
+        variant_values=list(variant_values),
     )
 
 
@@ -104,7 +109,7 @@ async def test_taxonomy_registry_versions_and_generated_provider_snapshot(
     registry: CommerceTaxonomyRegistry,
 ) -> None:
     fallback = await registry.load_active()
-    assert fallback.taxonomy_version == "static-v1"
+    assert fallback.taxonomy_version == "static-v2"
 
     taxonomy = _taxonomy(
         "gift-v1",
@@ -137,6 +142,53 @@ async def test_taxonomy_registry_versions_and_generated_provider_snapshot(
 
     with pytest.raises(ConflictError):
         await registry.publish(version_id="gift-v1", taxonomy=taxonomy)
+
+
+async def test_taxonomy_registry_round_trips_variant_axes(
+    registry: CommerceTaxonomyRegistry,
+) -> None:
+    """Variant axes survive publish→load_active; SKU addressing follows them."""
+
+    await registry.publish(
+        version_id="variant-v1",
+        taxonomy=_taxonomy(
+            "variant-v1",
+            [
+                _category(
+                    "tshirt-x",
+                    "上衣",
+                    variant_key="尺码",
+                    variant_values=("S", "M", "L", "XL"),
+                ),
+                _category(
+                    "fresh-x",
+                    "生鲜",
+                    variant_key="规格",
+                    variant_values=("250g", "500g", "1kg", "2kg"),
+                ),
+            ],
+        ),
+        activate=True,
+    )
+    active = await registry.load_active()
+    by_id = {category.category_id: category for category in active.categories}
+    assert by_id["tshirt-x"].variant_key == "尺码"
+    assert by_id["tshirt-x"].variant_values == ["S", "M", "L", "XL"]
+    assert by_id["fresh-x"].variant_key == "规格"
+    assert by_id["fresh-x"].variant_values == ["250g", "500g", "1kg", "2kg"]
+
+    catalog = VirtualCatalog(active)
+    item = catalog.materialize(1)  # pair 0 (tshirt-x), model 0, variant 1
+    assert item.attributes["尺码"] == "M"
+    # The registry axis stays internal: the published wire serializes the
+    # declared CatalogCategory shape (4 fields), dropping registry metadata.
+    published = json.loads(catalog.taxonomy().model_dump_json())
+    assert set(published["categories"][0]) == {
+        "category_id",
+        "name",
+        "description",
+        "attributes",
+    }
 
 
 async def test_zero_result_alias_review_projects_semantic_metadata(

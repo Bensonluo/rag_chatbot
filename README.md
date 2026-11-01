@@ -691,8 +691,10 @@ separate confirmations. The live Execution Chain publishes the provider router's
 intent and confidence before any business work.
 
 Commerce facts live in the separate internal `commerce-provider` FastAPI service:
-a deterministic 100,000,000-SKU addressable catalog with a 25-category taxonomy,
-SQLite-backed multi-line carts, quotes, stock deltas, orders, payments and
+a deterministic 154,624-SKU addressable catalog (151 categories across 18
+daily-life domains, each deliberately shallow at 32 brands × 8 models × 4
+variants with a per-category variant axis), SQLite-backed multi-line carts,
+quotes, stock deltas, orders, payments and
 idempotency receipts. The API reaches it only through `ExternalCommercePort`;
 provider failure makes shopping explicitly unavailable and never falls back to a
 local or regex planner. `PurchaseService` keeps only durable safety orchestration —

@@ -46,10 +46,21 @@ class RouterCommercePort:
         self._registry = registry
         self._external_provider = external_provider
 
-    async def catalog_categories(self, owner_user_id: int) -> CatalogTaxonomy:
+    async def catalog_categories(
+        self,
+        owner_user_id: int,
+        *,
+        category_ids: set[str] | None = None,
+    ) -> CatalogTaxonomy:
         if owner_user_id <= 0:
             raise ProviderRejected("Invalid commerce owner")
-        return (await self._registry.load_active()).to_catalog_taxonomy()
+        taxonomy = await self._registry.load_active()
+        categories = taxonomy.categories
+        if category_ids is not None:
+            categories = [item for item in categories if item.category_id in category_ids]
+            if not categories:
+                raise ProviderRejected("模拟类目不存在")
+        return CatalogTaxonomy(categories=categories)
 
     async def _route_for_query(self, query: str) -> str | None:
         taxonomy = await self._registry.load_active()

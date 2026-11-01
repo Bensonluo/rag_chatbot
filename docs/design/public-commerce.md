@@ -1,11 +1,11 @@
 # 公共访客与 Agent 纯文本模拟购买
 
-日期：2026-10-29；2026-11-01 更新目录外探索边界、会话级 unsupported-domain 结论与超时诊断。
+日期：2026-10-29；2026-11-01 更新目录外探索边界、会话级 unsupported-domain 结论与超时诊断；同日扩容目录至 151 类目/18 域并把 `discover_catalog` 改造为两级发现。
 
 ## 目标与边界
 
 - 项目目标是验证 **Agent 自动导购编排链路**：多轮理解、工具选择、参数绑定、多商品购物车、交易状态推进、插问恢复和故障后原操作恢复。
-- 商品、库存、限购、多行购物车、报价、订单和支付事实由独立 `commerce-provider` 服务拥有；它用确定性生成的 100,000,000 个可寻址 SKU 和 SQLite 事务模拟成熟外部 API，不把目录全量枚举进内存或聊天库。
+- 商品、库存、限购、多行购物车、报价、订单和支付事实由独立 `commerce-provider` 服务拥有；它用确定性生成的 154,624 个可寻址 SKU（151 个类目 × 32 品牌 × 8 型号 × 4 变体；类目广度优先、每类刻意浅层）和 SQLite 事务模拟成熟外部 API，不把目录全量枚举进内存或聊天库。每个类目有自己的变体轴（数码→颜色、服饰→尺码、生鲜→规格等，恰好 4 个变体值），该轴是 registry 内部寻址元数据，不出现在公共目录 wire 上。
 - 每个购物事实回复都向访客声明：商品与交易事实来自独立内部虚拟商城 API，下单与付款仅模拟，不产生真实订单或扣款；不把“模拟交易”表述成“商品数据由模型编造”。
 - 下单与付款是两次独立、明确、新鲜的文字授权；模型不能自行绕过服务端授权门。
 - `COMMERCE_PROVIDER_MODE=external` 是显式组合选择。HTTP provider 超时、拒绝或不可用时，购物显式失败/提示稍后查询，不会静默退回本地 planner 或本地 mock。
@@ -39,14 +39,15 @@ flowchart LR
 
 - `CommerceConversation` 在每轮构造请求局部工具 registry，不向旧共享 Demo 图注册购买工具。接受购物任务后先持久提升 automation epoch，再调用模型或工具；模型失败、请求取消或聊天保存失败不能复活旧退款提案。
 - `AgentService` 负责理解、规划和实际工具调用：请求是否购物、买什么、约束是什么、候选页中“1号/第二款/便宜的那个”指哪个、如何拆成多行、是否追问、是否足以授权，均由模型判断。
-- 常规工具：商品知识图谱语义查询、类目发现（标准类目与允许属性值）、结构化商品搜索（价格/属性/库存过滤、排序、分页）、SKU 详情、多行购物车更新、试算、状态查询。
+- 常规工具：商品知识图谱语义查询、两级类目发现（紧凑索引 → `category_ids` 详情拉取）、结构化商品搜索（价格/属性/库存过滤、排序、分页）、SKU 详情、多行购物车更新、试算、状态查询。
 - 受控工具：`commit_checkout` 与 `mock_pay` 只在当前阶段匹配且最新展示版本有效时注册；handler 再核对 owner、purchase、version、confirmation/payment 和 generation。模型传入 owner、金额、付款成功标记或外来 idempotency key 无效。
 - 一回合最多推进一个不可逆阶段。模糊确认、否定、疑问或组合的“确认下单并付款”均只澄清或查询，不写入。
 - 购物目录轮回复采用两层投影：模型可解释已检索事实并给出预算内组合建议，但必须标注尚未加购；权威 SKU、价格、库存、限购仍来自服务端 `CommerceView`。服务端先剥离模型输出中的 `<think>...</think>` 推理段，避免 reasoning tags 污染用户可见文本。购物车、报价、订单、付款阶段不接受模型自由文本，模型不能宣布交易成功。
 
 ## 开放式需求与类目发现
 
-- commerce provider 通过 Bearer 保护的 `GET /commerce/categories` 暴露权威类目事实：默认内置 25 个标准类目；启用 registry 后暴露 active taxonomy 中的 generated 类目 id、名称、描述和允许属性值。用户语言别名仍是 provider 内部检索索引，不进入语义层，也不作为可配置路由表。
+- commerce provider 通过 Bearer 保护的 `GET /commerce/categories` 暴露权威类目事实：默认内置 151 个标准类目（办公电子 25 个原样保留，另覆盖食品、服饰、鞋包、配饰、美妆、家居、厨具、家纺、家具、家电、数码、母婴、运动、文娱、宠物、汽车、健康共 18 个域）；启用 registry 后暴露 active taxonomy 中的 generated 类目 id、名称、描述和允许属性值。可选 `category_ids` 查询参数（逗号分隔，≤32 个 id、每个 ≤64 字符）按需拉取部分类目详情；全部不命中返回 404 definitive refusal。用户语言别名仍是 provider 内部检索索引，不进入语义层，也不作为可配置路由表。
+- `discover_catalog` Agent 工具是两级发现：不带参数返回紧凑类目索引（每类目仅 `category_id` + 标准名，151 条），模型据此把开放式需求映射到标准类目后，再用 `category_ids`（1–16 个）拉取所选类目的完整属性词表与可选值用于构造结构化筛选。空索引/空详情不再把整份 taxonomy 塞进单次工具结果；未知 id 是明确失败而非空清单。
 - 面对开放式需求（例如“预算 1500 配一个远程办公角落”），LLM Agent 先发现 taxonomy，再把需求映射到一个或多个标准类目并逐类搜索；不存在确定性查询重写器。
 - 未知品牌、可能错别字或无法确定用途类别的指代先由 LLM 提出一个聚焦澄清问题，不为排除目录而穷尽搜索。开放式需求映射到标准类目后，同一轮最多允许两个不同类目的首次搜索为空；达到该边界后必须停止搜索，改为澄清或记录 unsupported-domain 结论。
 - LLM 可调用 `commerce_remember_unsupported_domain` 把“某语义需求领域不在当前目录”的结论保存到当前咨询的 `session_metadata`（最多 8 条、仅会话作用域）。后续轮次该结论作为语义上下文注入，由模型判断是否适用于新请求；它不是关键词表，不缓存 SKU/价格/库存/交易事实，也不阻断不同语义领域。
@@ -69,7 +70,7 @@ flowchart LR
 
 - 复用项目既有 Neo4j/GraphRAG 基础设施。API 启动时把 active taxonomy 与已审核 semantic registry 投影为 `CommerceCategory`、`CommerceAttribute`、`CommerceAlias`、`CommerceUseCase` 节点和关系；不复制任何 SKU、价格、库存、限购或用户 alias。
 - 商品投影写入是原子替换：只删除带 `Commerce*` type 的投影节点/关系后重建，不触碰文档知识图谱；LLM 每次推断出的用途集合不会在重启间无限累积。
-- LLM 语义规划器从标准类目推断 `CommerceUseCase` 节点（如家庭影音、远程办公、移动差旅），并用 `SERVES_COMMERCE_USE_CASE` 连接相关类目。该推断是模型语义，不是固定短语表；输出只允许 provider 已有 category id。
+- LLM 语义规划器从标准类目推断 20–40 个 `CommerceUseCase` 节点（如家庭影音、远程办公、移动差旅、露营出行、母婴新生儿），每个用 `SERVES_COMMERCE_USE_CASE` 连接 2–12 个相关类目；推断输入只含类目 id/名称/描述（不含属性词表），embedding 投影并发执行（信号量限流）。该推断是模型语义，不是固定短语表；输出只允许 provider 已有 category id。
 - 购物 Agent 获得只读 `commerce_graph_context` 工具，可用于理解用途、搭配、替代和跨类目关系。图谱结果永远标注 semantic-only；SKU、价格、库存、限购和可购买性仍必须由 commerce provider 工具验证。
 - Neo4j 不可用、投影失败或图谱为空时购物不降级到规则路由；Agent 仍可用 `discover_catalog` 和 provider 搜索。图谱工具调用与所有 Agent 工具一样进入 `cs.tool` 实时 trace。
 - 普通 support GraphRAG embedding 检索排除 `Commerce*` 投影节点，避免商品语义污染客服知识答案；购物侧通过显式 `entity_types` 只查商品投影。
@@ -78,7 +79,7 @@ flowchart LR
 
 外部 provider 独立拥有：
 
-- 100,000,000 个稳定可寻址 SKU、价格、库存、限购和属性；
+- 154,624 个稳定可寻址 SKU、价格、库存、限购和属性（151 类目 × 32 品牌 × 8 型号 × 4 变体的浅层组合）；
 - 结构化搜索、过滤、排序和有界分页；
 - 多行购物车和乐观版本；
 - 报价、有效期、报价/购物车版本一致性；

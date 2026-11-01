@@ -246,8 +246,36 @@ def create_commerce_tools(
     async def discover(args: dict[str, Any]) -> dict[str, Any]:
         # Read-only provider facts for the model's semantic mapping; no
         # purchase session is started and no view is staged or mutated.
-        del args
-        taxonomy = await service.discover_catalog(owner)
+        # Two levels keep the payload need-sized: a compact id/name index
+        # first, then a bounded detail pull only for chosen categories.
+        raw_ids = args.get("category_ids")
+        if raw_ids is None:
+            taxonomy = await service.discover_catalog(owner)
+            return {
+                "catalog_category_index": [
+                    {"category_id": category.category_id, "name": category.name}
+                    for category in taxonomy.categories
+                ],
+                "category_count": len(taxonomy.categories),
+                "detail_hint": (
+                    "Pass category_ids (1-16 ids from this index) to pull full category "
+                    "detail: description and attribute vocabularies with allowed values."
+                ),
+                "mode": "mock",
+            }
+        if (
+            not isinstance(raw_ids, list)
+            or not 1 <= len(raw_ids) <= 16
+            or any(
+                not isinstance(item, str) or not item.strip() or len(item) > 64 for item in raw_ids
+            )
+        ):
+            raise ValidationError(
+                "category_ids must be a list of 1 to 16 non-empty category id strings"
+            )
+        taxonomy = await service.discover_catalog(
+            owner, category_ids={item.strip() for item in raw_ids}
+        )
         return {
             "catalog_categories": taxonomy.model_dump(mode="json"),
             "mode": "mock",
@@ -489,21 +517,36 @@ def create_commerce_tools(
             name="commerce_discover_catalog",
             intent="commerce:discover_catalog",
             description=(
-                "Discover the provider's authoritative product categories: standard "
-                "category names, descriptions and attribute vocabularies with allowed "
-                "values. Read-only: never changes cart, order or payment state. Use it "
-                "before searching when the customer's need is vague, novel or "
-                "open-ended, or whenever a search returned no results: decide yourself "
-                "how the need maps to standard category names. If no related category "
-                "exists, say so or ask one focused question rather than searching. At "
-                "most two chosen categories may return zero results before the turn "
-                "must clarify or record the unsupported domain."
+                "Discover the provider's authoritative product categories in two steps. "
+                "Without arguments, get the compact index of every category id and "
+                "standard name; use it before searching when the customer's need is "
+                "vague, novel or open-ended, when a search returned no results, or "
+                "whenever the standard category names are unknown. Then pass "
+                "category_ids (1-16 ids from the index) to pull full category detail: "
+                "descriptions and attribute vocabularies with allowed values for "
+                "building typed search filters. Read-only: never changes cart, order "
+                "or payment state. Decide yourself how an open need maps to standard "
+                "category names. If no related category exists, say so or ask one "
+                "focused question rather than searching. At most two chosen categories "
+                "may return zero results before the turn must clarify or record the "
+                "unsupported domain."
             ),
             required_slots=[],
             handler=discover,
             parameters_schema={
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "category_ids": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1, "maxLength": 64},
+                        "minItems": 1,
+                        "maxItems": 16,
+                        "description": (
+                            "Category ids from the compact index; omit to list all "
+                            "categories. Each id pull returns full attribute detail."
+                        ),
+                    },
+                },
                 "required": [],
                 "additionalProperties": False,
             },

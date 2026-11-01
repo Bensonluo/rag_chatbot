@@ -21,12 +21,16 @@ def catalog() -> VirtualCatalog:
     return VirtualCatalog()
 
 
-def test_sku_space_is_stable_and_large(catalog: VirtualCatalog) -> None:
-    assert TOTAL_SKUS >= 100_000_000
-    for n in (0, 1, 12_345_678, TOTAL_SKUS - 1):
+def test_sku_space_is_stable_and_derived_from_taxonomy(catalog: VirtualCatalog) -> None:
+    from app.commerce_provider.catalog import MODELS_PER_PAIR, PAIR_COUNT
+
+    assert TOTAL_SKUS == 154_624  # 151 categories × 32 brands × 8 models × 4 variants
+    for n in (0, 1, 77_777, TOTAL_SKUS - 1):
         assert catalog.parse_sku_id(catalog.sku_id(n)) == n
         pair, model, variant = catalog.decompose(n)
-        assert 0 <= pair < 800 and 0 <= model < 31_250 and 0 <= variant < VARIANTS_PER_MODEL
+        assert 0 <= pair < PAIR_COUNT and 0 <= model < MODELS_PER_PAIR
+        assert 0 <= variant < VARIANTS_PER_MODEL
+    assert catalog.parse_sku_id("SKU-01546224") is None  # one past the space
     assert catalog.parse_sku_id("SKU-100000000") is None  # 9 digits: out of space
     assert catalog.parse_sku_id("PRD-000-00000") is None
     assert catalog.parse_sku_id("") is None
@@ -161,4 +165,9 @@ def test_search_returns_empty_for_unmatched_terms(catalog: VirtualCatalog) -> No
 def test_search_window_is_bounded(catalog: VirtualCatalog) -> None:
     assert MAX_WINDOW == 8_192
     page = catalog.search(query="显示器", page_size=50)
-    assert page.total_estimate == 1_024  # first-window collection size
+    # One category block holds exactly 32 brands × 8 models × 4 variants =
+    # 1,024 SKUs; the in-stock filter keeps slightly fewer. The collected
+    # window is the full block, so the estimate is exact, not a lower bound.
+    monitor_block_in_stock = sum(1 for n in range(1_024) if catalog._base_availability(n) > 0)
+    assert page.total_estimate == monitor_block_in_stock
+    assert page.total_estimate <= 1_024

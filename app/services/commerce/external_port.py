@@ -213,14 +213,26 @@ class ExternalCommercePort:
             json_body["page_token"] = page_token
         return await self._call("POST", "/commerce/search", model=CatalogPage, json_body=json_body)
 
-    async def catalog_categories(self, owner_user_id: int) -> CatalogTaxonomy:
-        """Read the provider's authoritative category taxonomy (read-only)."""
+    async def catalog_categories(
+        self,
+        owner_user_id: int,
+        *,
+        category_ids: set[str] | None = None,
+    ) -> CatalogTaxonomy:
+        """Read the provider's authoritative category taxonomy (read-only).
 
+        ``category_ids`` narrows the pull to specific categories so callers
+        can fetch detail on demand instead of paging the whole taxonomy.
+        """
+
+        params: dict[str, Any] = {"owner_user_id": owner_user_id}
+        if category_ids is not None:
+            params["category_ids"] = ",".join(sorted(category_ids))
         return await self._call(
             "GET",
             "/commerce/categories",
             model=CatalogTaxonomy,
-            params={"owner_user_id": owner_user_id},
+            params=params,
         )
 
     async def get_product(self, owner_user_id: int, sku_id: str) -> CatalogItem:

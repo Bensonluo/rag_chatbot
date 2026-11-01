@@ -44,6 +44,7 @@ from app.models.schemas.commerce import (
     PaymentSnapshot,
     QuoteSnapshot,
 )
+from app.models.schemas.commerce_taxonomy import RegistryTaxonomy
 
 MAX_CART_LINES = 50
 
@@ -94,7 +95,7 @@ class CommerceProviderCore:
         self.quote_ttl_seconds = quote_ttl_seconds
         self.faults = faults
         self._stock_delta_cache: dict[str, int] | None = None
-        self._taxonomy: CatalogTaxonomy | None = None
+        self._registry_taxonomy: RegistryTaxonomy | None = None
 
     # --- shared plumbing ----------------------------------------------------
     @staticmethod
@@ -261,13 +262,29 @@ class CommerceProviderCore:
             stock_deltas=deltas,
         )
 
-    async def catalog_categories(self, owner_user_id: int) -> CatalogTaxonomy:
-        """Read-only category facts; no cart, order, payment or stock state."""
+    async def catalog_categories(
+        self,
+        owner_user_id: int,
+        *,
+        category_ids: set[str] | None = None,
+    ) -> CatalogTaxonomy:
+        """Read-only category facts; no cart, order, payment or stock state.
+
+        Without ``category_ids`` the full authoritative taxonomy is returned.
+        With a filter, only matching categories are published; a filter that
+        matches nothing is a definitive refusal — the caller asked for
+        specific facts that do not exist.
+        """
 
         self._require_owner(owner_user_id)
-        if self._taxonomy is None:
-            self._taxonomy = await asyncio.to_thread(self.catalog.taxonomy)
-        return self._taxonomy
+        if self._registry_taxonomy is None:
+            self._registry_taxonomy = await asyncio.to_thread(self.catalog.registry_taxonomy)
+        categories = self._registry_taxonomy.categories
+        if category_ids is not None:
+            categories = [item for item in categories if item.category_id in category_ids]
+            if not categories:
+                raise ProviderNotFoundError("模拟类目不存在")
+        return CatalogTaxonomy(categories=categories)
 
     async def get_product(self, owner_user_id: int, sku_id: str) -> CatalogItem:
         self._require_owner(owner_user_id)

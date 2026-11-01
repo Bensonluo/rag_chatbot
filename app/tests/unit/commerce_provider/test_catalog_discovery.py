@@ -70,3 +70,48 @@ def test_core_taxonomy_matches_the_published_catalog() -> None:
         assert [(a.name, tuple(a.allowed_values)) for a in category.attributes] == [
             (key, values) for key, values in spec.attrs
         ]
+
+
+def test_categories_support_a_bounded_id_filter(client: TestClient) -> None:
+    response = client.get(
+        "/commerce/categories",
+        headers=AUTH_HEADERS,
+        params={"owner_user_id": 1, "category_ids": "monitor,keyboard"},
+    )
+    assert response.status_code == 200
+    categories = response.json()["categories"]
+    assert [category["category_id"] for category in categories] == ["monitor", "keyboard"]
+    # Filtered entries publish the same full fact shape as the unfiltered list.
+    for category in categories:
+        assert set(category) == {"category_id", "name", "description", "attributes"}
+
+
+def test_categories_filter_matching_nothing_is_not_found(client: TestClient) -> None:
+    # Partial match publishes only the existing categories.
+    partial = client.get(
+        "/commerce/categories",
+        headers=AUTH_HEADERS,
+        params={"owner_user_id": 1, "category_ids": "monitor,does-not-exist"},
+    )
+    assert partial.status_code == 200
+    assert [category["category_id"] for category in partial.json()["categories"]] == ["monitor"]
+
+    # A filter that matches nothing at all is a definitive refusal.
+    empty = client.get(
+        "/commerce/categories",
+        headers=AUTH_HEADERS,
+        params={"owner_user_id": 1, "category_ids": "does-not-exist"},
+    )
+    assert empty.status_code == 404
+    assert empty.json()["error"]["code"] == "not_found"
+
+
+def test_categories_reject_malformed_id_filters(client: TestClient) -> None:
+    for raw in (",", "a" * 65, ",".join(f"id{i}" for i in range(33))):
+        response = client.get(
+            "/commerce/categories",
+            headers=AUTH_HEADERS,
+            params={"owner_user_id": 1, "category_ids": raw},
+        )
+        assert response.status_code == 422, raw
+        assert response.json()["error"]["code"] == "rejected"

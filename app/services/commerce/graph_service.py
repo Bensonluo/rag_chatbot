@@ -7,6 +7,7 @@ use-case communities. The graph therefore carries product semantics while the
 provider carries every purchasable fact.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -25,6 +26,7 @@ _COMMERCE_ATTRIBUTE_TYPE = "CommerceAttribute"
 _COMMERCE_USE_CASE_TYPE = "CommerceUseCase"
 _ATTRIBUTE_RELATION = "HAS_COMMERCE_ATTRIBUTE"
 _USE_CASE_RELATION = "SERVES_COMMERCE_USE_CASE"
+_EMBEDDING_CONCURRENCY = 16
 
 _USE_CASE_PROMPT = """You maintain a product knowledge graph from provider-owned category facts.
 Infer generic shopping use-case communities from the categories below. Use semantic judgement;
@@ -34,8 +36,8 @@ Return strict JSON:
 {{"use_cases":[{{"name":"...","description":"...","category_ids":["..."]}}]}}
 
 Rules:
-- 6 to 10 use cases; each links 2 to 8 category_ids that all exist in the input.
-- Names describe generic purposes (for example workspace setup, home AV, mobile work), not SKUs.
+- 20 to 40 use cases covering the catalog's breadth; each links 2 to 12 category_ids that all exist in the input.
+- Names describe generic purposes (for example workspace setup, home AV, baby care, camping), not SKUs.
 - Descriptions explain why those categories belong together in one short sentence; mention no price, stock, order state or SKU.
 - category_ids must come from the input. Do not include any other key.
 
@@ -80,6 +82,7 @@ class CommerceGraphService:
 
         entities: list[GraphEntity] = []
         relations: list[GraphRelation] = []
+        pending_embeddings: list[tuple[GraphEntity, str]] = []
         category_ids = {category.category_id for category in taxonomy.categories}
         for category in taxonomy.categories:
             category_node_id = f"commerce-category:{category.category_id}"
@@ -87,25 +90,20 @@ class CommerceGraphService:
             embedding_text = (
                 f"{category.name} {category.description} {' '.join(attribute_names)}"
             ).strip()
-            entities.append(
-                GraphEntity(
-                    id=category_node_id,
-                    name=f"商品类目：{category.name}",
-                    type=_COMMERCE_CATEGORY_TYPE,
-                    description=category.description,
-                    properties={
-                        "category_id": category.category_id,
-                        "provider_name": category.name,
-                        "attribute_names": attribute_names,
-                        "commerce_projection": True,
-                    },
-                    embedding=(
-                        await self._embeddings.embed_single(embedding_text)
-                        if self._embeddings is not None
-                        else None
-                    ),
-                )
+            category_entity = GraphEntity(
+                id=category_node_id,
+                name=f"商品类目：{category.name}",
+                type=_COMMERCE_CATEGORY_TYPE,
+                description=category.description,
+                properties={
+                    "category_id": category.category_id,
+                    "provider_name": category.name,
+                    "attribute_names": attribute_names,
+                    "commerce_projection": True,
+                },
             )
+            entities.append(category_entity)
+            pending_embeddings.append((category_entity, embedding_text))
             for attribute in category.attributes:
                 attribute_node_id = f"commerce-attribute:{category.category_id}:{attribute.name}"
                 entities.append(
@@ -150,23 +148,18 @@ class CommerceGraphService:
                 continue
             stable = hashlib.sha256(name.encode("utf-8")).hexdigest()[:16]
             use_case_node_id = f"commerce-use-case:{stable}"
-            entities.append(
-                GraphEntity(
-                    id=use_case_node_id,
-                    name=f"商品用途：{name}",
-                    type=_COMMERCE_USE_CASE_TYPE,
-                    description=description,
-                    properties={
-                        "use_case_name": name,
-                        "commerce_projection": True,
-                    },
-                    embedding=(
-                        await self._embeddings.embed_single(f"{name} {description}")
-                        if self._embeddings is not None
-                        else None
-                    ),
-                )
+            use_case_entity = GraphEntity(
+                id=use_case_node_id,
+                name=f"商品用途：{name}",
+                type=_COMMERCE_USE_CASE_TYPE,
+                description=description,
+                properties={
+                    "use_case_name": name,
+                    "commerce_projection": True,
+                },
             )
+            entities.append(use_case_entity)
+            pending_embeddings.append((use_case_entity, f"{name} {description}"))
             for category_id in linked_ids:
                 relations.append(
                     GraphRelation(
@@ -188,27 +181,22 @@ class CommerceGraphService:
                     continue
                 known_entity_ids.add(node.id)
                 node_description = node.description or ""
-                entities.append(
-                    GraphEntity(
-                        id=node.id,
-                        name=node.name,
-                        type=node.node_type,
-                        description=node_description,
-                        properties={
-                            **node.properties,
-                            "source": node.source,
-                            "confidence": node.confidence,
-                            "status": node.status,
-                            "semantic_version": node.version,
-                            "commerce_projection": True,
-                        },
-                        embedding=(
-                            await self._embeddings.embed_single(f"{node.name} {node_description}")
-                            if self._embeddings is not None
-                            else None
-                        ),
-                    )
+                semantic_entity = GraphEntity(
+                    id=node.id,
+                    name=node.name,
+                    type=node.node_type,
+                    description=node_description,
+                    properties={
+                        **node.properties,
+                        "source": node.source,
+                        "confidence": node.confidence,
+                        "status": node.status,
+                        "semantic_version": node.version,
+                        "commerce_projection": True,
+                    },
                 )
+                entities.append(semantic_entity)
+                pending_embeddings.append((semantic_entity, f"{node.name} {node_description}"))
             entity_ids = {entity.id for entity in entities}
             for relation in semantic_data.relations:
                 source_id = self._resolve_semantic_ref(relation.source_ref)
@@ -231,6 +219,18 @@ class CommerceGraphService:
                         },
                     )
                 )
+
+        # Embed concurrently (semaphore-bounded): with 151 categories the
+        # serial pass dominated startup latency. GraphEntity is a mutable
+        # dataclass, so the pass assigns embeddings in place afterwards.
+        if self._embeddings is not None and pending_embeddings:
+            semaphore = asyncio.Semaphore(_EMBEDDING_CONCURRENCY)
+
+            async def embed_one(entity: GraphEntity, text: str) -> None:
+                async with semaphore:
+                    entity.embedding = await self._embeddings.embed_single(text)
+
+            await asyncio.gather(*(embed_one(entity, text) for entity, text in pending_embeddings))
 
         await self._graph.replace_commerce_projection(entities, relations)
         use_case_count = sum(
@@ -260,15 +260,14 @@ class CommerceGraphService:
 
         if self._semantic_planner is None:
             return []
+        # Payload stays id+name+description: attribute vocabularies would
+        # multiply prompt size by ~5 for 151 categories without improving
+        # community-level judgement.
         category_payload = [
             {
                 "category_id": category.category_id,
                 "name": category.name,
                 "description": category.description,
-                "attributes": [
-                    {"name": attribute.name, "allowed_values": attribute.allowed_values}
-                    for attribute in category.attributes
-                ],
             }
             for category in taxonomy.categories
         ]
@@ -285,7 +284,7 @@ class CommerceGraphService:
                     ),
                 ),
             ],
-            max_tokens=4096,
+            max_tokens=8192,
         )
         try:
             content = str(response.content)
@@ -297,7 +296,7 @@ class CommerceGraphService:
                 item
                 for item in raw
                 if isinstance(item, dict) and isinstance(item.get("category_ids"), list)
-            ][:10]
+            ][:40]
         except (AttributeError, ValueError, KeyError, TypeError, json.JSONDecodeError):
             logger.warning(
                 "Commerce graph use-case inference returned invalid JSON (length=%s tail=%r)",

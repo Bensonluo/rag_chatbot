@@ -29,7 +29,12 @@ from fastapi.responses import JSONResponse
 
 from app.commerce_provider.catalog import VirtualCatalog
 from app.commerce_provider.core import CommerceProviderCore
-from app.commerce_provider.errors import ProviderAuthError, ProviderError, ProviderNotFoundError
+from app.commerce_provider.errors import (
+    ProviderAuthError,
+    ProviderError,
+    ProviderNotFoundError,
+    ProviderRejectedError,
+)
 from app.commerce_provider.faults import FaultController
 from app.commerce_provider.schemas import (
     CatalogSearchRequest,
@@ -96,6 +101,31 @@ def _load_taxonomy(path: str) -> RegistryTaxonomy | None:
         return RegistryTaxonomy.model_validate(payload)
     except Exception as exc:
         raise RuntimeError(f"Invalid commerce taxonomy snapshot: {path}") from exc
+
+
+MAX_CATEGORY_FILTER_IDS = 32
+MAX_CATEGORY_ID_LENGTH = 64
+
+
+def _parse_category_ids(raw: str | None) -> set[str] | None:
+    """Parse a comma-separated ``category_ids`` query filter.
+
+    Returns ``None`` when the parameter is absent (full taxonomy). The filter
+    is bounded (32 ids × 64 chars) so one request can never demand an
+    unbounded detail pull; malformed values are definitive refusals.
+    """
+
+    if raw is None:
+        return None
+    ids = {part.strip() for part in raw.split(",")}
+    ids.discard("")
+    if not ids:
+        raise ProviderRejectedError("category_ids 参数无效")
+    if len(ids) > MAX_CATEGORY_FILTER_IDS:
+        raise ProviderRejectedError("category_ids 数量超出上限")
+    if any(len(item) > MAX_CATEGORY_ID_LENGTH for item in ids):
+        raise ProviderRejectedError("category_ids 内容无效")
+    return ids
 
 
 @asynccontextmanager
@@ -176,10 +206,16 @@ def create_app(settings: CommerceProviderSettings | None = None) -> FastAPI:
     async def catalog_categories(
         owner_user_id: OwnerParam,
         core: Annotated[CommerceProviderCore, Depends(get_core)],
+        category_ids: str | None = None,
     ) -> CatalogTaxonomy:
-        """Read-only authoritative category taxonomy for open-language discovery."""
+        """Read-only authoritative category taxonomy for open-language discovery.
 
-        return await core.catalog_categories(owner_user_id)
+        ``category_ids`` is an optional comma-separated filter: when present,
+        only those categories are published (up to 32 ids, each 1-64 chars).
+        """
+
+        parsed = _parse_category_ids(category_ids)
+        return await core.catalog_categories(owner_user_id, category_ids=parsed)
 
     @app.get("/commerce/products/{sku_id}", response_model=CatalogItem, dependencies=protected)
     async def get_product(
