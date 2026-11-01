@@ -83,10 +83,12 @@ class Settings(BaseSettings):
         description="Override persona system prompt for chat generators (empty = built-in CS persona)",
     )
     CHAT_LLM_CALL_BUDGET: int = Field(
-        default=8,
+        default=30,
         description="Hard cap on LLM calls per chat request (0 disables). "
-        "Caps the pathological tail (agent rounds + intent + rerank + "
-        "generation); 8 fits the normal path with headroom.",
+        "A full minting journey is call-heavy: route + up to 6 agent "
+        "rounds + re-search + summary + fact extraction easily passes 8, "
+        "which turned first-time mints into fallback apologies. 30 fits "
+        "the minting tail with headroom while still capping runaway turns.",
     )
     CHAT_LLM_LIGHT_MODEL: str | None = Field(
         default=None,
@@ -117,7 +119,7 @@ class Settings(BaseSettings):
         default=12, description="Messages before the first user-fact extraction pass"
     )
     USER_FACT_EXTRACTION_INTERVAL: int = Field(
-        default=6, description="Messages between subsequent extraction passes"
+        default=20, description="Messages between subsequent extraction passes"
     )
     USER_FACT_RECALL_ENABLED: bool = Field(
         default=True,
@@ -391,6 +393,18 @@ class Settings(BaseSettings):
         default=3,
         ge=1,
         description="Maximum model rounds per agent run (loop bound)",
+    )
+    COMMERCE_AGENT_MAX_STEPS: int = Field(
+        default=20,
+        ge=1,
+        description=(
+            "Model rounds per shopping-agent run. A full minting journey "
+            "is the long tail: search → discover → (1-2 re-searches) → "
+            "propose → re-search → summary reaches 7-8 rounds; 6 silently "
+            "truncated first-time mints into the fallback apology. 20 "
+            "absorbs chatty re-searches with the LLM call budget "
+            "(CHAT_LLM_CALL_BUDGET) as the harder ceiling above it."
+        ),
     )
     AGENT_KNOWLEDGE_TOOL_ENABLED: bool = Field(
         default=True,

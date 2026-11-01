@@ -258,6 +258,47 @@ async def test_mint_tool_rejects_bad_shapes_client_side(shop) -> None:
         assert not result.success, case
 
 
+async def test_first_time_mint_journey_survives_extra_research_rounds(shop) -> None:
+    """Regression for the silent 猪油 fallback (2026-11-01, session 8).
+
+    The real journey ran search → discover → search → search (one wasted
+    re-search) → propose → re-search: SEVEN model rounds, while max_steps=6
+    truncated the final re-search burst into the apology that read as a
+    client timeout. With the configured COMMERCE_AGENT_MAX_STEPS the same
+    journey must finish with real prose, and a truncated outcome must
+    never masquerade as a timeout again.
+    """
+
+    from app.config.settings import settings
+    from app.services.agent.service import OUTCOME_STEPS_EXHAUSTED
+
+    service, _maker = shop
+    registry = create_commerce_tools(service, OWNER, [], None)
+    planner = ScriptedPlanner(
+        [
+            ("search_products", {"query": "猪油"}),   # miss
+            ("discover_catalog", {}),
+            ("search_products", {"query": "猪油"}),   # re-search miss
+            ("search_products", {"query": "猪油"}),   # wasted re-search
+            ("propose_category", {**MINT_ARGS, "name": "猪油", "domain": "food"}),
+            ("search_products", {"query": "糖果巧克力"}),  # post-mint research
+            None,  # summary prose
+        ]
+    )
+    assert len(planner.script) == 7, "the production journey was seven rounds"
+    agent = AgentService(
+        planner,
+        registry,
+        max_steps=settings.COMMERCE_AGENT_MAX_STEPS,
+        system_prompt=COMMERCE_PROMPT,
+    )
+    result = await agent.run("有猪油卖吗", user_id=OWNER, session_id=1)
+
+    assert "超时" not in result.response
+    assert result.outcome != OUTCOME_STEPS_EXHAUSTED
+    assert result.truncated is False
+
+
 async def test_agent_discovers_mints_then_researches(shop) -> None:
     service, _maker = shop
     graph_client = RecordingGraphClient()

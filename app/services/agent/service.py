@@ -329,6 +329,16 @@ class AgentService:
                 # follow-up model round, even on the final allowed step.
                 is_handoff = call.get("name") == "escalate_to_human"
                 if step == self._max_steps - 1 and not is_handoff:
+                    # Not an error, but the customer sees an apology they
+                    # read as a failure — this must never be silent: it is
+                    # the signature of a journey (e.g. catalog minting)
+                    # that outgrew the step bound.
+                    logger.warning(
+                        "Agent exhausted %d steps mid-journey; last tool burst: %s "
+                        "(outcome=steps_exhausted)",
+                        self._max_steps,
+                        [call.get("name") for call in calls],
+                    )
                     return AgentResult(
                         response=_FALLBACK_RESPONSE,
                         executed_tools=executed,
@@ -409,6 +419,10 @@ class AgentService:
                         handoff_ticket_id=ticket_id,
                     )
 
+        logger.warning(
+            "Agent loop ended after %d steps with pending work (outcome=steps_exhausted)",
+            self._max_steps,
+        )
         return AgentResult(
             response=_FALLBACK_RESPONSE,
             executed_tools=executed,

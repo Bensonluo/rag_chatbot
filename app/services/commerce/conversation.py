@@ -625,10 +625,16 @@ class CommerceConversation:
                 coverage_recorder=self.coverage_recorder,
             )
             self._register_memory_tools(registry)
-            # Six bounded rounds leave room for graph/discovery → several
-            # standard category searches → final prose, still under the
-            # per-request LLM call budget (CHAT_LLM_CALL_BUDGET, default 8).
-            agent = AgentService(planner, registry, max_steps=6, system_prompt=COMMERCE_PROMPT)
+            # Bounded rounds that still fit the minting tail: graph/
+            # discovery → several standard searches → propose → re-search
+            # → summary. The per-request LLM call budget
+            # (CHAT_LLM_CALL_BUDGET) is the harder ceiling above this.
+            agent = AgentService(
+                planner,
+                registry,
+                max_steps=settings.COMMERCE_AGENT_MAX_STEPS,
+                system_prompt=COMMERCE_PROMPT,
+            )
             unsupported = await self._unsupported_domains(session_id, owner)
             note = "Current authoritative mock purchase: " + (
                 current.model_dump_json() if current else "none"
@@ -733,6 +739,7 @@ class CommerceConversation:
                     metadata={
                         "commerce_ui": view.model_dump(mode="json") if view else None,
                         "executed_tools": result.tool_trace,
+                        "agent_outcome": result.outcome,
                         "commerce_mode": "mock",
                         "planner_mode": planner.mode,
                     },
