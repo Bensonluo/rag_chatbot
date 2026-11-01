@@ -131,6 +131,15 @@ def _has_empty_catalog(view: CommerceView | None) -> bool:
     )
 
 
+# Tools whose CommerceView is a fresh candidate page that recommendation
+# prose must stay accountable to. Transactional reads (purchase_status)
+# embed a refilled default page for shopping-stage purchases and must
+# never trigger fact-stapling on their own.
+_CATALOG_PAGE_TOOLS = frozenset(
+    {"commerce_search_products", "commerce_get_product", "commerce_update_cart_lines"}
+)
+
+
 def _money(amount_minor: int) -> str:
     return f"¥{amount_minor // 100}.{amount_minor % 100:02d}"
 
@@ -652,7 +661,21 @@ class CommerceConversation:
                     )
             view = views[-1] if views else await current_purchase(self.purchases, owner)
             empty_catalog = _has_empty_catalog(view)
-            if result.tool_trace and not empty_catalog:
+            # The candidate list reaches the reply text ONLY in the
+            # selection state: a page-producing catalog tool (search /
+            # product detail) ran THIS turn because the customer said
+            # what they want. Transactional views (cart/quoted/ordered/
+            # paid) publish their own facts whenever a tool ran — quote
+            # amounts and order ids ARE the answer — while status reads
+            # of a shopping-stage purchase no longer re-pitch a default
+            # page; the view still flows to the UI payload.
+            refreshed_catalog = bool(_CATALOG_PAGE_TOOLS.intersection(result.executed_tools))
+            transactional = view is not None and view.stage != "shopping"
+            if (
+                result.tool_trace
+                and not empty_catalog
+                and (refreshed_catalog or transactional)
+            ):
                 facts = describe(view, english=is_english(message)) if view else ""
                 advice = strip_reasoning(result.response).strip()
                 # Catalog browsing is recommendation prose over typed facts:

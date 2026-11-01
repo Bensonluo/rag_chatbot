@@ -675,15 +675,18 @@ class PurchaseService:
 
     async def _view(self, row: PurchaseSession, page: CatalogPage | None = None) -> CommerceView:
         blocks: list[Any] = []
-        if row.order_id is None and row.stage in {"shopping", "cart", "quoted", "failed"}:
-            shown = (
-                page if page is not None else await self.port.search_products(row.owner_user_id, "")
-            )
+        # The candidate page is a selection-state fact: it attaches only
+        # when an explicit page was produced (search results / product
+        # detail — the state where the customer picks and adds to cart).
+        # Other reads (status, cart, quote, order) must not fabricate a
+        # default catalog page: that is how order/logistics answers ended
+        # up pitching products nobody asked about.
+        if row.order_id is None and page is not None:
             blocks.append(
                 CatalogBlock(
-                    items=shown.items,
-                    next_page_token=shown.next_page_token,
-                    total_estimate=shown.total_estimate,
+                    items=page.items,
+                    next_page_token=page.next_page_token,
+                    total_estimate=page.total_estimate,
                 )
             )
         if row.cart_snapshot is not None:

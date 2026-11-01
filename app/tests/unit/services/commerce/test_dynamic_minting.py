@@ -324,6 +324,54 @@ async def test_respond_bridges_background_traces_into_the_observer_channel(shop)
     assert upsert[-1].detail["background"] is True
 
 
+async def test_status_turns_do_not_re_pitch_the_default_catalog_page(shop) -> None:
+    """The candidate product list belongs to exactly one state: the customer
+    said what they want, a search matched, and the reply invites selection
+    and add-to-cart. An order/logistics question must never carry it — not
+    even when an active shopping-stage purchase exists that older code
+    refilled with a default catalog page."""
+    from app.models.database.session import ChatSession
+    from app.services.chat.coordination import SessionCoordinator
+    from app.services.chat.persistence import ChatMessagePersister
+    from app.services.commerce.conversation import CommerceConversation
+
+    service, maker = shop
+    async with maker() as db:
+        session = ChatSession(id=2, user_id=OWNER, session_metadata={"access_mode": "private"})
+        db.add(session)
+        await db.commit()
+        key = session.session_key
+    planner = ScriptedPlanner(
+        [
+            ("search_products", {"query": "显示器"}),
+            None,  # end turn 1 with prose
+            ("purchase_status", {}),
+            None,  # end turn 2 with prose
+        ]
+    )
+    conversation = CommerceConversation(
+        service,
+        SessionCoordinator(maker),
+        ChatMessagePersister(maker),
+        provider=planner,
+    )
+
+    browse = await conversation.respond(OWNER, 2, key, "看看显示器")
+    assert "商品事实为准" in browse.content and "¥" in browse.content, (
+        "browse turn still publishes the candidate page"
+    )
+
+    # Production state at the bug report: an active shopping-stage purchase.
+    await service.start(OWNER)
+    status = await conversation.respond(OWNER, 2, key, "我要查一下我的订单物流")
+
+    assert "商品事实为准" not in status.content
+    assert "¥" not in status.content
+    assert "请从上方展示商品" not in status.content
+    # UI payload keeps panel continuity even when the reply text stays clean.
+    assert status.ui is not None
+
+
 async def test_existing_twin_does_not_upsert_again_and_failures_degrade(shop) -> None:
     service, _maker = shop
     graph_client = FailingGraphClient()
