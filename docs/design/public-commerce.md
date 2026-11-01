@@ -1,6 +1,6 @@
 # 公共访客与 Agent 纯文本模拟购买
 
-日期：2026-10-29。本文描述当前代码目标：购物语义由 provider LLM Agent 独占，商品与交易事实由独立内部虚拟 commerce provider 提供。无真实扣款、真实配送或商业支付接入。
+日期：2026-10-29；2026-11-01 更新目录外探索边界、会话级 unsupported-domain 结论与超时诊断。
 
 ## 目标与边界
 
@@ -48,6 +48,8 @@ flowchart LR
 
 - commerce provider 通过 Bearer 保护的 `GET /commerce/categories` 暴露权威类目事实：默认内置 25 个标准类目；启用 registry 后暴露 active taxonomy 中的 generated 类目 id、名称、描述和允许属性值。用户语言别名仍是 provider 内部检索索引，不进入语义层，也不作为可配置路由表。
 - 面对开放式需求（例如“预算 1500 配一个远程办公角落”），LLM Agent 先发现 taxonomy，再把需求映射到一个或多个标准类目并逐类搜索；不存在确定性查询重写器。
+- 未知品牌、可能错别字或无法确定用途类别的指代先由 LLM 提出一个聚焦澄清问题，不为排除目录而穷尽搜索。开放式需求映射到标准类目后，同一轮最多允许两个不同类目的首次搜索为空；达到该边界后必须停止搜索，改为澄清或记录 unsupported-domain 结论。
+- LLM 可调用 `commerce_remember_unsupported_domain` 把“某语义需求领域不在当前目录”的结论保存到当前咨询的 `session_metadata`（最多 8 条、仅会话作用域）。后续轮次该结论作为语义上下文注入，由模型判断是否适用于新请求；它不是关键词表，不缓存 SKU/价格/库存/交易事实，也不阻断不同语义领域。
 - `create_commerce_tools()` 的请求局部状态按 `sku_id` 去重；不同查询跨类目轮转均衡，同一查询的分页结果并回原 provider 顺序。每轮可见 typed 候选总数硬上限为 5 个。第一次搜索保持单查询分页语义；后续搜索返回一个合并目录块和最新非目录块。合并只做展示层收敛，不替模型决定类目或搜索顺序；不同查询的 page token 不能合并，因此合并视图不带 `next_page_token`，但保留 provider 总量估计并提示可换一批。
 - 模型组合建议只能引用当前合并候选块中仍展示的 SKU；购物车、报价、订单和付款仍以服务端事实为准。
 - 整体预算是组合总价约束，不是固定类目配额。除非用户明确给出单项/类目价格上限，LLM 不得在类目搜索上自行设置 `max_price`；先取完整候选，再在组合层控制总价。带筛选搜索为空时必须先去掉非用户筛选复搜，才能说明缺候选。
@@ -100,6 +102,8 @@ flowchart LR
 `commerce-provider` 只监听内部 Docker 网络，不发布宿主端口；API 通过 `ExternalCommercePort` 和 Bearer token 访问。`CommerceView` 仍是服务端事实投影，没有 actions/action_ref。前端不解析该结构，也不发起购买专用 POST。
 
 SSE 从消费者消息入口开始输出 `event: trace`：provider 路由（含 `intent`、`confidence` 与 router）、Agent 每轮模型调用、每个工具、最终 outcome 和错误都必须实时进入 Execution Chain；购物接管不是普通对话图的观测例外。文本帧、可选持久化 completion 和 DONE 随 trace 之后输出。completion 必须匹配原 session_key；没有有效 completion 时不显示普通“接收完成”，只提示聊天保存未确认、交易状态需查询。聊天保存失败不回滚业务，也不虚构 message ID。
+
+购物流达到 `CHAT_STREAM_MAX_SECONDS` 时，服务端在取消任务并排空未发送 trace 后记录一条 JSON-safe 的分段耗时日志（路由、每轮模型调用、每个工具与 Agent 总耗时；不包含用户原文、模型 prose 或 provider 诊断文本），用于区分路由慢、模型轮次慢和工具慢。
 
 ## 千万变体边界
 

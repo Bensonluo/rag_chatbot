@@ -253,6 +253,32 @@ async def shop(tmp_path) -> AsyncIterator[tuple[PurchaseService, async_sessionma
     await engine.dispose()
 
 
+async def test_third_distinct_zero_result_category_is_bounded(shop) -> None:
+    service, _maker = shop
+    provider_queries: list[str] = []
+    original_search = service.port.search_products
+
+    async def tracking_search(*args: Any, **kwargs: Any) -> Any:
+        if args[1]:
+            provider_queries.append(str(args[1]))
+        return await original_search(*args, **kwargs)
+
+    service.port.search_products = tracking_search
+    views: list[CommerceView] = []
+    registry = create_commerce_tools(service, 1, views, None)
+    for query in ("保健食品", "母婴食品"):
+        result = await registry.execute("commerce:search_products", {"query": query}, user_id=1)
+        assert result.success
+    assert provider_queries == ["保健食品", "母婴食品"]
+
+    exhausted = await registry.execute(
+        "commerce:search_products", {"query": "第三方保健食品"}, user_id=1
+    )
+    assert not exhausted.success
+    assert "exhausted" in exhausted.message
+    assert provider_queries == ["保健食品", "母婴食品"]
+
+
 async def _count(maker: async_sessionmaker[AsyncSession], model: Any) -> int:
     async with maker() as db:
         value = await db.scalar(select(func.count()).select_from(model))

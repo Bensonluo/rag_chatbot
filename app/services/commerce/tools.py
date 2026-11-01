@@ -35,8 +35,9 @@ logger = logging.getLogger(__name__)
 # model searches several provider categories. Provider paging remains larger;
 # this is the Agent presentation contract, not a provider catalog limit.
 _AGENT_PAGE_SIZE_MAX = 5
-_VISIBLE_CANDIDATES_MAX = 5
+_ZERO_RESULT_CATEGORY_SEARCH_LIMIT = 2
 _PAGE_SIZE_MAX = 50
+_VISIBLE_CANDIDATES_MAX = 5
 
 
 async def current_purchase(service: PurchaseService, owner: int) -> CommerceView | None:
@@ -122,6 +123,7 @@ def create_commerce_tools(
     catalog_total_estimates: dict[str, int] = {}
     seen_catalog_skus: set[str] = set()
     search_batches = 0
+    zero_result_queries: set[str] = set()
 
     def balanced_catalog_candidates() -> list[CatalogItem]:
         """Round-robin provider rankings across distinct search queries."""
@@ -154,7 +156,7 @@ def create_commerce_tools(
         return result
 
     async def search(args: dict[str, Any]) -> CommerceView:
-        nonlocal catalog_total_estimates, search_batches
+        nonlocal catalog_total_estimates, search_batches, zero_result_queries
         query = args.get("query", "")
         if not isinstance(query, str) or len(query) > 500:
             raise ValidationError("Search query must be a bounded string")
@@ -168,6 +170,16 @@ def create_commerce_tools(
         page_token = args.get("page_token")
         if page_token is not None and (not isinstance(page_token, str) or not page_token):
             raise ValidationError("Page token must be a non-empty cursor string")
+        normalized_query = " ".join(query.strip().lower().split())
+        if (
+            page_token is None
+            and len(zero_result_queries) >= _ZERO_RESULT_CATEGORY_SEARCH_LIMIT
+            and normalized_query not in zero_result_queries
+        ):
+            raise ValidationError(
+                "Zero-result category searches are exhausted for this turn: "
+                "ask one focused clarification or record the unsupported domain"
+            )
         view = await service.start(owner)
         result = await service.search(
             owner,
@@ -178,10 +190,12 @@ def create_commerce_tools(
             page_size=page_size,
             page_token=page_token,
         )
+        result_count = sum(
+            len(block.items) for block in result.blocks if isinstance(block, CatalogBlock)
+        )
+        if page_token is None and result_count == 0 and normalized_query:
+            zero_result_queries.add(normalized_query)
         if coverage_recorder is not None and page_token is None:
-            result_count = sum(
-                len(block.items) for block in result.blocks if isinstance(block, CatalogBlock)
-            )
             try:
                 await coverage_recorder.record_search(
                     query=query,
@@ -315,14 +329,17 @@ def create_commerce_tools(
         (
             "search_products",
             "Search the mock catalog with a short product query plus structured filters, sort and "
-            "paging; never places an order. For vague, novel or open-ended needs, and whenever a "
-            "search returns nothing, call discover_catalog first and use its standard category "
-            "names as queries — one need may map to several category searches — before asking a "
-            "focused clarification. Do not translate a whole-basket budget into arbitrary "
+            "paging; never places an order. For an unknown brand/product name, possible typo or "
+            "reference whose use category is unclear, ask one focused clarification before "
+            "searching. For vague, novel or open-ended needs, and whenever a search returns "
+            "nothing, call discover_catalog first and use its standard category names as "
+            "queries. At most two distinct standard categories may return zero results in one "
+            "turn; then stop searching and either ask one focused clarification or record the "
+            "unsupported domain. Do not translate a whole-basket budget into arbitrary "
             "per-category price caps: search each category without max_price unless the user "
             "supplied that cap, then control the total while composing bundles. A zero after "
             "filters means retry without those non-user filters before declaring a category "
-            "unavailable. Invite clarification when the reference or budget is ambiguous.",
+            "unavailable.",
             {
                 "query": {"type": "string", "maxLength": 500},
                 "min_price": {
@@ -477,10 +494,10 @@ def create_commerce_tools(
                 "values. Read-only: never changes cart, order or payment state. Use it "
                 "before searching when the customer's need is vague, novel or "
                 "open-ended, or whenever a search returned no results: decide yourself "
-                "how the need maps to one or more standard category names, then call "
-                "search_products once per chosen category; a single need may map to "
-                "several categories. Only after the plausible categories are exhausted "
-                "ask one focused clarification (use, budget or key specification)."
+                "how the need maps to standard category names. If no related category "
+                "exists, say so or ask one focused question rather than searching. At "
+                "most two chosen categories may return zero results before the turn "
+                "must clarify or record the unsupported domain."
             ),
             required_slots=[],
             handler=discover,

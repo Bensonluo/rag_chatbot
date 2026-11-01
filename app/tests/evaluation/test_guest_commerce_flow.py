@@ -7,6 +7,7 @@ intent are represented as the model's chosen tool calls.
 
 import asyncio
 import json
+import logging
 import socket
 from collections.abc import AsyncGenerator, Generator
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ from app.models.database.commerce import (
     PurchaseOperation,
     PurchaseSession,
 )
+from app.models.database.session import ChatSession
 from app.models.schemas.commerce import CommerceView
 from app.services.commerce.conversation import CommerceConversation, CommercePlanner
 from app.services.commerce.mock_port import MockCommercePort
@@ -72,6 +74,7 @@ class ScriptedShoppingLLM:
     def __init__(self) -> None:
         self.routes: list[str] = []
         self.plans: list[dict[str, Any] | None] = []
+        self.tool_messages: list[list[LLMMessage]] = []
 
     async def generate(self, messages: list[LLMMessage], **kwargs: Any) -> LLMResponse:
         del messages, kwargs
@@ -87,6 +90,7 @@ class ScriptedShoppingLLM:
         self, messages: list[LLMMessage], tools: list[dict[str, Any]]
     ) -> LLMResponse:
         del tools
+        self.tool_messages.append(list(messages))
         plan = self.plans.pop(0) if self.plans else None
         if plan is None:
             return LLMResponse(
@@ -462,6 +466,8 @@ async def test_stream_exposes_router_agent_and_tool_trace_from_entry(shop: ShopH
         ("cs.generation", "start"),
         ("cs.generation", "end"),
         ("cs.agent", "end"),
+        ("cs.persistence", "start"),
+        ("cs.persistence", "end"),
         ("cs.pipeline", "end"),
     ]
     intent_detail = traces[2]
@@ -511,6 +517,64 @@ async def test_terminal_empty_search_preserves_focused_clarification(shop: ShopH
     assert "请选择模拟商品" not in content
 
 
+async def test_unsupported_domain_memory_is_session_scoped_and_reused(
+    shop: ShopHttp,
+) -> None:
+    client = shop.browsers.first
+    browser = await _boot(client)
+    shop.provider.routes.append("shopping")
+    shop.provider.plans.extend(
+        [
+            {"tool": "discover_catalog", "arguments": {}},
+            {"tool": "search_products", "arguments": {"query": "保健食品"}},
+            {"tool": "search_products", "arguments": {"query": "母婴食品"}},
+            {
+                "tool": "remember_unsupported_domain",
+                "arguments": {
+                    "domain": "食品与母婴保健品",
+                    "checked_categories": ["保健食品", "母婴食品"],
+                    "reason": "当前目录没有食品或母婴保健类目",
+                },
+            },
+        ]
+    )
+    first = await client.post(
+        "/api/v1/guest/chat",
+        headers=_BROWSER,
+        json={**_scope(browser), "message": "我想买脑白金", "include_completion": True},
+    )
+    assert first.status_code == 200, first.text
+    assert "没有找到匹配商品。" in first.json()["content"]
+
+    async with shop.service.sessions() as db:
+        metadata = await db.scalar(
+            select(ChatSession.session_metadata).where(ChatSession.id == browser["session"]["id"])
+        )
+    assert metadata is not None
+    assert metadata["commerce_unsupported_domains"] == [
+        {
+            "domain": "食品与母婴保健品",
+            "reason": "当前目录没有食品或母婴保健类目",
+            "checked_categories": ["保健食品", "母婴食品"],
+        }
+    ]
+
+    model_calls_before = len(shop.provider.tool_messages)
+    second = await _chat(client, browser, "那诺宝宝呢？", shop=shop, plan=None)
+    assert second.status_code == 200, second.text
+    # Reuse is context delivery plus one model decision, not another tool loop.
+    assert len(shop.provider.tool_messages) == model_calls_before + 1
+    semantic_notes = [
+        message.content
+        for message in shop.provider.tool_messages[-1]
+        if message.role == "system"
+        and "Previously concluded unsupported domains" in message.content
+    ]
+    assert semantic_notes
+    assert "食品与母婴保健品" in semantic_notes[0]
+    assert "保健食品" in semantic_notes[0]
+
+
 async def test_stream_exposes_provider_router_before_support_graph(shop: ShopHttp) -> None:
     client = shop.browsers.second
     browser = await _boot(client)
@@ -552,7 +616,9 @@ async def test_support_in_band_failure_emits_pipeline_error_and_done(
 
 
 async def test_shopping_stream_timeout_emits_full_error_chain(
-    shop: ShopHttp, monkeypatch: pytest.MonkeyPatch
+    shop: ShopHttp,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     client = shop.browsers.first
     browser = await _boot(client)
@@ -578,6 +644,7 @@ async def test_shopping_stream_timeout_emits_full_error_chain(
     original = shop.conversation.provider
     shop.conversation.provider = SlowProvider()
     monkeypatch.setattr(settings, "CHAT_STREAM_MAX_SECONDS", 0.01)
+    caplog.set_level(logging.WARNING, logger="app.api.v1.guest")
     try:
         response = await _chat(client, browser, "买东西", stream=True)
     finally:
@@ -589,6 +656,18 @@ async def test_shopping_stream_timeout_emits_full_error_chain(
     assert ("cs.generation", "error") in statuses
     assert ("cs.agent", "error") in statuses
     assert (traces[-1]["stage"], traces[-1]["status"]) == ("cs.pipeline", "error")
+
+    timeout_logs = [
+        record for record in caplog.records if "Public shopping stream timed out" in record.message
+    ]
+    assert len(timeout_logs) == 1
+    timeline = json.loads(timeout_logs[0].message.split("stage_timeline=", 1)[1])
+    assert {(event["stage"], event["status"]) for event in timeline} >= {
+        ("cs.intent", "end"),
+        ("cs.generation", "error"),
+        ("cs.agent", "error"),
+    }
+    assert all(event["ms"] >= 0 for event in timeline)
 
 
 async def test_rate_limit_rejects_before_agent_business_or_llm_run(

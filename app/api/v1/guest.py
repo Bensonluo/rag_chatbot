@@ -68,6 +68,28 @@ def _pipeline_trace(started: float, status: str, detail: dict[str, object]) -> s
     )
 
 
+def _shopping_stage_timeline(events: list[TraceEvent]) -> str:
+    """JSON-safe duration summary for a timed-out shopping turn.
+
+    Router reasons and model prose stay out of server logs; only stable stage
+    ids, timing, and bounded technical detail (step/tool/error type) remain.
+    """
+    timeline: list[dict[str, object]] = []
+    for event in events:
+        if event.ms is None:
+            continue
+        item: dict[str, object] = {
+            "stage": event.stage,
+            "status": event.status,
+            "ms": round(event.ms, 1),
+        }
+        for key in ("step", "tool", "error_type"):
+            if key in event.detail:
+                item[key] = event.detail[key]
+        timeline.append(item)
+    return json.dumps(timeline, ensure_ascii=False, separators=(",", ":"))
+
+
 router = APIRouter(prefix="/guest", tags=["public visitor"], route_class=PrivateAPIRoute)
 
 
@@ -307,6 +329,7 @@ async def chat_stream(
 
     async def generate() -> AsyncIterator[str]:
         pipeline_started = perf_counter()
+        timeline: list[TraceEvent] = []
         yield chat_api._sse_trace_frame(
             TraceEvent(stage="cs.pipeline", status="start", detail={"path": "guest"})
         )
@@ -379,6 +402,14 @@ async def chat_stream(
                 detail={"intent": route, "router": "provider"},
             )
         )
+        timeline.append(
+            TraceEvent(
+                stage="cs.intent",
+                status="end",
+                ms=(perf_counter() - router_started) * 1000,
+                detail={"intent": route, "router": "provider"},
+            )
+        )
 
         shopping = route == "shopping"
 
@@ -433,6 +464,10 @@ async def chat_stream(
 
         events: asyncio.Queue[TraceEvent | None] = asyncio.Queue()
 
+        def record(event: TraceEvent) -> None:
+            timeline.append(event)
+            events.put_nowait(event)
+
         async def execute() -> CommerceReply:
             try:
                 return await commerce.respond(
@@ -440,7 +475,7 @@ async def chat_stream(
                     body.session_id,
                     body.expected_session_key,
                     body.message,
-                    on_trace=events.put_nowait,
+                    on_trace=record,
                 )
             finally:
                 events.put_nowait(None)
@@ -482,7 +517,7 @@ async def chat_stream(
         except Exception as exc:
             # Error text can contain provider diagnostics. Expose only the
             # protocol failure and never turn a failed planner into a reply.
-            if not isinstance(exc, HTTPException):
+            if not isinstance(exc, (HTTPException, TimeoutError)):
                 logger.warning("Public shopping stream failed (%s)", type(exc).__name__)
             if task is not None:
                 task.cancel()
@@ -491,6 +526,12 @@ async def chat_stream(
                     event = events.get_nowait()
                     if event is not None:
                         yield chat_api._sse_trace_frame(event)
+            if isinstance(exc, TimeoutError):
+                logger.warning(
+                    "Public shopping stream timed out after %.0fms; stage_timeline=%s",
+                    (perf_counter() - pipeline_started) * 1000,
+                    _shopping_stage_timeline(timeline),
+                )
             yield chat_api._sse_trace_frame(
                 TraceEvent(
                     stage="cs.pipeline",

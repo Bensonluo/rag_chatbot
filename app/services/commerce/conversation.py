@@ -8,11 +8,13 @@ import json
 import logging
 import math
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any
 
 from sqlalchemy import select, update
 
 from app.config.settings import settings
+from app.core.exceptions import ValidationError
 from app.models.database.message import Message
 from app.models.database.session import ChatSession
 from app.models.enums.message import MessageRole
@@ -35,21 +37,27 @@ from app.services.chat.persistence import ChatMessagePersister
 from app.services.chat.session_identity import require_session_key
 from app.services.commerce.service import PurchaseService
 from app.services.commerce.tools import create_commerce_tools, current_purchase
+from app.services.dialogue.tools import ToolDefinition
 from app.services.llm.base import LLMMessage, LLMResponse
 from app.services.llm.budget import enter_llm_budget
 from app.services.llm.reasoning_filter import strip_reasoning
+from app.services.observability.trace_events import TraceEvent
 
 logger = logging.getLogger(__name__)
+_UNSUPPORTED_DOMAINS_KEY = "commerce_unsupported_domains"
 
 
 COMMERCE_PROMPT = """你是公共网站的购物 LLM Agent。商品与交易由外部 mock 系统提供，不产生真实扣款。
 你负责理解任意自然语言表达：需求、用途、预算、规格、候选指代、数量、多商品、修改、插问与继续。
 不要期待固定话术；语义含糊时先追问，不要猜 SKU 或数量。必须结合当前候选、购物车和报价中的 ID/版本调用工具。
-面对含糊、新颖、开放式或用任意说法表达的商品需求，或当搜索结果为空时：先调用 discover_catalog 查看权威类目，
-由你（而不是任何词表）把用户需求映射到一个或多个标准类目名/属性值，再逐个用标准类目名搜索；
+遇到未知品牌/商品名、可能错别字或无法确定用途类别的指代：先问一个聚焦问题（它是什么、给谁用、解决什么问题），
+不要为了排除目录而穷尽搜索。面对含糊、新颖、开放式或用任意说法表达的商品需求，或当搜索结果为空时：先调用 discover_catalog 查看权威类目，
+由你（而不是任何词表）把用户需求映射到一个或多个标准类目名/属性值；若图谱/目录都显示没有相关类目，最多搜索两个合理标准类目，
+仍无结果就调用 commerce_remember_unsupported_domain 记录本次会话级结论，然后直接说明目录范围或提出一个聚焦问题，不得继续穷尽搜索。
 若 commerce_graph_context 工具可用，开放式、搭配型、替代型或跨类目需求可先查询商品知识图谱获取语义关系；
 图谱结论只用于理解需求与组织建议，不得当作SKU、价格、库存、限购或可购买性事实。
-一个需求可以对应多次类目搜索。穷尽合理类目仍无结果，才提出一个聚焦问题（用途、预算或关键规格）。
+一个可以映射到多个标准类目的需求仍可逐类搜索；但同一轮内已经有两个不同类目搜索为空时，必须停止搜索并澄清/记录结论。
+系统上下文给出的“本会话已确认不支持领域”是此前 LLM 语义结论：相近需求可直接复用并简洁说明，仍由你判断当前请求是否真的属于该领域；目录可能变化或用户要求复核时最多重新搜索一个类目。
 聚焦最新用户消息；不要反复提起历史未完成请求，除非用户明确回到该话题或它是当前购物车/报价的必要上下文。
 多类目/整套配置需求应逐个搜索相关标准类目（每类先取1–2个候选），但最终合并展示与推荐总数不得超过5个SKU；
 最终建议只能引用当前合并候选块中仍展示的SKU，不得推荐已被后续搜索挤出的旧候选。
@@ -372,6 +380,137 @@ class CommerceConversation:
             if row.content.strip()
         ]
 
+    async def _unsupported_domains(self, session_id: int, owner: int) -> list[dict[str, Any]]:
+        """Read prior LLM conclusions; no query matching happens here."""
+        async with self.coordinator.sessions() as db:
+            payload = await db.scalar(
+                select(ChatSession.session_metadata).where(
+                    ChatSession.id == session_id, ChatSession.user_id == owner
+                )
+            )
+        if not isinstance(payload, dict):
+            return []
+        raw = payload.get(_UNSUPPORTED_DOMAINS_KEY)
+        if not isinstance(raw, list):
+            return []
+        entries: list[dict[str, Any]] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            domain, reason = item.get("domain"), item.get("reason")
+            categories = item.get("checked_categories")
+            if not isinstance(domain, str) or not domain.strip():
+                continue
+            entries.append(
+                {
+                    "domain": domain.strip()[:80],
+                    "reason": reason.strip()[:240] if isinstance(reason, str) else "",
+                    "checked_categories": [
+                        str(category)[:64]
+                        for category in categories or []
+                        if isinstance(category, str) and category.strip()
+                    ][:8]
+                    if isinstance(categories, list)
+                    else [],
+                }
+            )
+        return entries[-8:]
+
+    async def _remember_unsupported_domain(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Persist one bounded, session-scoped semantic conclusion from the LLM."""
+        owner, session_id = args.get("user_id"), args.get("session_id")
+        domain, reason = args.get("domain"), args.get("reason")
+        categories = args.get("checked_categories")
+        if type(owner) is not int or type(session_id) is not int:
+            raise ValidationError("A verified visitor and conversation are required")
+        if not isinstance(domain, str) or not domain.strip() or len(domain) > 80:
+            raise ValidationError("Unsupported domain needs a 1-80 character semantic label")
+        if reason is not None and (not isinstance(reason, str) or len(reason) > 240):
+            raise ValidationError("Unsupported-domain reason must be at most 240 characters")
+        if categories is not None and (
+            not isinstance(categories, list)
+            or len(categories) > 8
+            or not all(isinstance(category, str) and category.strip() for category in categories)
+        ):
+            raise ValidationError("Checked categories must be 1-8 non-empty strings")
+        entry = {
+            "domain": " ".join(domain.split()),
+            "reason": " ".join(reason.split()) if isinstance(reason, str) else "",
+            "checked_categories": [
+                " ".join(str(category).split())[:64] for category in categories or []
+            ][:8]
+            if isinstance(categories, list)
+            else [],
+        }
+        async with self.coordinator.sessions() as db:
+            row = await db.scalar(
+                select(ChatSession).where(
+                    ChatSession.id == session_id, ChatSession.user_id == owner
+                )
+            )
+            if row is None:
+                raise ValidationError("Conversation unavailable")
+            metadata = dict(row.session_metadata or {})
+            entries = [
+                item
+                for item in metadata.get(_UNSUPPORTED_DOMAINS_KEY, [])
+                if isinstance(item, dict)
+                and isinstance(item.get("domain"), str)
+                and item["domain"].strip()
+                and item["domain"].strip() != entry["domain"]
+            ]
+            entries.append(entry)
+            metadata[_UNSUPPORTED_DOMAINS_KEY] = entries[-8:]
+            await db.execute(
+                update(ChatSession)
+                .where(ChatSession.id == session_id, ChatSession.user_id == owner)
+                .values(session_metadata=metadata)
+            )
+            await db.commit()
+        return {"remembered": True, **entry, "scope": "session"}
+
+    def _register_memory_tools(self, registry: Any) -> None:
+        registry.register(
+            ToolDefinition(
+                name="commerce_remember_unsupported_domain",
+                intent="commerce:remember_unsupported_domain",
+                description=(
+                    "Remember, for this conversation only, that the LLM has concluded a "
+                    "semantic need domain is absent from the authoritative catalog after "
+                    "bounded discovery/search. Call it instead of exhausting more category "
+                    "searches; later turns may reuse this semantic conclusion. It stores no "
+                    "SKU, price, stock, order or payment fact and never blocks a different "
+                    "semantic domain."
+                ),
+                required_slots=["domain"],
+                handler=self._remember_unsupported_domain,
+                parameters_schema={
+                    "type": "object",
+                    "properties": {
+                        "domain": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "description": "LLM-chosen semantic domain label, not a keyword rule",
+                        },
+                        "checked_categories": {
+                            "type": "array",
+                            "items": {"type": "string", "minLength": 1, "maxLength": 64},
+                            "maxItems": 8,
+                            "description": "Standard categories/searches already checked",
+                        },
+                        "reason": {
+                            "type": "string",
+                            "maxLength": 240,
+                            "description": "Short user-facing scope explanation",
+                        },
+                    },
+                    "required": ["domain"],
+                    "additionalProperties": False,
+                },
+            )
+        )
+
     async def validate(self, owner: int, session_id: int, key: str, *, write: bool) -> None:
         state = await self.coordinator.state(session_id)
         if not state.is_private or state.owner_id != owner:
@@ -436,13 +575,21 @@ class CommerceConversation:
                 commerce_graph=self.commerce_graph_service,
                 coverage_recorder=self.coverage_recorder,
             )
+            self._register_memory_tools(registry)
             # Six bounded rounds leave room for graph/discovery → several
             # standard category searches → final prose, still under the
             # per-request LLM call budget (CHAT_LLM_CALL_BUDGET, default 8).
             agent = AgentService(planner, registry, max_steps=6, system_prompt=COMMERCE_PROMPT)
+            unsupported = await self._unsupported_domains(session_id, owner)
             note = "Current authoritative mock purchase: " + (
                 current.model_dump_json() if current else "none"
             )
+            if unsupported:
+                note += (
+                    "\nPreviously concluded unsupported domains in this conversation "
+                    "(semantic context, not a keyword rule): "
+                    + json.dumps(unsupported, ensure_ascii=False)
+                )
             history = await self._bounded_history(session_id)
             async with enter_llm_budget(settings.CHAT_LLM_CALL_BUDGET):
                 result = await agent.run(
@@ -498,17 +645,40 @@ class CommerceConversation:
                     if not is_english(message)
                     else "This request did not advance. Review the saved mock state.\n"
                 ) + content
-            receipt = await self.persister.persist_turn(
-                session_id,
-                owner,
-                message,
-                content,
-                intent="shopping",
-                metadata={
-                    "commerce_ui": view.model_dump(mode="json") if view else None,
-                    "executed_tools": result.tool_trace,
-                    "commerce_mode": "mock",
-                    "planner_mode": planner.mode,
-                },
-            )
+            persist_started = perf_counter()
+            if on_trace is not None:
+                on_trace(TraceEvent(stage="cs.persistence", status="start"))
+            try:
+                receipt = await self.persister.persist_turn(
+                    session_id,
+                    owner,
+                    message,
+                    content,
+                    intent="shopping",
+                    metadata={
+                        "commerce_ui": view.model_dump(mode="json") if view else None,
+                        "executed_tools": result.tool_trace,
+                        "commerce_mode": "mock",
+                        "planner_mode": planner.mode,
+                    },
+                )
+            except BaseException as exc:
+                if on_trace is not None:
+                    on_trace(
+                        TraceEvent(
+                            stage="cs.persistence",
+                            status="error",
+                            ms=(perf_counter() - persist_started) * 1000,
+                            detail={"error_type": type(exc).__name__},
+                        )
+                    )
+                raise
+            if on_trace is not None:
+                on_trace(
+                    TraceEvent(
+                        stage="cs.persistence",
+                        status="end",
+                        ms=(perf_counter() - persist_started) * 1000,
+                    )
+                )
             return CommerceReply(content, view, receipt)
