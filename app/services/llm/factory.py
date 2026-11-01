@@ -174,25 +174,42 @@ class LLMFactory:
 
     @staticmethod
     def _create_resilient_light_chain() -> LLMServiceBase:
-        """Build MiniMax-primary light tier with GLM as domestic fallback."""
+        """Build MiniMax-primary light tier with GLM as domestic fallback.
+
+        A configured ``GLM_FALLBACK_API_KEY`` adds a last-resort entry with
+        the light model so a plan-exhausted primary GLM key cannot take the
+        light tier down with it.
+        """
         settings = get_settings()
-        return ResilientLLMService(
-            [
-                (
-                    "minimax",
-                    LLMFactory.create(
-                        provider="minimax",
-                        model=settings.MINIMAX_LIGHT_MODEL,
-                    ),
+        providers: list[tuple[str, LLMServiceBase]] = [
+            (
+                "minimax",
+                LLMFactory.create(
+                    provider="minimax",
+                    model=settings.MINIMAX_LIGHT_MODEL,
                 ),
+            ),
+            (
+                "glm",
+                LLMFactory.create(
+                    provider="glm",
+                    model=settings.GLM_LIGHT_MODEL,
+                ),
+            ),
+        ]
+        if settings.GLM_FALLBACK_API_KEY:
+            providers.append(
                 (
-                    "glm",
+                    "glm-fallback",
                     LLMFactory.create(
                         provider="glm",
+                        api_key=settings.GLM_FALLBACK_API_KEY,
                         model=settings.GLM_LIGHT_MODEL,
                     ),
-                ),
-            ],
+                )
+            )
+        return ResilientLLMService(
+            providers,
             max_retries=settings.LLM_MAX_RETRIES,
             backoff_base=settings.LLM_RETRY_BACKOFF_BASE,
             circuit_failure_threshold=settings.LLM_CIRCUIT_FAILURE_THRESHOLD,
@@ -316,11 +333,23 @@ class LLMFactory:
                     ),
                 )
             )
+        if settings.GLM_FALLBACK_API_KEY:
+            providers.append(
+                (
+                    "glm-fallback",
+                    LLMFactory.create(
+                        provider="glm",
+                        api_key=settings.GLM_FALLBACK_API_KEY,
+                        model=settings.GLM_MODEL,
+                    ),
+                )
+            )
 
         if not providers:
             raise ValidationError(
                 "No LLM provider configured. Please set at least one of: "
-                "GLM_API_KEY, MINIMAX_API_KEY, KIMI_API_KEY, OPENAI_API_KEY, or ANTHROPIC_API_KEY"
+                "GLM_API_KEY, MINIMAX_API_KEY, KIMI_API_KEY, OPENAI_API_KEY, "
+                "ANTHROPIC_API_KEY, or GLM_FALLBACK_API_KEY"
             )
 
         if not settings.LLM_RESILIENCE_ENABLED:

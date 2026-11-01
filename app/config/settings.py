@@ -303,6 +303,14 @@ class Settings(BaseSettings):
         default="glm-5.3",
         description="GLM fallback model for the MiniMax-led light (classification) tier",
     )
+    GLM_FALLBACK_API_KEY: str | None = Field(
+        default=None,
+        description=(
+            "Optional second GLM API key (e.g. a fresh Coding Plan) appended "
+            "as the last resort of the resilient chains; shares GLM_BASE_URL "
+            "and the per-tier GLM models"
+        ),
+    )
     GLM_BASE_URL: str = Field(
         default="https://open.bigmodel.cn/api/coding/paas/v4/",
         description=(
