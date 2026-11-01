@@ -256,6 +256,34 @@ async def test_agent_discovers_mints_then_researches(shop) -> None:
     assert category_nodes[0].embedding is not None
 
 
+async def test_mint_upsert_emits_background_trace_events(shop) -> None:
+    import asyncio as asyncio_mod
+
+    from app.services.observability.trace_events import TraceSink, trace_sink_active
+
+    service, _maker = shop
+    graph = CommerceGraphService(RecordingGraphClient(), StaticEmbeddings())
+    registry = create_commerce_tools(service, OWNER, [], None, commerce_graph=graph)
+    queue: asyncio_mod.Queue[Any] = asyncio_mod.Queue()
+    sink = TraceSink(queue)
+    with trace_sink_active(sink):
+        minted = await registry.execute("commerce:propose_category", MINT_ARGS, user_id=OWNER)
+        assert minted.success
+        for _ in range(10):
+            await asyncio_mod.sleep(0)  # drain the fire-and-forget task
+
+    events = [queue.get_nowait() for _ in range(queue.qsize())]
+    upsert_events = [
+        event for event in events if event.detail.get("tool") == "commerce_graph_upsert"
+    ]
+    statuses = [event.status for event in upsert_events]
+    assert statuses == ["start", "end"]
+    end = upsert_events[-1]
+    assert end.ms is not None and end.ms >= 0
+    assert end.detail["ok"] is True
+    assert end.detail["background"] is True
+
+
 async def test_existing_twin_does_not_upsert_again_and_failures_degrade(shop) -> None:
     service, _maker = shop
     graph_client = FailingGraphClient()

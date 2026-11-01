@@ -9,6 +9,7 @@ cart payload, so the provider stays the only source of prices, names and limits.
 import asyncio
 import logging
 import math
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
@@ -29,6 +30,7 @@ from app.services.commerce.graph_service import CommerceGraphService
 from app.services.commerce.port import CommerceSort
 from app.services.commerce.service import PurchaseService
 from app.services.dialogue.tools import ToolDefinition, ToolRegistry
+from app.services.observability.trace_events import emit_trace
 
 _SORTS = ("relevance", "price_asc", "price_desc", "newest")
 logger = logging.getLogger(__name__)
@@ -581,9 +583,28 @@ def create_commerce_tools(
         normalized = " ".join(outcome.category.name.strip().lower().split())
         minted_category_names.add(normalized)
         if outcome.status == "minted" and commerce_graph is not None:
-            # Fire-and-forget semantic patch: purchases never depend on the
-            # graph; the next full rebuild remains the convergence baseline.
-            upsert_task = asyncio.create_task(commerce_graph.upsert_category(outcome.category))
+
+            async def traced_upsert() -> None:
+                # Fire-and-forget semantic patch: purchases never depend on
+                # the graph; the next full rebuild remains the convergence
+                # baseline. The task inherits the request's trace sink via
+                # asyncio context copy, so the background work stays visible
+                # in the live waterfall instead of hiding inside whatever
+                # span runs next. Emission is never-fail and a no-op
+                # without an active sink (startup, non-stream paths).
+                started = time.perf_counter()
+                emit_trace("cs.tool", status="start", tool="commerce_graph_upsert", background=True)
+                ok = await commerce_graph.upsert_category(outcome.category)
+                emit_trace(
+                    "cs.tool",
+                    status="end",
+                    ms=(time.perf_counter() - started) * 1000,
+                    tool="commerce_graph_upsert",
+                    ok=ok,
+                    background=True,
+                )
+
+            upsert_task = asyncio.create_task(traced_upsert())
             graph_upsert_tasks.add(upsert_task)
             upsert_task.add_done_callback(graph_upsert_tasks.discard)
         return {
