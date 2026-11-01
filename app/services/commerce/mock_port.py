@@ -32,6 +32,8 @@ from app.models.schemas.commerce import (
     CatalogPage,
     CatalogTaxonomy,
     CategoryAttribute,
+    MintCategoryOutcome,
+    MintedCategory,
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
@@ -197,6 +199,9 @@ class MockCommercePort:
         self.clock = clock
         self.quote_ttl_seconds = quote_ttl_seconds
         self._faults: dict[str, str] = {}
+        # Runtime-minted dynamic categories: in-memory in mock mode, deduped
+        # by normalized name against the static taxonomy and each other.
+        self._minted: dict[str, MintedCategory] = {}
 
     def fail_next(self, kind: str, *, mode: str = "accepted_timeout") -> None:
         """Test/sandbox control, never a model tool or public payment API."""
@@ -321,14 +326,97 @@ class MockCommercePort:
 
         if type(owner_user_id) is not int or owner_user_id <= 0:
             raise ProviderRejected("模拟访问身份无效")
+        minted = [
+            CatalogCategory(
+                category_id=category.category_id,
+                name=category.name,
+                description=category.description,
+                attributes=category.attributes,
+            )
+            for category in self._minted.values()
+        ]
         if category_ids is None:
-            return TAXONOMY
+            return CatalogTaxonomy(categories=[*TAXONOMY.categories, *minted])
         categories = [
-            category for category in TAXONOMY.categories if category.category_id in category_ids
+            category
+            for category in [*TAXONOMY.categories, *minted]
+            if category.category_id in category_ids
         ]
         if not categories:
             raise ProviderRejected("模拟类目不存在")
         return CatalogTaxonomy(categories=categories)
+
+    async def propose_category(
+        self,
+        owner_user_id: int,
+        *,
+        request_key: str,
+        name: str,
+        description: str,
+        domain: str,
+        attributes: list[tuple[str, list[str]]],
+        variant_key: str,
+        variant_values: list[str],
+        base_price_minor: int,
+        source_query: str = "",
+    ) -> MintCategoryOutcome:
+        """Mint a dynamic category in memory (mock-mode wire emulation).
+
+        Mock mode keeps only the dedupe contract that the agent tools rely
+        on: a normalized-name twin returns ``existing`` unchanged. The real
+        enforcement (frame, blocklist, shape, cap) lives in the standalone
+        provider; mock SKUs stay the fixed family catalogue.
+        """
+
+        if type(owner_user_id) is not int or owner_user_id <= 0:
+            raise ProviderRejected("模拟访问身份无效")
+        del request_key, source_query
+        key = "".join(name.split()).lower()
+        static_twin = next(
+            (
+                category
+                for category in TAXONOMY.categories
+                if "".join(category.name.split()).lower() == key
+            ),
+            None,
+        )
+        if static_twin is not None:
+            return MintCategoryOutcome(
+                status="existing",
+                category=MintedCategory(
+                    category_id=static_twin.category_id,
+                    name=static_twin.name,
+                    description=static_twin.description,
+                    domain=domain,
+                    attributes=static_twin.attributes,
+                    variant_key=variant_key,
+                    variant_values=variant_values,
+                    base_price_minor=base_price_minor,
+                ),
+                dynamic_category_count=len(self._minted),
+            )
+        existing = self._minted.get(key)
+        if existing is not None:
+            return MintCategoryOutcome(
+                status="existing", category=existing, dynamic_category_count=len(self._minted)
+            )
+        minted = MintedCategory(
+            category_id=f"mock_dyn_{len(self._minted) + 1:04d}",
+            name=name,
+            description=description,
+            domain=domain,
+            attributes=[
+                CategoryAttribute(name=attribute_name, allowed_values=values)
+                for attribute_name, values in attributes
+            ],
+            variant_key=variant_key,
+            variant_values=variant_values,
+            base_price_minor=base_price_minor,
+        )
+        self._minted[key] = minted
+        return MintCategoryOutcome(
+            status="minted", category=minted, dynamic_category_count=len(self._minted)
+        )
 
     async def get_product(self, owner_user_id: int, sku_id: str) -> CatalogItem:
         if type(owner_user_id) is not int or owner_user_id <= 0:

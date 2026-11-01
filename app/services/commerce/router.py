@@ -9,6 +9,7 @@ from app.models.schemas.commerce import (
     CatalogItem,
     CatalogPage,
     CatalogTaxonomy,
+    MintCategoryOutcome,
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
@@ -61,6 +62,42 @@ class RouterCommercePort:
             if not categories:
                 raise ProviderRejected("模拟类目不存在")
         return CatalogTaxonomy(categories=categories)
+
+    async def propose_category(
+        self,
+        owner_user_id: int,
+        *,
+        request_key: str,
+        name: str,
+        description: str,
+        domain: str,
+        attributes: list[tuple[str, list[str]]],
+        variant_key: str,
+        variant_values: list[str],
+        base_price_minor: int,
+        source_query: str = "",
+    ) -> MintCategoryOutcome:
+        """Dynamic minting always targets the external provider.
+
+        The registry cannot route a category that does not exist yet; the
+        minted category becomes provider-owned fact immediately and flows
+        into the registry on its next refresh.
+        """
+
+        if owner_user_id <= 0:
+            raise ProviderRejected("Invalid commerce owner")
+        return await self._external.propose_category(
+            owner_user_id,
+            request_key=request_key,
+            name=name,
+            description=description,
+            domain=domain,
+            attributes=attributes,
+            variant_key=variant_key,
+            variant_values=variant_values,
+            base_price_minor=base_price_minor,
+            source_query=source_query,
+        )
 
     async def _route_for_query(self, query: str) -> str | None:
         taxonomy = await self._registry.load_active()

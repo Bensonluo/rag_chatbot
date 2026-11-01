@@ -6,6 +6,7 @@ Tool schemas expose structured search filters/sort/paging and a full multi-line
 cart payload, so the provider stays the only source of prices, names and limits.
 """
 
+import asyncio
 import logging
 import math
 from collections.abc import Awaitable, Callable
@@ -124,6 +125,11 @@ def create_commerce_tools(
     seen_catalog_skus: set[str] = set()
     search_batches = 0
     zero_result_queries: set[str] = set()
+    # Minted this turn: their names may always be (re-)searched even after
+    # the zero-result budget is spent — presenting their SKUs is the whole
+    # point of minting.
+    minted_category_names: set[str] = set()
+    graph_upsert_tasks: set[Any] = set()
 
     def balanced_catalog_candidates() -> list[CatalogItem]:
         """Round-robin provider rankings across distinct search queries."""
@@ -175,6 +181,7 @@ def create_commerce_tools(
             page_token is None
             and len(zero_result_queries) >= _ZERO_RESULT_CATEGORY_SEARCH_LIMIT
             and normalized_query not in zero_result_queries
+            and normalized_query not in minted_category_names
         ):
             raise ValidationError(
                 "Zero-result category searches are exhausted for this turn: "
@@ -510,6 +517,84 @@ def create_commerce_tools(
             )
         )
 
+    async def propose_category(args: dict[str, Any]) -> dict[str, Any]:
+        nonlocal minted_category_names
+        name = args.get("name")
+        if not isinstance(name, str) or not name.strip() or len(name) > 32:
+            raise ValidationError("Category name must be 1 to 32 characters")
+        description = args.get("description", "")
+        if not isinstance(description, str) or len(description) > 200:
+            raise ValidationError("Category description must be at most 200 characters")
+        domain = args.get("domain")
+        if not isinstance(domain, str) or not domain.strip() or len(domain) > 32:
+            raise ValidationError("A domain from the fixed domain frame is required")
+        raw_attributes = args.get("attributes")
+        if not isinstance(raw_attributes, list) or not 1 <= len(raw_attributes) <= 5:
+            raise ValidationError("Category attributes must be a list of 1 to 5 axes")
+        attributes: list[tuple[str, list[str]]] = []
+        for entry in raw_attributes:
+            if not isinstance(entry, dict):
+                raise ValidationError("Each category attribute needs a name and values")
+            attribute_name = entry.get("name")
+            values = entry.get("values")
+            if (
+                not isinstance(attribute_name, str)
+                or not attribute_name.strip()
+                or len(attribute_name) > 16
+            ):
+                raise ValidationError("Each attribute name must be 1 to 16 characters")
+            if (
+                not isinstance(values, list)
+                or not 1 <= len(values) <= 4
+                or not all(isinstance(value, str) and value.strip() for value in values)
+            ):
+                raise ValidationError(f"Attribute {attribute_name} needs 1 to 4 non-empty values")
+            attributes.append((attribute_name.strip(), [value.strip() for value in values]))
+        variant_key = args.get("variant_key")
+        if not isinstance(variant_key, str) or not variant_key.strip() or len(variant_key) > 16:
+            raise ValidationError("Variant axis name must be 1 to 16 characters")
+        variant_values = args.get("variant_values")
+        if (
+            not isinstance(variant_values, list)
+            or len(variant_values) != 4
+            or not all(isinstance(value, str) and value.strip() for value in variant_values)
+        ):
+            raise ValidationError("The variant axis must provide exactly 4 non-empty values")
+        base_price_minor = _price_minor(args.get("base_price_yuan"), "Base price")
+        if base_price_minor is None or not 100 <= base_price_minor <= 1_000_000:
+            raise ValidationError("Base price must be between 1 and 10000 yuan")
+        source_query = args.get("source_query", "")
+        if not isinstance(source_query, str):
+            source_query = ""
+
+        outcome = await service.propose_category(
+            owner,
+            name=name.strip(),
+            description=description.strip(),
+            domain=domain.strip(),
+            attributes=attributes,
+            variant_key=variant_key.strip(),
+            variant_values=[value.strip() for value in variant_values],
+            base_price_minor=base_price_minor,
+            source_query=source_query,
+        )
+        normalized = " ".join(outcome.category.name.strip().lower().split())
+        minted_category_names.add(normalized)
+        if outcome.status == "minted" and commerce_graph is not None:
+            # Fire-and-forget semantic patch: purchases never depend on the
+            # graph; the next full rebuild remains the convergence baseline.
+            upsert_task = asyncio.create_task(commerce_graph.upsert_category(outcome.category))
+            graph_upsert_tasks.add(upsert_task)
+            upsert_task.add_done_callback(graph_upsert_tasks.discard)
+        return {
+            "mint_result": outcome.model_dump(mode="json"),
+            "next_step": (
+                "Immediately call commerce_search_products with the returned "
+                "category name to present its purchasable SKUs."
+            ),
+            "mode": "mock",
+        }
+
     # Discovery is pure provider facts: it stages no purchase view, so it is
     # registered outside the CommerceView-producing loop.
     registry.register(
@@ -548,6 +633,118 @@ def create_commerce_tools(
                     },
                 },
                 "required": [],
+                "additionalProperties": False,
+            },
+        )
+    )
+
+    registry.register(
+        ToolDefinition(
+            name="commerce_propose_category",
+            intent="commerce:propose_category",
+            description=(
+                "Mint one new dynamic product category after discovery and "
+                "bounded searches prove the catalog lacks an everyday physical "
+                "good the customer clearly wants. Propose the definition: a "
+                "concise standard category name, a one-sentence description, "
+                "one domain from the fixed frame announced in the system "
+                "prompt (use the general fallback domain only when nothing "
+                "fits), 1 to 5 attribute axes with up to 4 values each, a "
+                "variant axis with exactly 4 values, and a realistic base "
+                "price in yuan. The provider deduplicates by normalized name "
+                "(an existing twin is returned unchanged), enforces the "
+                "blocklist and shape rules, and may refuse when the dynamic "
+                "cap is reached. Never propose prescription drugs, weapons, "
+                "adult goods, virtual services, accounts, living animals or "
+                "gambling; refuse those needs yourself instead. After minting "
+                "(or an existing result), immediately re-search the returned "
+                "category name to present its purchasable SKUs. Catalog facts "
+                "only: no cart, order or payment state changes."
+            ),
+            required_slots=[
+                "name",
+                "description",
+                "domain",
+                "attributes",
+                "variant_key",
+                "variant_values",
+                "base_price_yuan",
+            ],
+            handler=propose_category,
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32,
+                        "description": "Standard category name, e.g. 糖果巧克力",
+                    },
+                    "description": {
+                        "type": "string",
+                        "maxLength": 200,
+                        "description": "One sentence describing what this category covers",
+                    },
+                    "domain": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 32,
+                        "description": "One domain from the fixed frame in the system prompt",
+                    },
+                    "attributes": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 5,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string", "minLength": 1, "maxLength": 16},
+                                "values": {
+                                    "type": "array",
+                                    "minItems": 1,
+                                    "maxItems": 4,
+                                    "items": {"type": "string", "minLength": 1, "maxLength": 24},
+                                },
+                            },
+                            "required": ["name", "values"],
+                            "additionalProperties": False,
+                        },
+                        "description": "Filterable attribute axes, e.g. 类型: [黑巧, 牛奶, 白巧, 夹心]",
+                    },
+                    "variant_key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 16,
+                        "description": "Variant axis name, e.g. 规格",
+                    },
+                    "variant_values": {
+                        "type": "array",
+                        "minItems": 4,
+                        "maxItems": 4,
+                        "items": {"type": "string", "minLength": 1, "maxLength": 24},
+                        "description": "Exactly 4 variant values, e.g. [45g, 100g, 250g, 礼盒]",
+                    },
+                    "base_price_yuan": {
+                        "type": "number",
+                        "minimum": 1,
+                        "maximum": 10000,
+                        "description": "Realistic entry price in yuan for this category",
+                    },
+                    "source_query": {
+                        "type": "string",
+                        "maxLength": 200,
+                        "description": "The customer's original words that motivated this mint",
+                    },
+                },
+                "required": [
+                    "name",
+                    "description",
+                    "domain",
+                    "attributes",
+                    "variant_key",
+                    "variant_values",
+                    "base_price_yuan",
+                ],
                 "additionalProperties": False,
             },
         )

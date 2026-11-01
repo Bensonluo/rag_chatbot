@@ -74,6 +74,37 @@ class CatalogTaxonomy(CommerceModel):
     categories: list[CatalogCategory] = Field(min_length=1)
 
 
+class MintedCategory(CommerceModel):
+    """A runtime-minted dynamic category (or its existing twin) as minted.
+
+    Mirrors the provider's mint wire: registry-internal fields (domain,
+    variant axis, base price) ride along so the agent can immediately re-search
+    with the right vocabulary; the public category view stays ``CatalogCategory``.
+    """
+
+    category_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=64)
+    description: str = Field(default="", max_length=300)
+    domain: str = Field(min_length=1, max_length=64)
+    attributes: list[CategoryAttribute] = Field(default_factory=list, max_length=8)
+    variant_key: str = Field(min_length=1, max_length=32)
+    variant_values: list[str] = Field(min_length=4, max_length=4)
+    base_price_minor: int | None = Field(default=None, ge=0)
+
+
+class MintCategoryOutcome(CommerceModel):
+    """Result of proposing a dynamic category.
+
+    ``minted`` created and registered a new category; ``existing`` means a
+    normalized-name twin already existed and was returned unchanged. Either
+    way the category is immediately searchable and purchasable.
+    """
+
+    status: Literal["minted", "existing"]
+    category: MintedCategory
+    dynamic_category_count: int = Field(ge=0)
+
+
 class CartLineSelection(CommerceModel):
     sku_id: str = Field(min_length=1, max_length=64)
     quantity: int = Field(strict=True, ge=1)

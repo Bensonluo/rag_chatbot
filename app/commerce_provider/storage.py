@@ -104,6 +104,21 @@ CREATE TABLE IF NOT EXISTS fault_rules (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS dynamic_categories (
+    category_key        TEXT PRIMARY KEY,
+    name                TEXT NOT NULL,
+    normalized_name     TEXT NOT NULL UNIQUE,
+    description         TEXT NOT NULL,
+    domain              TEXT NOT NULL,
+    attributes_json     TEXT NOT NULL,
+    variant_key         TEXT NOT NULL,
+    variant_values_json TEXT NOT NULL,
+    base_price_minor    INTEGER NOT NULL,
+    source_query        TEXT NOT NULL,
+    seq                 INTEGER NOT NULL UNIQUE,
+    created_at          TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_carts_owner ON carts(owner_user_id);
 CREATE INDEX IF NOT EXISTS idx_quotes_cart ON quotes(cart_id);
 CREATE INDEX IF NOT EXISTS idx_orders_owner ON orders(owner_user_id);

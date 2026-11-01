@@ -2090,7 +2090,7 @@ CATEGORIES: tuple[CategorySpec, ...] = (
     ),
     CategorySpec(
         "riding_gear",
-        "骑行装备",
+        "摩托骑行装备",
         ("ridinggear", "摩托车", "骑行服", "头盔", "护具"),
         39_900,
         "安全帅气的骑行",
@@ -2234,7 +2234,7 @@ assert MODELS_PER_PAIR == SERIES_COUNT
 def taxonomy_from_specs(
     specs: tuple[CategorySpec, ...] = CATEGORIES,
     *,
-    taxonomy_version: str = "static-v2",
+    taxonomy_version: str = "static-v3",
 ) -> RegistryTaxonomy:
     """Build the registry taxonomy from generated-category specs."""
 
@@ -2318,6 +2318,7 @@ class VirtualCatalog:
             categories=categories,
         )
         self._categories = categories
+        self._dynamic_count = 0
         self.category_count = len(categories)
         self.pair_count = pair_count
         self.models_per_pair = models_per_pair
@@ -2353,6 +2354,55 @@ class VirtualCatalog:
         """Publish the internal registry taxonomy with variant axes and domains."""
 
         return self._registry_taxonomy
+
+    # --- dynamic categories --------------------------------------------------
+    @staticmethod
+    def normalize_name(name: str) -> str:
+        """Case/whitespace-insensitive category name key for dedupe."""
+
+        return "".join(name.split()).lower()
+
+    @property
+    def dynamic_category_count(self) -> int:
+        return self._dynamic_count
+
+    def find_category_by_name(self, name: str) -> RegistryCategory | None:
+        key = self.normalize_name(name)
+        for category in self._categories:
+            if self.normalize_name(category.name) == key:
+                return category
+        return None
+
+    def register_dynamic(self, category: RegistryCategory) -> None:
+        """Append a runtime-minted category without disturbing SKU addressing.
+
+        ``models_per_pair`` is frozen at construction, so every existing
+        ``n -> (pair, model, variant)`` mapping stays valid; minted categories
+        continue the numeric SKU space after the static block. Reads are
+        copy-on-write: searches see either the old or the new category list.
+        """
+
+        if category.category_id in {item.category_id for item in self._categories}:
+            raise ProviderRejectedError(f"类目标识已存在: {category.category_id}")
+        if not category.variant_values or len(category.variant_values) != VARIANTS_PER_MODEL:
+            raise ProviderRejectedError(
+                f"动态类目 {category.category_id} 必须声明 {VARIANTS_PER_MODEL} 个变体值"
+            )
+        if category.variant_key in {attribute.name for attribute in category.attributes}:
+            raise ProviderRejectedError(
+                f"动态类目 {category.category_id} 的变体维度 {category.variant_key} 不能与属性名重复"
+            )
+        if self.find_category_by_name(category.name) is not None:
+            raise ProviderRejectedError(f"类目名称已存在: {category.name}")
+        self._categories = [*self._categories, category]
+        self._dynamic_count += 1
+        self.category_count += 1
+        self.pair_count += BRAND_COUNT
+        self.total_skus = self.pair_count * self.models_per_pair * VARIANTS_PER_MODEL
+        self._registry_taxonomy = RegistryTaxonomy(
+            taxonomy_version=self.taxonomy_version,
+            categories=list(self._categories),
+        )
 
     # --- fact projection ----------------------------------------------------
     @staticmethod

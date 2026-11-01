@@ -41,6 +41,8 @@ from app.commerce_provider.schemas import (
     CreateOrderRequest,
     CreatePaymentRequest,
     FaultPlanRequest,
+    MintCategoryRequest,
+    MintCategoryResult,
     OwnerParam,
     PrepareCheckoutRequest,
     SandboxPayRequest,
@@ -136,12 +138,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     faults = FaultController(database, enabled=settings.faults_enabled)
     app.state.commerce_database = database
     app.state.commerce_faults = faults
-    app.state.commerce_core = CommerceProviderCore(
+    core = CommerceProviderCore(
         database,
         VirtualCatalog(_load_taxonomy(settings.taxonomy_path)),
         quote_ttl_seconds=settings.quote_ttl_seconds,
         faults=faults,
+        dynamic_category_limit=settings.dynamic_category_limit,
     )
+    reloaded = await core.load_dynamic_categories()
+    if reloaded:
+        logging.getLogger("app.commerce_provider").info(
+            "Reloaded %d dynamic categories from storage", reloaded
+        )
+    app.state.commerce_core = core
     yield
 
 
@@ -216,6 +225,38 @@ def create_app(settings: CommerceProviderSettings | None = None) -> FastAPI:
 
         parsed = _parse_category_ids(category_ids)
         return await core.catalog_categories(owner_user_id, category_ids=parsed)
+
+    @app.post(
+        "/commerce/categories/dynamic",
+        response_model=MintCategoryResult,
+        dependencies=protected,
+    )
+    async def mint_dynamic_category(
+        body: MintCategoryRequest,
+        core: Annotated[CommerceProviderCore, Depends(get_core)],
+    ) -> MintCategoryResult:
+        """Mint a runtime dynamic category (idempotent by ``request_key``).
+
+        Returns ``status="existing"`` with the twin category when the
+        normalized name already exists, ``status="minted"`` when a new
+        category was created and registered. The category is immediately
+        searchable and purchasable in either case.
+        """
+
+        return MintCategoryResult.model_validate(
+            await core.propose_category(
+                body.owner_user_id,
+                request_key=body.request_key,
+                name=body.name,
+                description=body.description,
+                domain=body.domain,
+                attributes=[(item.name, list(item.allowed_values)) for item in body.attributes],
+                variant_key=body.variant_key,
+                variant_values=list(body.variant_values),
+                base_price_minor=body.base_price_minor,
+                source_query=body.source_query,
+            )
+        )
 
     @app.get("/commerce/products/{sku_id}", response_model=CatalogItem, dependencies=protected)
     async def get_product(

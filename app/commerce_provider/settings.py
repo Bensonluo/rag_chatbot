@@ -32,6 +32,16 @@ class CommerceProviderSettings(BaseSettings):
     auth_token: str = DEFAULT_AUTH_TOKEN
     quote_ttl_seconds: int = Field(default=300, ge=1)
     faults_enabled: bool = False
+    dynamic_category_limit: int = Field(
+        default=200,
+        ge=0,
+        le=1_000,
+        description=(
+            "Maximum runtime-minted dynamic categories; 0 disables minting. "
+            "The cap refuses new mints without evicting old ones so "
+            "historical orders always keep resolvable SKUs."
+        ),
+    )
 
 
 __all__ = ["DEFAULT_AUTH_TOKEN", "CommerceProviderSettings"]

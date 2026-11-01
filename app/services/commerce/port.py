@@ -16,6 +16,7 @@ from app.models.schemas.commerce import (
     CatalogItem,
     CatalogPage,
     CatalogTaxonomy,
+    MintCategoryOutcome,
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
@@ -60,6 +61,21 @@ class CommercePort(Protocol):
         *,
         category_ids: set[str] | None = None,
     ) -> Awaitable[CatalogTaxonomy]: ...
+
+    def propose_category(
+        self,
+        owner_user_id: int,
+        *,
+        request_key: str,
+        name: str,
+        description: str,
+        domain: str,
+        attributes: list[tuple[str, list[str]]],
+        variant_key: str,
+        variant_values: list[str],
+        base_price_minor: int,
+        source_query: str = "",
+    ) -> Awaitable[MintCategoryOutcome]: ...
 
     def get_product(self, owner_user_id: int, sku_id: str) -> Awaitable[CatalogItem]: ...
 

@@ -31,6 +31,7 @@ from app.commerce_provider.errors import (
     ProviderUnknownError,
 )
 from app.commerce_provider.faults import FaultController
+from app.commerce_provider.minting import allowed_domains, validate_proposal
 from app.commerce_provider.storage import Database
 from app.models.schemas.commerce import (
     CartLine,
@@ -44,7 +45,7 @@ from app.models.schemas.commerce import (
     PaymentSnapshot,
     QuoteSnapshot,
 )
-from app.models.schemas.commerce_taxonomy import RegistryTaxonomy
+from app.models.schemas.commerce_taxonomy import RegistryCategory, RegistryTaxonomy
 
 MAX_CART_LINES = 50
 
@@ -88,14 +89,20 @@ class CommerceProviderCore:
         clock: Callable[[], datetime] = utc_now,
         quote_ttl_seconds: int = 300,
         faults: FaultController | None = None,
+        dynamic_category_limit: int = 200,
     ) -> None:
         self.database = database
         self.catalog = catalog
         self.clock = clock
         self.quote_ttl_seconds = quote_ttl_seconds
         self.faults = faults
+        self.dynamic_category_limit = dynamic_category_limit
         self._stock_delta_cache: dict[str, int] | None = None
         self._registry_taxonomy: RegistryTaxonomy | None = None
+        # Serializes mint transactions with their in-memory registration so the
+        # registration order always equals the committed seq order; SKU
+        # addressing for dynamic categories stays stable across restarts.
+        self._mint_lock = asyncio.Lock()
 
     # --- shared plumbing ----------------------------------------------------
     @staticmethod
@@ -301,6 +308,203 @@ class CommerceProviderCore:
 
         delta = await self.database.read(work)
         return await asyncio.to_thread(self.catalog.materialize, n, delta)
+
+    # --- dynamic categories -------------------------------------------------
+    @staticmethod
+    def _public_category(category: RegistryCategory) -> dict[str, Any]:
+        """JSON-safe view of a category for mint results and audit receipts."""
+
+        return {
+            "category_id": category.category_id,
+            "name": category.name,
+            "description": category.description,
+            "domain": category.domain,
+            "attributes": [
+                {"name": item.name, "allowed_values": list(item.allowed_values)}
+                for item in category.attributes
+            ],
+            "variant_key": category.variant_key,
+            "variant_values": list(category.variant_values),
+            "base_price_minor": category.base_price_minor,
+        }
+
+    async def load_dynamic_categories(self) -> int:
+        """Reload every persisted dynamic category into the in-memory catalog.
+
+        Registration follows ``seq`` order so SKU addressing after a restart
+        matches the order in which categories were minted. Rows whose name
+        collides with a (newer) curated category are skipped: the static frame
+        wins and the row stays parked for audit.
+        """
+
+        def work(connection: sqlite3.Connection) -> list[sqlite3.Row]:
+            return connection.execute(
+                "SELECT category_key, name, description, domain, attributes_json, "
+                "variant_key, variant_values_json, base_price_minor, seq "
+                "FROM dynamic_categories ORDER BY seq"
+            ).fetchall()
+
+        rows = await self.database.read(work)
+        loaded = 0
+        for row in rows:
+            name = str(row["name"])
+            if self.catalog.find_category_by_name(name) is not None:
+                continue
+            category = RegistryCategory(
+                category_id=str(row["category_key"]),
+                name=name,
+                description=str(row["description"]),
+                domain=str(row["domain"]),
+                attributes=json.loads(str(row["attributes_json"])),
+                variant_key=str(row["variant_key"]),
+                variant_values=json.loads(str(row["variant_values_json"])),
+                base_price_minor=int(row["base_price_minor"]),
+            )
+            self.catalog.register_dynamic(category)
+            loaded += 1
+        self._registry_taxonomy = None
+        return loaded
+
+    async def propose_category(
+        self,
+        owner_user_id: int,
+        *,
+        request_key: str,
+        name: str,
+        description: str,
+        domain: str,
+        attributes: list[tuple[str, list[str]]],
+        variant_key: str,
+        variant_values: list[str],
+        base_price_minor: int,
+        source_query: str = "",
+    ) -> dict[str, Any]:
+        """Mint a dynamic category, or return the existing twin by name.
+
+        Deterministic provider-side enforcement only (see ``minting``): the
+        domain must belong to the fixed frame, the shape must mirror curated
+        categories, and blocklisted goods are refused. The cap is re-checked
+        inside the write transaction; collisions on the normalized name are
+        definitive conflicts that name the existing category. On success the
+        category is immediately searchable and purchasable.
+        """
+
+        self._require_owner(owner_user_id)
+        frame = allowed_domains(self.catalog)
+        fields = validate_proposal(
+            name=name,
+            description=description,
+            domain=domain,
+            allowed_domains=frame,
+            attributes=attributes,
+            variant_key=variant_key,
+            variant_values=variant_values,
+            base_price_minor=base_price_minor,
+        )
+        arguments = {
+            "name": fields["name"],
+            "description": fields["description"],
+            "domain": fields["domain"],
+            "attributes": [[item_name, values] for item_name, values in attributes],
+            "variant_key": fields["variant_key"],
+            "variant_values": fields["variant_values"],
+            "base_price_minor": fields["base_price_minor"],
+            "source_query": source_query.strip()[:200],
+        }
+        digest = request_hash({"kind": "propose_category", "arguments": arguments})
+
+        def envelope(committed: dict[str, Any]) -> dict[str, Any]:
+            registered = self.catalog.find_category_by_name(fields["name"])
+            if registered is None or registered.category_id != str(committed["category_id"]):
+                registered = RegistryCategory(category_id=str(committed["category_id"]), **fields)
+                self.catalog.register_dynamic(registered)
+                self._registry_taxonomy = None
+            return {
+                "status": str(committed["status"]),
+                "category": self._public_category(registered),
+                "dynamic_category_count": self.catalog.dynamic_category_count,
+            }
+
+        async with self._mint_lock:
+            # Exact idempotency first: a retried request_key replays its
+            # original receipt (still reporting "minted") instead of the
+            # name-dedupe answer a fresh key would get.
+            receipt = await self.database.read(
+                lambda connection: self._fetch_receipt(connection, request_key)
+            )
+            if receipt is not None:
+                replay = self._replay_or_conflict(
+                    receipt, owner_user_id, "propose_category", digest
+                )
+                if replay is not None:
+                    return envelope(replay)
+
+            existing = self.catalog.find_category_by_name(fields["name"])
+            if existing is not None:
+                return {
+                    "status": "existing",
+                    "category": self._public_category(existing),
+                    "dynamic_category_count": self.catalog.dynamic_category_count,
+                }
+
+            def work(connection: sqlite3.Connection, _processing: bool) -> dict[str, Any]:
+                count_row = connection.execute(
+                    "SELECT COUNT(*) AS total FROM dynamic_categories"
+                ).fetchone()
+                if int(count_row["total"]) >= self.dynamic_category_limit:
+                    raise ProviderRejectedError(
+                        f"动态类目数量已达上限 {self.dynamic_category_limit}"
+                    )
+                seq_row = connection.execute(
+                    "SELECT COALESCE(MAX(seq), 0) + 1 AS next FROM dynamic_categories"
+                ).fetchone()
+                seq = int(seq_row["next"])
+                category_id = f"dyn_{seq:04d}"
+                try:
+                    connection.execute(
+                        "INSERT INTO dynamic_categories "
+                        "(category_key, name, normalized_name, description, domain, "
+                        "attributes_json, variant_key, variant_values_json, "
+                        "base_price_minor, source_query, seq, created_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            category_id,
+                            fields["name"],
+                            VirtualCatalog.normalize_name(fields["name"]),
+                            fields["description"],
+                            fields["domain"],
+                            json.dumps(fields["attributes"], ensure_ascii=False),
+                            fields["variant_key"],
+                            json.dumps(fields["variant_values"], ensure_ascii=False),
+                            fields["base_price_minor"],
+                            source_query.strip()[:200],
+                            seq,
+                            to_iso(self.clock()),
+                        ),
+                    )
+                except sqlite3.IntegrityError as exc:
+                    twin = connection.execute(
+                        "SELECT name FROM dynamic_categories WHERE normalized_name = ?",
+                        (VirtualCatalog.normalize_name(fields["name"]),),
+                    ).fetchone()
+                    if twin is not None:
+                        raise ProviderConflictError(f"类目名称已存在: {twin['name']}") from exc
+                    raise
+                return {
+                    "status": "minted",
+                    "category_id": category_id,
+                    "seq": seq,
+                }
+
+            committed = await self._mutate(
+                owner_user_id,
+                "propose_category",
+                request_key,
+                arguments,
+                target=None,
+                work=work,
+            )
+            return envelope(committed)
 
     # --- carts --------------------------------------------------------------
     def _validated_lines(

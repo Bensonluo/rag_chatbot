@@ -19,6 +19,13 @@ path prefix. Optional keys are omitted when unset:
     -> 200 CatalogTaxonomy   (read-only authoritative category facts:
     category id/name/description plus attribute names and allowed values;
     never user-language alias lists)
+  POST {base}/commerce/categories/dynamic
+    {"owner_user_id": int, "request_key": str, "name": str, "description": str,
+     "domain": str, "attributes": [{"name": str, "allowed_values": [str]}],
+     "variant_key": str, "variant_values": [str] (exactly 4),
+     "base_price_minor": int, "source_query"?: str}
+    -> 200 MintCategoryOutcome (status "minted"|"existing"; the category is
+    immediately searchable and purchasable)
   GET  {base}/commerce/products/{sku_id}?owner_user_id=int -> 200 CatalogItem
   POST {base}/commerce/cart/update
     {"owner_user_id": int, "cart_id"?: str, "expected_cart_version"?: int,
@@ -68,6 +75,7 @@ from app.models.schemas.commerce import (
     CatalogItem,
     CatalogPage,
     CatalogTaxonomy,
+    MintCategoryOutcome,
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
@@ -237,6 +245,45 @@ class ExternalCommercePort:
 
     async def get_product(self, owner_user_id: int, sku_id: str) -> CatalogItem:
         return await self._get("/commerce/products/{}", sku_id, owner_user_id, CatalogItem)
+
+    async def propose_category(
+        self,
+        owner_user_id: int,
+        *,
+        request_key: str,
+        name: str,
+        description: str,
+        domain: str,
+        attributes: list[tuple[str, list[str]]],
+        variant_key: str,
+        variant_values: list[str],
+        base_price_minor: int,
+        source_query: str = "",
+    ) -> MintCategoryOutcome:
+        """Mint a dynamic category (or return its normalized-name twin)."""
+
+        json_body: dict[str, Any] = {
+            "owner_user_id": owner_user_id,
+            "request_key": request_key,
+            "name": name,
+            "description": description,
+            "domain": domain,
+            "attributes": [
+                {"name": attribute_name, "allowed_values": values}
+                for attribute_name, values in attributes
+            ],
+            "variant_key": variant_key,
+            "variant_values": variant_values,
+            "base_price_minor": base_price_minor,
+        }
+        if source_query:
+            json_body["source_query"] = source_query
+        return await self._call(
+            "POST",
+            "/commerce/categories/dynamic",
+            model=MintCategoryOutcome,
+            json_body=json_body,
+        )
 
     async def update_cart_lines(
         self,

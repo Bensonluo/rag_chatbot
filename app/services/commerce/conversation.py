@@ -46,17 +46,50 @@ from app.services.observability.trace_events import TraceEvent
 logger = logging.getLogger(__name__)
 _UNSUPPORTED_DOMAINS_KEY = "commerce_unsupported_domains"
 
+# The fixed domain frame for dynamic category minting: curated domains plus
+# the general fallback. Grows only through code releases, never at runtime;
+# a unit test pins it to the provider taxonomy's actual domains.
+_DOMAIN_FRAME: tuple[tuple[str, str], ...] = (
+    ("food", "食品生鲜酒水"),
+    ("digital", "数码电子"),
+    ("appliances", "家用电器"),
+    ("office_electronics", "办公设备与电脑配件"),
+    ("beauty", "美妆个护"),
+    ("apparel", "服饰"),
+    ("shoes_bags", "鞋靴箱包"),
+    ("accessories", "配饰钟表眼镜"),
+    ("mother_baby", "母婴童品"),
+    ("home_daily", "家居日用与清洁"),
+    ("home_textile", "家纺床品"),
+    ("kitchen", "厨房餐具"),
+    ("furniture", "家具"),
+    ("sports", "运动户外健身"),
+    ("entertainment", "图书文娱乐器潮玩"),
+    ("pets", "宠物用品"),
+    ("auto", "汽车用品"),
+    ("health", "健康器械保健"),
+    ("general", "其他日常好物（兜底域，仅在以上都不贴合时使用）"),
+)
+
+
+def domain_frame_note() -> str:
+    return "; ".join(f"{identifier}={label}" for identifier, label in _DOMAIN_FRAME)
+
 
 COMMERCE_PROMPT = """你是公共网站的购物 LLM Agent。商品与交易由外部 mock 系统提供，不产生真实扣款。
 你负责理解任意自然语言表达：需求、用途、预算、规格、候选指代、数量、多商品、修改、插问与继续。
 不要期待固定话术；语义含糊时先追问，不要猜 SKU 或数量。必须结合当前候选、购物车和报价中的 ID/版本调用工具。
 遇到未知品牌/商品名、可能错别字或无法确定用途类别的指代：先问一个聚焦问题（它是什么、给谁用、解决什么问题），
 不要为了排除目录而穷尽搜索。面对含糊、新颖、开放式或用任意说法表达的商品需求，或当搜索结果为空时：先不带参数调用 discover_catalog 获取紧凑类目索引（全部类目 id 与标准名），
-由你（而不是任何词表）把用户需求映射到一个或多个标准类目，再用 category_ids（1–16 个）拉取所选类目的完整属性词表与可选值；若图谱/目录都显示没有相关类目，最多搜索两个合理标准类目，
-仍无结果就调用 commerce_remember_unsupported_domain 记录本次会话级结论，然后直接说明目录范围或提出一个聚焦问题，不得继续穷尽搜索。
+由你（而不是任何词表）把用户需求映射到一个或多个标准类目，再用 category_ids（1–16 个）拉取所选类目的完整属性词表与可选值；若图谱/目录都显示没有相关类目，最多搜索两个合理标准类目。
+目录是开放生长的：若两个相关标准类目搜索都为空、且你判定这是正经的日常实物商品（消费者日常会买的实体货物），就调用 commerce_propose_category 现场铸出新类目——
+name 用简洁标准类目名（如“糖果巧克力”），domain 从系统上下文公布的固定域框架里选最贴切的一个（实在归不进任何域就用 general 兜底，不得因为“生僻”而拒绝）；
+属性轴 1–5 个、每轴 1–4 个取值，变体轴恰好 4 个取值（规格/颜色/尺码等），基准价取该类商品的真实常见价位。铸类成功（或返回既有类目）后必须立刻用返回的类目名复搜并向用户展示可买 SKU。
+处方药/疫苗、枪械弹药管制刀具、成人用品、账号充值/代练/外挂等虚拟服务、香烟、活体动物、器官代孕、彩票博彩：这些永远不得铸类也不得销售，直接礼貌说明平台不提供，并调用 commerce_remember_unsupported_domain 记录会话级结论；
+除此之外的日常实物一律走铸类路径，不得以“目录没有”为由拒绝。同一名目重复请求时铸类工具会直接返回既有类目，复搜即可。
 若 commerce_graph_context 工具可用，开放式、搭配型、替代型或跨类目需求可先查询商品知识图谱获取语义关系；
 图谱结论只用于理解需求与组织建议，不得当作SKU、价格、库存、限购或可购买性事实。
-一个可以映射到多个标准类目的需求仍可逐类搜索；但同一轮内已经有两个不同类目搜索为空时，必须停止搜索并澄清/记录结论。
+一个可以映射到多个标准类目的需求仍可逐类搜索；但同一轮内已经有两个不同类目搜索为空时，必须停止搜索：正经日常实物走铸类，禁售品或不明确需求走澄清/记录结论。
 系统上下文给出的“本会话已确认不支持领域”是此前 LLM 语义结论：相近需求可直接复用并简洁说明，仍由你判断当前请求是否真的属于该领域；目录可能变化或用户要求复核时最多重新搜索一个类目。
 聚焦最新用户消息；不要反复提起历史未完成请求，除非用户明确回到该话题或它是当前购物车/报价的必要上下文。
 多类目/整套配置需求应逐个搜索相关标准类目（每类先取1–2个候选），但最终合并展示与推荐总数不得超过5个SKU；
@@ -583,6 +616,11 @@ class CommerceConversation:
             unsupported = await self._unsupported_domains(session_id, owner)
             note = "Current authoritative mock purchase: " + (
                 current.model_dump_json() if current else "none"
+            )
+            note += (
+                "\nFixed domain frame for commerce_propose_category (pass the id, "
+                "general is the fallback for everyday goods that fit nowhere else): "
+                + domain_frame_note()
             )
             if unsupported:
                 note += (

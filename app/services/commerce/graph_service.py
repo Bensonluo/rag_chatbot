@@ -71,6 +71,88 @@ class CommerceGraphService:
         self._embeddings = embedding_service
         self._semantic_planner = semantic_planner
 
+    @staticmethod
+    def _category_subgraph(category: Any) -> tuple[list[GraphEntity], list[GraphRelation], str]:
+        """Build one category's entities/relations plus its embedding text.
+
+        Shared by the full startup rebuild and the per-mint incremental
+        upsert so the two projection paths cannot drift apart.
+        """
+
+        category_node_id = f"commerce-category:{category.category_id}"
+        attribute_names = [attribute.name for attribute in category.attributes]
+        embedding_text = (
+            f"{category.name} {category.description} {' '.join(attribute_names)}"
+        ).strip()
+        category_entity = GraphEntity(
+            id=category_node_id,
+            name=f"商品类目：{category.name}",
+            type=_COMMERCE_CATEGORY_TYPE,
+            description=category.description,
+            properties={
+                "category_id": category.category_id,
+                "provider_name": category.name,
+                "attribute_names": attribute_names,
+                "commerce_projection": True,
+            },
+        )
+        entities = [category_entity]
+        relations: list[GraphRelation] = []
+        for attribute in category.attributes:
+            attribute_node_id = f"commerce-attribute:{category.category_id}:{attribute.name}"
+            entities.append(
+                GraphEntity(
+                    id=attribute_node_id,
+                    name=f"{category.name}属性：{attribute.name}",
+                    type=_COMMERCE_ATTRIBUTE_TYPE,
+                    description=(
+                        f"{category.name}的{attribute.name}可取值："
+                        f"{'、'.join(attribute.allowed_values)}"
+                    ),
+                    properties={
+                        "category_id": category.category_id,
+                        "attribute_name": attribute.name,
+                        "allowed_values": attribute.allowed_values,
+                        "commerce_projection": True,
+                    },
+                )
+            )
+            relations.append(
+                GraphRelation(
+                    id=f"{_ATTRIBUTE_RELATION}:{category.category_id}:{attribute.name}",
+                    source_entity_id=category_node_id,
+                    target_entity_id=attribute_node_id,
+                    relation_type=_ATTRIBUTE_RELATION,
+                    description=f"{category.name}拥有商品属性{attribute.name}",
+                )
+            )
+        return entities, relations, embedding_text
+
+    async def upsert_category(self, category: Any) -> bool:
+        """Incrementally MERGE one minted category node plus attributes.
+
+        Eventual-consistency patch for the semantic layer only: use-case
+        community edges wait for the next full atomic rebuild, and purchases
+        never depend on this graph. Returns True when the write succeeded.
+        """
+
+        entities, relations, embedding_text = self._category_subgraph(category)
+        try:
+            if self._embeddings is not None:
+                embedding = await self._embeddings.embed_single(embedding_text)
+                entities[0].embedding = embedding
+            await self._graph.add_entities(entities)
+            await self._graph.add_relations(relations)
+            return True
+        except Exception:
+            logger.warning(
+                "Commerce graph incremental upsert failed for %s; "
+                "waiting for the next full rebuild",
+                getattr(category, "category_id", "?"),
+                exc_info=True,
+            )
+            return False
+
     async def refresh_projection(
         self,
         taxonomy: CatalogTaxonomy | RegistryTaxonomy,
@@ -87,53 +169,12 @@ class CommerceGraphService:
         pending_embeddings: list[tuple[GraphEntity, str]] = []
         category_ids = {category.category_id for category in taxonomy.categories}
         for category in taxonomy.categories:
-            category_node_id = f"commerce-category:{category.category_id}"
-            attribute_names = [attribute.name for attribute in category.attributes]
-            embedding_text = (
-                f"{category.name} {category.description} {' '.join(attribute_names)}"
-            ).strip()
-            category_entity = GraphEntity(
-                id=category_node_id,
-                name=f"商品类目：{category.name}",
-                type=_COMMERCE_CATEGORY_TYPE,
-                description=category.description,
-                properties={
-                    "category_id": category.category_id,
-                    "provider_name": category.name,
-                    "attribute_names": attribute_names,
-                    "commerce_projection": True,
-                },
+            category_entities, category_relations, embedding_text = self._category_subgraph(
+                category
             )
-            entities.append(category_entity)
-            pending_embeddings.append((category_entity, embedding_text))
-            for attribute in category.attributes:
-                attribute_node_id = f"commerce-attribute:{category.category_id}:{attribute.name}"
-                entities.append(
-                    GraphEntity(
-                        id=attribute_node_id,
-                        name=f"{category.name}属性：{attribute.name}",
-                        type=_COMMERCE_ATTRIBUTE_TYPE,
-                        description=(
-                            f"{category.name}的{attribute.name}可取值："
-                            f"{'、'.join(attribute.allowed_values)}"
-                        ),
-                        properties={
-                            "category_id": category.category_id,
-                            "attribute_name": attribute.name,
-                            "allowed_values": attribute.allowed_values,
-                            "commerce_projection": True,
-                        },
-                    )
-                )
-                relations.append(
-                    GraphRelation(
-                        id=f"{_ATTRIBUTE_RELATION}:{category.category_id}:{attribute.name}",
-                        source_entity_id=category_node_id,
-                        target_entity_id=attribute_node_id,
-                        relation_type=_ATTRIBUTE_RELATION,
-                        description=f"{category.name}拥有商品属性{attribute.name}",
-                    )
-                )
+            entities.extend(category_entities)
+            relations.extend(category_relations)
+            pending_embeddings.append((category_entities[0], embedding_text))
 
         use_cases = await self._infer_use_cases(taxonomy)
         for use_case in use_cases:

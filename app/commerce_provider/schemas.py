@@ -14,7 +14,12 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from app.commerce_provider.catalog import CommerceSort
-from app.models.schemas.commerce import CartLineSelection, CatalogFilters, CommerceModel
+from app.models.schemas.commerce import (
+    CartLineSelection,
+    CatalogFilters,
+    CategoryAttribute,
+    CommerceModel,
+)
 
 FaultKind = Literal[
     "update_cart_lines",
@@ -68,6 +73,47 @@ class SandboxPayRequest(CommerceModel):
     request_key: str = Field(min_length=1, max_length=128)
 
 
+class MintCategoryAttributeInput(CommerceModel):
+    """One attribute axis proposed for a runtime-minted category."""
+
+    name: str = Field(min_length=1, max_length=32)
+    allowed_values: list[str] = Field(min_length=1, max_length=8)
+
+
+class MintCategoryRequest(CommerceModel):
+    """Proposal for minting a dynamic category (agent-driven, auditable)."""
+
+    owner_user_id: int = Field(ge=1)
+    request_key: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=64)
+    description: str = Field(default="", max_length=300)
+    domain: str = Field(min_length=1, max_length=64)
+    attributes: list[MintCategoryAttributeInput] = Field(min_length=1, max_length=8)
+    variant_key: str = Field(min_length=1, max_length=32)
+    variant_values: list[str] = Field(min_length=4, max_length=4)
+    base_price_minor: int = Field(ge=1, le=100_000_000)
+    source_query: str = Field(default="", max_length=300)
+
+
+class MintedCategoryView(CommerceModel):
+    category_id: str
+    name: str
+    description: str
+    domain: str
+    attributes: list[CategoryAttribute]
+    variant_key: str
+    variant_values: list[str]
+    base_price_minor: int | None = None
+
+
+class MintCategoryResult(CommerceModel):
+    """``minted`` created a new category; ``existing`` returned the twin."""
+
+    status: Literal["minted", "existing"]
+    category: MintedCategoryView
+    dynamic_category_count: int = Field(ge=0)
+
+
 class FaultPlanRequest(CommerceModel):
     kind: FaultKind
     mode: FaultMode
@@ -88,6 +134,10 @@ __all__ = [
     "CreateOrderRequest",
     "CreatePaymentRequest",
     "FaultPlanRequest",
+    "MintCategoryAttributeInput",
+    "MintCategoryRequest",
+    "MintCategoryResult",
+    "MintedCategoryView",
     "OwnerParam",
     "PrepareCheckoutRequest",
     "SandboxPayRequest",

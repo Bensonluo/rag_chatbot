@@ -109,7 +109,7 @@ async def test_taxonomy_registry_versions_and_generated_provider_snapshot(
     registry: CommerceTaxonomyRegistry,
 ) -> None:
     fallback = await registry.load_active()
-    assert fallback.taxonomy_version == "static-v2"
+    assert fallback.taxonomy_version == "static-v3"
 
     taxonomy = _taxonomy(
         "gift-v1",

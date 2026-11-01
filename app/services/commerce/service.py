@@ -27,6 +27,7 @@ from app.models.schemas.commerce import (
     CatalogTaxonomy,
     CommerceStage,
     CommerceView,
+    MintCategoryOutcome,
     OrderSnapshot,
     PaymentBlock,
     PaymentSnapshot,
@@ -149,6 +150,43 @@ class PurchaseService:
 
         try:
             return await self.port.catalog_categories(owner_user_id, category_ids=category_ids)
+        except ProviderRejected as exc:
+            raise ValidationError(str(exc)) from exc
+
+    async def propose_category(
+        self,
+        owner_user_id: int,
+        *,
+        name: str,
+        description: str,
+        domain: str,
+        attributes: list[tuple[str, list[str]]],
+        variant_key: str,
+        variant_values: list[str],
+        base_price_minor: int,
+        source_query: str = "",
+    ) -> MintCategoryOutcome:
+        """Mint a dynamic category (or dedupe to its existing twin).
+
+        Catalog facts only: no purchase session is reserved and no cart,
+        quote, order or payment state changes. A fresh idempotency key per
+        call keeps the graceful path — a lost response self-heals on the next
+        attempt because the provider dedupes by normalized name.
+        """
+
+        try:
+            return await self.port.propose_category(
+                owner_user_id,
+                request_key=f"mint:{uuid4()}",
+                name=name,
+                description=description,
+                domain=domain,
+                attributes=attributes,
+                variant_key=variant_key,
+                variant_values=variant_values,
+                base_price_minor=base_price_minor,
+                source_query=source_query,
+            )
         except ProviderRejected as exc:
             raise ValidationError(str(exc)) from exc
 
