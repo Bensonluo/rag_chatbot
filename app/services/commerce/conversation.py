@@ -720,7 +720,15 @@ class CommerceConversation:
                         else "本演示读取独立虚拟商城API，请说明商品、偏好和数量。"
                     )
                 )
-            if any(item.get("ok") is False for item in result.tool_trace):
+            # "Did not advance" must mean it: an agent that hit a
+            # recoverable refusal (a mint proposal rejected on shape,
+            # re-searched and SUCCEEDED on retry) did advance the turn.
+            # Verdict per tool intent is its LAST execution; only intents
+            # that ended in failure leave the mock state un-advanced.
+            final_tool_outcomes: dict[str, bool] = {}
+            for item in result.tool_trace:
+                final_tool_outcomes[item.get("tool", "")] = item.get("ok") is not False
+            if not all(final_tool_outcomes.values()):
                 content = (
                     "本次请求未推进，请核对当前模拟状态。\n"
                     if not is_english(message)

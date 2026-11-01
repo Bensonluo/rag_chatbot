@@ -545,3 +545,81 @@ async def test_external_adapter_mint_refusal_is_definitive() -> None:
                 variant_values=["红", "蓝", "白", "黑"],
                 base_price_minor=1500,
             )
+
+
+async def test_recovered_tool_refusal_does_not_claim_the_turn_stalled(shop) -> None:
+    """A refused-then-retried mint DID advance the turn.
+
+    The mint tool refuses a malformed proposal (provider shape rules);
+    the agent corrects and retries successfully. The reply must not be
+    prefixed with "本次请求未推进" — the candle turn (dyn_0008) was
+    stickered exactly this way while its shelf was being minted.
+    """
+
+    from app.models.database.session import ChatSession
+    from app.services.chat.coordination import SessionCoordinator
+    from app.services.chat.persistence import ChatMessagePersister
+    from app.services.commerce.conversation import CommerceConversation
+
+    service, maker = shop
+    async with maker() as db:
+        db.add(ChatSession(id=3, user_id=OWNER, session_metadata={"access_mode": "private"}))
+        await db.commit()
+        row = await db.get(ChatSession, 3)
+        key = row.session_key if row else ""
+    bad_styles = [{"brand": "只有一个"}]
+    planner = ScriptedPlanner(
+        [
+            ("propose_category", {**MINT_ARGS, "brand_styles": bad_styles}),
+            ("propose_category", MINT_ARGS),
+            ("search_products", {"query": "糖果巧克力"}),
+            None,
+        ]
+    )
+    conversation = CommerceConversation(
+        service,
+        SessionCoordinator(maker),
+        ChatMessagePersister(maker),
+        provider=planner,
+    )
+    reply = await conversation.respond(OWNER, 3, key, "我想吃巧克力")
+    assert "本次请求未推进" not in reply.content
+    assert reply.content.strip(), "the retried mint still produced an answer"
+
+
+async def test_terminal_tool_failure_still_flags_the_unadvanced_turn(shop) -> None:
+    """An intent that ENDS in failure (no successful retry) keeps the
+    '未推进' notice: the mock state genuinely did not change."""
+
+    from app.models.database.session import ChatSession
+    from app.services.chat.coordination import SessionCoordinator
+    from app.services.chat.persistence import ChatMessagePersister
+    from app.services.commerce.conversation import CommerceConversation
+
+    service, maker = shop
+    async with maker() as db:
+        db.add(ChatSession(id=4, user_id=OWNER, session_metadata={"access_mode": "private"}))
+        await db.commit()
+        row = await db.get(ChatSession, 4)
+        key = row.session_key if row else ""
+    planner = ScriptedPlanner(
+        [
+            (
+                "update_cart_lines",
+                {
+                    "lines": [{"sku_id": "SKU-00000001", "quantity": 1}],
+                    "purchase_id": "no-such-purchase",
+                    "expected_version": 0,
+                },
+            ),
+            None,
+        ]
+    )
+    conversation = CommerceConversation(
+        service,
+        SessionCoordinator(maker),
+        ChatMessagePersister(maker),
+        provider=planner,
+    )
+    reply = await conversation.respond(OWNER, 4, key, "帮我加购这个")
+    assert "本次请求未推进" in reply.content
