@@ -28,6 +28,8 @@ _ATTRIBUTE_RELATION = "HAS_COMMERCE_ATTRIBUTE"
 _USE_CASE_RELATION = "SERVES_COMMERCE_USE_CASE"
 _EMBEDDING_CONCURRENCY = 16
 
+_USE_CASE_BATCH_SIZE = 40
+
 _USE_CASE_PROMPT = """You maintain a product knowledge graph from provider-owned category facts.
 Infer generic shopping use-case communities from the categories below. Use semantic judgement;
 do not emit a phrase alias table.
@@ -36,7 +38,7 @@ Return strict JSON:
 {{"use_cases":[{{"name":"...","description":"...","category_ids":["..."]}}]}}
 
 Rules:
-- 20 to 40 use cases covering the catalog's breadth; each links 2 to 12 category_ids that all exist in the input.
+- {use_case_count_hint} use cases covering this batch's breadth; each links 2 to 12 category_ids that all exist in the input.
 - Names describe generic purposes (for example workspace setup, home AV, baby care, camping), not SKUs.
 - Descriptions explain why those categories belong together in one short sentence; mention no price, stock, order state or SKU.
 - category_ids must come from the input. Do not include any other key.
@@ -256,10 +258,33 @@ class CommerceGraphService:
     async def _infer_use_cases(
         self, taxonomy: CatalogTaxonomy | RegistryTaxonomy
     ) -> list[dict[str, Any]]:
-        """Let the LLM infer generic use-case edges from provider categories."""
+        """Let the LLM infer generic use-case edges from provider categories.
+
+        Categories are inferred in parallel batches so one oversized request
+        cannot outlive the client timeout (a 151-category single shot took
+        >120s on the flash tier). An LLM outage degrades a batch to an empty
+        result instead of blocking the whole projection.
+        """
 
         if self._semantic_planner is None:
             return []
+        categories = list(taxonomy.categories)
+        batches = [
+            categories[i : i + _USE_CASE_BATCH_SIZE]
+            for i in range(0, len(categories), _USE_CASE_BATCH_SIZE)
+        ]
+        count_hint = "20 to 40" if len(batches) <= 1 else "4 to 10"
+        results = await asyncio.gather(
+            *(self._infer_use_case_batch(batch, count_hint) for batch in batches)
+        )
+        merged: list[dict[str, Any]] = []
+        for batch_result in results:
+            merged.extend(batch_result)
+        return merged[:40]
+
+    async def _infer_use_case_batch(
+        self, batch: list[Any], count_hint: str
+    ) -> list[dict[str, Any]]:
         # Payload stays id+name+description: attribute vocabularies would
         # multiply prompt size by ~5 for 151 categories without improving
         # community-level judgement.
@@ -269,23 +294,35 @@ class CommerceGraphService:
                 "name": category.name,
                 "description": category.description,
             }
-            for category in taxonomy.categories
+            for category in batch
         ]
-        response = await self._semantic_planner.generate(
-            messages=[
-                LLMMessage(
-                    role="system",
-                    content="Output only valid compact JSON. Do not use reasoning tags or markdown.",
-                ),
-                LLMMessage(
-                    role="user",
-                    content=_USE_CASE_PROMPT.format(
-                        categories=json.dumps(category_payload, ensure_ascii=False)
+        try:
+            response = await self._semantic_planner.generate(
+                messages=[
+                    LLMMessage(
+                        role="system",
+                        content="Output only valid compact JSON. Do not use reasoning tags or markdown.",
                     ),
-                ),
-            ],
-            max_tokens=8192,
-        )
+                    LLMMessage(
+                        role="user",
+                        content=_USE_CASE_PROMPT.format(
+                            use_case_count_hint=count_hint,
+                            categories=json.dumps(category_payload, ensure_ascii=False),
+                        ),
+                    ),
+                ],
+                max_tokens=8192,
+            )
+        except Exception:
+            # A dead provider chain must not void the whole projection:
+            # categories and attributes still project, use-case edges wait
+            # for the next successful rebuild.
+            logger.warning(
+                "Commerce graph use-case inference failed for a batch of %s categories",
+                len(batch),
+                exc_info=True,
+            )
+            return []
         try:
             content = str(response.content)
             decision = json.loads(content[content.index("{") : content.rindex("}") + 1])
