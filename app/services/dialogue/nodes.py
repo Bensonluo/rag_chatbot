@@ -80,6 +80,7 @@ from app.services.dialogue.i18n import (
     CONFIRMATION_DETAIL_EMPTY,
     CONFIRMATION_DETAIL_JOIN,
     CONFIRMATION_EXPIRED,
+    GENERAL_KNOWLEDGE_DISCLAIMER,
     GENERATION_FAILED,
     GENERATION_LANG_DIRECTIVE,
     GUARDRAIL_INPUT_BLOCKED,
@@ -1369,6 +1370,14 @@ class NodeFactory:
         elif "configurable" not in config:
             config = {**config, "configurable": {}}
         message = state.get("message", "")
+        # General-knowledge lane: the turn is a general-world question
+        # the LLM intent leg positively separated from shop scope. The
+        # answer is model-generated common knowledge, so it carries a
+        # deterministic disclaimer prefix (per-serve, never cached into
+        # the body) and a dedicated persona that keeps shop facts out.
+        # Chitchat/greeting turns take the plain CS persona, unchanged.
+        general_lane = state.get("intent") == "general_knowledge"
+        disclaimer = GENERAL_KNOWLEDGE_DISCLAIMER[_turn_lang(state)] if general_lane else ""
         cache_state: DialogueState = {**state}
         cache_epoch = None
         if self._semantic_cache is not None:
@@ -1400,13 +1409,30 @@ class NodeFactory:
 
                 emit_trace("cs.semantic_cache", hit=True, intent=cached.intent)
                 record_funnel_layer(LAYER_L1_SEMANTIC)
+                if disclaimer:
+                    response = disclaimer + response
                 response = _maybe_append_resume_hint(response, state)
                 updates["response"] = response
                 _emit_response(response, config)
                 return updates
 
         record_funnel_layer(LAYER_DIRECT)
-        response = await self._generate_direct(message, config, cache_state)
+        # Streaming turns must show the disclaimer before the first body
+        # token: _call_llm streams straight to the queue, so the prefix
+        # is pushed up front and prepended to the accumulated text after
+        # generation (persisted copy and stream stay identical).
+        if disclaimer:
+            stream_queue = _stream_queue(config)
+            if stream_queue is not None:
+                stream_queue.put_nowait(disclaimer)
+        persona_override = None
+        if general_lane:
+            from app.services.llm.prompt_templates import PromptTemplates
+
+            persona_override = PromptTemplates.get_general_knowledge_prompt(_turn_lang(state))
+        response = await self._generate_direct(
+            message, config, cache_state, persona_override=persona_override
+        )
         if _shared_cache_blocked(config):
             cache_state["shared_cache_blocked"] = True
         if cache_state.get("shared_cache_blocked"):
@@ -1415,14 +1441,17 @@ class NodeFactory:
         # fresh generations pass the same output check as every other
         # LLM branch — PII is redacted before the answer leaves the
         # node and before L1 stores a copy of the body.
+        guardrail_replaced = False
         if self._guardrail_service is not None:
             raw = response.get("response", "")
             check = self._guardrail_service.check_output(raw)
             if check.was_blocked:
                 response["response"] = GUARDRAIL_OUTPUT_BLOCKED[_turn_lang(state)]
+                guardrail_replaced = True
             elif check.sanitized_content and check.sanitized_content != raw:
                 response["response"] = check.sanitized_content
-        # Cache the clean body; the resume hint is per-turn state.
+        # Cache the clean body; the disclaimer and resume hint are
+        # per-turn state, never stored.
         await self._maybe_put_semantic(
             cache_state,
             message,
@@ -1430,6 +1459,11 @@ class NodeFactory:
             used_history=_used_history(config),
             expected_epoch=cache_epoch,
         )
+        # Frame the body with the disclaimer — except when the guardrail
+        # replaced it: the fixed safety copy must not wear a "general
+        # reference" label (prefixing blocked copy would mislabel it).
+        if disclaimer and not guardrail_replaced:
+            response["response"] = disclaimer + response.get("response", "")
         response["response"] = _maybe_append_resume_hint(response.get("response", ""), state)
         _emit_response(response["response"], config)
         return response
@@ -1445,7 +1479,7 @@ class NodeFactory:
         # must never turn an unreferenced policy body into such a turn.
         if (
             allow_source_free
-            and answer.intent in {"greeting", "chitchat"}
+            and answer.intent in {"greeting", "chitchat", "general_knowledge"}
             and not answer.sources
             and not getattr(answer, "citations", [])
         ):
@@ -1975,9 +2009,13 @@ class NodeFactory:
         message: str,
         config: Optional[RunnableConfig] = None,
         state: DialogueState | None = None,
+        *,
+        persona_override: str | None = None,
     ) -> dict[str, Any]:
         """Generate a direct response without additional context."""
-        response_text = await self._call_llm(message, config, state)
+        response_text = await self._call_llm(
+            message, config, state, persona_override=persona_override
+        )
         return {"response": response_text}
 
     async def _handle_meta_intent(
@@ -2296,6 +2334,7 @@ class NodeFactory:
         state: DialogueState | None = None,
         *,
         tool_result_guard: dict[str, Any] | None = None,
+        persona_override: str | None = None,
     ) -> str:
         """Call the LLM service with the recent turns plus this message.
 
@@ -2318,9 +2357,13 @@ class NodeFactory:
 
         # Persona first: tone, grounding rules, and the handoff escape
         # hatch are policy, not per-turn context. Cross-session user
-        # facts (Phase B2) extend the persona as bounded context.
+        # facts (Phase B2) extend the persona as bounded context. A
+        # lane-specific persona (general knowledge) overrides the CS
+        # default for this turn only.
         lang = _turn_lang(state, fallback_text=user_content)
-        persona = self._system_prompt or PromptTemplates.get_cs_system_prompt(lang)
+        persona = (
+            persona_override or self._system_prompt or PromptTemplates.get_cs_system_prompt(lang)
+        )
         facts = await self._recall_user_facts(state)
         if facts:
             persona = f"{persona}\n\n已知用户信息（跨会话，仅供个性化参考）：{'；'.join(facts)}"

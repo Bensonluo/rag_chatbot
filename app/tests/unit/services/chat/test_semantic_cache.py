@@ -226,7 +226,7 @@ class TestSemanticCacheBoundaries:
             semantic_cache=service,
         )
 
-        async def generate(*args):
+        async def generate(*args, **kwargs):
             service._epoch_provider = _epoch_provider("e2")
             return {"response": "old answer"}
 

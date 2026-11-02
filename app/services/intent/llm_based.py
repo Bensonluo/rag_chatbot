@@ -28,7 +28,8 @@ class LLMIntentDetector(IntentDetector):
     LLM-based intent detector for customer service business intents.
 
     Classifies queries into task-oriented (refund, return, order, shipping, complaint),
-    knowledge (faq, policy), dialogue (chitchat, greeting), and meta intents.
+    knowledge (faq, policy), general-world knowledge (general_knowledge), dialogue
+    (chitchat, greeting), and meta intents.
     """
 
     def __init__(
@@ -101,8 +102,13 @@ Task-oriented:
 - complaint: User wants to file a complaint
 
 Knowledge:
-- faq: General question about products, services, or processes
-- policy: Question about policies (return policy, warranty, etc.)
+- faq: General question about this shop's products, services, or processes
+- policy: Question about this shop's policies (return policy, warranty, privacy, etc.)
+- general_knowledge: General-world question clearly UNRELATED to this shop —
+  health tips, science, geography, history, general tech concepts ("what is
+  quantum entanglement", "how do I deal with a headache"). Anything phrased
+  as "your policy on X" or asking about this store's products, orders,
+  shipping, refunds, or payments is NEVER general_knowledge.
 
 Dialogue:
 - chitchat: Casual conversation, not service-related
@@ -121,7 +127,8 @@ Rules:
 - Respond with ONLY the intent name (lowercase)
 - If user mentions order_id or order number with a service request, classify by the service type
 - An explicit human-agent request is always "handoff", even if the message also contains a complaint or task keyword
-- Default to "faq" for general questions about how things work
+- Shop-scoped how-things-work questions ("how do I return an item") are "faq"
+- Use "general_knowledge" only when the question has nothing to do with this shop
 - Default to "unknown" if truly uncertain"""
 
     def _build_user_prompt(self, query: str, context: dict[str, Any] | None) -> str:
@@ -175,6 +182,9 @@ Intent:"""
             cleaned,
             flags=re.IGNORECASE,
         ).strip()
+        # Providers occasionally emit "general knowledge" / "general-knowledge"
+        # despite the label table; normalize so the underscore form matches.
+        intent_str = re.sub(r"[\s\-]+", "_", intent_str)
 
         for intent in Intent:
             if intent.value == intent_str or intent.value in intent_str:

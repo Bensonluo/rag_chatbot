@@ -271,3 +271,53 @@ class TestLLMIntentDetector:
         result = await detector.detect_with_confidence("What is your return policy")
 
         assert result.intent == Intent.POLICY
+
+
+class TestGeneralKnowledgeParsing:
+    """The LLM leg must be able to emit and parse general_knowledge."""
+
+    @pytest.mark.asyncio
+    async def test_parse_general_knowledge_label(self):
+        from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.llm.base import LLMResponse, LLMServiceBase
+
+        mock_llm = Mock(spec=LLMServiceBase)
+        mock_llm.generate = AsyncMock(
+            return_value=LLMResponse(content="general_knowledge", model="glm-5.3-flash")
+        )
+        detector = LLMIntentDetector(llm_service=mock_llm)
+
+        result = await detector.detect_with_confidence("头疼怎么办")
+
+        assert result.intent == Intent.GENERAL_KNOWLEDGE
+
+    @pytest.mark.asyncio
+    async def test_parse_general_knowledge_with_spaces_or_hyphens(self):
+        """Providers occasionally emit "general knowledge" / "General-
+        Knowledge" despite the label table; normalization must catch it."""
+        from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.llm.base import LLMResponse, LLMServiceBase
+
+        for raw in ("general knowledge", "General-Knowledge", "intent: general knowledge"):
+            mock_llm = Mock(spec=LLMServiceBase)
+            mock_llm.generate = AsyncMock(
+                return_value=LLMResponse(content=raw, model="glm-5.3-flash")
+            )
+            detector = LLMIntentDetector(llm_service=mock_llm)
+
+            result = await detector.detect_with_confidence("头疼怎么办")
+
+            assert result.intent == Intent.GENERAL_KNOWLEDGE, raw
+
+    def test_system_prompt_lists_general_knowledge_lane(self):
+        """The classifier can only emit labels it is shown — the prompt
+        must present general_knowledge with its shop-scope boundary."""
+        from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.llm.base import LLMServiceBase
+
+        detector = LLMIntentDetector(llm_service=Mock(spec=LLMServiceBase))
+
+        prompt = detector._build_system_prompt()
+
+        assert "general_knowledge" in prompt
+        assert "NEVER general_knowledge" in prompt

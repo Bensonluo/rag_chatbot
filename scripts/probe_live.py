@@ -14,6 +14,9 @@ running server (local dev or production) and asserts the invariants:
      never chitchat and never an unprompted ticket
   4. task guard: 我要退款 asks for the order, not a ticket
   5. knowledge turns answer from the KB, EN mirror stays CJK-free
+  6. general-world questions (头疼怎么办) answer from model knowledge
+     under the fixed disclaimer — never the no-evidence refusal, never
+     KB citations (+ EN mirror, CJK-free)
 
 The default anonymous demo mode uses random positive 31-bit IDs. This is
 best-effort isolation, not a reservation in the server database. For owned,
@@ -294,6 +297,44 @@ def is_knowledge_answer(
     return _check
 
 
+# The general-knowledge lane's deterministic disclaimer prefixes (must
+# stay in sync with app/services/dialogue/i18n.py — the probe is a
+# standalone httpx script and cannot import the app).
+_GENERAL_DISCLAIMER_ZH = "【通用参考信息，非本店政策】"
+_GENERAL_DISCLAIMER_EN = "[General reference"
+_NO_EVIDENCE_MARKERS = ("暂未在知识库中找到", "couldn't find anything")
+
+
+def is_general_knowledge_answer(*, cjk_free: bool = False) -> Check:
+    """A general-world question is answered from model knowledge, framed
+    by the fixed disclaimer — never the no-evidence refusal, and never
+    claiming KB evidence (there is none for world knowledge)."""
+
+    def _check(reply: dict[str, Any]) -> str | None:
+        content = _content(reply)
+        if not content.strip():
+            return "empty answer"
+        if cjk_free and has_cjk(content):
+            return "CJK leaked into EN reply"
+        if reply.get("intent") != "general_knowledge":
+            return "expected general_knowledge intent"
+        marker = _GENERAL_DISCLAIMER_EN if cjk_free else _GENERAL_DISCLAIMER_ZH
+        if marker not in content:
+            return "answer lacks the general-reference disclaimer"
+        if any(m in content for m in _NO_EVIDENCE_MARKERS):
+            return "general question answered with the no-evidence refusal"
+        if reply.get("sources") or reply.get("citations"):
+            return "general answer must not claim KB evidence"
+        if (
+            _metadata(reply).get("handoff_outcome")
+            or _metadata(reply).get("handoff_ticket_id") is not None
+        ):
+            return "unexpected handoff on general turn"
+        return None
+
+    return _check
+
+
 def no_cjk() -> Check:
     def _check(reply: dict[str, Any]) -> str | None:
         content = _content(reply)
@@ -408,6 +449,29 @@ def build_cases() -> list[ProbeCase]:
                     is_knowledge_answer(_EN_REFUND_EVIDENCE, cjk_free=True),
                     "refund timing has evidence and stays EN",
                 ),
+            ],
+        ),
+        ProbeCase(
+            # The observed prod gap (2026-11-02): general-world questions
+            # fell into the no-evidence refusal. The lane now answers them
+            # from model knowledge with the deterministic disclaimer.
+            name="general-knowledge-zh",
+            turns=[
+                Turn(
+                    "头疼怎么办",
+                    is_general_knowledge_answer(),
+                    "general question answered with disclaimer",
+                )
+            ],
+        ),
+        ProbeCase(
+            name="general-knowledge-en",
+            turns=[
+                Turn(
+                    "how do I deal with a headache",
+                    is_general_knowledge_answer(cjk_free=True),
+                    "general question answered, EN copy",
+                )
             ],
         ),
     ]

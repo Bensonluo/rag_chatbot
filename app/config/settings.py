@@ -197,11 +197,13 @@ class Settings(BaseSettings):
         description="Entry cap: full store refuses new writes (bounds scan cost and memory)",
     )
     SEMANTIC_CACHE_SERVED_INTENTS: str = Field(
-        default="greeting,chitchat",
+        default="greeting,chitchat,general_knowledge",
         description=(
             "Comma-separated intent allowlist — only these intents are cached "
             "(policy/RAG answers are L0-exact-only; semantic nearness across "
-            "paraphrased policy questions is the plan's highest-risk layer)"
+            "paraphrased policy questions is the plan's highest-risk layer; "
+            "general_knowledge bodies are source-free like smalltalk and the "
+            "disclaimer prefix is prepended per-serve, never cached)"
         ),
     )
     RETRIEVAL_CACHE_ENABLED: bool = Field(

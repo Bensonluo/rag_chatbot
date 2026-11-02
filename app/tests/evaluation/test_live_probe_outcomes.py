@@ -32,6 +32,7 @@ from app.models.database.message import Message
 from app.models.database.session import ChatSession
 from app.models.database.ticket import HandoffTicket
 from app.models.database.user import User
+from app.models.enums.intent import Intent
 from app.services.chat.chat_service import ChatService
 from app.services.chat.persistence import ChatMessagePersister
 from app.services.dialogue.graph import build_dialogue_graph
@@ -40,9 +41,40 @@ from app.services.embeddings.base import EmbeddingResult
 from app.services.faq.store import DEFAULT_FAQ_FILE, FAQEntry, FAQService, load_faq_entries
 from app.services.guardrails.factory import GuardrailFactory
 from app.services.handoff.service import HandoffService
+from app.services.intent.base import IntentResult
+from app.services.intent.hybrid import HybridIntentDetector
+from app.services.intent.llm_based import LLMIntentDetector
 from app.services.intent.rule_based import RuleBasedIntentDetector
 from app.services.llm.base import LLMMessage, LLMResponse, LLMServiceBase
 from scripts import probe_live as probe
+
+
+class _GeneralKnowledgeIntentLeg(LLMIntentDetector):
+    """Prod-posture intent-leg stand-in for the isolated route server.
+
+    The production hybrid consults the LLM leg exactly when the rule
+    layer cannot recognize the message; the general-knowledge lane's
+    detector verdict only exists there. This stub positively classifies
+    the probe's general-world turns and returns unknown/0.0 for
+    everything else — weaker than any rule verdict, so shop-scoped
+    turns keep the rule layer's classification (the same contract as an
+    intent-LLM outage, pinned in test_hybrid.py).
+    """
+
+    async def detect_with_confidence(
+        self, query: str, context: dict[str, Any] | None = None
+    ) -> IntentResult:
+        if re.search(r"头疼|headache", query or ""):
+            return IntentResult(
+                intent=Intent.GENERAL_KNOWLEDGE, confidence=0.9, metadata={"method": "llm"}
+            )
+        return IntentResult(intent=Intent.UNKNOWN, confidence=0.0, metadata={"method": "llm"})
+
+    def __init__(self) -> None:
+        from unittest.mock import Mock
+
+        super().__init__(llm_service=Mock(spec=LLMServiceBase))
+
 
 _KNOWLEDGE_TURNS = {
     "退货政策是什么",
@@ -191,7 +223,11 @@ async def route_case(
     persister = ChatMessagePersister(maker)
     chat = ChatService(
         graph=build_dialogue_graph(
-            intent_detector=RuleBasedIntentDetector(),
+            intent_detector=HybridIntentDetector(
+                rule_based=RuleBasedIntentDetector(),
+                llm_based=_GeneralKnowledgeIntentLeg(),
+                confidence_threshold=0.7,
+            ),
             slot_filler=None,
             tool_registry=create_default_tool_registry(),
             retrieval_pipeline=None,
@@ -279,12 +315,12 @@ async def _durable_outcomes(case: _RouteCase) -> tuple[list[HandoffTicket], list
 async def test_full_runner_reports_real_local_route_outcomes(route_case: _RouteCase) -> None:
     cases = await probe.run_probes(route_case.client)
     tickets, messages = await _durable_outcomes(route_case)
-    assert len(cases) == 21
+    assert len(cases) == 23
     failures = {case.name: case.failures for case in cases if case.failures}
     if route_case.mode == "healthy":
         assert failures == {}
-        assert len(route_case.replies) == 24
-        assert len(messages) == 48
+        assert len(route_case.replies) == 26
+        assert len(messages) == 52
         assert len(tickets) == 17
         by_id = {ticket.id: ticket for ticket in tickets}
         queued = [
@@ -358,15 +394,15 @@ async def test_owned_runner_reads_owner_history_and_staff_ticket_evidence(
     tickets, messages = await _durable_outcomes(route_case)
     async with route_case.maker() as db:
         sessions = list((await db.scalars(select(ChatSession))).all())
-    assert len(cases) == len(sessions) == 21
-    assert len(tickets) == 17 and len(messages) == 48
+    assert len(cases) == len(sessions) == 23
+    assert len(tickets) == 17 and len(messages) == 52
     assert all(session.user_id == 1 for session in sessions)
     assert {case.session_id for case in cases} == {session.id for session in sessions}
     assert all(case.authenticated_session and case.history_verified for case in cases)
     assert all(case.ticket_evidence_requested for case in cases)
     assert route_case.requests.count(("customer", "GET", "/api/v1/auth/me")) == 1
-    assert route_case.requests.count(("customer", "POST", "/api/v1/sessions")) == 21
-    assert route_case.requests.count(("customer", "GET", "/api/v1/chat/history")) == 21
+    assert route_case.requests.count(("customer", "POST", "/api/v1/sessions")) == 23
+    assert route_case.requests.count(("customer", "GET", "/api/v1/chat/history")) == 23
     assert route_case.provider.calls == 0
     assert all(ticket.user_id == 1 and ticket.status == "open" for ticket in tickets)
     assert all(ticket.assigned_to is None and ticket.claimed_at is None for ticket in tickets)
@@ -380,8 +416,8 @@ async def test_owned_runner_reads_owner_history_and_staff_ticket_evidence(
         staff_requests = [row for row in route_case.requests if row[0] == "staff"]
         assert staff_requests == [("staff", "GET", "/api/v1/handoff/tickets")]
         report = probe.format_report(cases)
-        assert "21/21 cases passed" in report
-        assert "21/21 verified" in report
+        assert "23/23 cases passed" in report
+        assert "23/23 verified" in report
         assert "17/17 ticket/session pairs verified" in report
     else:
         failed = [case for case in cases if case.failures]
@@ -401,13 +437,13 @@ async def test_main_uses_authenticated_client_for_real_owned_route_run(
     code = await probe.main([], client=route_case.client, ticket_client=route_case.staff)
     report = capsys.readouterr().out
     assert code == 0
-    assert "21/21 cases passed" in report
-    assert "Owned session history readback: 21/21 verified" in report
+    assert "23/23 cases passed" in report
+    assert "Owned session history readback: 23/23 verified" in report
     assert "17/17 ticket/session pairs verified" in report
     assert "not full semantic correctness or human acceptance" in report
     assert "Bearer" not in report and "probe-customer@example.com" not in report
-    assert route_case.requests.count(("customer", "POST", "/api/v1/sessions")) == 21
-    assert route_case.requests.count(("customer", "GET", "/api/v1/chat/history")) == 21
+    assert route_case.requests.count(("customer", "POST", "/api/v1/sessions")) == 23
+    assert route_case.requests.count(("customer", "GET", "/api/v1/chat/history")) == 23
     tickets, messages = await _durable_outcomes(route_case)
-    assert len(tickets) == 17 and len(messages) == 48
+    assert len(tickets) == 17 and len(messages) == 52
     assert all(ticket.status == "open" and ticket.assigned_to is None for ticket in tickets)

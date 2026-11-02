@@ -81,6 +81,18 @@ RETRIEVAL_DEGRADED: dict[str, str] = {
     ),
 }
 
+# General-knowledge lane framing (deterministic, never LLM-generated —
+# same doctrine as the confirmation gate: copy that protects the user's
+# trust in what they are reading must be fixed). Prepended to every
+# general_knowledge answer so the boundary between shop facts and
+# model-generated common knowledge is always visible. The shop-scoped
+# knowledge path (faq/policy) never carries this prefix — its answers
+# are KB-grounded and citing.
+GENERAL_KNOWLEDGE_DISCLAIMER: dict[str, str] = {
+    LANG_ZH: "【通用参考信息，非本店政策】",
+    LANG_EN: "[General reference — not this store's policy]",
+}
+
 GUARDRAIL_INPUT_BLOCKED: dict[str, str] = {
     LANG_ZH: "抱歉，您的消息未通过安全检查，请重新描述您的问题。",
     LANG_EN: "Sorry, your message didn't pass our safety check. Please rephrase your question.",

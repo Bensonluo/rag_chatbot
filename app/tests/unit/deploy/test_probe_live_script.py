@@ -49,6 +49,16 @@ EN_CATEGORY_SLOT = "What would you like to complain about? (e.g. product quality
 ZH_KB = "退货政策：签收后七天内可申请退货，商品须保持完好并保留购买凭证。"
 EN_KB = "Our return policy allows returns within 7 days of delivery in resaleable condition."
 EN_REFUND = "Approved refunds return to Alipay/WeChat within 1-3 business days."
+# General-knowledge lane: model-generated body under the deterministic
+# disclaimer prefix (mirrors i18n GENERAL_KNOWLEDGE_DISCLAIMER).
+ZH_GENERAL = (
+    probe._GENERAL_DISCLAIMER_ZH
+    + "头疼时可以先休息、补水、避免长时间看屏幕；若持续或加重请及时就医。"
+)
+EN_GENERAL = (
+    "[General reference — not this store's policy] "
+    "Rest, hydrate, and step away from screens; see a doctor if it persists."
+)
 
 
 _TICKET_MESSAGES = frozenset(
@@ -60,6 +70,7 @@ _TICKET_MESSAGES = frozenset(
 _KB_MESSAGES = frozenset(
     ["退货政策是什么", "what is the return policy", "and how long do refunds take"]
 )
+_GENERAL_MESSAGES = frozenset(["头疼怎么办", "how do I deal with a headache"])
 _CATEGORY_MESSAGES = frozenset(["我要投诉", "I want to file a complaint"])
 
 
@@ -69,6 +80,8 @@ def _classify(message: str) -> str:
         return "ticket"
     if message in _KB_MESSAGES:
         return "kb"
+    if message in _GENERAL_MESSAGES:
+        return "general"
     if message in _CATEGORY_MESSAGES:
         return "category_slot"
     return "order_slot"  # refund task turns
@@ -80,6 +93,7 @@ def _reply(kind: str, content: str, session_id: int = 1) -> dict[str, Any]:
         "order_slot": "refund",
         "category_slot": "complaint",
         "kb": "faq",
+        "general": "general_knowledge",
     }[kind]
     metadata: dict[str, Any] = {"pending_slots": []}
     if kind == "ticket":
@@ -124,6 +138,7 @@ def _well_behaved_handler(seen: list[tuple[int, str]]) -> Handler:
             "kb": EN_REFUND
             if message == "and how long do refunds take"
             else (ZH_KB if zh else EN_KB),
+            "general": ZH_GENERAL if zh else EN_GENERAL,
         }[kind]
         return httpx.Response(200, json=_reply(kind, content, session_id))
 

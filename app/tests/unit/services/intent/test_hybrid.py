@@ -302,3 +302,91 @@ class TestHybridIntentDetector:
         # Assert
         assert detector_low.confidence_threshold == 0.3
         assert detector_high.confidence_threshold == 0.9
+
+
+class TestGeneralKnowledgeSplit:
+    """The general-knowledge lane's detector contract.
+
+    The rule layer has no vocabulary for "unrelated to the shop" — an
+    absence of shop signal is what defines the lane — so the split lives
+    in the LLM leg, gated behind the rule layer's confidence threshold:
+    any message the rules CAN recognize (shop keywords) short-circuits
+    to a shop intent before the LLM is consulted.
+    """
+
+    @pytest.mark.asyncio
+    async def test_general_world_question_upgrades_to_general_knowledge(self):
+        """头疼怎么办 carries no shop vocabulary (rule FAQ@~0.17, below
+        the threshold) — the LLM leg's positive general_knowledge verdict
+        wins the upgrade."""
+        from app.services.intent.hybrid import HybridIntentDetector
+        from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+        from app.services.llm.base import LLMServiceBase
+
+        llm_based = LLMIntentDetector(llm_service=Mock(spec=LLMServiceBase))
+        llm_based.detect_with_confidence = AsyncMock(  # type: ignore[method-assign]
+            return_value=IntentResult(
+                intent=Intent.GENERAL_KNOWLEDGE, confidence=0.9, metadata={"method": "llm"}
+            )
+        )
+        detector = HybridIntentDetector(
+            rule_based=RuleBasedIntentDetector(), llm_based=llm_based, confidence_threshold=0.7
+        )
+
+        result = await detector.detect_with_confidence("头疼怎么办")
+
+        assert result.intent == Intent.GENERAL_KNOWLEDGE
+        assert result.confidence == 0.9
+        llm_based.detect_with_confidence.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_shop_howto_shortcircuits_before_llm(self):
+        """怎么退货 is recognizable shop vocabulary (rule FAQ ≥ 0.7) —
+        the LLM leg must never be consulted, so it can never steal a
+        shop-scoped question into the general lane."""
+        from app.services.intent.hybrid import HybridIntentDetector
+        from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+        from app.services.llm.base import LLMServiceBase
+
+        llm_based = LLMIntentDetector(llm_service=Mock(spec=LLMServiceBase))
+        llm_based.detect_with_confidence = AsyncMock(  # type: ignore[method-assign]
+            return_value=IntentResult(
+                intent=Intent.GENERAL_KNOWLEDGE, confidence=0.99, metadata={"method": "llm"}
+            )
+        )
+        detector = HybridIntentDetector(
+            rule_based=RuleBasedIntentDetector(), llm_based=llm_based, confidence_threshold=0.7
+        )
+
+        result = await detector.detect_with_confidence("怎么退货")
+
+        assert result.intent == Intent.FAQ
+        llm_based.detect_with_confidence.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_llm_outage_degrades_general_question_to_rule_result(self):
+        """With the LLM leg down, 头疼怎么办 keeps the rule verdict
+        (faq, low confidence) — the turn then retrieves, misses, and
+        takes the no-evidence refusal. Degradation must never fail the
+        dialogue turn."""
+        from app.core.exceptions import ExternalServiceError
+        from app.services.intent.hybrid import HybridIntentDetector
+        from app.services.intent.llm_based import LLMIntentDetector
+        from app.services.intent.rule_based import RuleBasedIntentDetector
+        from app.services.llm.base import LLMServiceBase
+
+        llm_based = LLMIntentDetector(llm_service=Mock(spec=LLMServiceBase))
+        llm_based.detect_with_confidence = AsyncMock(  # type: ignore[method-assign]
+            side_effect=ExternalServiceError(service="LLM Intent Detection", message="down")
+        )
+        detector = HybridIntentDetector(
+            rule_based=RuleBasedIntentDetector(), llm_based=llm_based, confidence_threshold=0.7
+        )
+
+        result = await detector.detect_with_confidence("头疼怎么办")
+
+        assert result.intent == Intent.FAQ
+        assert result.confidence < 0.7
+        assert result.metadata is not None and result.metadata.get("fallback") == "llm_unavailable"
