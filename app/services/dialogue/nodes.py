@@ -1708,6 +1708,41 @@ class NodeFactory:
         if result.tool_trace:
             # Tools actually ran — the task is terminal (task_executed).
             updates["task_executed"] = True
+            # The task consumed its args; the collection projection
+            # clears with it so a later task starts clean (same
+            # semantics as the slot pipeline's post-execution clearing).
+            updates["filled_slots"] = {}
+            updates["pending_slots"] = []
+        elif state.get("intent") in TASK_INTENTS:
+            # Deterministic collection-state projection: the agent owns
+            # HOW required info is asked, but WHAT a complete task
+            # requires stays the shared INTENT_SLOT_SCHEMAS vocabulary.
+            # Regex extraction over this turn's message merged with
+            # prior fills is zero-LLM and admission-safe (canonical_only
+            # patterns), so the public pending/filled metadata contract
+            # holds no matter which lane served the turn — and the slot
+            # pipeline resumes from the same state if the agent lane
+            # dies mid-collection (one contract, two implementations).
+            merged = extract_slots_from_message(
+                state.get("intent", ""), state.get("message", ""), filled
+            )
+            updates["filled_slots"] = merged
+            # Turn-boundary invariant: a staged irreversible action owns
+            # the next turn, so pending_slots must be EMPTY whenever a
+            # confirmation is pending. The slot-prompt skip branch
+            # (should_skip_intent) treats any bare short reply as a slot
+            # answer while pending_slots is non-empty — projecting
+            # missing slots on a staging turn would let a bare
+            # "confirm" be eaten as a slot value and the staged action
+            # could never resolve (durable-action tests, 2026-11-02).
+            # The deterministic variant reaches staging with every slot
+            # filled ([] anyway); writing [] gives the agent lane the
+            # same turn-boundary state.
+            updates["pending_slots"] = (
+                []
+                if result.pending_confirmation
+                else get_missing_slots(state.get("intent", ""), merged)
+            )
         if result.outcome in {"handoff", "handoff_failed"}:
             updates["handoff_outcome"] = "queued" if result.handoff_ticket_id else "failed"
             updates["handoff_reason"] = "agent"
