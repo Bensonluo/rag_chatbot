@@ -1708,12 +1708,7 @@ class NodeFactory:
         if result.tool_trace:
             # Tools actually ran — the task is terminal (task_executed).
             updates["task_executed"] = True
-            # The task consumed its args; the collection projection
-            # clears with it so a later task starts clean (same
-            # semantics as the slot pipeline's post-execution clearing).
-            updates["filled_slots"] = {}
-            updates["pending_slots"] = []
-        elif state.get("intent") in TASK_INTENTS:
+        if state.get("intent") in TASK_INTENTS:
             # Deterministic collection-state projection: the agent owns
             # HOW required info is asked, but WHAT a complete task
             # requires stays the shared INTENT_SLOT_SCHEMAS vocabulary.
@@ -1727,6 +1722,18 @@ class NodeFactory:
                 state.get("intent", ""), state.get("message", ""), filled
             )
             updates["filled_slots"] = merged
+            # Collection CLOSES only when the intent's own business tool
+            # ran (process_refund for refund, submit_complaint for
+            # complaint): read-only helpers (get_recent_orders before a
+            # refund) gather context without consuming the task — live
+            # 2026-11-02, a helper call emptied pending_slots and broke
+            # both the probe contract and the bare-answer resume seam.
+            business_tool = self._tool_registry.get_tool_for_intent(state.get("intent", ""))
+            business_ran = bool(
+                result.tool_trace
+                and business_tool is not None
+                and any(entry.get("tool") == business_tool.name for entry in result.tool_trace)
+            )
             # Turn-boundary invariant: a staged irreversible action owns
             # the next turn, so pending_slots must be EMPTY whenever a
             # confirmation is pending. The slot-prompt skip branch
@@ -1740,7 +1747,7 @@ class NodeFactory:
             # same turn-boundary state.
             updates["pending_slots"] = (
                 []
-                if result.pending_confirmation
+                if business_ran or result.pending_confirmation
                 else get_missing_slots(state.get("intent", ""), merged)
             )
         if result.outcome in {"handoff", "handoff_failed"}:

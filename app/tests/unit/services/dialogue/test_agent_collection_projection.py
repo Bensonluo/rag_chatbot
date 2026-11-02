@@ -15,11 +15,12 @@ the deterministic collection state into the graph state:
   with empty metadata while the probe still asserted the old shape);
 - the fallback slot pipeline resumes from the same state if the agent
   lane dies mid-collection (one contract, two implementations);
-- a completed task (tools actually ran) clears the projection so a
-  later task starts clean — same semantics as the slot pipeline's
-  post-execution clearing.
+- the collection CLOSES only when the intent's own business tool ran
+  (read-only helpers like get_recent_orders keep it open) or an
+  irreversible action is staged awaiting confirmation.
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 from app.services.agent.service import AgentResult
@@ -27,13 +28,19 @@ from app.services.dialogue.nodes import NodeFactory
 from app.services.dialogue.state import DialogueState
 
 
-def _factory(agent_result: AgentResult) -> tuple[NodeFactory, Mock]:
+def _factory(
+    agent_result: AgentResult, business_tool: str | None = None
+) -> tuple[NodeFactory, Mock]:
     agent = Mock()
     agent.run = AsyncMock(return_value=agent_result)
+    registry = Mock()
+    registry.get_tool_for_intent = Mock(
+        return_value=SimpleNamespace(name=business_tool) if business_tool else None
+    )
     factory = NodeFactory(
         intent_detector=Mock(),
         slot_filler=Mock(),
-        tool_registry=Mock(),
+        tool_registry=registry,
         retrieval_pipeline={},
         llm_service=None,
         guardrail_service=None,
@@ -91,16 +98,18 @@ class TestAgentCollectionProjection:
         assert updates["filled_slots"] == {"category": "商品质量"}
         assert updates["pending_slots"] == ["description"]
 
-    async def test_executed_task_clears_projection(self):
-        """Tools actually ran ⇒ the task consumed its args. The
-        projection clears with it so the next 我要投诉 starts clean
-        instead of reporting a completed collection (stale-args guard,
-        same family as the slot pipeline's escalation clearing)."""
+    async def test_business_tool_execution_closes_collection(self):
+        """The intent's OWN business tool ran ⇒ the task consumed its
+        args: pending empties (collection closed, the next 我要投诉
+        starts clean) while filled keeps the regex-visible record —
+        the authoritative args live in the executed_tools audit trail
+        and the pre-existing task_executed flag blocks stale replay."""
         factory, _ = _factory(
             AgentResult(
                 response="投诉工单已提交：CP123456",
                 tool_trace=[{"tool": "submit_complaint", "ok": True}],
-            )
+            ),
+            business_tool="submit_complaint",
         )
         state: DialogueState = {
             "message": "商品质量有问题，订单号 ORD1001，刚收到的货是破的",
@@ -112,8 +121,33 @@ class TestAgentCollectionProjection:
         updates = await factory.handle_agent_node(state)
 
         assert updates["task_executed"] is True
-        assert updates["filled_slots"] == {}
+        assert updates["filled_slots"] == {"category": "商品质量", "order_id": "ORD1001"}
         assert updates["pending_slots"] == []
+
+    async def test_read_only_helper_tool_keeps_collection_open(self):
+        """Read-only helpers (get_recent_orders before a refund) are
+        context gathering, not task completion: the projection keeps
+        reporting the missing required slots — live 2026-11-02, a
+        get_recent_orders call on 我要退款 emptied pending_slots and
+        broke both the probe contract and the bare-answer resume seam."""
+        factory, _ = _factory(
+            AgentResult(
+                response="请问您的订单号是多少？",
+                tool_trace=[{"tool": "get_recent_orders", "ok": True}],
+            ),
+            business_tool="process_refund",
+        )
+        state: DialogueState = {
+            "message": "我要退款",
+            "session_id": 1,
+            "intent": "refund",
+        }
+
+        updates = await factory.handle_agent_node(state)
+
+        assert updates["task_executed"] is True
+        assert updates["filled_slots"] == {}
+        assert updates["pending_slots"] == ["order_id", "reason"]
 
     async def test_non_task_intent_leaves_slot_state_untouched(self):
         """Agent turns outside TASK_INTENTS never write slot state —
