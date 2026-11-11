@@ -5,6 +5,7 @@
 **An agent you can trust with money: agentic commerce with real transactional guarantees — quotes before orders, idempotent payments, exactly-once price alerts — running on an engine that also delivers enterprise RAG customer service. Built with FastAPI and LangGraph.**
 
 [![Live Demo](https://img.shields.io/badge/LIVE-DEMO-brightgreen?style=for-the-badge&logo=vercel)](https://benluo.art/projects/rag-chatbot/)
+[![CI](https://img.shields.io/github/actions/workflow/status/Bensonluo/rag_chatbot/ci.yml?branch=main&style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/actions/workflows/ci.yml)
 [![GitHub stars](https://img.shields.io/github/stars/Bensonluo/rag_chatbot?style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
@@ -806,7 +807,7 @@ PRs welcome! Especially:
 - 📚 More GraphRAG use cases (currently: customer service KB)
 - 🌍 i18n improvements
 
-Setup instructions, quality gates, and commit/PR conventions are in [CONTRIBUTING.md](CONTRIBUTING.md). For vulnerabilities, follow [SECURITY.md](SECURITY.md) — do not open public issues for security reports.
+Setup instructions, quality gates, and commit/PR conventions are in [CONTRIBUTING.md](CONTRIBUTING.md). For vulnerabilities, follow [SECURITY.md](SECURITY.md) — do not open public issues for security reports. By participating in this project you agree to uphold the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ---
 
