@@ -46,6 +46,10 @@ from app.models.database.session import ChatSession  # noqa: F401
 from app.models.database.ticket import HandoffTicket  # noqa: F401
 from app.models.database.user import User  # noqa: F401
 from app.models.database.user_fact import UserFactRecord  # noqa: F401
+from app.models.database.visitor_preference import (  # noqa: F401
+    VisitorPreference,
+    VisitorPreferenceAudit,
+)
 
 # Alembic config object
 config = context.config
