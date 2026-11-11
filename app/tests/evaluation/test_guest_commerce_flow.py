@@ -638,12 +638,18 @@ async def test_shopping_stream_timeout_emits_full_error_chain(
             self, messages: list[LLMMessage], tools: list[dict[str, Any]]
         ) -> LLMResponse:
             del messages, tools
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(10.0)
             raise AssertionError("timeout should cancel this call")
 
     original = shop.conversation.provider
     shop.conversation.provider = SlowProvider()
-    monkeypatch.setattr(settings, "CHAT_STREAM_MAX_SECONDS", 0.01)
+    # Wide margins on both sides: the budget must comfortably cover session
+    # start-up (intent + agent + tool wiring — tens of ms under coverage
+    # tracing in a warm full-suite process) while the provider sleeps far
+    # beyond it, so the timeout always lands inside generation. The old
+    # 10ms/50ms pair put start-up and the cut-off on the same edge and
+    # flipped with coverage on/off.
+    monkeypatch.setattr(settings, "CHAT_STREAM_MAX_SECONDS", 0.25)
     caplog.set_level(logging.WARNING, logger="app.api.v1.guest")
     try:
         response = await _chat(client, browser, "买东西", stream=True)
