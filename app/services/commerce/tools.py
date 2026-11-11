@@ -28,8 +28,10 @@ from app.models.schemas.commerce import (
 )
 from app.services.commerce.coverage import CommerceCoverageRecorder
 from app.services.commerce.graph_service import CommerceGraphService
-from app.services.commerce.port import CommerceSort
+from app.services.commerce.port import CommerceSort, ProviderRejected
 from app.services.commerce.service import PurchaseService
+from app.services.commerce.timeline import register_timeline_tools
+from app.services.commerce.watch import PriceWatchService
 from app.services.dialogue.tools import ToolDefinition, ToolRegistry
 from app.services.observability.trace_events import emit_trace
 
@@ -148,6 +150,7 @@ def create_commerce_tools(
     current: CommerceView | None,
     commerce_graph: CommerceGraphService | None = None,
     coverage_recorder: CommerceCoverageRecorder | None = None,
+    price_watches: PriceWatchService | None = None,
 ) -> ToolRegistry:
     """Bind one verified principal in a local closure, never a model argument."""
 
@@ -195,6 +198,65 @@ def create_commerce_tools(
             raise NotFoundError("Purchase")
         return result
 
+    # ── Proactive price watch (event-driven evaluation) ────────────────────
+    # Triggers are evaluated ONLY when price facts for a watched SKU are
+    # (re)read through these tools — plus the session-start refresh in
+    # CommerceConversation. No background scheduler exists here; a
+    # production deployment would add a cron/worker calling the same
+    # PriceWatchService.evaluate with freshly read provider prices.
+    watch_visitor: str | None = None
+    watch_visitor_resolved = False
+    pending_watch_notice: dict[str, Any] | None = None
+
+    async def _watch_visitor_id() -> str | None:
+        nonlocal watch_visitor, watch_visitor_resolved
+        if price_watches is None:
+            return None
+        if not watch_visitor_resolved:
+            watch_visitor = await price_watches.visitor_id_for(owner)
+            watch_visitor_resolved = True
+        return watch_visitor
+
+    async def _evaluate_watches(view: CommerceView) -> None:
+        """Check freshly read catalog prices against the visitor's armed rules."""
+
+        nonlocal pending_watch_notice
+        if price_watches is None:
+            return
+        facts = {
+            item.sku_id: (item.unit_price_minor, item.name)
+            for block in view.blocks
+            if isinstance(block, CatalogBlock)
+            for item in block.items
+        }
+        if not facts:
+            return
+        visitor_id = await _watch_visitor_id()
+        if visitor_id is None:
+            return
+        try:
+            triggered = await price_watches.evaluate(visitor_id, facts)
+        except Exception as exc:  # noqa: BLE001 - availability over watch delivery
+            logger.warning("Price-watch evaluation failed: %s", exc)
+            return
+        if triggered:
+            pending_watch_notice = {
+                "triggered": [
+                    {
+                        "sku_id": entry.sku_id,
+                        "sku_name": entry.sku_name,
+                        "target_price_minor": entry.target_price_minor,
+                        "current_price_minor": entry.triggered_price_minor,
+                    }
+                    for entry in triggered
+                ],
+                "contract": (
+                    "A pre-authorized price watch fired. Tell the visitor and ask "
+                    "whether to order now; never add to cart, order or pay without "
+                    "the visitor's explicit confirmation in the latest message."
+                ),
+            }
+
     async def search(args: dict[str, Any]) -> CommerceView:
         nonlocal catalog_total_estimates, search_batches, zero_result_queries
         query = args.get("query", "")
@@ -231,6 +293,9 @@ def create_commerce_tools(
             page_size=page_size,
             page_token=page_token,
         )
+        # The search just (re)read authoritative prices for these SKUs —
+        # the moment event-driven watch evaluation happens.
+        await _evaluate_watches(result)
         result_count = sum(
             len(block.items) for block in result.blocks if isinstance(block, CatalogBlock)
         )
@@ -363,7 +428,9 @@ def create_commerce_tools(
         sku = args.get("sku_id")
         if not isinstance(sku, str):
             raise ValidationError("Choose a SKU from the displayed catalog")
-        return await service.get_product(owner, view.purchase_id, sku)
+        result = await service.get_product(owner, view.purchase_id, sku)
+        await _evaluate_watches(result)
+        return result
 
     async def cart(args: dict[str, Any]) -> CommerceView:
         view = await target(args)
@@ -549,12 +616,20 @@ def create_commerce_tools(
             call: Callable[[dict[str, Any]], Awaitable[CommerceView]] = handler,
         ) -> dict[str, Any]:
             # The closure is the authority even if a model supplies user_id.
+            nonlocal pending_watch_notice
             result = await call(args)
             views.append(result)
+            extra: dict[str, Any] = {}
+            if pending_watch_notice is not None:
+                # A watch fired on this read: the notice rides the tool result
+                # inside the session-memory delimiters (data, never instructions).
+                extra["price_watch"] = delimited(SESSION_MEMORY_TAGS, pending_watch_notice)
+                pending_watch_notice = None
             return {
                 "source": "provider-data",
                 "notice": PROVIDER_DATA_NOTICE,
                 "catalog_data": delimited(CATALOG_DATA_TAGS, result.model_dump(mode="json")),
+                **extra,
                 "mode": "mock",
             }
 
@@ -870,6 +945,186 @@ def create_commerce_tools(
         )
     )
 
+    # ── Price-watch tools (the visitor's explicit pre-authorization) ────────
+    # watch_price IS the pre-authorization itself: creating the rule is a
+    # user-scoped write, so the tool result states the notify-only contract
+    # in clear words the model must relay. list/cancel are read/disarm.
+    async def watch_price(args: dict[str, Any]) -> dict[str, Any]:
+        if price_watches is None:
+            raise ValidationError("Price watches are unavailable for this caller")
+        sku = args.get("sku_id")
+        if not isinstance(sku, str) or not sku.strip():
+            raise ValidationError("Choose a SKU from the displayed catalog")
+        target = _price_minor(args.get("target_price_yuan"), "Target price")
+        if target is None or target < 1:
+            raise ValidationError("Target price must be at least 0.01 yuan")
+        visitor_id = await _watch_visitor_id()
+        if visitor_id is None:
+            raise ValidationError("降价提醒仅对已验证的访客开放")
+        try:
+            item = await service.port.get_product(owner, sku.strip().upper())
+        except ProviderRejected as exc:
+            raise ValidationError("Choose a SKU from the displayed catalog") from exc
+        entry = await price_watches.create(
+            visitor_id,
+            item.sku_id,
+            sku_name=item.name,
+            target_price_minor=target,
+        )
+        # The creation read is itself a fresh price fact: a condition that
+        # already holds fires immediately, and the ask rides this completion.
+        triggered = await price_watches.evaluate(
+            visitor_id, {item.sku_id: (item.unit_price_minor, item.name)}
+        )
+        fired = [watch for watch in triggered if watch.sku_id == entry.sku_id]
+        return {
+            "source": "provider-data",
+            "notice": PROVIDER_DATA_NOTICE,
+            "catalog_data": delimited(
+                CATALOG_DATA_TAGS,
+                {
+                    "watched_sku": {
+                        "sku_id": item.sku_id,
+                        "name": item.name,
+                        "current_price_minor": item.unit_price_minor,
+                        "currency": item.currency,
+                    }
+                },
+            ),
+            "watch": {
+                **entry.model_dump(mode="json"),
+                "immediately_triggered": bool(fired),
+            },
+            "message": (
+                f"降价提醒已创建：{item.name} [{item.sku_id}] 目标价 ¥{target / 100:.2f}，"
+                + (
+                    "当前价已满足目标，已触发提醒，将在回复中询问是否下单；"
+                    if fired
+                    else "条件满足时仅会询问是否下单；"
+                )
+                + "提醒不会自动下单或付款。"
+            ),
+        }
+
+    async def list_watches(args: dict[str, Any]) -> dict[str, Any]:
+        del args
+        if price_watches is None:
+            raise ValidationError("Price watches are unavailable for this caller")
+        visitor_id = await _watch_visitor_id()
+        if visitor_id is None:
+            raise ValidationError("降价提醒仅对已验证的访客开放")
+        entries = await price_watches.list_rules(visitor_id)
+        return {
+            "source": "server-fact",
+            "price_watches": delimited(
+                SESSION_MEMORY_TAGS,
+                {
+                    "watches": [entry.model_dump(mode="json") for entry in entries],
+                    "contract": (
+                        "Price watches only ask; ordering always requires the "
+                        "visitor's explicit confirmation of a displayed quote."
+                    ),
+                },
+            ),
+        }
+
+    async def cancel_watch(args: dict[str, Any]) -> dict[str, Any]:
+        if price_watches is None:
+            raise ValidationError("Price watches are unavailable for this caller")
+        sku = args.get("sku_id")
+        if not isinstance(sku, str) or not sku.strip():
+            raise ValidationError("Choose a SKU from the displayed catalog")
+        visitor_id = await _watch_visitor_id()
+        if visitor_id is None:
+            raise ValidationError("降价提醒仅对已验证的访客开放")
+        cancelled = await price_watches.cancel(visitor_id, sku.strip().upper())
+        return {
+            "cancelled": cancelled,
+            "sku_id": sku.strip().upper(),
+            "message": "已取消该降价提醒。" if cancelled else "未找到该 SKU 的提醒。",
+        }
+
+    if price_watches is not None:
+        registry.register(
+            ToolDefinition(
+                name="commerce_watch_price",
+                intent="commerce:watch_price",
+                description=(
+                    "Create the visitor's explicit price-watch authorization: "
+                    "\"tell me when THIS displayed SKU's price is at or below my "
+                    'target". Call it only when the visitor clearly asked to be '
+                    "notified about a price drop for a specific SKU. The rule is "
+                    "notify-only: when the condition holds the agent asks whether "
+                    "to order now and never adds to cart, orders or pays without "
+                    "the visitor's explicit confirmation of a displayed quote."
+                ),
+                required_slots=["sku_id", "target_price_yuan"],
+                handler=watch_price,
+                parameters_schema={
+                    "type": "object",
+                    "properties": {
+                        "sku_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "description": "SKU id from the displayed catalog",
+                        },
+                        "target_price_yuan": {
+                            "type": "number",
+                            "minimum": 0.01,
+                            "maximum": 1000000,
+                            "description": "Target price in yuan; trigger fires at or below it",
+                        },
+                    },
+                    "required": ["sku_id", "target_price_yuan"],
+                    "additionalProperties": False,
+                },
+            )
+        )
+        registry.register(
+            ToolDefinition(
+                name="commerce_list_watches",
+                intent="commerce:list_watches",
+                description=(
+                    "List the visitor's current price-watch rules and their "
+                    "statuses (active / triggered / asked). Read-only."
+                ),
+                required_slots=[],
+                handler=list_watches,
+                parameters_schema={
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": False,
+                },
+            )
+        )
+        registry.register(
+            ToolDefinition(
+                name="commerce_cancel_watch",
+                intent="commerce:cancel_watch",
+                description=(
+                    "Cancel one of the visitor's price-watch rules for a SKU. "
+                    "Call it when the visitor no longer wants the reminder."
+                ),
+                required_slots=["sku_id"],
+                handler=cancel_watch,
+                parameters_schema={
+                    "type": "object",
+                    "properties": {
+                        "sku_id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 64,
+                            "description": "SKU id whose watch should be cancelled",
+                        },
+                    },
+                    "required": ["sku_id"],
+                    "additionalProperties": False,
+                },
+            )
+        )
+
     if commerce_graph is not None:
         # Product graph context is semantic only: it stages no purchase view
         # and never replaces provider SKU, price, stock or limit facts.
@@ -897,4 +1152,8 @@ def create_commerce_tools(
                 },
             )
         )
+    # Order tracking timeline: the read-only post-sales surface over the
+    # durable purchase/operation/confirmation rows. Answers directly from
+    # authoritative facts — the model narrates, the rows decide.
+    register_timeline_tools(registry, service.sessions, owner, clock=service.clock)
     return registry

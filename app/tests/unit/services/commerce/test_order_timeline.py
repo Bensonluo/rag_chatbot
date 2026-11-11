@@ -35,6 +35,7 @@ from app.services.commerce.timeline import (
     build_timeline,
     register_timeline_tools,
 )
+from app.services.commerce.tools import create_commerce_tools
 from app.services.dialogue.tools import ToolRegistry
 
 QUOTE_TTL = 30
@@ -384,3 +385,29 @@ async def test_timeline_tool_is_framed_read_only_and_owner_scoped(shop):
     assert '"found": false' in foreign["order_timeline"]
     with pytest.raises(ValidationError):
         await tool.handler({"purchase_id": ""})
+
+
+async def test_timeline_tool_rides_the_standard_commerce_registry(shop):
+    """The wiring integrator contract: create_commerce_tools registers the
+    read-only timeline tool alongside the other commerce tools, bound to the
+    verified owner, and it answers through the normal execute path."""
+    service, maker, clock, _ = shop
+    purchase_id = await paid_journey(service)
+    registry = create_commerce_tools(service, 1, [], None)
+    result = await registry.execute(
+        "commerce:get_order_timeline", {"purchase_id": purchase_id}, user_id=1
+    )
+    assert result.success, result.message
+    payload = result.data
+    assert payload["source"] == "provider-data"
+    assert payload["order_timeline"].startswith("<order_timeline>")
+    assert f'"purchase_id": "{purchase_id}"' in payload["order_timeline"]
+    assert '"found": true' in payload["order_timeline"]
+    # Owner scoping survives the standard wiring: a foreign owner's registry
+    # reads the same identifier as not-found, never as leaked facts.
+    other = create_commerce_tools(service, 2, [], None)
+    foreign = await other.execute(
+        "commerce:get_order_timeline", {"purchase_id": purchase_id}, user_id=2
+    )
+    assert foreign.success, foreign.message
+    assert '"found": false' in foreign.data["order_timeline"]
