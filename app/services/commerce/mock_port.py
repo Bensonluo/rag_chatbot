@@ -14,13 +14,20 @@ import hashlib
 import json
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 from uuid import uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import Table, create_engine, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
+from app.config.settings import settings
 from app.models.database.commerce import MockCommerceObject, MockCommerceReceipt
 from app.models.schemas.commerce import (
     CartLine,
@@ -202,6 +209,47 @@ class MockCommercePort:
         # Runtime-minted dynamic categories: in-memory in mock mode, deduped
         # by normalized name against the static taxonomy and each other.
         self._minted: dict[str, MintedCategory] = {}
+        self._private_engine: AsyncEngine | None = None
+        bind = sessions.kw.get("bind")
+        if (
+            bind is not None
+            and getattr(bind, "dialect", None) is not None
+            and bind.dialect.name != "sqlite"
+        ):
+            # Production wires this port to the app's main (PostgreSQL)
+            # session maker; the emulated provider must never write its
+            # facts into the main application database. Every mock
+            # object/receipt goes to a dedicated SQLite file instead.
+            # SQLite-bound makers (tests, sqlite deployments) keep the
+            # shared sessions exactly as handed over.
+            self._private_engine = self._build_private_store(settings.COMMERCE_MOCK_DATABASE_PATH)
+            self.sessions = async_sessionmaker(self._private_engine, expire_on_commit=False)
+
+    @staticmethod
+    def _build_private_store(path: str) -> AsyncEngine:
+        """Create (idempotently) the private SQLite store for provider facts."""
+
+        target = Path(path)
+        if str(target.parent) not in ("", ".") and not target.parent.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+        schema_engine = create_engine(f"sqlite:///{target}")
+        # ``__table__`` is typed as FromClause in the SQLAlchemy stubs; the
+        # runtime object is always a Table for declarative models.
+        objects_table: Table = cast(Table, MockCommerceObject.__table__)
+        receipts_table: Table = cast(Table, MockCommerceReceipt.__table__)
+        try:
+            objects_table.create(schema_engine, checkfirst=True)
+            receipts_table.create(schema_engine, checkfirst=True)
+        finally:
+            schema_engine.dispose()
+        return create_async_engine(f"sqlite+aiosqlite:///{target}")
+
+    async def aclose(self) -> None:
+        """Dispose the private engine (no-op when sessions are shared)."""
+
+        if self._private_engine is not None:
+            await self._private_engine.dispose()
+            self._private_engine = None
 
     def fail_next(self, kind: str, *, mode: str = "accepted_timeout") -> None:
         """Test/sandbox control, never a model tool or public payment API."""

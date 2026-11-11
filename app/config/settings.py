@@ -691,6 +691,14 @@ class Settings(BaseSettings):
         ge=0,
         description="Rolling 24h per-visitor paid-order spend cap in minor units; 0 disables",
     )
+    COMMERCE_MOCK_DATABASE_PATH: str = Field(
+        default="commerce_mock.sqlite3",
+        description=(
+            "Dedicated SQLite file for mock-provider commerce facts when the "
+            "wired session maker is not SQLite (production main DB isolation); "
+            "SQLite-bound makers (tests) ignore this path"
+        ),
+    )
 
     # Monitoring
     ENABLE_METRICS: bool = Field(default=True, description="Enable Prometheus metrics")
