@@ -45,6 +45,8 @@ path prefix. Optional keys are omitted when unset:
     -> 200 PaymentSnapshot
   POST {base}/commerce/payments/{payment_id}/sandbox-pay
     {"owner_user_id": int, "request_key": str} -> 200 PaymentSnapshot
+  POST {base}/commerce/orders/{order_id}/refund
+    {"owner_user_id": int, "request_key": str} -> 200 RefundSnapshot
   GET  {base}/commerce/payments/{payment_id}?owner_user_id=int
     -> 200 PaymentSnapshot
   GET  {base}/commerce/operations/{request_key}?owner_user_id=int
@@ -89,6 +91,7 @@ from app.models.schemas.commerce import (
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
+    RefundSnapshot,
 )
 from app.services.commerce.port import (
     CommerceSort,
@@ -431,6 +434,16 @@ class ExternalCommercePort:
             "POST",
             f"/commerce/payments/{url_quote(payment_id, safe='')}/sandbox-pay",
             model=PaymentSnapshot,
+            json_body={"owner_user_id": owner_user_id, "request_key": request_key},
+        )
+
+    async def refund_order(
+        self, owner_user_id: int, order_id: str, request_key: str
+    ) -> RefundSnapshot:
+        return await self._call(
+            "POST",
+            f"/commerce/orders/{url_quote(order_id, safe='')}/refund",
+            model=RefundSnapshot,
             json_body={"owner_user_id": owner_user_id, "request_key": request_key},
         )
 

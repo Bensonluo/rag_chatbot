@@ -20,6 +20,7 @@ from app.models.schemas.commerce import (
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
+    RefundSnapshot,
 )
 
 CommerceSort = Literal["relevance", "price_asc", "price_desc", "newest"]
@@ -110,6 +111,10 @@ class CommercePort(Protocol):
     def mock_pay(
         self, owner_user_id: int, payment_id: str, request_key: str
     ) -> Awaitable[PaymentSnapshot]: ...
+
+    def refund_order(
+        self, owner_user_id: int, order_id: str, request_key: str
+    ) -> Awaitable[RefundSnapshot]: ...
 
     def get_order(self, owner_user_id: int, order_id: str) -> Awaitable[OrderSnapshot]: ...
 

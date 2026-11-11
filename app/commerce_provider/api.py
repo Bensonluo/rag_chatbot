@@ -45,6 +45,7 @@ from app.commerce_provider.schemas import (
     MintCategoryResult,
     OwnerParam,
     PrepareCheckoutRequest,
+    RefundOrderRequest,
     SandboxPayRequest,
     SettlePaymentRequest,
     UpdateCartLinesRequest,
@@ -59,6 +60,7 @@ from app.models.schemas.commerce import (
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
+    RefundSnapshot,
 )
 from app.models.schemas.commerce_taxonomy import RegistryTaxonomy
 
@@ -256,10 +258,7 @@ def create_app(settings: CommerceProviderSettings | None = None) -> FastAPI:
                 base_price_minor=body.base_price_minor,
                 source_query=body.source_query,
                 brand_styles=(
-                    [
-                        {"brand": item.brand, "series": item.series}
-                        for item in body.brand_styles
-                    ]
+                    [{"brand": item.brand, "series": item.series} for item in body.brand_styles]
                     if body.brand_styles is not None
                     else None
                 ),
@@ -340,6 +339,18 @@ def create_app(settings: CommerceProviderSettings | None = None) -> FastAPI:
         core: Annotated[CommerceProviderCore, Depends(get_core)],
     ) -> PaymentSnapshot:
         return await core.mock_pay(body.owner_user_id, payment_id, body.request_key)
+
+    @app.post(
+        "/commerce/orders/{order_id}/refund",
+        response_model=RefundSnapshot,
+        dependencies=protected,
+    )
+    async def refund_order(
+        order_id: str,
+        body: RefundOrderRequest,
+        core: Annotated[CommerceProviderCore, Depends(get_core)],
+    ) -> RefundSnapshot:
+        return await core.refund_order(body.owner_user_id, order_id, body.request_key)
 
     @app.get(
         "/commerce/payments/{payment_id}",

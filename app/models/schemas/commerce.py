@@ -14,6 +14,7 @@ CommerceStage = Literal[
     "awaiting_payment",
     "processing",
     "paid",
+    "refunded",
     "failed",
 ]
 
@@ -154,7 +155,7 @@ class OrderSnapshot(CommerceModel):
     quote_id: str
     total_minor: int = Field(ge=0)
     currency: Literal["CNY"] = "CNY"
-    status: Literal["awaiting_payment", "processing", "paid", "failed"]
+    status: Literal["awaiting_payment", "processing", "paid", "refunded", "failed"]
 
 
 class PaymentSnapshot(CommerceModel):
@@ -162,7 +163,24 @@ class PaymentSnapshot(CommerceModel):
     order_id: str
     total_minor: int = Field(ge=0)
     currency: Literal["CNY"] = "CNY"
-    status: Literal["awaiting_payment", "processing", "paid", "failed"]
+    status: Literal["awaiting_payment", "processing", "paid", "refunded", "failed"]
+
+
+class RefundSnapshot(CommerceModel):
+    """Authoritative refund receipt; deterministic id keyed to the order.
+
+    ``refund_id`` is derived from the order id in both ports, so a retry
+    with a fresh request key after an unknown outcome replays the SAME
+    receipt instead of creating a second refund — refunds are exactly-once
+    per order by construction, like payments.
+    """
+
+    refund_id: str
+    order_id: str
+    payment_id: str
+    total_minor: int = Field(ge=0)
+    currency: Literal["CNY"] = "CNY"
+    status: Literal["refunded"] = "refunded"
 
 
 class CatalogBlock(CommerceModel):

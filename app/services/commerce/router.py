@@ -13,6 +13,7 @@ from app.models.schemas.commerce import (
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
+    RefundSnapshot,
 )
 from app.services.commerce.port import (
     CommercePort,
@@ -279,6 +280,14 @@ class RouterCommercePort:
             return await self._generated.mock_pay(owner_user_id, payment_id, request_key)
         except Exception:
             return await self._external.mock_pay(owner_user_id, payment_id, request_key)
+
+    async def refund_order(
+        self, owner_user_id: int, order_id: str, request_key: str
+    ) -> RefundSnapshot:
+        try:
+            return await self._generated.refund_order(owner_user_id, order_id, request_key)
+        except Exception:
+            return await self._external.refund_order(owner_user_id, order_id, request_key)
 
     async def get_order(self, owner_user_id: int, order_id: str) -> OrderSnapshot:
         try:

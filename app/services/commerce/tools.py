@@ -30,7 +30,10 @@ from app.services.commerce.coverage import CommerceCoverageRecorder
 from app.services.commerce.graph_service import CommerceGraphService
 from app.services.commerce.port import CommerceSort, ProviderRejected
 from app.services.commerce.service import PurchaseService
-from app.services.commerce.timeline import register_timeline_tools
+from app.services.commerce.timeline import (
+    register_recent_orders_tools,
+    register_timeline_tools,
+)
 from app.services.commerce.watch import PriceWatchService
 from app.services.dialogue.tools import ToolDefinition, ToolRegistry
 from app.services.observability.trace_events import emit_trace
@@ -1156,4 +1159,45 @@ def create_commerce_tools(
     # durable purchase/operation/confirmation rows. Answers directly from
     # authoritative facts — the model narrates, the rows decide.
     register_timeline_tools(registry, service.sessions, owner, clock=service.clock)
+    # "My orders" listing from the same authoritative rows — the store's
+    # real purchases, never the support lane's demo ORD… data.
+    register_recent_orders_tools(registry, service.sessions, owner)
+
+    # ── Refund (after-sales write on the authoritative commerce record) ────
+    # Refunds are irreversible: the tool runs ONLY on the current paid
+    # purchase and ONLY after the customer's fresh explicit confirmation in
+    # the latest message. Idempotent at three layers (existing op replay,
+    # version gate, provider receipt keyed to the order), so a repeated
+    # "确认退款" cannot refund twice.
+    async def refund_order(args: dict[str, Any]) -> CommerceView:
+        del args
+        if current is None or current.stage != "paid":
+            raise ValidationError("只有当前已完成支付的订单可以退款")
+        return await service.refund(owner, current.purchase_id, current.version)
+
+    registry.register(
+        ToolDefinition(
+            name="commerce_refund_order",
+            intent="commerce:refund_order",
+            description=(
+                "Refund the current purchase's paid order in full, through the "
+                "authoritative commerce system (simulated; no real funds). "
+                "Irreversible: call it ONLY when the customer's LATEST message "
+                "explicitly confirms the refund (e.g. “确认退款”); never on "
+                "ambiguity, never proactively. If the order is not yet paid, or "
+                "no purchase exists, explain and do not call. Repeated "
+                "confirmations are idempotent — exactly one refund ever executes "
+                "per order; relay the returned refund receipt (refund id, "
+                "amount) to the customer."
+            ),
+            required_slots=[],
+            handler=refund_order,
+            parameters_schema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+        )
+    )
     return registry

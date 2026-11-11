@@ -44,6 +44,7 @@ from app.models.schemas.commerce import (
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
+    RefundSnapshot,
 )
 from app.services.commerce.port import (
     CommerceSort,
@@ -807,6 +808,64 @@ class MockCommercePort:
             owner_user_id, "mock_pay", request_key, {"payment_id": payment_id}, work
         )
         return PaymentSnapshot.model_validate(result)
+
+    async def refund_order(
+        self, owner_user_id: int, order_id: str, request_key: str
+    ) -> RefundSnapshot:
+        async def work(db: AsyncSession) -> dict[str, Any]:
+            order_row = await self._object(db, order_id, owner_user_id, "order")
+            order = OrderSnapshot.model_validate(order_row.payload)
+            if order.status == "refunded":
+                # Idempotent replay across request keys: one refund per order.
+                existing = (
+                    await db.scalars(
+                        select(MockCommerceObject).where(
+                            MockCommerceObject.kind == "refund",
+                            MockCommerceObject.parent_id == order_id,
+                            MockCommerceObject.owner_user_id == owner_user_id,
+                        )
+                    )
+                ).first()
+                if existing is not None:
+                    return dict(existing.payload)
+            if order.status != "paid":
+                raise ProviderRejected("只有已支付订单可以退款")
+            payment_row = await db.scalar(
+                select(MockCommerceObject).where(
+                    MockCommerceObject.kind == "payment",
+                    MockCommerceObject.parent_id == order_id,
+                    MockCommerceObject.owner_user_id == owner_user_id,
+                )
+            )
+            if payment_row is None:
+                raise ProviderRejected("该订单没有可退款的付款记录")
+            payment = PaymentSnapshot.model_validate(payment_row.payload)
+            if payment.status != "paid":
+                raise ProviderRejected("原模拟付款未完成，不能退款")
+            refund = RefundSnapshot(
+                refund_id="mr_" + order_id,
+                order_id=order_id,
+                payment_id=payment.payment_id,
+                total_minor=order.total_minor,
+            )
+            payment_row.payload = {**payment_row.payload, "status": "refunded"}
+            payment_row.version += 1
+            order_row.payload = {**order_row.payload, "status": "refunded"}
+            order_row.version += 1
+            db.add(
+                MockCommerceObject(
+                    id=refund.refund_id,
+                    kind="refund",
+                    owner_user_id=owner_user_id,
+                    parent_id=order_id,
+                    version=0,
+                    payload=refund.model_dump(mode="json"),
+                )
+            )
+            return refund.model_dump(mode="json")
+
+        result = await self._run(owner_user_id, "refund", request_key, {"order_id": order_id}, work)
+        return RefundSnapshot.model_validate(result)
 
     async def get_order(self, owner_user_id: int, order_id: str) -> OrderSnapshot:
         async with self.sessions() as db:

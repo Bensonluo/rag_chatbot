@@ -39,6 +39,7 @@ from app.models.schemas.commerce import (
     PaymentSnapshot,
     QuoteBlock,
     QuoteSnapshot,
+    RefundSnapshot,
     SpendLimitBlock,
     StatusBlock,
 )
@@ -384,6 +385,17 @@ class PurchaseService:
                 values.update(
                     stage=order.status, order_id=order.order_id, payment_status=order.status
                 )
+            elif operation.kind == "refund":
+                refund = RefundSnapshot.model_validate(data)
+                quote = QuoteSnapshot.model_validate(row.quote_snapshot)
+                if (
+                    refund.order_id != row.order_id
+                    or refund.payment_id != row.payment_id
+                    or refund.total_minor != quote.total_minor
+                    or refund.currency != quote.currency
+                ):
+                    raise ProviderUnknown("模拟退款回执与原订单不符")
+                values.update(stage="refunded", payment_status="refunded")
             else:
                 payment = PaymentSnapshot.model_validate(data)
                 quote = QuoteSnapshot.model_validate(row.quote_snapshot)
@@ -432,7 +444,7 @@ class PurchaseService:
                 owner, operation, failed=True, error="原购买操作参数已损坏，未调用外部接口"
             )
             return
-        result: CartSnapshot | QuoteSnapshot | OrderSnapshot | PaymentSnapshot
+        result: CartSnapshot | QuoteSnapshot | OrderSnapshot | PaymentSnapshot | RefundSnapshot
         try:
             if operation.kind == "update_cart":
                 result = await self.port.update_cart_lines(
@@ -450,6 +462,8 @@ class PurchaseService:
                 result = await self.port.create_order(owner, args["quote_id"], operation.id)
             elif operation.kind == "payment":
                 result = await self.port.create_payment(owner, args["order_id"], operation.id)
+            elif operation.kind == "refund":
+                result = await self.port.refund_order(owner, args["order_id"], operation.id)
             else:
                 result = await self.port.mock_pay(owner, args["payment_id"], operation.id)
             await self._finish(owner, operation, result.model_dump(mode="json"))
@@ -807,6 +821,44 @@ class PurchaseService:
         await self._dispatch(owner_user_id, operation)
         return await self._view(await self._load(owner_user_id, row.id))
 
+    async def refund(
+        self, owner_user_id: int, purchase_id: str, expected_version: int
+    ) -> CommerceView:
+        """Refund the paid order of one purchase; exactly-once like every op.
+
+        Mirrors ``mock_pay``: an existing refund operation replays the
+        durable state instead of dispatching again, a version mismatch is a
+        conflict, and only a ``paid`` purchase with no active operation may
+        reserve the refund. The provider replays the same receipt across
+        request keys, so a repeated confirmation cannot refund twice.
+        """
+        row = await self._load(owner_user_id, purchase_id)
+        async with self.sessions() as db:
+            existing = await db.scalar(
+                select(PurchaseOperation).where(
+                    PurchaseOperation.purchase_id == row.id,
+                    PurchaseOperation.kind == "refund",
+                    PurchaseOperation.generation == row.generation,
+                )
+            )
+        if existing is not None:
+            return await self.status(owner_user_id, purchase_id)
+        self._version(row, expected_version)
+        if row.active_operation_id is not None or row.stage != "paid":
+            raise ConflictError("只有已完成支付的订单可以退款")
+        if row.order_id is None or row.payment_id is None:
+            raise ConflictError("当前订单缺少可退款的支付记录")
+        operation = await self._reserve(
+            owner_user_id,
+            row.id,
+            row.version,
+            "refund",
+            {"order_id": row.order_id},
+            generation=row.generation,
+        )
+        await self._dispatch(owner_user_id, operation)
+        return await self._view(await self._load(owner_user_id, row.id))
+
     async def _refresh(self, owner: int, purchase_id: str) -> PurchaseSession:
         row = await self._load(owner, purchase_id)
         if row.active_operation_id is not None:
@@ -961,6 +1013,7 @@ class PurchaseService:
             "awaiting_payment": "模拟订单已创建，尚未付款。",
             "processing": "模拟付款处理中，请查询原付款，不会创建新尝试。",
             "paid": "模拟付款已核实成功；没有真实扣款。",
+            "refunded": "退款已完成，款项已原路退回（模拟）；没有真实扣款。",
             "failed": "模拟业务未完成，请查看说明后再操作。",
         }
         blocks.append(

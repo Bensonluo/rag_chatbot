@@ -40,6 +40,7 @@ from app.models.schemas.commerce import (
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
+    RefundSnapshot,
 )
 from app.services.commerce.mock_port import as_utc, utc_now
 from app.services.dialogue.tools import ToolDefinition, ToolRegistry
@@ -56,10 +57,11 @@ TimelineEventKind = Literal[
     "payment_failed",
     "payment_completed",
     "payment_completion_failed",
+    "refund_completed",
 ]
 
 # Phase rank for timestamp ties: encodes the purchase state machine order
-# (shopping → cart → quoted → awaiting_payment → paid). Higher op
+# (shopping → cart → quoted → awaiting_payment → paid → refunded). Higher op
 # generations must not jump an earlier phase when clocks collide.
 _EVENT_RANK: dict[str, int] = {
     "purchase_opened": 0,
@@ -73,12 +75,15 @@ _EVENT_RANK: dict[str, int] = {
     "payment_failed": 4,
     "payment_completed": 5,
     "payment_completion_failed": 5,
+    "refund_completed": 6,
 }
 _RANK_UNKNOWN = len(_EVENT_RANK)
 
 # Provider-derived payloads inside the timeline are framed with their own
 # delimiters, same spotlighting mechanism as the catalog/graph data blocks.
 ORDER_TIMELINE_TAGS = ("<order_timeline>", "</order_timeline>")
+RECENT_ORDERS_TAGS = ("<recent_orders>", "</recent_orders>")
+RECENT_ORDERS_CAP = 10
 
 
 class TimelineLine(BaseModel):
@@ -363,6 +368,36 @@ def _payment_event(op: PurchaseOperation) -> TimelineEvent:
     )
 
 
+def _refund_event(op: PurchaseOperation) -> TimelineEvent:
+    refund = _snapshot(op, RefundSnapshot) if op.status == "completed" else None
+    if refund is not None:
+        return TimelineEvent(
+            kind="refund_completed",
+            timestamp=as_utc(op.created_at),
+            title="退款完成",
+            summary=(
+                f"订单 {refund.order_id} 已退款 {_yuan(refund.total_minor)} 元，"
+                "款项原路退回（模拟，无真实扣款）"
+            ),
+            amount_minor=refund.total_minor,
+            currency=refund.currency,
+            status=refund.status,
+            generation=op.generation,
+            request_key=op.id,
+            order_id=refund.order_id,
+            payment_id=refund.payment_id,
+        )
+    return TimelineEvent(
+        kind="refund_completed",
+        timestamp=as_utc(op.created_at),
+        title="退款未生效",
+        summary=_attempt_summary(op, "退款"),
+        status=op.status,
+        generation=op.generation,
+        request_key=op.id,
+    )
+
+
 def _refresh_settlement_event(purchase: PurchaseSession) -> TimelineEvent | None:
     """Terminal payment state learned by status refresh, not a new receipt.
 
@@ -424,6 +459,35 @@ async def build_timeline(
             )
         )
         if purchase is None:
+            # The customer only ever holds the provider's ORDER id (o_… /
+            # mo_…) from receipts — never the internal purchase id. Resolve
+            # it through the owner's completed order operations so "这单到
+            # 哪了" works with the id the user actually has. Owner-scoped by
+            # construction: foreign orders can never be matched.
+            order_ops = (
+                await db.scalars(
+                    select(PurchaseOperation)
+                    .join(
+                        PurchaseSession,
+                        PurchaseOperation.purchase_id == PurchaseSession.id,
+                    )
+                    .where(
+                        PurchaseSession.owner_user_id == owner_user_id,
+                        PurchaseOperation.kind == "order",
+                        PurchaseOperation.status == "completed",
+                    )
+                )
+            ).all()
+            for op in order_ops:
+                if isinstance(op.result, dict) and op.result.get("order_id") == purchase_id:
+                    purchase = await db.scalar(
+                        select(PurchaseSession).where(
+                            PurchaseSession.id == op.purchase_id,
+                            PurchaseSession.owner_user_id == owner_user_id,
+                        )
+                    )
+                    break
+        if purchase is None:
             return OrderTimeline(
                 purchase_id=purchase_id,
                 owner_user_id=owner_user_id,
@@ -475,6 +539,8 @@ async def build_timeline(
                 events.append(_quote_event(op, confirmation, now))
             elif op.kind == "order":
                 events.append(_order_event(op))
+            elif op.kind == "refund":
+                events.append(_refund_event(op))
             else:  # payment / mock_pay
                 events.append(_payment_event(op))
         if not refresh_covered:
@@ -539,12 +605,14 @@ def register_timeline_tools(
             description=(
                 "Read the customer's authoritative order tracking timeline for one "
                 "purchase: purchase opening, every cart version with contents, quote "
-                "with totals, TTL and expiry, order creation, payment creation and "
-                "payment completion — each an auditable receipt event whose "
-                "minor-unit amounts and timestamps come from durable rows, oldest "
-                "first. Read-only: answers directly without confirmation. Use it for "
-                "“我的订单怎么样了 / 我买过什么” questions; never invent events or "
-                "amounts that are not present in the returned timeline."
+                "with totals, TTL and expiry, order creation, payment creation, "
+                "payment completion and refunds — each an auditable receipt event "
+                "whose minor-unit amounts and timestamps come from durable rows, "
+                "oldest first. Read-only: answers directly without confirmation. "
+                "Use it for “我的订单怎么样了 / 我买过什么” questions; the identifier "
+                "is the ORDER id printed on order/payment receipts (o_… or mo_…) — "
+                "internal purchase ids also work. Never invent events or amounts "
+                "that are not present in the returned timeline."
             ),
             required_slots=["purchase_id"],
             handler=order_timeline,
@@ -553,7 +621,9 @@ def register_timeline_tools(
                 "properties": {
                     "purchase_id": {
                         "type": "string",
-                        "description": "The purchase id shown in earlier commerce results",
+                        "description": (
+                            "Order id from the receipts (o_…/mo_…); a purchase id also works"
+                        ),
                     },
                 },
                 "required": ["purchase_id"],
@@ -563,12 +633,104 @@ def register_timeline_tools(
     )
 
 
+def register_recent_orders_tools(
+    registry: ToolRegistry,
+    sessions: async_sessionmaker[AsyncSession],
+    owner: int,
+) -> None:
+    """Register the read-only "my orders" listing bound to one verified owner.
+
+    Answers “我买过什么 / 最近订单” from the same durable purchase rows the
+    timeline reads — the store's REAL orders — so the listing can never drift
+    from the authoritative records. Read-tool conventions as above: owner
+    closed over, answers directly, provider-data framing for the payload.
+    """
+
+    from app.services.commerce.tools import PROVIDER_DATA_NOTICE, delimited
+
+    if type(owner) is not int or owner <= 0:
+        raise ValidationError("A verified visitor identity is required")
+
+    async def recent_orders(args: dict[str, Any]) -> dict[str, Any]:
+        del args
+        async with sessions() as db:
+            purchases = (
+                (
+                    await db.scalars(
+                        select(PurchaseSession)
+                        .where(PurchaseSession.owner_user_id == owner)
+                        .order_by(PurchaseSession.created_at.desc())
+                        .limit(RECENT_ORDERS_CAP)
+                    )
+                )
+                .unique()
+                .all()
+            )
+        rows: list[dict[str, Any]] = []
+        for purchase in purchases:
+            quote_total = (
+                purchase.quote_snapshot.get("total_minor")
+                if isinstance(purchase.quote_snapshot, dict)
+                else None
+            )
+            rows.append(
+                {
+                    "purchase_id": purchase.id,
+                    "order_id": purchase.order_id,
+                    "payment_id": purchase.payment_id,
+                    "stage": purchase.stage,
+                    "payment_status": purchase.payment_status,
+                    "total_minor": quote_total,
+                    "currency": "CNY" if quote_total is not None else None,
+                    "created_at": purchase.created_at.isoformat(),
+                }
+            )
+        return {
+            "source": "provider-data",
+            "notice": PROVIDER_DATA_NOTICE,
+            "recent_orders": delimited(
+                RECENT_ORDERS_TAGS,
+                {"owner_user_id": owner, "count": len(rows), "orders": rows},
+            ),
+            "message": (
+                f"共 {len(rows)} 条购买记录（最新在前，最多 {RECENT_ORDERS_CAP} 条）。"
+                if rows
+                else "当前访客在商城还没有任何购买记录。"
+            ),
+        }
+
+    registry.register(
+        ToolDefinition(
+            name="commerce_list_recent_orders",
+            intent="commerce:list_recent_orders",
+            description=(
+                "List the customer's REAL store purchases from authoritative "
+                "durable rows: purchase id, order id, payment status, stage and "
+                "total for each, newest first. Read-only: answers directly "
+                "without confirmation. Use it for “我买过什么 / 我的订单列表”; "
+                "never invent orders that are not in the returned list."
+            ),
+            required_slots=[],
+            handler=recent_orders,
+            parameters_schema={
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": False,
+            },
+        )
+    )
+
+
 __all__ = [
     "ORDER_TIMELINE_TAGS",
+    "RECENT_ORDERS_CAP",
+    "RECENT_ORDERS_TAGS",
     "OrderTimeline",
     "TimelineEvent",
     "TimelineEventKind",
     "TimelineLine",
     "build_timeline",
+    "register_recent_orders_tools",
     "register_timeline_tools",
 ]

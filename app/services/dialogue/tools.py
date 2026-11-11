@@ -331,6 +331,21 @@ def _owned_order(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def mock_refund(args: dict[str, Any]) -> dict[str, Any]:
+    order_id = str(args.get("order_id", ""))
+    # Store purchases live in the authoritative commerce system, not this
+    # demo store: refuse cleanly and point the operator at the commerce
+    # refund flow instead of surfacing a confusing "not found".
+    if order_id.startswith(("o_", "mo_", "pay_", "mp_", "ref_", "mr_")):
+        return {
+            "status": "reroute",
+            "order_id": order_id,
+            "message": (
+                "This is a store purchase id. Store orders are refunded by the "
+                "shopping lane's authoritative refund flow (commerce_refund_order) "
+                "after the customer's fresh confirmation — do not retry this tool "
+                "with that id."
+            ),
+        }
     order = _owned_order(args)
     amount = order["total_amount"]
     if amount > REFUND_AUTO_THRESHOLD:

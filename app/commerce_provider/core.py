@@ -44,6 +44,7 @@ from app.models.schemas.commerce import (
     OrderSnapshot,
     PaymentSnapshot,
     QuoteSnapshot,
+    RefundSnapshot,
 )
 from app.models.schemas.commerce_taxonomy import RegistryCategory, RegistryTaxonomy
 
@@ -327,10 +328,7 @@ class CommerceProviderCore:
             "variant_values": list(category.variant_values),
             "base_price_minor": category.base_price_minor,
             "brand_styles": (
-                [
-                    {"brand": item.brand, "series": item.series}
-                    for item in category.brand_styles
-                ]
+                [{"brand": item.brand, "series": item.series} for item in category.brand_styles]
                 if category.brand_styles is not None
                 else None
             ),
@@ -965,6 +963,59 @@ class CommerceProviderCore:
             owner_user_id, "mock_pay", request_key, arguments, payment_id, work
         )
         return PaymentSnapshot.model_validate(result)
+
+    async def refund_order(
+        self, owner_user_id: int, order_id: str, request_key: str
+    ) -> RefundSnapshot:
+        arguments: dict[str, Any] = {"order_id": order_id}
+
+        def work(connection: sqlite3.Connection, _processing: bool) -> dict[str, Any]:
+            order_row = connection.execute(
+                "SELECT order_id, owner_user_id, total_minor, status FROM orders "
+                "WHERE order_id = ?",
+                (order_id,),
+            ).fetchone()
+            if order_row is None or int(order_row["owner_user_id"]) != owner_user_id:
+                raise ProviderNotFoundError("模拟订单不可用")
+            payment_row = connection.execute(
+                "SELECT payment_id, status FROM payments WHERE order_id = ?",
+                (order_id,),
+            ).fetchone()
+            if payment_row is None:
+                raise ProviderRejectedError("该订单没有可退款的付款记录")
+            status = str(payment_row["status"])
+            if status == "refunded":
+                # Idempotent replay across request keys: one refund per order.
+                return {
+                    "refund_id": "ref_" + order_id,
+                    "order_id": order_id,
+                    "payment_id": str(payment_row["payment_id"]),
+                    "total_minor": int(order_row["total_minor"]),
+                    "currency": "CNY",
+                    "status": "refunded",
+                }
+            if status != "paid":
+                raise ProviderRejectedError("只有已支付订单可以退款")
+            now = to_iso(self.clock())
+            connection.execute(
+                "UPDATE payments SET status = 'refunded', updated_at = ? WHERE payment_id = ?",
+                (now, str(payment_row["payment_id"])),
+            )
+            connection.execute(
+                "UPDATE orders SET status = 'refunded', updated_at = ? WHERE order_id = ?",
+                (now, order_id),
+            )
+            return {
+                "refund_id": "ref_" + order_id,
+                "order_id": order_id,
+                "payment_id": str(payment_row["payment_id"]),
+                "total_minor": int(order_row["total_minor"]),
+                "currency": "CNY",
+                "status": "refunded",
+            }
+
+        result = await self._mutate(owner_user_id, "refund", request_key, arguments, order_id, work)
+        return RefundSnapshot.model_validate(result)
 
     async def get_status(self, owner_user_id: int, payment_id: str) -> PaymentSnapshot:
         self._require_owner(owner_user_id)

@@ -73,6 +73,11 @@ class SandboxPayRequest(CommerceModel):
     request_key: str = Field(min_length=1, max_length=128)
 
 
+class RefundOrderRequest(CommerceModel):
+    owner_user_id: int = Field(ge=1)
+    request_key: str = Field(min_length=1, max_length=128)
+
+
 class MintCategoryAttributeInput(CommerceModel):
     """One attribute axis proposed for a runtime-minted category."""
 
