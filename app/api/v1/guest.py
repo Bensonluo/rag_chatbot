@@ -502,6 +502,9 @@ async def chat_stream(
                         "session_id": body.session_id,
                         "session_key": body.expected_session_key,
                         "status": reply.receipt.status,
+                        # Same CommerceView channel the non-stream reply
+                        # returns; the card's structured approval rides here.
+                        "ui": reply.ui.model_dump(mode="json") if reply.ui else None,
                     }
                 )
                 yield f"event: completion\ndata: {payload}\n\n"

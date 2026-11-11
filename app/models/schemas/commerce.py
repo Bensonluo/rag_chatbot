@@ -204,8 +204,62 @@ class StatusBlock(CommerceModel):
     operation_id: str | None = None
 
 
+class SpendLimitBlock(CommerceModel):
+    """Structured refusal when a scoped-delegation spend limit blocks an order.
+
+    The block is a server fact: it carries the configured limit, the
+    attempted amount and the handoff ticket that a human can resolve to
+    delegate the purchase. No field is model-generated.
+    """
+
+    type: Literal["spend_limit"] = "spend_limit"
+    title: str = "消费限额保护"
+    limit_kind: Literal["single", "daily"]
+    limit_minor: int = Field(ge=0)
+    attempted_minor: int = Field(ge=0)
+    window_paid_minor: int | None = Field(default=None, ge=0)
+    ticket_id: int | None = None
+    message: str
+
+
+class ApprovalLine(CommerceModel):
+    """One orderable line of the confirmation card, copied from the quote."""
+
+    sku_id: str
+    name: str
+    quantity: int = Field(ge=1)
+    unit_price_minor: int = Field(ge=0)
+    subtotal_minor: int = Field(ge=0)
+
+
+class ApprovalCard(CommerceModel):
+    """Structured confirmation card for the irreversible next step.
+
+    Every field is copied from the durable PurchaseConfirmation snapshot
+    and the purchase row it belongs to — the LLM never authors card data,
+    and the card total is the amount an order must match. ``confirm_order``
+    cards are bound to the quote TTL: once ``expires_at`` passes the card
+    disappears because the order it describes can no longer be created.
+    ``confirm_payment`` cards describe an already-created order, so the
+    quote window is informational there, not a payment deadline.
+    """
+
+    purchase_id: str
+    stage: Literal["quoted", "awaiting_payment"]
+    action: Literal["confirm_order", "confirm_payment"]
+    action_label: Literal["确认下单", "确认支付"]
+    lines: list[ApprovalLine] = Field(min_length=1, max_length=50)
+    total_minor: int = Field(ge=0)
+    currency: Literal["CNY"] = "CNY"
+    quote_hash: str
+    expires_at: datetime
+    purchase_version: int = Field(ge=0)
+    generation: int = Field(ge=0)
+
+
 CommerceBlock = Annotated[
-    CatalogBlock | CartBlock | QuoteBlock | PaymentBlock | StatusBlock, Field(discriminator="type")
+    CatalogBlock | CartBlock | QuoteBlock | PaymentBlock | StatusBlock | SpendLimitBlock,
+    Field(discriminator="type"),
 ]
 
 
@@ -217,3 +271,4 @@ class CommerceView(CommerceModel):
     stage: CommerceStage
     snapshot_at: datetime
     blocks: list[CommerceBlock]
+    approval: ApprovalCard | None = None

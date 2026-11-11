@@ -678,6 +678,20 @@ class Settings(BaseSettings):
         description="Bounded timeout for optional external commerce provider calls",
     )
 
+    # Commerce spend limits (scoped delegation guard on order creation).
+    # 0 disables a limit; over-limit commits create a spend_limit handoff
+    # ticket instead of an order.
+    COMMERCE_SPEND_LIMIT_SINGLE_CENTS: int = Field(
+        default=0,
+        ge=0,
+        description="Per-order spend cap in minor units (cents/fen); 0 disables",
+    )
+    COMMERCE_SPEND_LIMIT_DAILY_CENTS: int = Field(
+        default=0,
+        ge=0,
+        description="Rolling 24h per-visitor paid-order spend cap in minor units; 0 disables",
+    )
+
     # Monitoring
     ENABLE_METRICS: bool = Field(default=True, description="Enable Prometheus metrics")
     METRICS_PORT: int = Field(default=9090, description="Metrics port")
