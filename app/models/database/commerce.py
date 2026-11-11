@@ -22,7 +22,9 @@ class PurchaseSession(Base, TimestampMixin):
     __table_args__ = (
         CheckConstraint("version >= 0 AND generation >= 0", name="ck_commerce_purchase_versions"),
         UniqueConstraint("active_slot", name="uq_commerce_active_slot"),
-        CheckConstraint("quantity >= 0 AND quantity <= 10", name="ck_commerce_purchase_quantity"),
+        # The legacy single-SKU ``quantity`` column is never written by the
+        # service layer (multi-line carts own quantities); its 0..10 CHECK was
+        # removed by migration b7f3d2c9a4e1 as a dead constraint.
     )
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     owner_user_id: Mapped[int] = mapped_column(
