@@ -700,6 +700,24 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Commerce proactive price watch (pre-authorized condition + trigger + ask).
+    # A watch rule is the visitor's explicit pre-authorization for the agent
+    # to ASK when the price condition holds; rules are notify-only and never
+    # create orders or payments. Trigger evaluation is event-driven
+    # (conversation-time price reads); production would add a cron/worker.
+    COMMERCE_WATCH_MAX_RULES_PER_VISITOR: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Cap on simultaneously armed price-watch rules per visitor",
+    )
+    COMMERCE_WATCH_MAX_AGE_DAYS: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        description="Upper bound on a watch rule's lifetime before it expires silently",
+    )
+
     # Monitoring
     ENABLE_METRICS: bool = Field(default=True, description="Enable Prometheus metrics")
     METRICS_PORT: int = Field(default=9090, description="Metrics port")

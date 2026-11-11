@@ -32,6 +32,7 @@ from app.models.database.commerce_taxonomy import (  # noqa: F401
     CommerceTaxonomyCategory,
     CommerceTaxonomyVersion,
 )
+from app.models.database.commerce_watch import PriceWatch  # noqa: F401
 
 # Import all models to ensure they're registered with SQLAlchemy
 # (side-effect imports — removing them empties Base.metadata and would

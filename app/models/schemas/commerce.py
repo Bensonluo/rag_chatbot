@@ -257,6 +257,32 @@ class ApprovalCard(CommerceModel):
     generation: int = Field(ge=0)
 
 
+class WatchCard(CommerceModel):
+    """Structured ask card for a fired price-watch trigger.
+
+    Every field is copied from the durable watch rule row and the
+    provider price fact that satisfied it — the LLM never authors card
+    data. The card only ASKS whether to order now ("pre-authorized
+    condition + trigger + confirm"): ordering still goes through the
+    existing quote → order → payment confirmation state machine, and a
+    watch rule itself never creates cart, order or payment state.
+    ``expires_at`` is the rule's lifetime bound, informational only —
+    unlike an order card it carries no deadline semantics.
+    """
+
+    watch_id: str
+    sku_id: str
+    sku_name: str
+    target_price_minor: int = Field(ge=1)
+    current_price_minor: int = Field(ge=0)
+    currency: Literal["CNY"] = "CNY"
+    condition: Literal["at_or_below"] = "at_or_below"
+    action: Literal["ask_order"] = "ask_order"
+    action_label: Literal["现在下单"] = "现在下单"
+    triggered_at: datetime
+    expires_at: datetime
+
+
 CommerceBlock = Annotated[
     CatalogBlock | CartBlock | QuoteBlock | PaymentBlock | StatusBlock | SpendLimitBlock,
     Field(discriminator="type"),
@@ -272,3 +298,4 @@ class CommerceView(CommerceModel):
     snapshot_at: datetime
     blocks: list[CommerceBlock]
     approval: ApprovalCard | None = None
+    watch: WatchCard | None = None
