@@ -30,7 +30,7 @@ def upgrade() -> None:
         sa.Column("visitor_id", sa.String(36), nullable=False),
         sa.Column("pref_key", sa.String(64), nullable=False),
         sa.Column("pref_value", JsonValue, nullable=False),
-        sa.Column("source", sa.String(16), nullable=False, server_default="inferred"),
+        sa.Column("source", sa.String(16), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()
