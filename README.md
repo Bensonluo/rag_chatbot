@@ -806,7 +806,7 @@ PRs welcome! Especially:
 - 📚 More GraphRAG use cases (currently: customer service KB)
 - 🌍 i18n improvements
 
-For development setup, follow the local-development commands above and run `pytest` before opening a PR.
+Setup instructions, quality gates, and commit/PR conventions are in [CONTRIBUTING.md](CONTRIBUTING.md). For vulnerabilities, follow [SECURITY.md](SECURITY.md) — do not open public issues for security reports.
 
 ---
 
