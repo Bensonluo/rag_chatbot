@@ -1,8 +1,8 @@
 <div align="center">
 
-# Agentic RAG Smart Customer Service
+# Agent Store
 
-**An enterprise-grade Agentic RAG customer service system connecting multi-turn business tasks, versioned knowledge, evidence-backed answers, and human handoff. Built with FastAPI and LangGraph.**
+**An agent you can trust with money: agentic commerce with real transactional guarantees — quotes before orders, idempotent payments, exactly-once price alerts — running on an engine that also delivers enterprise RAG customer service. Built with FastAPI and LangGraph.**
 
 [![Live Demo](https://img.shields.io/badge/LIVE-DEMO-brightgreen?style=for-the-badge&logo=vercel)](https://benluo.art/projects/rag-chatbot/)
 [![GitHub stars](https://img.shields.io/github/stars/Bensonluo/rag_chatbot?style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/stargazers)
@@ -13,7 +13,9 @@
 [![LangGraph](https://img.shields.io/badge/LangGraph-StateGraph-FF6B6B)](https://github.com/langchain-ai/langgraph)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 
-`intent routing → slot filling / tool call / FAQ fast path / agent loop / hybrid retrieval → claim-gated streaming → handoff`
+`commerce: open need → category search (154,624 SKUs) → staged quote-confirm → CAS + idempotent order/pay → timeline / price watch`
+
+`support: intent routing → slot filling / tool call / FAQ fast path / agent loop / hybrid retrieval → claim-gated streaming → handoff`
 
 </div>
 
@@ -36,9 +38,11 @@
 
 ## 💡 Why This Project
 
-Customer service needs to resolve business requests while keeping policy answers, task state, and staff handoffs consistent. Users interrupt a refund flow to ask a question; policies change after an answer was sent; human agents need the original context rather than a fresh conversation.
+Most agent demos stop at the tool call and pretend it succeeded. This project asks the harder question: **what has to be true before you can hand an LLM agent your wallet?** The answer here is a full transactional contract — a quote you confirm before an order exists, `expected_version` CAS and `request_key` idempotency on every write, staged registration for order and payment with separate explicit confirmations, reconnects that reconcile instead of double-charging, exactly-once price alerts, and server-authoritative cards that win whenever the model narrates something different.
 
-The system connects a 12-node LangGraph dialogue engine with hybrid retrieval, versioned document ingestion, claim-gated streaming, and assigned-agent handoff. Business actions use a ToolRegistry; completed actions remain terminal so task resumption cannot silently execute them twice.
+The same engine solves the customer-service version of that trust problem: resolve business requests while keeping policy answers, task state, and staff handoffs consistent. Users interrupt a refund flow to ask a question; policies change after an answer was sent; human agents need the original context rather than a fresh conversation.
+
+The system connects a 14-node LangGraph dialogue engine with a deterministic commerce provider (154,624 SKUs projected from a stable 8-digit address space), hybrid retrieval, versioned document ingestion, claim-gated streaming, and assigned-agent handoff. Business actions use a ToolRegistry; completed actions remain terminal so task resumption cannot silently execute them twice.
 
 ### Enterprise architecture and delivery
 
@@ -55,13 +59,16 @@ Deployment commands below start a single API instance. Replica templates, option
 
 | Capability | Implementation | Business purpose |
 |---|---|---|
-| Stateful task execution | 12-node StateGraph, five-way routing, slot collection, task stack, ToolRegistry | Complete requests across interruptions without repeating completed actions |
+| Transactional shopping agent | Open need → category mapping → tool loop (20 steps / 30 LLM calls), staged quote→order→payment with CAS + idempotency, server-authoritative cards | Let an agent complete purchases without double charges or unconfirmed money movement |
+| Proactive price watches | Pre-authorized "SKU X ≤ ¥Y → ask me" rules, event-driven evaluation, exactly-once ask delivery | Notify on real drops without ever ordering on the visitor's behalf |
+| Order timeline | Full event chain rebuilt from authoritative purchase/operation/confirmation rows, read-only and owner-scoped | Answer "what happened to my order" from facts, not narration |
+| Stateful task execution | 14-node StateGraph, five-way routing, slot collection, task stack, ToolRegistry | Complete requests across interruptions without repeating completed actions |
 | Versioned support knowledge | Retained sources, immutable revisions, retryable ingestion, stable passage IDs | Trace an answer back to the policy version used at the time |
 | Retrieval and answer control | Vector + BM25 + RRF + reranking, optional GraphRAG, sentence-level claim gates | Retrieve relevant evidence and check curated policy facts before streaming |
 | Human handoff | Private sign-in workspace, tickets/queue, assigned context, two-way human messages, atomic final reply/closure | Carry context into staff handling and deliver a saved explanation |
 | Operational control | Epoch-scoped L0/L1/L2 cache, metrics/alerts, tracing, rate limits | Inspect latency, outcomes, cache consistency and load |
 
-**Recorded quality baseline (2026-10-28):** 3720 passing core tests, 3 opt-in scenarios skipped by default, 93.57% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
+**Recorded quality baseline (2026-11-11):** 4099 passing core tests, 3 opt-in scenarios skipped by default, 93.56% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
 
 [Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md)
 
@@ -179,6 +186,9 @@ The chatbot is deployed and interactive at:
 > 🎯 **[benluo.art/projects/rag-chatbot/](https://benluo.art/projects/rag-chatbot/)**
 
 Try these scenarios:
+- 🛒 **Shop with confirmation gates**: Say "送女友一副降噪耳机,预算 400 以内" — the agent searches the catalog, proposes candidates, prepares a quote, and only orders after you explicitly confirm; payment is a separate confirmation
+- 🔔 **Pre-authorize a price watch**: Say "ANC-02 降到 300 以内就来问我" — the next time fresh provider prices satisfy the rule, the agent asks exactly once, and the card's price wins over any narration
+- 🧾 **Track the order**: Ask "我的订单怎么样了" — the timeline is rebuilt from authoritative rows (cart versions, quote TTL, order, payment, idempotency receipts)
 - 🔄 **Intent switch**: Ask "我要退款", partially answer, then ask "退货政策是什么"
 - 📚 **RAG retrieval**: Ask about return policy, shipping, warranty
 - 🛠️ **Function Calling**: Complete a refund/return/order query workflow
@@ -479,7 +489,7 @@ separately configured checkpoint databases require their own recovery plans.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 3720 passed + 3 opt-in skipped / 93.57%)
+# Maintained core suite (70% minimum; currently 4099 passed + 3 opt-in skipped / 93.56%)
 pytest
 
 # Targeted runs
@@ -751,22 +761,26 @@ while its action-ref UI contract is obsolete. See the
 
 | Metric | Value |
 |--------|-------|
-| Maintained test results | **3720 passed, 3 opt-in skipped** |
-| Maintained core coverage | **93.57%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
-| Python files (app/) | 495 |
-| Python files in app/tests/ | 261 (255 test_ modules) |
+| Maintained test results | **4099 passed, 3 opt-in skipped** |
+| Maintained core coverage | **93.56%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
+| Python files (app/, incl. tests) | 558 (260 source + 298 tests; 289 test_ modules) |
 
 ---
 
 ## 🗺️ Roadmap
 
-- [x] LangGraph StateGraph with 12 nodes + conditional routing
+- [x] LangGraph StateGraph with 14 nodes + conditional routing
 - [x] Intent switch & resume via state stack
 - [x] Task terminality guard (executed tasks never suspended or auto-resumed)
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 3720 passing core tests, 93.57% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
+- [x] 4099 passing core tests, 93.56% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
+- [x] Public shopping agent: semantic routing, deterministic 154,624-SKU catalog provider, staged quote → order → payment with expected_version CAS + request_key idempotency
+- [x] Server-authoritative cards: approval and price-watch cards assembled from durable rows + provider facts, riding the SSE completion receipt; the card wins over narration
+- [x] Pre-authorized price watches: "SKU X ≤ ¥Y → ask me" rules with event-driven evaluation and exactly-once ask delivery (notify-only, 5 rules / visitor, 30-day expiry)
+- [x] Order timeline: full event chain rebuilt from authoritative purchase/operation/confirmation rows as a read-only owner-scoped tool
+- [x] Shopping-agent evals: guest commerce flow suite + prompt-injection red-team corpus
 - [x] FAQ fast path (curated answers skip retrieval)
 - [x] Agent tool loop with bounded iterations
 - [x] Claim-gated streaming (policy numbers verified before release)
@@ -814,11 +828,16 @@ If this project helped you, please ⭐ star the repo — it helps others discove
 
 ## 🇨🇳 中文说明
 
-**Agentic RAG 企业级智能客服系统** — 面向企业知识服务与业务办理，连接多轮任务、版本化知识、可追溯回答与人工工单，覆盖对话编排、检索治理、安全门控和运维观测。
+**Agent Store — 可托付的购物 Agent 与企业级智能客服** — 一套可信 Agent 引擎,两种业务:面向公众的购物 Agent 完成「检索 → 报价确认 → 幂等下单 → 付款确认」全链交易,并带预授权降价提醒与订单时间线;同一引擎支撑企业知识服务与业务办理,连接多轮任务、版本化知识、可追溯回答与人工工单,覆盖对话编排、检索治理、安全门控和运维观测。
 
 ### 核心亮点
 
-- **LangGraph StateGraph 对话图**:12 节点编排(安全检查 → 意图识别 → 意图切换 → 路由 → 槽位/工具/FAQ/RAG/Agent → 生成 → 转人工)
+- **交易型购物 Agent**:开放需求 → 类目映射 → 工具循环(20 步 / 30 次 LLM 调用双预算),报价 → 下单 → 付款分阶段注册并各自显式确认,expected_version CAS + request_key 幂等,断线重连不重复扣款
+- **确定性虚拟目录**:154,624 个 SKU(151 类目 × 32 品牌 × 8 型号 × 4 变体)按纯函数投影,SQLite 只存交易与 delta;每轮最多呈现 5 个 typed SKU
+- **预授权降价提醒**:「SKU X ≤ ¥Y 就来问我」事件驱动评估,exactly-once 送达,只提醒不代下单(每访客 5 条、30 天过期)
+- **服务端权威卡片**:审批卡/降价提醒卡字段全部来自持久行 + provider 事实,与模型口述冲突时以卡为准
+- **订单时间线**:从权威行重建购物车版本、报价 TTL、下单、付款与幂等回执的全链事件,只读且 owner-scoped
+- **LangGraph StateGraph 对话图**:14 节点编排(安全检查 → 意图识别 → 意图切换 → 路由 → 槽位/工具/FAQ/RAG/Agent → 生成 → 转人工)
 - **业务意图分类**:5 种任务型(退款/退货/订单查询/物流追踪/投诉)+ 知识型 + 对话型 + 元意图
 - **五路路由**:task → 槽位收集 → 工具执行;faq → 策展命中直出;rag → 检索生成;agent → 工具循环;direct → LLM 直答
 - **多轮槽位收集**:正则提取 + 短消息回退,缺槽追问
