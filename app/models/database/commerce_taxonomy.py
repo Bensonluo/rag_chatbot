@@ -26,9 +26,17 @@ from sqlalchemy import (
 from sqlalchemy import (
     text as sa_text,
 )
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.database.base import Base, TimestampMixin
+
+# JSONB on PostgreSQL: plain `json` has no equality operator, which breaks
+# Alembic's `command.check` server-default probe (it evaluates
+# `SELECT '<default>'::json = '<default>'` and Postgres rejects
+# `json = unknown`). The same variant pattern is used by
+# visitor_preferences (b9d4e6f2a1c8).
+VariantValuesJson = JSON().with_variant(postgresql.JSONB(), "postgresql")
 
 
 class CommerceTaxonomyVersion(Base, TimestampMixin):
@@ -78,7 +86,7 @@ class CommerceTaxonomyCategory(Base, TimestampMixin):
         String(32), nullable=False, default="颜色", server_default="颜色"
     )
     variant_values: Mapped[list[str]] = mapped_column(
-        JSON,
+        VariantValuesJson,
         nullable=False,
         default=lambda: ["黑色", "白色", "银色", "灰色"],
         server_default=sa_text('\'["黑色", "白色", "银色", "灰色"]\''),

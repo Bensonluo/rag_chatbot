@@ -17,6 +17,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "c7e1f5a92d03"
@@ -25,6 +26,13 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 _DEFAULT_VARIANT_VALUES = '["黑色", "白色", "银色", "灰色"]'
+
+# JSONB on PostgreSQL: plain `json` has no equality operator, so Alembic's
+# `command.check` server-default probe (`SELECT '<default>'::json = ...`)
+# fails on PG with `operator does not exist: json = unknown`. JSONB has
+# equality; other dialects keep generic JSON. See the matching ORM variant
+# in app/models/database/commerce_taxonomy.py and b9d4e6f2a1c8.
+VariantValuesJson = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
 
 
 def upgrade() -> None:
@@ -36,7 +44,7 @@ def upgrade() -> None:
         "commerce_taxonomy_categories",
         sa.Column(
             "variant_values",
-            sa.JSON(),
+            VariantValuesJson,
             nullable=False,
             server_default=sa.text(f"'{_DEFAULT_VARIANT_VALUES}'"),
         ),
