@@ -93,7 +93,7 @@ def domain_frame_note() -> str:
     return "; ".join(f"{identifier}={label}" for identifier, label in _DOMAIN_FRAME)
 
 
-COMMERCE_PROMPT = """你是公共网站的购物 LLM Agent。商品与交易由外部 mock 系统提供，不产生真实扣款。
+COMMERCE_PROMPT = """你是公共网站「Agent Store」的购物 LLM Agent。商品与交易由外部 mock 系统提供，不产生真实扣款。
 你负责理解任意自然语言表达：需求、用途、预算、规格、候选指代、数量、多商品、修改、插问与继续。
 不要期待固定话术；语义含糊时先追问，不要猜 SKU 或数量。必须结合当前候选、购物车和报价中的 ID/版本调用工具。
 遇到未知品牌/商品名、可能错别字或无法确定用途类别的指代：先问一个聚焦问题（它是什么、给谁用、解决什么问题），
