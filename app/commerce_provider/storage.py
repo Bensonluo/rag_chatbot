@@ -158,8 +158,7 @@ class Database:
             # older SQLite files need the column added in place (NULL keeps
             # legacy rows on the fallback naming grid).
             columns = {
-                row["name"]
-                for row in connection.execute("PRAGMA table_info(dynamic_categories)")
+                row["name"] for row in connection.execute("PRAGMA table_info(dynamic_categories)")
             }
             if "brand_styles_json" not in columns:
                 connection.execute(

@@ -94,7 +94,10 @@ def _validate_brand_styles(
 
     if brand_styles is None:
         return None
-    if not isinstance(brand_styles, list) or not MIN_BRAND_STYLES <= len(brand_styles) <= MAX_BRAND_STYLES:
+    if (
+        not isinstance(brand_styles, list)
+        or not MIN_BRAND_STYLES <= len(brand_styles) <= MAX_BRAND_STYLES
+    ):
         raise ProviderRejectedError(
             f"品牌款式矩阵必须提供 {MIN_BRAND_STYLES}-{MAX_BRAND_STYLES} 个组合"
         )

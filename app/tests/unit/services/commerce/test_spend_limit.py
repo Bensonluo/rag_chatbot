@@ -68,7 +68,12 @@ async def shop(tmp_path, monkeypatch):
 
 
 def service(
-    maker: async_sessionmaker[AsyncSession], clock: Clock, port: MockCommercePort, *, single: int, daily: int
+    maker: async_sessionmaker[AsyncSession],
+    clock: Clock,
+    port: MockCommercePort,
+    *,
+    single: int,
+    daily: int,
 ) -> PurchaseService:
     return PurchaseService(
         maker,
@@ -93,13 +98,17 @@ async def quoted(
     return await view_service.prepare_checkout(owner, view.purchase_id, view.version)
 
 
-async def ticket_count(maker: async_sessionmaker[AsyncSession], reason: str = REASON_SPEND_LIMIT) -> int:
+async def ticket_count(
+    maker: async_sessionmaker[AsyncSession], reason: str = REASON_SPEND_LIMIT
+) -> int:
     async with maker() as db:
         rows = (await db.scalars(select(HandoffTicket).where(HandoffTicket.reason == reason))).all()
         return len(rows)
 
 
-async def stamp_paid_purchase(maker: async_sessionmaker[AsyncSession], purchase_id: str, when: datetime) -> None:
+async def stamp_paid_purchase(
+    maker: async_sessionmaker[AsyncSession], purchase_id: str, when: datetime
+) -> None:
     """Pin a paid purchase's updated_at (naive UTC storage, like sqlite).
 
     The DB column uses CURRENT_TIMESTAMP while the service clock is fixed

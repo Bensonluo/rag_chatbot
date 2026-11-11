@@ -109,9 +109,7 @@ class TestCallbackTraceSink:
 
         with trace_sink_active(sink):
             emit_trace("cs.tool", status="start", tool="commerce_graph_upsert")
-            emit_trace(
-                "cs.tool", status="end", ms=640, tool="commerce_graph_upsert", ok=True
-            )
+            emit_trace("cs.tool", status="end", ms=640, tool="commerce_graph_upsert", ok=True)
 
         assert [e.status for e in seen] == ["start", "end"]
         assert seen[-1].detail["tool"] == "commerce_graph_upsert"

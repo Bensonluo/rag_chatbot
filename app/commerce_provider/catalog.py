@@ -2329,9 +2329,7 @@ class VirtualCatalog:
         # the (brand, series) styles, so a search page spans brands instead
         # of one static brand's whole series line.
         self._pair_category_index: list[int] = [
-            category_index
-            for category_index in range(len(categories))
-            for _ in range(BRAND_COUNT)
+            category_index for category_index in range(len(categories)) for _ in range(BRAND_COUNT)
         ]
         self._category_pair_start: list[int] = [
             category_index * BRAND_COUNT for category_index in range(len(categories))
@@ -2583,9 +2581,7 @@ class VirtualCatalog:
                         # brand_styles category brands its models, not its
                         # pairs, so a static-brand token cannot select it.
                         if not category.brand_styles:
-                            pair_match.add(
-                                self._category_pair_start[category_index] + brand_index
-                            )
+                            pair_match.add(self._category_pair_start[category_index] + brand_index)
             for category_index, category in enumerate(self._categories):
                 # LLM-authored brand names resolve at category granularity:
                 # the whole (single-pair) category matches, the model loop
@@ -2625,9 +2621,7 @@ class VirtualCatalog:
         ]
         if category.brand_styles:
             parts.extend(
-                word
-                for style in category.brand_styles
-                for word in (style.brand, style.series)
+                word for style in category.brand_styles for word in (style.brand, style.series)
             )
         else:
             brand = BRANDS[pair_index % BRAND_COUNT]
@@ -2745,7 +2739,10 @@ def _search(
                     continue
             if series_residues:
                 models = heapq.merge(
-                    *(range(r, catalog.models_per_pair, SERIES_COUNT) for r in sorted(series_residues))
+                    *(
+                        range(r, catalog.models_per_pair, SERIES_COUNT)
+                        for r in sorted(series_residues)
+                    )
                 )
             else:
                 models = iter(range(catalog.models_per_pair))
