@@ -351,7 +351,12 @@ class TestBudgetMetadata:
 
 class TestBudgetSettings:
     def test_default_budget_is_finite_and_sane(self):
-        """Default must cap the pathological tail but fit the normal path."""
+        """Default must cap the pathological tail but fit the normal path.
+
+        30 fits the full minting journey (route + agent rounds + re-search +
+        summary + fact extraction) since 0bdf352; 12 truncated first-time
+        mints into fallback apologies.
+        """
         from app.config.settings import settings
 
-        assert 4 <= settings.CHAT_LLM_CALL_BUDGET <= 12
+        assert 4 <= settings.CHAT_LLM_CALL_BUDGET <= 30

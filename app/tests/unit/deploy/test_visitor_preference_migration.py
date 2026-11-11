@@ -3,6 +3,7 @@
 import importlib.util
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from alembic.migration import MigrationContext
@@ -10,7 +11,7 @@ from alembic.operations import Operations
 from sqlalchemy import create_engine, event, inspect, text
 
 
-def _load_migration():
+def _load_migration() -> Any:
     path = (
         Path(__file__).resolve().parents[4]
         / "migrations/versions/b9d4e6f2a1c8_visitor_preferences.py"

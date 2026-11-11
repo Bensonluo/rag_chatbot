@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -31,7 +32,7 @@ CHOCOLATE = {
 }
 
 
-def _proposal(**overrides: object) -> dict[str, object]:
+def _proposal(**overrides: Any) -> dict[str, Any]:
     merged = {**CHOCOLATE, **overrides}
     return merged
 

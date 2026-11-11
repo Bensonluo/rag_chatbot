@@ -14,7 +14,8 @@ from typing import Any
 
 import pytest
 from mcp import Client
-from mcp.types import ElicitResult
+from mcp.client.session import ClientRequestContext
+from mcp.types import ElicitRequestParams, ElicitResult
 from starlette.testclient import TestClient as StarletteTestClient
 
 from app.commerce_provider.catalog import VirtualCatalog
@@ -44,11 +45,11 @@ EXPECTED_TOOLS = {
 }
 
 
-async def _accept(ctx: Any, params: Any) -> ElicitResult:
+async def _accept(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
     return ElicitResult(action="accept", content={"confirmed": True})
 
 
-async def _decline(ctx: Any, params: Any) -> ElicitResult:
+async def _decline(context: ClientRequestContext, params: ElicitRequestParams) -> ElicitResult:
     return ElicitResult(action="decline")
 
 

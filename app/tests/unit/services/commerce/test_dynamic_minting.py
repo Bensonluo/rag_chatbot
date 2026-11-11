@@ -196,7 +196,9 @@ async def test_mint_tool_carries_brand_styles_to_the_provider(shop) -> None:
     definition = registry.get_tool_by_name("commerce_propose_category")
     assert definition is not None
     # The LLM must be able to see the parameter.
-    assert "brand_styles" in definition.parameters_schema["properties"]
+    schema = definition.parameters_schema
+    assert schema is not None
+    assert "brand_styles" in schema["properties"]
 
     styles = [
         {"brand": "金穗坊", "series": "小榨原香"},
@@ -279,7 +281,7 @@ async def test_first_time_mint_journey_survives_extra_research_rounds(shop) -> N
     """
 
     from app.config.settings import settings
-    from app.services.agent.service import OUTCOME_STEPS_EXHAUSTED
+    from app.services.agent.metrics import OUTCOME_STEPS_EXHAUSTED
 
     service, _maker = shop
     registry = create_commerce_tools(service, OWNER, [], None)
