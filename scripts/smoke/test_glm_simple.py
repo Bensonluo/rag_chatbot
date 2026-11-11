@@ -2,6 +2,7 @@
 """
 Simple test to verify GLM API key is configured correctly.
 """
+
 import os
 import sys
 
@@ -15,7 +16,7 @@ def test_env_file():
     print("Testing GLM Configuration")
     print("=" * 60)
 
-    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    env_path = os.path.join(os.path.dirname(__file__), ".env")
 
     # Check if .env exists
     if not os.path.exists(env_path):
@@ -26,17 +27,17 @@ def test_env_file():
     print(f"\n✅ .env file found at: {env_path}")
 
     # Read and check content
-    with open(env_path, 'r') as f:
+    with open(env_path) as f:
         content = f.read()
 
     # Check for API key
-    if 'GLM_API_KEY=' in content:
+    if "GLM_API_KEY=" in content:
         print("✅ GLM_API_KEY found in .env file")
 
         # Extract and show part of the key (for security)
-        for line in content.split('\n'):
-            if line.startswith('GLM_API_KEY='):
-                key = line.split('=')[1]
+        for line in content.split("\n"):
+            if line.startswith("GLM_API_KEY="):
+                key = line.split("=")[1]
                 if key:
                     # Show first 20 and last 10 characters
                     if len(key) > 30:
@@ -51,10 +52,10 @@ def test_env_file():
         return False
 
     # Check for model
-    if 'GLM_MODEL=' in content:
-        for line in content.split('\n'):
-            if line.startswith('GLM_MODEL='):
-                model = line.split('=')[1]
+    if "GLM_MODEL=" in content:
+        for line in content.split("\n"):
+            if line.startswith("GLM_MODEL="):
+                model = line.split("=")[1]
                 print(f"✅ GLM_MODEL: {model}")
 
     print("\n" + "=" * 60)
@@ -77,10 +78,10 @@ def test_code_integration():
     print("=" * 60)
 
     files_to_check = [
-        'app/services/llm/glm_client.py',
-        'app/services/llm/factory.py',
-        'app/services/llm/__init__.py',
-        'app/config/settings.py',
+        "app/services/llm/glm_client.py",
+        "app/services/llm/factory.py",
+        "app/services/llm/__init__.py",
+        "app/config/settings.py",
     ]
 
     all_exist = True

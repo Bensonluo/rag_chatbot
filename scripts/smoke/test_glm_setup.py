@@ -5,9 +5,10 @@ Test script to verify GLM setup.
 This script tests the GLM integration with your API key.
 Run this after setting up your GLM_API_KEY to verify everything works.
 """
+
 import asyncio
-import sys
 import os
+import sys
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -19,8 +20,8 @@ async def test_glm_client():
     print("Testing GLM Client (Direct Instantiation)")
     print("=" * 60)
 
-    from app.services.llm import GLMClient, LLMMessage
     from app.config.settings import get_settings
+    from app.services.llm import GLMClient, LLMMessage
 
     settings = get_settings()
 
@@ -31,11 +32,11 @@ async def test_glm_client():
         print("GLM_API_KEY=your-api-key-here")
         return False
 
-    print(f"\n✅ GLM_API_KEY found")
+    print("\n✅ GLM_API_KEY found")
     print(f"📝 Model: {settings.GLM_MODEL}")
 
     try:
-        # Create client 
+        # Create client
         print("\n🔧 Initializing GLM client...")
         client = GLMClient(
             api_key=settings.GLM_API_KEY,
@@ -52,7 +53,7 @@ async def test_glm_client():
         print("⏳ Sending request to GLM API...")
         response = await client.generate(messages)
 
-        print(f"\n✅ Response received!")
+        print("\n✅ Response received!")
         print(f"📊 Model: {response.model}")
         print(f"📝 Content: {response.content}")
         print(f"🔢 Tokens: {response.usage}")
@@ -80,6 +81,7 @@ async def test_glm_client():
     except Exception as e:
         print(f"\n❌ ERROR: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return False
 

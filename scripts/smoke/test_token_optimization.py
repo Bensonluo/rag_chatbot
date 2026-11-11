@@ -4,9 +4,10 @@ Test script to demonstrate token savings with optimized context builder.
 
 Compares standard memory strategy vs optimized context builder.
 """
+
 import asyncio
-import sys
 import os
+import sys
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,17 +19,35 @@ async def simulate_conversation():
         {"role": "user", "content": "Hi there!"},
         {"role": "assistant", "content": "Hello! How can I help you today?"},
         {"role": "user", "content": "What's the weather like?"},
-        {"role": "assistant", "content": "I don't have access to weather data, but you can check a weather service."},
+        {
+            "role": "assistant",
+            "content": "I don't have access to weather data, but you can check a weather service.",
+        },
         {"role": "user", "content": "Tell me a joke"},
-        {"role": "assistant", "content": "Why did the chicken cross the road? To get to the other side!"},
+        {
+            "role": "assistant",
+            "content": "Why did the chicken cross the road? To get to the other side!",
+        },
         {"role": "user", "content": "What is Python?"},
-        {"role": "assistant", "content": "Python is a high-level programming language known for its simplicity and readability."},
+        {
+            "role": "assistant",
+            "content": "Python is a high-level programming language known for its simplicity and readability.",
+        },
         {"role": "user", "content": "How about Flask?"},
-        {"role": "assistant", "content": "Flask is a micro web framework written in Python. It's designed to make getting started quick and easy."},
+        {
+            "role": "assistant",
+            "content": "Flask is a micro web framework written in Python. It's designed to make getting started quick and easy.",
+        },
         {"role": "user", "content": "What's Django?"},
-        {"role": "assistant", "content": "Django is a high-level Python web framework that encourages rapid development and clean, pragmatic design."},
+        {
+            "role": "assistant",
+            "content": "Django is a high-level Python web framework that encourages rapid development and clean, pragmatic design.",
+        },
         {"role": "user", "content": "How do I deploy Flask apps?"},
-        {"role": "assistant", "content": "You can deploy Flask apps using various platforms like Heroku, AWS, Google Cloud, or traditional VPS servers."},
+        {
+            "role": "assistant",
+            "content": "You can deploy Flask apps using various platforms like Heroku, AWS, Google Cloud, or traditional VPS servers.",
+        },
         {"role": "user", "content": "What about async support in FastAPI?"},  # ← Current query
     ]
 
@@ -54,15 +73,12 @@ async def test_standard_memory():
     recent_messages = conversation[-window_size:]
 
     # Calculate tokens
-    total_tokens = sum(
-        estimate_tokens(msg["content"])
-        for msg in recent_messages
-    )
+    total_tokens = sum(estimate_tokens(msg["content"]) for msg in recent_messages)
 
     print(f"\n📊 Standard Approach (Last {window_size} messages):")
     print(f"  Total messages: {len(recent_messages)}")
     print(f"  Total tokens:  {total_tokens}")
-    print(f"  Relevance:     Mixed (includes irrelevant topics)")
+    print("  Relevance:     Mixed (includes irrelevant topics)")
 
     return total_tokens, len(recent_messages)
 
@@ -74,7 +90,7 @@ async def test_optimized_memory():
     print("=" * 60)
 
     conversation = await simulate_conversation()
-    current_query = conversation[-1]["content"]  # "What about async support in FastAPI?"
+    _current_query = conversation[-1]["content"]  # "What about async support in FastAPI?"
 
     # Simulate relevance filtering (simplified)
     # Always include last 3 for continuity
@@ -100,18 +116,15 @@ async def test_optimized_memory():
     selected = recent_messages + relevant_messages
 
     # Calculate tokens
-    total_tokens = sum(
-        estimate_tokens(msg["content"])
-        for msg in selected
-    )
+    total_tokens = sum(estimate_tokens(msg["content"]) for msg in selected)
 
-    print(f"\n📊 Optimized Approach (Relevance Filtering):")
+    print("\n📊 Optimized Approach (Relevance Filtering):")
     print(f"  Total messages: {len(selected)}")
     print(f"  Total tokens:  {total_tokens}")
-    print(f"  Relevance:     High (only web framework related)")
+    print("  Relevance:     High (only web framework related)")
 
     # Show selected messages
-    print(f"\n✅ Selected messages:")
+    print("\n✅ Selected messages:")
     for i, msg in enumerate(selected, 1):
         role_symbol = "👤" if msg["role"] == "user" else "🤖"
         preview = msg["content"][:60] + "..." if len(msg["content"]) > 60 else msg["content"]
@@ -148,7 +161,7 @@ async def main():
     print(f"  Message reduction:   {standard_count - optimized_count} messages")
 
     # Cost impact
-    print(f"\n💵 Cost Impact (GLM-4.5: ~¥0.01/1K tokens):")
+    print("\n💵 Cost Impact (GLM-4.5: ~¥0.01/1K tokens):")
     queries_per_month = 100_000
 
     standard_cost = (standard_tokens / 1000) * 0.01 * queries_per_month
@@ -164,7 +177,7 @@ async def main():
     print("=" * 60)
     print("  ✅ Reduced noise (only relevant context)")
     print("  ✅ Faster LLM inference (less context)")
-    print("  ✅ Lower API costs ({:.1f}% savings)".format(percent_saved))
+    print(f"  ✅ Lower API costs ({percent_saved:.1f}% savings)")
     print("  ✅ Better response quality (focused context)")
     print("  ✅ Automatic optimization (built-in)")
 

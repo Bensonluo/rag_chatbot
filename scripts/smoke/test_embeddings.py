@@ -4,9 +4,10 @@ Test script for embedding services.
 
 Tests local and GLM embedding services.
 """
+
 import asyncio
-import sys
 import os
+import sys
 import time
 
 # Add parent directory to path
@@ -47,7 +48,7 @@ async def test_local_embeddings():
         texts = [
             "机器学习是人工智能的一个分支。",
             "深度学习使用神经网络进行学习。",
-            "RAG结合了检索和生成技术。"
+            "RAG结合了检索和生成技术。",
         ]
         print(f"   Input: {len(texts)} texts")
 
@@ -64,6 +65,7 @@ async def test_local_embeddings():
     except Exception as e:
         print(f"\n❌ ERROR: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -74,8 +76,8 @@ async def test_glm_embeddings():
     print("Testing GLM Embeddings (API)")
     print("=" * 60)
 
-    from app.services.embeddings import GLMEmbeddingService
     from app.config.settings import get_settings
+    from app.services.embeddings import GLMEmbeddingService
 
     settings = get_settings()
 
@@ -87,10 +89,7 @@ async def test_glm_embeddings():
     try:
         # Initialize service
         print("\n🔧 Initializing GLM embedding service...")
-        service = GLMEmbeddingService(
-            api_key=settings.GLM_API_KEY,
-            model="embedding-2"
-        )
+        service = GLMEmbeddingService(api_key=settings.GLM_API_KEY, model="embedding-2")
 
         print(f"✅ Model: {service.model}")
         print(f"✅ Dimensions: {service.dimensions}")
@@ -113,7 +112,7 @@ async def test_glm_embeddings():
         texts = [
             "机器学习是人工智能的一个分支。",
             "深度学习使用神经网络进行学习。",
-            "RAG结合了检索和生成技术。"
+            "RAG结合了检索和生成技术。",
         ]
         print(f"   Input: {len(texts)} texts")
 
@@ -134,6 +133,7 @@ async def test_glm_embeddings():
     except Exception as e:
         print(f"\n❌ ERROR: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -151,7 +151,7 @@ async def test_embedding_factory():
 
         # Create local embedding service
         service = EmbeddingFactory.create(provider="local")
-        print(f"✅ Created local embedding service")
+        print("✅ Created local embedding service")
 
         # Test embedding
         texts = ["Factory test text."]
@@ -163,6 +163,7 @@ async def test_embedding_factory():
     except Exception as e:
         print(f"\n❌ ERROR: {str(e)}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -173,11 +174,8 @@ async def test_cached_embeddings():
     print("Testing Cached Embeddings (Redis)")
     print("=" * 60)
 
-    from app.services.embeddings import (
-        LocalEmbeddingService,
-        CachedEmbeddingService
-    )
     from app.config.settings import get_settings
+    from app.services.embeddings import CachedEmbeddingService, LocalEmbeddingService
 
     settings = get_settings()
 
@@ -191,7 +189,7 @@ async def test_cached_embeddings():
         cached_service = CachedEmbeddingService(
             embedding_service=base_service,
             redis_url=settings.REDIS_URL,
-            cache_ttl=3600  # 1 hour for testing
+            cache_ttl=3600,  # 1 hour for testing
         )
 
         print("✅ Created cached embedding service")
@@ -232,6 +230,7 @@ async def test_cached_embeddings():
         print(f"\n❌ ERROR: {str(e)}")
         print("   Make sure Redis is running: docker-compose up -d redis")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -260,7 +259,9 @@ async def main():
     print(f"Local Embeddings: {'✅ PASSED' if test1_passed else '❌ FAILED'}")
     print(f"GLM Embeddings: {'✅ PASSED' if test2_passed else '❌ FAILED (or skipped)'}")
     print(f"Embedding Factory: {'✅ PASSED' if test3_passed else '❌ FAILED'}")
-    print(f"Cached Embeddings: {'✅ PASSED' if test4_passed else '❌ FAILED (or Redis not available)'}")
+    print(
+        f"Cached Embeddings: {'✅ PASSED' if test4_passed else '❌ FAILED (or Redis not available)'}"
+    )
 
     all_passed = test1_passed and test2_passed and test3_passed and test4_passed
 
