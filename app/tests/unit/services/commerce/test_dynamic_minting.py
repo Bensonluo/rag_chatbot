@@ -17,7 +17,7 @@ import asyncio
 import json
 import socket
 from collections.abc import AsyncIterator, Iterator
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import httpx
@@ -34,11 +34,20 @@ from app.services.commerce.external_port import ExternalCommercePort
 from app.services.commerce.graph_service import CommerceGraphService
 from app.services.commerce.mock_port import MockCommercePort
 from app.services.commerce.service import PurchaseService
-from app.services.commerce.tools import create_commerce_tools
+from app.services.commerce.tools import CATALOG_DATA_TAGS, create_commerce_tools
 from app.services.graph.base import GraphEntity, GraphRelation, GraphSearchResult
 from app.services.llm.base import LLMMessage, LLMResponse
 
 OWNER = 1
+
+
+def _provider_facts(payload: dict[str, Any]) -> dict[str, Any]:
+    """Tool payloads wrap provider facts in a delimited block; parse it out."""
+    open_tag, close_tag = CATALOG_DATA_TAGS
+    block = payload["catalog_data"]
+    assert block.startswith(open_tag) and block.endswith(close_tag)
+    return cast(dict[str, Any], json.loads(block[len(open_tag) : -len(close_tag)].strip()))
+
 
 MINT_ARGS: dict[str, Any] = {
     "name": "糖果巧克力",
@@ -171,9 +180,9 @@ async def test_mint_tool_is_a_catalog_fact_not_a_purchase_view(shop) -> None:
     registry = create_commerce_tools(service, OWNER, views, None)
     result = await registry.execute("commerce:propose_category", MINT_ARGS, user_id=OWNER)
     assert result.success, result.message
-    payload = result.data
-    assert payload["mint_result"]["status"] == "minted"
-    assert payload["mint_result"]["category"]["name"] == "糖果巧克力"
+    payload = _provider_facts(result.data)
+    assert payload["status"] == "minted"
+    assert payload["category"]["name"] == "糖果巧克力"
     assert views == []  # no staged purchase view
 
 
@@ -199,7 +208,7 @@ async def test_mint_tool_carries_brand_styles_to_the_provider(shop) -> None:
         "commerce:propose_category", {**MINT_ARGS, "brand_styles": styles}, user_id=OWNER
     )
     assert result.success, result.message
-    assert result.data["mint_result"]["status"] == "minted"
+    assert _provider_facts(result.data)["status"] == "minted"
 
     malformed = await registry.execute(
         "commerce:propose_category",
@@ -218,10 +227,10 @@ async def test_mint_dedupes_normalized_names_to_existing(shop) -> None:
     twin_args = {**MINT_ARGS, "name": "糖果 巧克力", "base_price_yuan": 99}
     twin = await registry.execute("commerce:propose_category", twin_args, user_id=OWNER)
     assert twin.success
-    payload = twin.data
-    assert payload["mint_result"]["status"] == "existing"
-    assert payload["mint_result"]["dynamic_category_count"] == 1
-    assert payload["mint_result"]["category"]["base_price_minor"] == 1500
+    payload = _provider_facts(twin.data)
+    assert payload["status"] == "existing"
+    assert payload["dynamic_category_count"] == 1
+    assert payload["category"]["base_price_minor"] == 1500
 
 
 async def test_minted_name_research_is_never_blocked_by_zero_result_budget(shop) -> None:
@@ -276,10 +285,10 @@ async def test_first_time_mint_journey_survives_extra_research_rounds(shop) -> N
     registry = create_commerce_tools(service, OWNER, [], None)
     planner = ScriptedPlanner(
         [
-            ("search_products", {"query": "猪油"}),   # miss
+            ("search_products", {"query": "猪油"}),  # miss
             ("discover_catalog", {}),
-            ("search_products", {"query": "猪油"}),   # re-search miss
-            ("search_products", {"query": "猪油"}),   # wasted re-search
+            ("search_products", {"query": "猪油"}),  # re-search miss
+            ("search_products", {"query": "猪油"}),  # wasted re-search
             ("propose_category", {**MINT_ARGS, "name": "猪油", "domain": "food"}),
             ("search_products", {"query": "糖果巧克力"}),  # post-mint research
             None,  # summary prose
@@ -457,8 +466,7 @@ async def test_existing_twin_does_not_upsert_again_and_failures_degrade(shop) ->
     assert twin.success
     for _ in range(10):
         await asyncio.sleep(0)
-    payload = twin.data
-    assert payload["mint_result"]["status"] == "existing"
+    assert _provider_facts(twin.data)["status"] == "existing"
     # The failing graph never breaks the mint path; nothing crashed above.
 
 
@@ -469,7 +477,7 @@ async def test_mock_port_publishes_minted_categories_in_discovery(shop) -> None:
     assert minted.success
     index = await registry.execute("commerce:discover_catalog", {}, user_id=OWNER)
     assert index.success
-    payload = index.data
+    payload = _provider_facts(index.data)
     names = {item["name"] for item in payload["catalog_category_index"]}
     assert "糖果巧克力" in names
 

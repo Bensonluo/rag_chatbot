@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import socket
 from collections.abc import AsyncIterator, Iterator
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import httpx
@@ -42,7 +42,11 @@ from app.services.commerce.graph_service import CommerceGraphService
 from app.services.commerce.mock_port import CATALOG, MockCommercePort
 from app.services.commerce.port import ProviderRejected, ProviderUnknown
 from app.services.commerce.service import PurchaseService
-from app.services.commerce.tools import create_commerce_tools
+from app.services.commerce.tools import (
+    CATALOG_DATA_TAGS,
+    GRAPH_DATA_TAGS,
+    create_commerce_tools,
+)
 from app.services.dialogue.tools import ToolResult
 from app.services.graph.base import GraphEntity, GraphRelation, GraphSearchResult
 from app.services.llm.base import LLMMessage, LLMResponse
@@ -229,6 +233,16 @@ class ScriptUseCasePlanner:
         )
 
 
+def _provider_facts(
+    payload: dict[str, Any], tags: tuple[str, str] = CATALOG_DATA_TAGS
+) -> dict[str, Any]:
+    """Tool payloads wrap provider facts in a delimited block; parse it out."""
+    block = payload["catalog_data"] if tags == CATALOG_DATA_TAGS else payload["graph_data"]
+    open_tag, close_tag = tags
+    assert block.startswith(open_tag) and block.endswith(close_tag)
+    return cast(dict[str, Any], json.loads(block[len(open_tag) : -len(close_tag)].strip()))
+
+
 @pytest.fixture(autouse=True)
 def blocked_sockets(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     def blocked(*args: Any, **kwargs: Any) -> None:
@@ -386,11 +400,13 @@ async def test_discover_tool_stages_no_purchase_view(shop) -> None:
     assert result.success
     # No-args discovery is the compact index: id + name per category, with a
     # bounded detail pull as the second level.
-    index = result.data["catalog_category_index"]
+    facts = _provider_facts(result.data)
+    index = facts["catalog_category_index"]
     assert index and index[0]["name"]
-    assert len(index) == result.data["category_count"]
+    assert len(index) == facts["category_count"]
     assert set(index[0]) == {"category_id", "name"}
     assert "catalog_categories" not in result.data
+    assert result.data["source"] == "provider-data"
     assert result.data["detail_hint"]
     assert views == []
     assert await _count(maker, PurchaseSession) == 0
@@ -408,7 +424,7 @@ async def test_discover_tool_detail_pull_is_bounded_and_validated(shop) -> None:
     )
     assert isinstance(result, ToolResult)
     assert result.success
-    detail = result.data["catalog_categories"]["categories"]
+    detail = _provider_facts(result.data)["catalog_categories"]["categories"]
     assert [category["category_id"] for category in detail] == chosen
     for category in detail:
         assert set(category) == {"category_id", "name", "description", "attributes"}
@@ -497,8 +513,9 @@ async def test_product_graph_is_semantic_context_not_commerce_facts(shop) -> Non
     )
     assert isinstance(result, ToolResult)
     assert result.success
-    assert result.data["commerce_graph"]["semantic_only"] is True
-    assert "音箱" in result.data["commerce_graph"]["facts"][0]["name"]
+    graph = _provider_facts(result.data, GRAPH_DATA_TAGS)["commerce_graph"]
+    assert graph["semantic_only"] is True
+    assert "音箱" in graph["facts"][0]["name"]
     assert views == []
     assert await _count(maker, PurchaseSession) == 0
 
