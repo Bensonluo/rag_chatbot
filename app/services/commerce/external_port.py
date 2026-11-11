@@ -60,8 +60,18 @@ Errors: a 4xx body ``{"error": {"code": str, "message": str}}`` (or a flat
 Timeouts, connection failures, 5xx responses, and bodies that do not decode
 into the expected model raise ProviderUnknown: the call may have committed, so
 callers reconcile through the original request key instead of retrying blind.
+
+Read-only calls (search, categories, product/cart/order/payment reads,
+operation lookup) retry transient ProviderUnknown failures a bounded 2 times
+with capped exponential backoff and jitter; the whole retry envelope stays
+within timeout_seconds * 3. Write calls are never auto-retried — the
+request_key reconciliation path is the only recovery for them.
 """
 
+import asyncio
+import random
+import time
+from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar, cast
 from urllib.parse import quote as url_quote
 
@@ -88,6 +98,14 @@ from app.services.commerce.port import (
 )
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
+T = TypeVar("T")
+
+# Bounded read retry: 1 initial attempt + 2 retries, capped exponential
+# backoff with jitter, whole envelope within timeout_seconds * 3.
+READ_RETRY_ATTEMPTS = 3
+READ_RETRY_BASE_DELAY = 0.05
+READ_RETRY_MAX_DELAY = 0.4
+READ_RETRY_BUDGET_FACTOR = 3.0
 
 __all__ = ["ExternalCommercePort"]
 
@@ -112,9 +130,46 @@ class ExternalCommercePort:
             raise ValueError("base_url must be an absolute http(s) URL")
         self._base_url = str(parsed).rstrip("/")
         self._token = token
+        self._timeout_seconds = timeout_seconds
         self._timeout = httpx.Timeout(timeout_seconds)
         self._client = client
         self._owns_client = client is None
+        # Test seam: swaps real sleeping for a recorder in unit tests.
+        self._sleep: Callable[[float], Awaitable[None]] = asyncio.sleep
+
+    @staticmethod
+    def _within_retry_budget(*, elapsed: float, timeout_seconds: float, next_delay: float) -> bool:
+        """A retry fits only if its worst-case wall clock stays inside 3x timeout."""
+
+        return elapsed + timeout_seconds + next_delay <= timeout_seconds * READ_RETRY_BUDGET_FACTOR
+
+    async def _with_read_retry(self, call: Callable[[], Awaitable[T]]) -> T:
+        """Bounded retry for read-only calls; writes never come through here.
+
+        Only ProviderUnknown (timeout, connection failure, 5xx, undecodable
+        body) is retried: a read has no side effects, so retrying cannot
+        double-apply anything. ProviderRejected stays definitive on the first
+        answer.
+        """
+
+        started = time.monotonic()
+        for attempt in range(READ_RETRY_ATTEMPTS):
+            try:
+                return await call()
+            except ProviderUnknown:
+                if attempt == READ_RETRY_ATTEMPTS - 1:
+                    raise
+                delay = min(READ_RETRY_BASE_DELAY * (2**attempt), READ_RETRY_MAX_DELAY)
+                delay = delay * (1.0 + random.random() * 0.5)  # jitter, capped
+                elapsed = time.monotonic() - started
+                if not self._within_retry_budget(
+                    elapsed=elapsed,
+                    timeout_seconds=self._timeout_seconds,
+                    next_delay=delay,
+                ):
+                    raise
+                await self._sleep(delay)
+        raise AssertionError("read retry loop must return or raise")  # pragma: no cover
 
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -192,11 +247,13 @@ class ExternalCommercePort:
     async def _get(
         self, path_template: str, identifier: str, owner_user_id: int, model: type[ModelT]
     ) -> ModelT:
-        return await self._call(
-            "GET",
-            path_template.format(url_quote(identifier, safe="")),
-            model=model,
-            params={"owner_user_id": owner_user_id},
+        return await self._with_read_retry(
+            lambda: self._call(
+                "GET",
+                path_template.format(url_quote(identifier, safe="")),
+                model=model,
+                params={"owner_user_id": owner_user_id},
+            )
         )
 
     async def search_products(
@@ -219,7 +276,9 @@ class ExternalCommercePort:
             json_body["filters"] = filters.model_dump(mode="json")
         if page_token is not None:
             json_body["page_token"] = page_token
-        return await self._call("POST", "/commerce/search", model=CatalogPage, json_body=json_body)
+        return await self._with_read_retry(
+            lambda: self._call("POST", "/commerce/search", model=CatalogPage, json_body=json_body)
+        )
 
     async def catalog_categories(
         self,
@@ -236,11 +295,13 @@ class ExternalCommercePort:
         params: dict[str, Any] = {"owner_user_id": owner_user_id}
         if category_ids is not None:
             params["category_ids"] = ",".join(sorted(category_ids))
-        return await self._call(
-            "GET",
-            "/commerce/categories",
-            model=CatalogTaxonomy,
-            params=params,
+        return await self._with_read_retry(
+            lambda: self._call(
+                "GET",
+                "/commerce/categories",
+                model=CatalogTaxonomy,
+                params=params,
+            )
         )
 
     async def get_product(self, owner_user_id: int, sku_id: str) -> CatalogItem:
@@ -250,6 +311,8 @@ class ExternalCommercePort:
         self,
         owner_user_id: int,
         *,
+        # Write path: no auto-retry — the mint may have committed; callers
+        # reconcile through request_key.
         request_key: str,
         name: str,
         description: str,
@@ -290,6 +353,8 @@ class ExternalCommercePort:
 
     async def update_cart_lines(
         self,
+        # Write path: no auto-retry — the update may have committed; callers
+        # reconcile through request_key.
         owner_user_id: int,
         cart_id: str | None,
         expected_cart_version: int | None,
@@ -378,10 +443,12 @@ class ExternalCommercePort:
     async def lookup_operation(
         self, owner_user_id: int, request_key: str
     ) -> ProviderOperationReceipt | None:
-        response = await self._request(
-            "GET",
-            f"/commerce/operations/{url_quote(request_key, safe='')}",
-            params={"owner_user_id": owner_user_id},
+        response = await self._with_read_retry(
+            lambda: self._request(
+                "GET",
+                f"/commerce/operations/{url_quote(request_key, safe='')}",
+                params={"owner_user_id": owner_user_id},
+            )
         )
         try:
             payload = response.json()

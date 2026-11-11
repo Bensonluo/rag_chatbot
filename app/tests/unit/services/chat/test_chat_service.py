@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from app.services.chat.chat_service import STREAM_ERROR, ChatResponse, ChatService
+from app.services.chat.coordination import CoordinationUnavailableError
 from app.services.dialogue.state import begin_turn
 
 
@@ -132,9 +133,12 @@ class TestChatService:
 
     @pytest.mark.asyncio
     async def test_get_chat_history_no_memory(self):
+        # No persister AND no memory strategy is a wiring error, not an empty
+        # history: the service fails explicitly (503 at the API boundary)
+        # instead of silently answering an empty 200.
         service = ChatService(graph=Mock())
-        history = await service.get_chat_history(session_id=1)
-        assert history == []
+        with pytest.raises(CoordinationUnavailableError):
+            await service.get_chat_history(session_id=1)
 
     @pytest.mark.asyncio
     async def test_process_message_returns_metadata(self):

@@ -716,7 +716,12 @@ class ChatService:
         if self.persister is not None:
             return await self.persister.get_history(session_id=session_id, limit=limit)
         if not self.memory_strategy:
-            return []
+            # A service wired without any persistence is a configuration
+            # error: answering an empty 200 would silently hide the user's
+            # history. Fail explicitly; the API boundary maps this to 503.
+            raise CoordinationUnavailableError(
+                "Chat history is unavailable: no persister or memory strategy is wired"
+            )
         context = await self.memory_strategy.get_context(session_id=session_id)
         # Memory strategies return MessageContent dicts, not ORM objects.
         return [ChatMessage(role=msg["role"], content=msg["content"]) for msg in context[:limit]]
