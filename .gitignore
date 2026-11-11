@@ -118,3 +118,7 @@ docker-compose.override.yml
 # Local artifacts
 .playwright-mcp/
 *.png
+
+# Server-specific deploy script + deployment runbooks stay local (public repo hygiene)
+/deploy/deploy-server.sh
+/docs/operations/*deployment*.md
