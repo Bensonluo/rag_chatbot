@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 _MAX_VALUE_LENGTH = 200
 _MAX_LLM_TOKENS = 256
 
-_PROMPT_TEMPLATE = """你是电商智能客服的槽位提取器。当前任务意图是「{intent}」。
+_PROMPT_TEMPLATE = """你是 Agent Store 智能客服的槽位提取器。当前任务意图是「{intent}」。
 
 可提取的槽位（输出 JSON 的键只能是下列槽位名）：
 {slot_descriptions}

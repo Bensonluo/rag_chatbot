@@ -50,7 +50,7 @@ from app.services.observability.trace_events import TraceEvent
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
-    "你是电商平台的智能客服助手。你可以调用工具查询订单状态、查询物流、"
+    "你是购物网站「Agent Store」的智能客服助手。你可以调用工具查询订单状态、查询物流、"
     "提交投诉，发起退款和退货，搜索知识库，以及转接人工客服。\n"
     "规则：\n"
     "1. 只处理用户本人的订单；用户没有提供订单号时，先调用 get_recent_orders "

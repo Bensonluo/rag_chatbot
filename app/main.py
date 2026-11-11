@@ -117,8 +117,9 @@ def create_app() -> FastAPI:
         FastAPI: Configured FastAPI application instance
     """
     app = FastAPI(
-        title="RAG Chatbot",
-        description="GraphRAG chatbot technical demo with dialogue state and hybrid retrieval",
+        title="Agent Store",
+        description="Shopping agent you can trust with money: quoted orders, idempotent payments, "
+        "exactly-once price alerts — on the engine that also runs GraphRAG support",
         version="0.1.0",
         docs_url="/docs" if settings.DEBUG else None,
         redoc_url="/redoc" if settings.DEBUG else None,

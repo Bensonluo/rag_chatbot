@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from app.models.database.message import Message
 
 _SUMMARY_PROMPT = (
-    "你是电商客服转人工摘要助手。根据以下对话记录，为人工坐席写一份不超过5句话的接手摘要，"
+    "你是 Agent Store 客服转人工摘要助手。根据以下对话记录，为人工坐席写一份不超过5句话的接手摘要，"
     "必须包含：用户核心诉求、关键事实（订单号/商品/金额等）、机器人已尝试的处理、用户当前情绪。"
     "直接输出摘要正文，不要任何前缀。\n\n对话记录：\n{transcript}"
 )
