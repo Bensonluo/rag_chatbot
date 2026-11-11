@@ -100,6 +100,12 @@ dependencies = [
 local = [
     "sentence-transformers>=2.2.0",
 ]
+# Commerce MCP server (app.commerce_provider.mcp_server) — Model Context
+# Protocol tool surface over the provider core. Pinned to the 2.x line;
+# verified against mcp 2.3.0 on 2026-11-11.
+mcp = [
+    "mcp>=2.3.0,<3",
+]
 dev = [
     # Local embedding provider used by the unit-test matrix
     "sentence-transformers>=2.2.0",
