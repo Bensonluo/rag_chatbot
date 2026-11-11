@@ -13,7 +13,7 @@
 [![LangGraph](https://img.shields.io/badge/LangGraph-StateGraph-FF6B6B)](https://github.com/langchain-ai/langgraph)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 
-`commerce: open need → category search (154,624 SKUs) → staged quote-confirm → CAS + idempotent order/pay → timeline / price watch`
+`commerce: open need → virtual-catalog search → staged quote-confirm → CAS + idempotent order/pay → timeline / price watch`
 
 `support: intent routing → slot filling / tool call / FAQ fast path / agent loop / hybrid retrieval → claim-gated streaming → handoff`
 
@@ -42,7 +42,7 @@ Most agent demos stop at the tool call and pretend it succeeded. This project as
 
 The same engine solves the customer-service version of that trust problem: resolve business requests while keeping policy answers, task state, and staff handoffs consistent. Users interrupt a refund flow to ask a question; policies change after an answer was sent; human agents need the original context rather than a fresh conversation.
 
-The system connects a 14-node LangGraph dialogue engine with a deterministic commerce provider (154,624 SKUs projected from a stable 8-digit address space), hybrid retrieval, versioned document ingestion, claim-gated streaming, and assigned-agent handoff. Business actions use a ToolRegistry; completed actions remain terminal so task resumption cannot silently execute them twice.
+The system connects a 14-node LangGraph dialogue engine with a deterministic virtual-catalog commerce provider (SKU facts projected on demand from a stable 8-digit address space), hybrid retrieval, versioned document ingestion, claim-gated streaming, and assigned-agent handoff. Business actions use a ToolRegistry; completed actions remain terminal so task resumption cannot silently execute them twice.
 
 ### Enterprise architecture and delivery
 
@@ -776,7 +776,7 @@ while its action-ref UI contract is obsolete. See the
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
 - [x] 4099 passing core tests, 93.56% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
-- [x] Public shopping agent: semantic routing, deterministic 154,624-SKU catalog provider, staged quote → order → payment with expected_version CAS + request_key idempotency
+- [x] Public shopping agent: semantic routing, deterministic virtual-catalog provider, staged quote → order → payment with expected_version CAS + request_key idempotency
 - [x] Server-authoritative cards: approval and price-watch cards assembled from durable rows + provider facts, riding the SSE completion receipt; the card wins over narration
 - [x] Pre-authorized price watches: "SKU X ≤ ¥Y → ask me" rules with event-driven evaluation and exactly-once ask delivery (notify-only, 5 rules / visitor, 30-day expiry)
 - [x] Order timeline: full event chain rebuilt from authoritative purchase/operation/confirmation rows as a read-only owner-scoped tool
@@ -833,7 +833,7 @@ If this project helped you, please ⭐ star the repo — it helps others discove
 ### 核心亮点
 
 - **交易型购物 Agent**:开放需求 → 类目映射 → 工具循环(20 步 / 30 次 LLM 调用双预算),报价 → 下单 → 付款分阶段注册并各自显式确认,expected_version CAS + request_key 幂等,断线重连不重复扣款
-- **确定性虚拟目录**:154,624 个 SKU(151 类目 × 32 品牌 × 8 型号 × 4 变体)按纯函数投影,SQLite 只存交易与 delta;每轮最多呈现 5 个 typed SKU
+- **确定性虚拟目录**:SKU 事实按纯函数从稳定地址空间按需投影,SQLite 只存交易与 delta;每轮最多呈现 5 个 typed SKU
 - **预授权降价提醒**:「SKU X ≤ ¥Y 就来问我」事件驱动评估,exactly-once 送达,只提醒不代下单(每访客 5 条、30 天过期)
 - **服务端权威卡片**:审批卡/降价提醒卡字段全部来自持久行 + provider 事实,与模型口述冲突时以卡为准
 - **订单时间线**:从权威行重建购物车版本、报价 TTL、下单、付款与幂等回执的全链事件,只读且 owner-scoped
