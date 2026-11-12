@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         # The runtime lock constrains overlapping packages so CI tests
         # against the same versions Docker ships.
-        run: pip install -e ".[dev]" -c requirements-lock.txt
+        run: pip install -e ".[dev,mcp]" -c requirements-lock.txt
 
       - name: Ruff lint
         run: ruff check app/
@@ -55,7 +55,7 @@ jobs:
       - name: Install dependencies
         # The runtime lock constrains overlapping packages so CI tests
         # against the same versions Docker ships.
-        run: pip install -e ".[dev]" -c requirements-lock.txt
+        run: pip install -e ".[dev,mcp]" -c requirements-lock.txt
 
       # The test suite is hermetic (SQLite in-memory, fakes for Redis and
       # external services); the coverage gate (fail_under=70) is enforced
@@ -127,7 +127,7 @@ jobs:
             requirements-lock.txt
 
       - name: Install dependencies
-        run: pip install -e ".[dev]" -c requirements-lock.txt
+        run: pip install -e ".[dev,mcp]" -c requirements-lock.txt
 
       # Both supported databases must round-trip the complete migration chain.
       # command.check compares the live schema to all models registered by env.py;
