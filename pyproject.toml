@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rag-chatbot"
-version = "0.2.0"
+version = "0.3.0"
 description = "Transactional shopping and customer-service agent: LangGraph dialogue engine, hybrid retrieval + GraphRAG, guardrails, confirmation-gated commerce, human handoff, MCP server"
 readme = "README.md"
 requires-python = ">=3.11"

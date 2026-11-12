@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-13
+
+### Added
+
+**Retrieval resilience (self-healing vector store)**
+
+- Empty-knowledge-base honesty: a fresh stack with zero indexed documents answers
+  "no relevant documents found" instead of reporting a retrieval outage — only a
+  genuine dual-leg failure (vector and keyword both erroring) surfaces as degraded.
+- Embedding-dimension drift self-heal: switching `EMBEDDING_PROVIDER` between
+  models of different dimensionality (e.g. 512-dim BGE era → 1024-dim GLM
+  embedding-2) is detected at ensure time; an empty collection is recreated at
+  the provider's dims, a non-empty one fails fast with both dimensions and
+  concrete re-index instructions instead of opaque per-search 400s.
+- Vanished-collection reconciliation: a collection deleted mid-process (volume
+  wipe, operator error) no longer 404s every call until restart — search and
+  upsert reset the readiness latch, re-ensure, and retry once; a second failure
+  propagates untouched.
+- The BM25 warm-up scroll path now ensures the collection like every other
+  access path, removing a misleading boot-time 404 skip on fresh stacks.
+
+**Observability**
+
+- `retrieval_collection_self_heals_total` Prometheus counter (label `reason`:
+  `dim_drift` / `vanished`) makes every silent recovery alertable.
+- Two shipped alert rules: `RetrievalSelfHealsRising` (sustained self-heals =
+  upstream churns the collection) and `RetrievalFilterFallbackShareHigh`
+  (fallback share pinned >90% = the chunk-metadata filter contract is dead).
+- Behavioral promtool unit tests for the new alerts run in CI with the deployed
+  Prometheus engine alongside the containment suite.
+
+**Agent guardrails**
+
+- `get_catalog_stats` tool: catalog-scale claims (category counts, SKU totals)
+  now come from the authoritative provider instead of LLM imagination.
+- Malformed order IDs never reach a confirmation gate — a staged irreversible
+  action with a garbage order number triggers a re-ask in the user's language.
+- Prompt rules: collect one missing field per turn (question form, no form
+  dumps), no internal query narration, no numeric claims without tool backing.
+
+### Fixed
+
+- GLM embeddings now default to the standard PAAS endpoint
+  (`GLM_EMBEDDING_BASE_URL`) regardless of `GLM_BASE_URL`: the Coding Plan chat
+  endpoint does not serve embedding models (HTTP 400 error 1211), and the
+  factory no longer forwards local BGE checkpoint names to API providers.
+- Docker build layering: dependency install is keyed on metadata + lock only,
+  code-only rebuilds take seconds; `pip check` promotes the lock from
+  constraints to a build-time closure invariant.
+
 ## [0.2.0] - 2026-11-12
 
 ### Added
