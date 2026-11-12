@@ -55,9 +55,16 @@ from app.models.database.visitor_preference import (  # noqa: F401
 # Alembic config object
 config = context.config
 
-# Interpret the config file for Python logging
+# Interpret the config file for Python logging.
+# disable_existing_loggers=False is required: fileConfig defaults it to True,
+# which disables every logger created before this point for the rest of the
+# process. env.py imports the app models above (their `logging.getLogger`
+# calls run first), and under pytest every logger from earlier tests already
+# exists — the default silently mutes them all, e.g. the shopping router's
+# fallback warning vanishes from caplog in any suite that runs an alembic
+# migration test first.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Set the SQLAlchemy URL from settings
 # Convert async URL to sync URL for alembic migrations
