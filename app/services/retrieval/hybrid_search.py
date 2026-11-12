@@ -361,6 +361,8 @@ class HybridSearchService:
 
         vector_results = []
         keyword_results = []
+        vector_failed = False
+        keyword_failed = False
 
         # Try vector search; log and continue with keyword-only
         try:
@@ -368,6 +370,7 @@ class HybridSearchService:
         except Exception:
             logger.warning("Vector search leg failed", exc_info=True)
             vector_results = []
+            vector_failed = True
 
         # Try keyword search; log and continue with vector-only
         try:
@@ -376,9 +379,13 @@ class HybridSearchService:
         except Exception:
             logger.warning("Keyword search leg failed", exc_info=True)
             keyword_results = []
+            keyword_failed = True
 
-        # If both failed, raise error
-        if not vector_results and not keyword_results:
+        # Only a real failure on every leg is an outage. Both legs
+        # succeeding with zero hits is an honest empty knowledge base
+        # and must flow through as "no evidence", not a service error
+        # (fresh-stack regression, root-caused 2026-11-13).
+        if vector_failed and keyword_failed:
             raise VectorClientError("Both vector and keyword search failed")
 
         if self.publication_guard is not None:

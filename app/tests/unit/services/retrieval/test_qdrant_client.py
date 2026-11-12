@@ -555,3 +555,266 @@ class TestListChunks:
 
         with pytest.raises(VectorClientError, match="incomplete index"):
             await client.list_chunks(max_chunks=3)
+
+
+class TestEnsureCollectionDimensionMismatch:
+    """Provider switches change embedding dimensions; a stale collection
+    must not poison every search with opaque 400s (live finding
+    2026-11-12: a 512-dim bge-small collection vs 1024-dim embedding-2
+    queries — every vector leg failed until the collection was manually
+    recreated). Empty collections self-heal; non-empty ones fail fast
+    with an actionable message."""
+
+    def _make_client(self, dims: int) -> tuple[Any, Any]:
+        from app.services.retrieval.qdrant_client import QdrantClient
+
+        class FakeDistance:
+            COSINE = "Cosine"
+
+        class FakeVectorParams:
+            def __init__(self, **values):
+                self.__dict__.update(values)
+
+        models = {"Distance": FakeDistance, "VectorParams": FakeVectorParams}
+        mock_client = Mock()
+        mock_client.collection_exists = AsyncMock(return_value=True)
+        mock_client.delete_collection = AsyncMock(return_value=True)
+        mock_client.create_collection = AsyncMock(return_value=True)
+        client = QdrantClient(
+            url="http://localhost:6333",
+            collection_name="documents",
+            client=mock_client,
+            embedding_service=Mock(dimensions=dims),
+        )
+        client._client_injected = False
+        return client, models
+
+    @staticmethod
+    def _collection_info(size: int, points: int) -> Mock:
+        info = Mock()
+        info.config.params.vectors.size = size
+        info.points_count = points
+        return info
+
+    @pytest.mark.asyncio
+    async def test_mismatched_empty_collection_is_recreated_at_new_dims(self):
+        client, models = self._make_client(dims=1024)
+        client.client.get_collection = AsyncMock(
+            return_value=self._collection_info(size=512, points=0)
+        )
+        with patch.object(client, "_qdrant_model", side_effect=lambda name: models[name]):
+            await client._ensure_collection()
+
+        client.client.delete_collection.assert_awaited_once_with("documents")
+        client.client.create_collection.assert_awaited_once()
+        vector_config = client.client.create_collection.await_args.kwargs["vectors_config"]
+        assert vector_config.size == 1024
+
+    @pytest.mark.asyncio
+    async def test_mismatched_nonempty_collection_raises_actionable_error(self):
+        from app.services.retrieval.vector_base import VectorClientError
+
+        client, models = self._make_client(dims=1024)
+        client.client.get_collection = AsyncMock(
+            return_value=self._collection_info(size=512, points=7)
+        )
+        with (
+            patch.object(client, "_qdrant_model", side_effect=lambda name: models[name]),
+            pytest.raises(VectorClientError, match="512.*1024|1024.*512"),
+        ):
+            await client._ensure_collection()
+
+        client.client.delete_collection.assert_not_awaited()
+        client.client.create_collection.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_matching_collection_is_left_alone(self):
+        client, models = self._make_client(dims=1024)
+        client.client.get_collection = AsyncMock(
+            return_value=self._collection_info(size=1024, points=5)
+        )
+        with patch.object(client, "_qdrant_model", side_effect=lambda name: models[name]):
+            await client._ensure_collection()
+
+        client.client.delete_collection.assert_not_awaited()
+        client.client.create_collection.assert_not_awaited()
+
+
+class _FakeQdrant404(Exception):
+    """Mimics qdrant-client's UnexpectedResponse for a missing collection."""
+
+    status_code = 404
+
+
+class TestVanishedCollectionReconciliation:
+    """The process-lifetime ``_collection_ready`` latch must not pin a stale
+    state after the collection vanishes mid-lifetime (Qdrant volume wipe /
+    manual delete while the api keeps running). Search and upsert get one
+    reconciliation: reset the latch, re-ensure, retry once — the historical
+    behavior 404'd every call until an api restart (ops finding
+    2026-11-12, tick27 forensics)."""
+
+    def _make_client(self) -> tuple[Any, Any, Any]:
+        from app.services.retrieval.qdrant_client import QdrantClient
+
+        class FakeDistance:
+            COSINE = "Cosine"
+
+        class FakeVectorParams:
+            def __init__(self, **values):
+                self.__dict__.update(values)
+
+        class FakePointStruct:
+            def __init__(self, **values):
+                self.__dict__.update(values)
+
+        models = {
+            "Distance": FakeDistance,
+            "VectorParams": FakeVectorParams,
+            "PointStruct": FakePointStruct,
+        }
+        mock_client = Mock()
+        mock_client.collection_exists = AsyncMock(return_value=False)
+        mock_client.create_collection = AsyncMock(return_value=True)
+        embedding = Mock(dimensions=1024)
+        embedding.embed_single = AsyncMock(return_value=[0.1] * 1024)
+        client = QdrantClient(
+            url="http://localhost:6333",
+            collection_name="documents",
+            client=mock_client,
+            embedding_service=embedding,
+        )
+        client._client_injected = False
+        client._collection_ready = True  # simulate a long-running process
+        return client, mock_client, models
+
+    @pytest.mark.asyncio
+    async def test_search_reconciles_once_when_collection_vanishes(self):
+        from app.services.retrieval.vector_base import VectorSearchRequest
+
+        client, mock_client, models = self._make_client()
+        mock_client.search = AsyncMock(
+            side_effect=[_FakeQdrant404("Collection `documents` doesn't exist!"), []]
+        )
+        with patch.object(client, "_qdrant_model", side_effect=lambda name: models[name]):
+            results = await client.search(VectorSearchRequest("refund policy", top_k=3))
+
+        assert results == []
+        assert mock_client.search.await_count == 2
+        mock_client.create_collection.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_search_does_not_retry_on_other_errors(self):
+        from app.services.retrieval.vector_base import VectorClientError, VectorSearchRequest
+
+        client, mock_client, models = self._make_client()
+        mock_client.search = AsyncMock(side_effect=RuntimeError("connection refused"))
+        with (
+            patch.object(client, "_qdrant_model", side_effect=lambda name: models[name]),
+            pytest.raises(VectorClientError),
+        ):
+            await client.search(VectorSearchRequest("refund policy", top_k=3))
+
+        assert mock_client.search.await_count == 1
+        mock_client.create_collection.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_add_documents_reconciles_once_when_collection_vanishes(self):
+        from app.services.retrieval.vector_base import Document
+
+        client, mock_client, models = self._make_client()
+        mock_client.upsert = AsyncMock(
+            side_effect=[_FakeQdrant404("Collection `documents` doesn't exist!"), None]
+        )
+        with patch.object(client, "_qdrant_model", side_effect=lambda name: models[name]):
+            ids = await client.add_documents(
+                [Document(id="doc-1", content="hello world", metadata={})]
+            )
+
+        assert ids == ["doc-1"]
+        assert mock_client.upsert.await_count == 2
+        mock_client.create_collection.assert_awaited_once()
+
+
+class TestListChunksEnsuresCollection:
+    """The BM25 warmup scroll (boot + periodic refresh) reads the whole
+    collection. Unlike search/upsert it never ensured the collection
+    first, so a fresh stack logged a misleading 404 "vector-only"
+    warmup skip at boot instead of creating the collection (finding
+    2026-11-13, tick30 forensics)."""
+
+    @pytest.mark.asyncio
+    async def test_list_chunks_creates_missing_collection(self):
+        from app.services.retrieval.qdrant_client import QdrantClient
+
+        class FakeDistance:
+            COSINE = "Cosine"
+
+        class FakeVectorParams:
+            def __init__(self, **values):
+                self.__dict__.update(values)
+
+        models = {"Distance": FakeDistance, "VectorParams": FakeVectorParams}
+        mock_client = Mock()
+        mock_client.collection_exists = AsyncMock(return_value=False)
+        mock_client.create_collection = AsyncMock(return_value=True)
+        mock_client.scroll = AsyncMock(return_value=([], None))
+        client = QdrantClient(
+            url="http://localhost:6333",
+            collection_name="documents",
+            client=mock_client,
+            embedding_service=Mock(dimensions=1024),
+        )
+        client._client_injected = False
+
+        with patch.object(client, "_qdrant_model", side_effect=lambda name: models[name]):
+            chunks = await client.list_chunks()
+
+        assert chunks == []
+        mock_client.create_collection.assert_awaited_once()
+        mock_client.scroll.assert_awaited_once()
+
+
+class TestSelfHealMetrics:
+    """Self-heals are warn-logged; logs need someone reading them. A
+    Prometheus counter with a ``reason`` label makes frequency alertable
+    (sustained growth = something upstream churns the collection)."""
+
+    @staticmethod
+    def _count(reason: str) -> float:
+        from prometheus_client import REGISTRY
+
+        return (
+            REGISTRY.get_sample_value("retrieval_collection_self_heals_total", {"reason": reason})
+            or 0.0
+        )
+
+    @pytest.mark.asyncio
+    async def test_dim_drift_recreate_increments_counter(self):
+        before = self._count("dim_drift")
+        before_vanished = self._count("vanished")
+        client, models = TestEnsureCollectionDimensionMismatch()._make_client(dims=1024)
+        client.client.get_collection = AsyncMock(
+            return_value=TestEnsureCollectionDimensionMismatch()._collection_info(
+                size=512, points=0
+            )
+        )
+        with patch.object(client, "_qdrant_model", side_effect=lambda name: models[name]):
+            await client._ensure_collection()
+
+        assert self._count("dim_drift") == before + 1
+        assert self._count("vanished") == before_vanished  # untouched
+
+    @pytest.mark.asyncio
+    async def test_vanished_reconcile_increments_counter(self):
+        from app.services.retrieval.vector_base import VectorSearchRequest
+
+        before = self._count("vanished")
+        client, mock_client, models = TestVanishedCollectionReconciliation()._make_client()
+        mock_client.search = AsyncMock(
+            side_effect=[_FakeQdrant404("Collection `documents` doesn't exist!"), []]
+        )
+        with patch.object(client, "_qdrant_model", side_effect=lambda name: models[name]):
+            await client.search(VectorSearchRequest("refund", top_k=3))
+
+        assert self._count("vanished") == before + 1

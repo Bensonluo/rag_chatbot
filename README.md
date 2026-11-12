@@ -5,6 +5,7 @@
 **An agent you can trust with money: agentic commerce with real transactional guarantees — quotes before orders, idempotent payments, exactly-once price alerts — running on an engine that also delivers enterprise RAG customer service. Built with FastAPI and LangGraph.**
 
 [![Live Demo](https://img.shields.io/badge/LIVE-DEMO-brightgreen?style=for-the-badge&logo=vercel)](https://benluo.art/projects/rag-chatbot/)
+[![Release](https://img.shields.io/github/v/release/Bensonluo/rag_chatbot?style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/Bensonluo/rag_chatbot/ci.yml?branch=main&style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/actions/workflows/ci.yml)
 [![GitHub stars](https://img.shields.io/github/stars/Bensonluo/rag_chatbot?style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/stargazers)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
@@ -17,6 +18,12 @@
 `commerce: open need → virtual-catalog search → staged quote-confirm → CAS + idempotent order/pay → timeline / price watch`
 
 `support: intent routing → slot filling / tool call / FAQ fast path / agent loop / hybrid retrieval → claim-gated streaming → handoff`
+
+<a href="#-live-demo">
+  <img src="assets/demo-live-turn.png" width="480" alt="Agent Store demo: a gift-shopping chat turn beside its execution trace" />
+</a>
+
+*(a live turn with its execution trace — [full demo below](#-live-demo))*
 
 </div>
 
@@ -66,8 +73,9 @@ The RAG space has strong general-purpose engines and platforms. A few reference 
 | [LightRAG](https://github.com/HKUDS/LightRAG) | Simple and fast graph-based RAG (EMNLP 2025) | Python |
 | [Kotaemon](https://github.com/Cinnamon/kotaemon) | Document-chat tool with a clean UI | Python |
 | [Agentic Commerce Protocol](https://github.com/agentic-commerce-protocol/agentic-commerce-protocol) | Open standard for agent ↔ merchant commerce interactions | Spec |
+| [Universal Commerce Protocol](https://github.com/universal-commerce-protocol/ucp) | Google-backed open standard for agent-initiated payments with cryptographic proof of user consent | Spec |
 
-This repo sits in a different lane: an end-to-end **transactional** customer-service and shopping agent — confirmation-gated commerce (quote → order → payment with CAS and idempotency), guardrailed streaming, human handoff with a staff workbench, deterministic evals, and a one-command demo. For general document-QA platforms the projects above are good fits; this project focuses on what it takes for an agent to safely touch orders and money. The ACP row is a complementary standard rather than a competitor — it defines how agents and merchants talk; this repo ships a complete store-side implementation (including an MCP server) where that class of protocol could plug in.
+This repo sits in a different lane: an end-to-end **transactional** customer-service and shopping agent — confirmation-gated commerce (quote → order → payment with CAS and idempotency), guardrailed streaming, human handoff with a staff workbench, deterministic evals, and a one-command demo. For general document-QA platforms the projects above are good fits; this project focuses on what it takes for an agent to safely touch orders and money. The ACP and UCP rows are complementary standards rather than competitors — they define how agents and merchants talk; this repo ships a complete store-side implementation (including an MCP server) where that class of protocol could plug in.
 
 ---
 
@@ -81,10 +89,11 @@ This repo sits in a different lane: an end-to-end **transactional** customer-ser
 | Stateful task execution | 14-node StateGraph, five-way routing, slot collection, task stack, ToolRegistry | Complete requests across interruptions without repeating completed actions |
 | Versioned support knowledge | Retained sources, immutable revisions, retryable ingestion, stable passage IDs | Trace an answer back to the policy version used at the time |
 | Retrieval and answer control | Vector + BM25 + RRF + reranking, optional GraphRAG, sentence-level claim gates | Retrieve relevant evidence and check curated policy facts before streaming |
+| Retrieval resilience | Empty KB answered as honest "no evidence" (not a false outage); embedding-provider switches get dimension-drift detection — empty collections rebuild at the new size, populated ones fail with both dimensions and the fix; a collection deleted at runtime recovers via one latch-reconcile retry per call | Keep first-run trust and survive provider switches and ops mistakes without a process restart |
 | Human handoff | Private sign-in workspace, tickets/queue, assigned context, two-way human messages, atomic final reply/closure | Carry context into staff handling and deliver a saved explanation |
 | Operational control | Epoch-scoped L0/L1/L2 cache, metrics/alerts, tracing, rate limits | Inspect latency, outcomes, cache consistency and load |
 
-**Recorded quality baseline (2026-11-12):** 4105 passing core tests, 3 opt-in scenarios skipped by default, 93.56% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
+**Recorded quality baseline (2026-11-13):** 4146 passing tests, 3 opt-in scenarios skipped by default, 93.71% coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
 
 [Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md)
 
@@ -236,6 +245,19 @@ uvicorn app.main:create_app --factory --reload --host 0.0.0.0 --port 8000
 ```
 
 📖 **API docs** (when running): http://localhost:8000/docs
+
+### Optional: expose the store as an MCP server
+
+The commerce provider ships a Model Context Protocol surface (Streamable HTTP) — the same authoritative facts and confirmation gates as the REST facade, speakable from any MCP host:
+
+```bash
+pip install -e ".[mcp]"
+python -m app.commerce_provider.mcp_server --host 127.0.0.1 --port 8072 \
+  --database commerce_provider.sqlite3 --token "$COMMERCE_PROVIDER_AUTH_TOKEN"
+# MCP endpoint: http://127.0.0.1:8072/mcp  (Bearer token when set; empty token disables auth)
+```
+
+Read tools (`search_products`, `get_product`, `get_categories`, `discover_catalog`) answer directly; write tools (`update_cart` → `prepare_quote` → `create_order` → `sandbox_pay`) carry an elicitation-style confirmation and derive `request_key` structurally, so a declined or retried request can never double-charge.
 
 ---
 
@@ -943,6 +965,8 @@ If this project helped you, please ⭐ star the repo — it helps others discove
 
 - **交易型购物 Agent**:开放需求 → 类目映射 → 工具循环(20 步 / 30 次 LLM 调用双预算),报价 → 下单 → 付款分阶段注册并各自显式确认,expected_version CAS + request_key 幂等,断线重连不重复扣款
 - **确定性虚拟目录**:SKU 事实按纯函数从稳定地址空间按需投影,SQLite 只存交易与 delta;每轮最多呈现 5 个 typed SKU
+- **检索韧性三态**:空知识库如实回答「未找到」而非假报服务中断;切换 embedding 供应商后维度漂移自动检测——空库按新维度重建、非空库给出含两个维度值与修复路径的明确报错;运行中 collection 被删(卷清/误操作)时,搜索与写入各获得一次闩锁对账重试,无需重启进程
+- **MCP 服务器**:商店事实层内建 Model Context Protocol 面(Streamable HTTP):只读工具(search/详情/类目/目录导览)直答,写工具(加购→报价→下单→沙箱支付)带确认门控,结构化 request_key 幂等——任何 MCP 宿主可直接对话本店
 - **预授权降价提醒**:「SKU X ≤ ¥Y 就来问我」事件驱动评估,exactly-once 送达,只提醒不代下单(每访客 5 条、30 天过期)
 - **服务端权威卡片**:审批卡/降价提醒卡字段全部来自持久行 + provider 事实,与模型口述冲突时以卡为准
 - **订单时间线**:从权威行重建购物车版本、报价 TTL、下单、付款与幂等回执的全链事件,只读且 owner-scoped

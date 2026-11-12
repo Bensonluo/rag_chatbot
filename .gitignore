@@ -123,3 +123,11 @@ docker-compose.override.yml
 # Server-specific deploy script + deployment runbooks stay local (public repo hygiene)
 /deploy/deploy-server.sh
 /docs/operations/*deployment*.md
+
+# Agent loop working notes (internal — never publish: incident evidence, server details, strategy)
+/progress.md
+/findings.md
+/task_plan.md
+/WATCHDOG.yml
+/docker-compose.local.yml
+/docs/research/

@@ -128,6 +128,64 @@ groups:
             Usual cause: Redis unreachable or in an eviction storm — check
             Redis memory and connectivity.
 
+  - name: cs-retrieval-resilience
+    rules:
+      # Self-heals (empty-KB honesty / dim-drift rebuild / vanished
+      # reconcile) are recoveries, not incidents — but they are only
+      # warn-logged unless counted. One heal after a deploy or provider
+      # switch is expected and stays under the threshold; sustained
+      # growth means something upstream keeps deleting or
+      # re-dimensioning the collection and the heal paths are silently
+      # absorbing it. Threshold mirrors KBEpochFailuresRising.
+      - alert: RetrievalSelfHealsRising
+        expr: sum(increase(retrieval_collection_self_heals_total[15m])) > 3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "检索 collection 自愈频发（上游在反复删/改 collection）"
+          description: >-
+            {{ $value }} collection self-heal events (dim_drift rebuild or
+            vanished reconcile) in 15m. Each heal recovered automatically,
+            but the pattern means the vector collection keeps being deleted
+            or re-dimensioned (volume churn, embedding-provider flips,
+            operator action) — every heal is a window where retrieval
+            served empty results. Usual causes: a cron/operator wiping the
+            Qdrant volume, or EMBEDDING_PROVIDER flapping between models
+            with different dimensions. The 3-events/15m threshold absorbs
+            the single expected heal after a legitimate change.
+
+      # The slot-filter contract: ingestion writes chunk metadata keys,
+      # slot filling derives filters from them, filtered searches fall
+      # back to unfiltered only when the filter matched nothing. A
+      # fallback rate pinned at ~100% means the chunk-metadata contract
+      # is never populated and the filter is pure overhead; a rate that
+      # decays means ingestion stopped writing the keys. Ratio is a
+      # trend signal (30m window): zero filtered searches yields NaN
+      # and does not fire. Tune the threshold against the observed
+      # baseline once real traffic exists.
+      - alert: RetrievalFilterFallbackShareHigh
+        expr: |
+          (
+            sum(rate(retrieval_filter_fallbacks_total[15m]))
+            /
+            sum(rate(retrieval_filtered_searches_total[15m]))
+          ) > 0.9
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "检索过滤回退率长期 >90%（chunk 元数据契约未生效）"
+          description: >-
+            {{ $value | humanizePercentage }} of filtered searches fell back
+            to unfiltered over 15m, sustained for 30m. Slot-derived filters
+            are matching nothing: either ingestion never populated the
+            chunk-metadata keys (filter is pure overhead) or recently
+            stopped (contract regression). Retrieval still works — answers
+            just ignore brand/category constraints, so users see broader
+            results than they asked for. Check the ingestion metadata
+            writer and the slot-filling filter derivation.
+
   - name: cs-csat
     rules:
       - alert: FeedbackNegativeShareHigh

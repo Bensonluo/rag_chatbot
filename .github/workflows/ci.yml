@@ -95,7 +95,7 @@ jobs:
           --volume "$PWD/deploy/prometheus:/rules:ro"
           --entrypoint /bin/promtool
           "$PROMETHEUS_TEST_IMAGE"
-          test rules /rules/containment-alerts.test.yml
+          test rules /rules/containment-alerts.test.yml /rules/retrieval-alerts.test.yml
 
   migrations:
     runs-on: ubuntu-latest

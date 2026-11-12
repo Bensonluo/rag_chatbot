@@ -39,16 +39,26 @@ WORKDIR /build
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
     --upgrade pip setuptools wheel
 
-# pyproject.toml is the dependency source of truth. Copy only package metadata
-# and source first so dependency installation remains a cacheable layer.
+# pyproject.toml is the dependency source of truth. Dependencies and
+# project code live in separate layers so code-only changes never
+# re-download the dependency stack:
+#   1. metadata + lock → dependency install (cached across app/ edits)
+#   2. app source → --no-deps project install (seconds, not minutes)
 COPY pyproject.toml README.md LICENSE ./
 COPY requirements-lock.txt ./
-COPY app ./app
-# The lock (fresh python-3.11 resolve, see its header) is applied as
-# constraints so image builds are reproducible: the same lock ⇒ the
-# same versions, and pip-audit has a stable input in CI.
+# The lock (fresh python-3.11 resolve, see its header) pins the same
+# versions the old `-c requirements-lock.txt .` resolution produced,
+# so builds stay reproducible and pip-audit keeps a stable input.
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple/ \
-    -c requirements-lock.txt .
+    -r requirements-lock.txt
+# The lock is authored as a constraint set, not a guaranteed platform
+# closure (see its header) — pip check turns that assumption into a
+# build-time invariant: a missing dependency fails the build loudly
+# instead of shipping an image that imports crash at runtime.
+RUN pip check
+
+COPY app ./app
+RUN pip install --no-cache-dir --no-deps .
 
 # Stage 2: Runtime
 FROM python:3.11-slim as runtime

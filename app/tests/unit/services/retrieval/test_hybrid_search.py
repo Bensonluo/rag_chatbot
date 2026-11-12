@@ -565,3 +565,51 @@ class TestKeywordRebuild:
             ).VectorSearchRequest(query="政策", top_k=10)
         )
         assert results == []
+
+
+class TestEmptyKnowledgeBaseSemantics:
+    """Empty-result honesty (2026-11-13 fresh-user journey finding).
+
+    Both legs returning zero hits on a fresh, healthy stack (every HTTP
+    call 200) is an honest empty KB and must surface as "no evidence" —
+    not the service-outage copy. Only real leg failures (exceptions on
+    both legs) are an outage.
+    """
+
+    async def test_both_legs_succeed_empty_returns_empty_not_error(self):
+        from app.services.retrieval.hybrid_search import HybridSearchService, KeywordSearch
+        from app.services.retrieval.vector_base import VectorSearchRequest
+
+        vector = Mock(search=AsyncMock(return_value=[]))
+        keyword = KeywordSearch()  # no documents added — empty, healthy
+
+        results = await HybridSearchService(vector, keyword).search(
+            VectorSearchRequest("anything", top_k=5)
+        )
+
+        assert results == []
+
+    async def test_both_legs_raise_still_raises_outage(self):
+        from app.services.retrieval.hybrid_search import HybridSearchService
+        from app.services.retrieval.vector_base import VectorClientError, VectorSearchRequest
+
+        vector = Mock(search=AsyncMock(side_effect=RuntimeError("qdrant down")))
+        keyword = Mock(search=AsyncMock(side_effect=RuntimeError("index down")))
+
+        with pytest.raises(VectorClientError):
+            await HybridSearchService(vector, keyword).search(
+                VectorSearchRequest("anything", top_k=5)
+            )
+
+    async def test_one_leg_raises_other_empty_returns_empty(self):
+        from app.services.retrieval.hybrid_search import HybridSearchService, KeywordSearch
+        from app.services.retrieval.vector_base import VectorSearchRequest
+
+        vector = Mock(search=AsyncMock(side_effect=RuntimeError("qdrant down")))
+        keyword = KeywordSearch()  # healthy but empty
+
+        results = await HybridSearchService(vector, keyword).search(
+            VectorSearchRequest("anything", top_k=5)
+        )
+
+        assert results == []

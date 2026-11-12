@@ -7,8 +7,11 @@ Provides async client for Qdrant vector database operations.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, cast
+import logging
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any, TypeVar, cast
 
+from app.services.retrieval.metrics import RETRIEVAL_COLLECTION_SELF_HEALS
 from app.services.retrieval.vector_base import (
     Document,
     SearchResult,
@@ -19,6 +22,10 @@ from app.services.retrieval.vector_base import (
 
 if TYPE_CHECKING:
     from app.services.embeddings.base import EmbeddingServiceBase
+
+logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 
 def _retrieval_metadata(payload: dict[str, Any], point_id: object) -> dict[str, Any]:
@@ -120,6 +127,21 @@ class QdrantClient(VectorClient):
             VectorClientError: If operation fails
         """
         try:
+            return await self._add_documents_once(documents)
+        except VectorClientError as e:
+            if not self._is_collection_missing(e):
+                raise
+            return await self._reconcile_and_retry(
+                operation=lambda: self._add_documents_once(documents),
+                failure_label="Failed to add documents",
+                details={"document_count": len(documents)},
+            )
+
+    async def _add_documents_once(
+        self,
+        documents: list[Document],
+    ) -> list[str]:
+        try:
             await self._ensure_collection()
             PointStruct = self._qdrant_model("PointStruct")
 
@@ -174,6 +196,24 @@ class QdrantClient(VectorClient):
         Raises:
             VectorClientError: If operation fails
         """
+        try:
+            return await self._search_once(request)
+        except VectorClientError as e:
+            if not self._is_collection_missing(e):
+                raise
+            # The collection vanished after the process-lifetime latch
+            # closed (Qdrant volume wipe / manual delete while the api
+            # process keeps running): reconcile once, then retry.
+            return await self._reconcile_and_retry(
+                operation=lambda: self._search_once(request),
+                failure_label="Search failed",
+                details={"query": request.query},
+            )
+
+    async def _search_once(
+        self,
+        request: VectorSearchRequest,
+    ) -> list[SearchResult]:
         try:
             await self._ensure_collection()
             # Generate embedding for query
@@ -473,6 +513,10 @@ class QdrantClient(VectorClient):
         offset: Any = None
         if max_chunks is not None and max_chunks < 1:
             raise ValueError("max_chunks must be positive")
+        # The scroll path needs the collection to exist just like search
+        # and upsert: without this, a fresh stack's boot warmup logged a
+        # misleading 404 "vector-only" skip instead of creating it.
+        await self._ensure_collection()
         while True:
             points, offset = await self.client.scroll(
                 collection_name=self.collection_name,
@@ -601,16 +645,130 @@ class QdrantClient(VectorClient):
                     # listing is authoritative on every server version.
                     exists = await _list_contains_collection()
 
-            if not exists:
-                Distance = self._qdrant_model("Distance")
-                VectorParams = self._qdrant_model("VectorParams")
-                vector_size = int(getattr(self.embedding_service, "dimensions", 1024))
-                await self.client.create_collection(
-                    collection_name=self.collection_name,
-                    vectors_config=VectorParams(
-                        size=vector_size,
-                        distance=Distance.COSINE,
-                    ),
-                )
+            if exists:
+                await self._verify_or_repair_collection_dims()
+            else:
+                await self._create_collection_at_provider_dims()
 
             self._collection_ready = True
+
+    async def _create_collection_at_provider_dims(self) -> None:
+        """Create the collection sized to the configured embedding provider."""
+        Distance = self._qdrant_model("Distance")
+        VectorParams = self._qdrant_model("VectorParams")
+        vector_size = int(getattr(self.embedding_service, "dimensions", 1024))
+        await self.client.create_collection(
+            collection_name=self.collection_name,
+            vectors_config=VectorParams(
+                size=vector_size,
+                distance=Distance.COSINE,
+            ),
+        )
+
+    @staticmethod
+    def _is_collection_missing(error: BaseException) -> bool:
+        """True when the exception chain indicates the collection is gone.
+
+        Qdrant answers 404 with ``Collection `name` doesn't exist`` for
+        search and upsert against a deleted collection. The client wraps
+        raw SDK errors into VectorClientError, so both the status code
+        (when present) and the message are checked along the cause chain.
+        """
+        cause: BaseException | None = error
+        while cause is not None:
+            if getattr(cause, "status_code", None) == 404:
+                return True
+            text = str(cause)
+            if "doesn't exist" in text or "Not found" in text:
+                return True
+            cause = cause.__cause__ or cause.__context__
+        return False
+
+    async def _reconcile_and_retry(
+        self,
+        operation: Callable[[], Awaitable[_T]],
+        failure_label: str,
+        details: dict[str, Any],
+    ) -> _T:
+        """Re-ensure a vanished collection and retry the operation once.
+
+        The process-lifetime ``_collection_ready`` latch exists to keep the
+        hot path free of existence checks; its flip side is that a
+        collection deleted mid-lifetime (volume wipe, operator error) would
+        404 every call until an api restart. One reconciliation pass keeps
+        that trade-off honest: reset the latch, re-run ensure (recreating
+        an empty collection if needed), retry the operation a single time.
+        A second failure propagates untouched.
+        """
+        logger.warning(
+            "Collection '%s' missing after ensure (latch stale); reconciling and retrying once",
+            self.collection_name,
+        )
+        RETRIEVAL_COLLECTION_SELF_HEALS.labels(reason="vanished").inc()
+        self._collection_ready = False
+        try:
+            await self._ensure_collection()
+            return await operation()
+        except VectorClientError:
+            raise
+        except Exception as inner:  # pragma: no cover - defensive wrap parity
+            raise VectorClientError(
+                f"{failure_label} after collection reconciliation: {inner}",
+                details=details,
+            ) from inner
+
+    async def _verify_or_repair_collection_dims(self) -> None:
+        """Guard against embedding-dimension drift on an existing collection.
+
+        Switching providers changes the query-vector dimension (live finding
+        2026-11-12: a 512-dim bge-small-era collection vs 1024-dim embedding-2
+        queries). Qdrant answers every search with an opaque 400 that only
+        surfaces in tracebacks, so drift is checked here at ensure time:
+        an empty collection is recreated at the provider's dims (zero data
+        loss — nothing was indexed); a non-empty one fails fast with the
+        collection name and both dimensions, telling the operator exactly
+        what to do instead of poisoning every search.
+
+        Named/multi-vector configs carry no scalar ``size``; those are left
+        untouched for the search path to surface any genuine incompatibility.
+        """
+        try:
+            info = await self.client.get_collection(self.collection_name)
+        except Exception:  # noqa: BLE001 - schema unreadable → search will error concretely
+            logger.warning(
+                "Could not read schema of collection '%s'; skipping dimension check",
+                self.collection_name,
+            )
+            return
+
+        vectors = getattr(getattr(getattr(info, "config", None), "params", None), "vectors", None)
+        existing_size = getattr(vectors, "size", None)
+        if not isinstance(existing_size, int):
+            return
+        expected_size = int(getattr(self.embedding_service, "dimensions", 1024))
+        if existing_size == expected_size:
+            return
+
+        points = getattr(info, "points_count", 0) or 0
+        if points:
+            raise VectorClientError(
+                f"Collection '{self.collection_name}' stores {existing_size}-dim vectors "
+                f"but the embedding provider produces {expected_size}-dim vectors. "
+                f"Re-index required: either switch EMBEDDING_PROVIDER back to the "
+                f"{existing_size}-dim model or delete the collection and re-ingest "
+                f"to rebuild at {expected_size} dims."
+            )
+
+        # Empty collection: recreate at the provider's dims. The check-then-delete
+        # window could race a concurrent first ingest at demo scale; the ingest
+        # upsert would then fail loudly rather than corrupt silently.
+        logger.warning(
+            "Collection '%s' is empty with %d-dim vectors; recreating at %d dims "
+            "to match the configured embedding provider",
+            self.collection_name,
+            existing_size,
+            expected_size,
+        )
+        RETRIEVAL_COLLECTION_SELF_HEALS.labels(reason="dim_drift").inc()
+        await self.client.delete_collection(self.collection_name)
+        await self._create_collection_at_provider_dims()

@@ -1,0 +1,111 @@
+# Native Prometheus 2.47.2 rule tests for the cs-retrieval-resilience
+# group; run from any working directory:
+#   promtool test rules deploy/prometheus/containment-alerts.test.yml deploy/prometheus/retrieval-alerts.test.yml
+# Deterministic series snapshots; time starts at Unix epoch zero,
+# evaluation every minute.
+#
+# Design notes (learned the hard way, see tick34):
+#   - Chained step segments (`0x10 1x5 5x45`) shift 1-2 samples from the
+#     intuitive layout in this engine; arithmetic counters (`0+bxn`) are
+#     the deterministic choice.
+#   - increase() always extrapolates at window edges (1m-sample series can
+#     never fully cover a 15m left-open range), so {{ $value }} renders
+#     unpredictable floats. Fire-case assertions therefore pin labels
+#     only — what is under test is the timing/threshold/NaN semantics,
+#     not string rendering (already covered by `check rules` and the
+#     structural contract tests). The containment suite can assert full
+#     annotations because its descriptions are value-free.
+rule_files:
+- alerts.yml
+evaluation_interval: 1m
+tests:
+- name: self-heal-below-threshold-never-fires
+  interval: 1m
+  # 0.1 events/min → at most ~1.5 per 15m window, always under threshold 3.
+  input_series:
+  - series: retrieval_collection_self_heals_total{reason="dim_drift"}
+    values: 0+0.1x60
+  alert_rule_test:
+  - eval_time: 20m
+    alertname: RetrievalSelfHealsRising
+    exp_alerts: []
+  - eval_time: 40m
+    alertname: RetrievalSelfHealsRising
+    exp_alerts: []
+  - eval_time: 40m
+    alertname: RetrievalFilterFallbackShareHigh
+    exp_alerts: []
+
+- name: self-heal-above-threshold-fires-after-for-window
+  interval: 1m
+  # 1 event/min: increase[15m] crosses 3 around minute 3, so the 5m
+  # `for` gate has the alert firing from ~minute 8 onward. Minute 6 is
+  # still pending; minute 20 is firing.
+  input_series:
+  - series: retrieval_collection_self_heals_total{reason="dim_drift"}
+    values: 0+1x60
+  alert_rule_test:
+  - eval_time: 6m
+    alertname: RetrievalSelfHealsRising
+    exp_alerts: []
+  - eval_time: 20m
+    alertname: RetrievalSelfHealsRising
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+      exp_annotations:
+        summary: 检索 collection 自愈频发（上游在反复删/改 collection）
+        description: "15 collection self-heal events (dim_drift rebuild or vanished
+          reconcile) in 15m. Each heal recovered automatically, but the pattern
+          means the vector collection keeps being deleted or re-dimensioned
+          (volume churn, embedding-provider flips, operator action) — every
+          heal is a window where retrieval served empty results. Usual causes:
+          a cron/operator wiping the Qdrant volume, or EMBEDDING_PROVIDER
+          flapping between models with different dimensions. The
+          3-events/15m threshold absorbs the single expected heal after a
+          legitimate change."
+
+- name: filter-fallback-share-nan-with-zero-traffic-does-not-fire
+  interval: 1m
+  # No filtered-search series at all: the ratio is NaN (division by an
+  # empty sum), which must never fire the share alert.
+  input_series:
+  - series: retrieval_collection_self_heals_total{reason="vanished"}
+    values: 0+0x60
+  alert_rule_test:
+  - eval_time: 40m
+    alertname: RetrievalFilterFallbackShareHigh
+    exp_alerts: []
+  - eval_time: 40m
+    alertname: RetrievalSelfHealsRising
+    exp_alerts: []
+
+- name: filter-fallback-pinned-at-100-percent-fires-after-30m
+  interval: 1m
+  # Both counters climb at 10/min: the fallback share is exactly 1.0
+  # from the first computable rate (~minute 3), so the 30m `for` gate
+  # has the alert firing from ~minute 33 onward. Minute 25 is still
+  # pending; minute 40 is firing.
+  input_series:
+  - series: retrieval_filtered_searches_total
+    values: 0+10x60
+  - series: retrieval_filter_fallbacks_total
+    values: 0+10x60
+  alert_rule_test:
+  - eval_time: 25m
+    alertname: RetrievalFilterFallbackShareHigh
+    exp_alerts: []
+  - eval_time: 40m
+    alertname: RetrievalFilterFallbackShareHigh
+    exp_alerts:
+    - exp_labels:
+        severity: warning
+      exp_annotations:
+        summary: 检索过滤回退率长期 >90%（chunk 元数据契约未生效）
+        description: "100% of filtered searches fell back to unfiltered over
+          15m, sustained for 30m. Slot-derived filters are matching nothing:
+          either ingestion never populated the chunk-metadata keys (filter is
+          pure overhead) or recently stopped (contract regression). Retrieval
+          still works — answers just ignore brand/category constraints, so
+          users see broader results than they asked for. Check the ingestion
+          metadata writer and the slot-filling filter derivation."

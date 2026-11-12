@@ -48,3 +48,15 @@ KB_EPOCH_FAILURES = Counter(
     labelnames=["op"],
     registry=REGISTRY,
 )
+# Collection self-heals (empty-KB honesty / dim-drift rebuild / vanished
+# reconcile, 2026-11-13): every heal is a warn-logged recovery, but logs
+# need a reader. Sustained growth here means something upstream keeps
+# deleting or re-dimensioning the collection (volume churn, provider
+# flips) and the system is silently absorbing it — alert-worthy before
+# the heal paths mask a real outage.
+RETRIEVAL_COLLECTION_SELF_HEALS = Counter(
+    "retrieval_collection_self_heals_total",
+    "Collection self-heal events, by reason (dim_drift/vanished)",
+    labelnames=["reason"],
+    registry=REGISTRY,
+)

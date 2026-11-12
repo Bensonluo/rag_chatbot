@@ -46,6 +46,8 @@ _PINNED_ALERTS = {
     "ChatTTFTSlow",
     "ChatStreamErrorRateHigh",
     "ClaimGateViolationsRising",
+    "RetrievalSelfHealsRising",
+    "RetrievalFilterFallbackShareHigh",
 }
 
 # DB-bridged gauges are independently refreshed copies of a shared DB
@@ -190,4 +192,8 @@ class TestAlertRulesContract:
         commands = "\n".join(step["run"] for step in steps)
         assert "check rules /rules/alerts.yml" in commands
         assert "test rules /rules/containment-alerts.test.yml" in commands
+        # Both behavioral suites share one promtool invocation; assert the
+        # filename (not the command prefix) so suite ordering stays free.
+        assert "/rules/retrieval-alerts.test.yml" in commands
         assert (_ALERTS_PATH.parent / "containment-alerts.test.yml").is_file()
+        assert (_ALERTS_PATH.parent / "retrieval-alerts.test.yml").is_file()
