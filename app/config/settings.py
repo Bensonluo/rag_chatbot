@@ -325,6 +325,16 @@ class Settings(BaseSettings):
             "via env."
         ),
     )
+    GLM_EMBEDDING_BASE_URL: str = Field(
+        default="https://open.bigmodel.cn/api/paas/v4/",
+        description=(
+            "Endpoint for GLM embeddings, independent of GLM_BASE_URL: the "
+            "Coding Plan chat endpoint does not serve embedding models "
+            "(HTTP 400 error 1211), while the standard PAAS endpoint serves "
+            "embedding-2/embedding-3 and accepts Coding Plan keys "
+            "(live-verified 2026-11-12)."
+        ),
+    )
 
     # MiniMax: OpenAI-compatible domestic provider serving two roles —
     # resilience backup right after GLM, and the speed (light) tier for

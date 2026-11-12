@@ -78,9 +78,10 @@ class GLMEmbeddingService(EmbeddingServiceBase):
             api_key: Zhipu AI API key (format: {id}.{secret})
             model: Model name (default: embedding-2)
             dimensions: Override dimensions (auto-detected if not provided)
-            base_url: Override the API endpoint (defaults to GLM_BASE_URL —
-                the standard PAAS API; Coding Plan keys point it at the
-                coding endpoint instead)
+            base_url: Override the API endpoint (defaults to
+                GLM_EMBEDDING_BASE_URL — the standard PAAS API, which serves
+                embedding models even when GLM_BASE_URL points chat traffic
+                at a Coding Plan endpoint)
         """
         if dimensions is None:
             dimensions = self.MODELS.get(model, 1024)
@@ -90,7 +91,7 @@ class GLMEmbeddingService(EmbeddingServiceBase):
         self.api_key = api_key
 
         self.client = httpx.AsyncClient(
-            base_url=base_url or settings.GLM_BASE_URL,
+            base_url=base_url or settings.GLM_EMBEDDING_BASE_URL,
             headers={"Content-Type": "application/json"},
             timeout=60.0,
             limits=_EMBED_POOL_LIMITS,

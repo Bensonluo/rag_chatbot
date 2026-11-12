@@ -140,7 +140,12 @@ class EmbeddingFactory:
 
         # Get provider from settings (default to local)
         provider = getattr(settings, "EMBEDDING_PROVIDER", "local")
-        model = getattr(settings, "EMBEDDING_MODEL", None)
+        # EMBEDDING_MODEL names local BGE checkpoints. Provider-native
+        # names come from each branch's own defaults (GLM: embedding-2)
+        # or dedicated settings (OPENAI_EMBEDDING_MODEL) — forwarding a
+        # bge-* name to an API provider sends GLM a nonexistent model
+        # (HTTP 400 error 1211, live-verified 2026-11-12).
+        model = getattr(settings, "EMBEDDING_MODEL", None) if provider == "local" else None
 
         return EmbeddingFactory.create(
             provider=provider, model=model, use_cache=use_cache, cache_ttl=cache_ttl
