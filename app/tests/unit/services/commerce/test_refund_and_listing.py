@@ -11,13 +11,13 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import event, select
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.exceptions import ConflictError
 from app.models.database.base import Base
 from app.models.database.commerce import PurchaseOperation, PurchaseSession
 from app.models.database.user import User
-from app.models.schemas.commerce import CartLineSelection
+from app.models.schemas.commerce import CartLineSelection, CommerceView
 from app.services.commerce.mock_port import MockCommercePort
 from app.services.commerce.service import PurchaseService
 from app.services.commerce.timeline import (
@@ -63,7 +63,7 @@ async def shop(tmp_path, monkeypatch):
     await engine.dispose()
 
 
-async def paid_journey(service: PurchaseService, owner: int = 1) -> PurchaseSession:
+async def paid_journey(service: PurchaseService, owner: int = 1) -> CommerceView:
     view = await service.start(owner)
     view = await service.update_cart_lines(
         owner,
@@ -106,9 +106,11 @@ async def test_refund_paid_order_once(shop):
     assert first.status == "refunded"
 
 
-async def order_id_for(maker, purchase_id: str) -> str:
+async def order_id_for(maker: async_sessionmaker[AsyncSession], purchase_id: str) -> str:
     async with maker() as db:
-        row = await db.scalar(select(PurchaseSession).where(PurchaseSession.id == purchase_id))
+        row: PurchaseSession | None = await db.scalar(
+            select(PurchaseSession).where(PurchaseSession.id == purchase_id)
+        )
     assert row is not None and row.order_id is not None
     return row.order_id
 
@@ -159,7 +161,9 @@ async def test_recent_orders_tool_lists_store_purchases(shop):
     # Owner isolation is closed over, never a model argument.
     other = ToolRegistry()
     register_recent_orders_tools(other, maker, 2)
-    empty = await other.get_tool_by_name("commerce_list_recent_orders").handler({})
+    other_tool = other.get_tool_by_name("commerce_list_recent_orders")
+    assert other_tool is not None
+    empty = await other_tool.handler({})
     assert "还没有任何购买记录" in empty["message"]
 
 

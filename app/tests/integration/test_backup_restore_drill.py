@@ -7,6 +7,7 @@ schema, source bytes, historical citations, ticket state, and sequences.
 
 import gzip
 import os
+import re
 import subprocess
 import uuid
 from pathlib import Path
@@ -63,6 +64,30 @@ def _snapshot(engine: Engine) -> dict[str, list[dict[str, Any]]]:
         }
 
 
+# pg_dump replay re-renders varchar IN-list CHECK constraints with
+# per-element ::text casts (ARRAY[('x'::character varying)::text, ...]) while
+# the alembic-created source keeps one array-level cast
+# ((ARRAY['x'::character varying, ...])::text[]). Same predicate, different
+# pg_get_constraintdef text — the same class of drift the indexes query above
+# documents for the varchar[] -> text[] membership index. Normalize both
+# renderings to one canonical form so a faithful restore does not false-fail
+# the schema diff; the CHECK semantics themselves are replayed verbatim.
+_ARRAY_WHOLE_CAST = re.compile(r"\(ARRAY\[([^\]]*)\]\)::text\[\]")
+_ARRAY_DOUBLE_OPEN = re.compile(r"\(\(ARRAY")
+_ARRAY_DOUBLE_CLOSE = re.compile(r"(ANY \(ARRAY\[[^\]]*\])\)\)")
+_ARRAY_ELEMENT_CAST_TEXT = re.compile(r"\('([^']+)'::character varying\)::text")
+_ARRAY_ELEMENT_CAST_VARCHAR = re.compile(r"'([^']+)'::character varying")
+
+
+def _normalize_check_text(definition: str) -> str:
+    text = _ARRAY_WHOLE_CAST.sub(r"ARRAY[\1]", definition)
+    text = _ARRAY_DOUBLE_OPEN.sub("(ARRAY", text)
+    text = _ARRAY_DOUBLE_CLOSE.sub(r"\1", text)
+    text = _ARRAY_ELEMENT_CAST_TEXT.sub(r"'\1'", text)
+    text = _ARRAY_ELEMENT_CAST_VARCHAR.sub(r"'\1'", text)
+    return text
+
+
 def _schema(engine: Engine) -> dict[str, list[tuple[Any, ...]]]:
     """Compare restored column definitions, constraints and indexes, including
     tables owned by LangGraph rather than Alembic's application metadata.
@@ -85,10 +110,15 @@ def _schema(engine: Engine) -> dict[str, list[tuple[Any, ...]]]:
             WHERE n.nspname='public' ORDER BY r.relname,c.conname""",
     }
     with engine.connect() as connection:
-        return {
+        result = {
             name: [tuple(row) for row in connection.execute(text(query))]
             for name, query in queries.items()
         }
+    result["constraints"] = [
+        (relname, conname, _normalize_check_text(str(definition)))
+        for relname, conname, definition in result["constraints"]
+    ]
+    return result
 
 
 def _active_ticket_membership(engine: Engine) -> list[bool | None]:
