@@ -85,6 +85,7 @@ class TestHappyPath:
             "track_shipping",
             "submit_complaint",
             "get_recent_orders",
+            "get_catalog_stats",
         }
 
     async def test_system_prompt_and_context_note(self):

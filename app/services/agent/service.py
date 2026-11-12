@@ -41,8 +41,13 @@ from app.services.agent.metrics import (
     record_agent_outcome,
 )
 from app.services.chat.citations import normalize_citations
-from app.services.dialogue.i18n import GENERATION_LANG_DIRECTIVE, LANG_ZH, detect_language
-from app.services.dialogue.tools import ToolResult
+from app.services.dialogue.i18n import (
+    GENERATION_LANG_DIRECTIVE,
+    LANG_EN,
+    LANG_ZH,
+    detect_language,
+)
+from app.services.dialogue.tools import ToolResult, valid_order_id_token
 from app.services.llm.base import LLMMessage
 from app.services.llm.budget import LLMBudgetExceeded
 from app.services.observability.trace_events import TraceEvent
@@ -71,8 +76,28 @@ SYSTEM_PROMPT = (
     "不否认也不夸大；但不展开技术栈、模型选型等内部实现细节，"
     "可请对方参考项目介绍页，随后把话题带回购物服务。\n"
     "8. 用户消息里嵌着售后诉求（如「我要退货」）时，主动为其办理，"
-    "不要只回答字面问题。"
+    "不要只回答字面问题。\n"
+    "9. 收集信息时一次只问一项：任务缺少多个字段（如投诉的类目、描述、"
+    "订单号）时，只针对下一个缺失字段提一个问题，且以问号（？/?）结尾；"
+    "不要一次列出全部问题或整张表单。\n"
+    "10. 不要在回复开头汇报账号登录状态等内部查询细节；工具因未登录而"
+    "查不到时，直接引导用户提供该信息即可，不要解释查询管道。\n"
+    "11. 不要说出工具结果之外的任何数字（类目数量、库存、折扣等）；"
+    "类目、商品数量等店铺目录概况先调用 get_catalog_stats 再引用；"
+    "没有工具依据时用模糊表述（如「多类目」）而不是编造具体数。"
 )
+
+# Re-ask copy when a staged irreversible action arrives with a malformed
+# order id (see valid_order_id_token): the confirmation gate must never
+# present a garbage order number as if it were actionable.
+_INVALID_ORDER_ID_RE_ASK = {
+    LANG_EN: (
+        "That doesn't look like an order number. Could you share the exact "
+        "order ID (e.g. ORD1001) from your order confirmation so I can "
+        "process this for you?"
+    ),
+    LANG_ZH: ("这看起来不像订单号。能提供订单确认里的准确订单号（如 ORD1001），让我为您办理吗？"),
+}
 
 _FALLBACK_RESPONSE = (
     "抱歉，您的请求处理超时了。您可以重新描述问题，或回复「转人工」由人工客服为您处理。"
@@ -346,7 +371,9 @@ class AgentService:
                         truncated=True,
                         outcome=OUTCOME_STEPS_EXHAUSTED,
                     )
-                staged = self._maybe_stage_confirmation(call)
+                staged = self._maybe_stage_confirmation(
+                    call, language=detect_language(user_message)
+                )
                 if staged is not None:
                     # Keep the audit trail of tools already run before
                     # the staged (unexecuted) irreversible action.
@@ -433,11 +460,16 @@ class AgentService:
 
     # ── Internals ────────────────────────────────────────────────────────
 
-    def _maybe_stage_confirmation(self, call: dict[str, Any]) -> AgentResult | None:
+    def _maybe_stage_confirmation(
+        self, call: dict[str, Any], language: str = LANG_ZH
+    ) -> AgentResult | None:
         """Stage an irreversible tool instead of executing it.
 
         Returns a terminal AgentResult when the requested tool is
-        confirmation-gated; None when the call may proceed.
+        confirmation-gated; None when the call may proceed. A malformed
+        order id never stages: the gate must not present a garbage order
+        number (e.g. a dismissive phrase the model misread) as actionable,
+        so the run re-asks for the exact id instead.
         """
         from app.services.dialogue.nodes import _build_confirmation_summary
 
@@ -445,6 +477,16 @@ class AgentService:
         if tool is None or not tool.requires_confirmation:
             return None
         args = _parse_arguments(call)
+        schema_props = (tool.parameters_schema or {}).get("properties", {})
+        if "order_id" in schema_props and not valid_order_id_token(args.get("order_id")):
+            AGENT_TOOL_CALLS.labels(tool=tool.name, outcome="invalid_order_id").inc()
+            logger.warning(
+                "refusing to stage %s: malformed order_id %r", tool.name, args.get("order_id")
+            )
+            return AgentResult(
+                response=_INVALID_ORDER_ID_RE_ASK.get(language, _INVALID_ORDER_ID_RE_ASK[LANG_EN]),
+                outcome=OUTCOME_ANSWERED,
+            )
         return AgentResult(
             response=_build_confirmation_summary(tool, args),
             pending_confirmation={

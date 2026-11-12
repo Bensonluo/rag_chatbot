@@ -12,6 +12,8 @@ explicit user confirmation before execution.
 import inspect
 import logging
 import random
+import re
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -329,6 +331,24 @@ def _owned_order(args: dict[str, Any]) -> dict[str, Any]:
 
 # ── Mock handlers ──────────────────────────────────────────────────────────
 
+# An order id is a single alphanumeric token containing at least one digit —
+# demo store ids look like ORD1001, commerce-provider ids like
+# o_<uuid4 hex>. Natural-language text ("Tune them out") must never reach a
+# staged irreversible action: the 2026-10-28 demo session showed the agent
+# accepting a dismissive phrase as an order number and staging a refund
+# confirmation around it.
+_ORDER_ID_TOKEN = re.compile(r"^[A-Za-z0-9_-]*\d[A-Za-z0-9_-]*$")
+
+
+def valid_order_id_token(value: object) -> bool:
+    """True when ``value`` is shaped like an order id token.
+
+    Accepts both demo (ORD1001) and provider (o_ + 32 hex) formats; rejects
+    multi-word phrases, empty strings and digit-free tokens.
+    """
+    text = str(value or "").strip()
+    return bool(text) and _ORDER_ID_TOKEN.fullmatch(text) is not None
+
 
 def mock_refund(args: dict[str, Any]) -> dict[str, Any]:
     order_id = str(args.get("order_id", ""))
@@ -407,12 +427,21 @@ def mock_track_shipping(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def mock_complaint(args: dict[str, Any]) -> dict[str, Any]:
+    # Optional order references must be token-shaped: a natural-language
+    # phrase the model lifted as "order_id" (same failure family as the
+    # 2026-10-28 refund staging incident) would persist into the human
+    # agent's ticket view as noise. Drop it; the ticket keeps working
+    # without an order link.
+    order_id = str(args.get("order_id") or "")
+    if order_id and not valid_order_id_token(order_id):
+        logger.info("complaint: dropping malformed order_id %r", order_id)
+        order_id = ""
     return {
         "status": "success",
         "complaint_id": f"CP{random.randint(100000, 999999)}",
         "category": args.get("category", ""),
         "description": args.get("description", ""),
-        "order_id": args.get("order_id", ""),
+        "order_id": order_id,
         "assigned_to": "Agent Li",
         "estimated_response": "24h",
     }
@@ -443,6 +472,48 @@ def mock_get_recent_orders(args: dict[str, Any]) -> dict[str, Any]:
     ]
     orders.sort(key=lambda order: order["created_at"], reverse=True)
     return {"orders": orders, "count": len(orders)}
+
+
+def mock_catalog_stats(args: dict[str, Any]) -> dict[str, Any]:
+    """Deterministic store-overview numbers, straight from the catalog.
+
+    2026-10-28 demo: asked how many categories the store carries, the
+    agent answered「160多」from priors (actual: 151) — with no catalog
+    tool in the registry, every store-size question was a pure
+    hallucination surface. This handler grounds those answers in the
+    provider's real deterministic taxonomy (the same module the
+    commerce lanes read), so mock-lane and provider-lane numbers can
+    never drift apart. Read-only, caller-independent (no user_id use):
+    catalog facts are public store facts.
+    """
+    from app.commerce_provider.catalog import (
+        BRAND_COUNT,
+        CATEGORIES,
+        MODELS_PER_PAIR,
+        TOTAL_SKUS,
+        VARIANTS_PER_MODEL,
+    )
+
+    del args  # no parameters; the stats are whole-store facts
+    domain_counts = Counter(spec.domain for spec in CATEGORIES)
+    # First category name per domain, in catalog order: a deterministic
+    # sample spanning the whole taxonomy without dumping 151 names.
+    first_per_domain: dict[str, str] = {}
+    for spec in CATEGORIES:
+        first_per_domain.setdefault(spec.domain, spec.name)
+    return {
+        "category_count": len(CATEGORIES),
+        "domain_count": len(domain_counts),
+        "brand_count": BRAND_COUNT,
+        "models_per_brand": MODELS_PER_PAIR,
+        "variants_per_model": VARIANTS_PER_MODEL,
+        "skus_per_category": BRAND_COUNT * MODELS_PER_PAIR * VARIANTS_PER_MODEL,
+        "total_skus": TOTAL_SKUS,
+        "domains": [
+            {"domain": domain, "category_count": count, "example": first_per_domain[domain]}
+            for domain, count in domain_counts.items()
+        ],
+    }
 
 
 def create_default_tool_registry(*, action_ledger: "ActionLedger | None" = None) -> ToolRegistry:
@@ -739,6 +810,27 @@ DEFAULT_TOOLS: list[ToolDefinition] = [
         parameters_schema={
             # No model-supplied parameters: user identity is injected
             # server-side, so cross-customer listing is impossible.
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    ),
+    ToolDefinition(
+        name="get_catalog_stats",
+        # Registry key only — deliberately not a dialogue intent, so
+        # the slot pipeline can never route here; this tool grounds the
+        # agent loop's store-overview answers (same doctrine as
+        # recent_orders / knowledge_search).
+        intent="catalog_stats",
+        description=(
+            "查询店铺商品目录概况（类目数量、领域分布、品牌数、商品总数）。"
+            "回答「你们卖什么」「有多少类目/多少商品」等店铺概况问题时"
+            "必须先调用此工具。"
+        ),
+        required_slots=[],
+        handler=mock_catalog_stats,
+        parameters_schema={
+            # Whole-store public facts: no per-caller state involved.
             "type": "object",
             "properties": {},
             "required": [],
