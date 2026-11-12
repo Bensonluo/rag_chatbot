@@ -4,21 +4,22 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rag-chatbot"
-version = "0.1.0"
-description = "Architecture-focused GraphRAG chatbot demo with dialogue state and hybrid retrieval"
+version = "0.2.0"
+description = "Transactional shopping and customer-service agent: LangGraph dialogue engine, hybrid retrieval + GraphRAG, guardrails, confirmation-gated commerce, human handoff, MCP server"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{name = "Benson Luo"}]
 license = {file = "LICENSE"}
-keywords = ["rag", "chatbot", "llm", "fastapi", "memory", "intent-detection"]
+keywords = ["rag", "chatbot", "llm", "fastapi", "langgraph", "customer-service", "agents", "graphrag", "commerce", "mcp"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Framework :: FastAPI",
     "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
 dependencies = [
@@ -133,10 +134,11 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Bensonluo/rag_chatbot"
+Homepage = "https://benluo.art/projects/rag-chatbot/"
 Documentation = "https://github.com/Bensonluo/rag_chatbot#readme"
 Repository = "https://github.com/Bensonluo/rag_chatbot"
 Issues = "https://github.com/Bensonluo/rag_chatbot/issues"
+Changelog = "https://github.com/Bensonluo/rag_chatbot/blob/main/CHANGELOG.md"
 
 # Tool configurations
 

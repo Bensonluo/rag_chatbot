@@ -1038,10 +1038,10 @@ class CommerceConversation:
                 # Transaction stages below never adopt model prose.
                 if view is not None and view.stage == "shopping" and advice:
                     label = (
-                        "Agent combination suggestions (not added to the cart; "
-                        "provider facts below are authoritative):\n"
+                        "Suggestions — nothing added to your cart yet; "
+                        "product facts below are authoritative:\n"
                         if is_english(message)
-                        else "Agent 组合建议（尚未加购；以下 provider 商品事实为准）：\n"
+                        else "推荐建议（尚未加购；以下商品事实为准）：\n"
                     )
                     content = f"{label}{advice}\n\n{facts}"
                 else:

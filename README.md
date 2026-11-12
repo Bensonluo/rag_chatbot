@@ -54,6 +54,21 @@ The system connects a 14-node LangGraph dialogue engine with a deterministic vir
 
 Deployment commands below start a single API instance. Replica templates, optional GraphRAG and monitoring are configured separately. Recorded verification results and their scope are listed under [Testing & Quality](#-testing--quality).
 
+### Similar projects
+
+The RAG space has strong general-purpose engines and platforms. A few reference points:
+
+| Project | Lane | Stack |
+|---|---|---|
+| [RAGFlow](https://github.com/infiniflow/ragflow) | Agent-native RAG engine / context infrastructure | Go / Python |
+| [Onyx](https://github.com/onyx-dot-app/onyx) | Enterprise AI chat platform, broad LLM and connector support | Python |
+| [AnythingLLM](https://github.com/Mintplex-Labs/anything-llm) | Local-first document chat and agent workspace | JavaScript |
+| [LightRAG](https://github.com/HKUDS/LightRAG) | Simple and fast graph-based RAG (EMNLP 2025) | Python |
+| [Kotaemon](https://github.com/Cinnamon/kotaemon) | Document-chat tool with a clean UI | Python |
+| [Agentic Commerce Protocol](https://github.com/agentic-commerce-protocol/agentic-commerce-protocol) | Open standard for agent ↔ merchant commerce interactions | Spec |
+
+This repo sits in a different lane: an end-to-end **transactional** customer-service and shopping agent — confirmation-gated commerce (quote → order → payment with CAS and idempotency), guardrailed streaming, human handoff with a staff workbench, deterministic evals, and a one-command demo. For general document-QA platforms the projects above are good fits; this project focuses on what it takes for an agent to safely touch orders and money. The ACP row is a complementary standard rather than a competitor — it defines how agents and merchants talk; this repo ships a complete store-side implementation (including an MCP server) where that class of protocol could plug in.
+
 ---
 
 ## ✨ Key Highlights
@@ -69,13 +84,55 @@ Deployment commands below start a single API instance. Replica templates, option
 | Human handoff | Private sign-in workspace, tickets/queue, assigned context, two-way human messages, atomic final reply/closure | Carry context into staff handling and deliver a saved explanation |
 | Operational control | Epoch-scoped L0/L1/L2 cache, metrics/alerts, tracing, rate limits | Inspect latency, outcomes, cache consistency and load |
 
-**Recorded quality baseline (2026-11-11):** 4099 passing core tests, 3 opt-in scenarios skipped by default, 93.56% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
+**Recorded quality baseline (2026-11-12):** 4105 passing core tests, 3 opt-in scenarios skipped by default, 93.56% core coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
 
 [Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md)
 
 ---
 
 ## 🔄 How It Works
+
+One conversation thread covers the whole journey — consult, buy, get support, and come back:
+
+```mermaid
+flowchart TB
+    visitor["Anonymous visitor<br/>(cookie identity, no signup)"]
+
+    subgraph consult["1 · Consult — grounded answers"]
+        ask["Ask products, prices, policies"]
+        grounded["Hybrid retrieval + citations<br/>claim-gated policy numbers"]
+        ask --> grounded
+    end
+
+    subgraph buy["2 · Buy — transactional agent"]
+        search["Shopping agent search<br/>154,624-SKU catalog"]
+        quote["Cart → itemized quote"]
+        confirm{"Explicit confirmation"}
+        pay["Order → payment<br/>CAS + idempotency keys"]
+        search --> quote --> confirm
+        confirm -- "approve" --> pay
+        confirm -- "change mind" --> quote
+    end
+
+    subgraph aftersale["3 · After-sale — customer service"]
+        track["Order timeline<br/>from authoritative rows"]
+        refund["Refund / return / complaint<br/>confirmation-gated, terminal when done"]
+        resolved{"Resolved?"}
+        staff["Human handoff<br/>staff workbench with full context"]
+        done["Resolution recorded + QA sample"]
+        track --> refund --> resolved
+        resolved -- "no" --> staff
+        resolved -- "yes" --> done
+    end
+
+    visitor --> ask
+    grounded --> search
+    pay --> track
+    staff -. "conversation continues with memory" .-> ask
+    done -. "cross-session facts" .-> ask
+```
+
+### Turn-level walkthrough
 
 A user says *"I want a refund"*. Here's what happens:
 
@@ -146,15 +203,17 @@ cp .env.example .env
 # Edit .env: set GLM_API_KEY (and optionally MINIMAX/KIMI for speed tiers)
 
 # Start the service stack (API + PostgreSQL + Redis + Qdrant + Neo4j)
-docker-compose up -d
+docker compose up -d
 
 # Or with monitoring stack (Prometheus + Grafana)
-docker-compose --profile monitoring up -d
+docker compose --profile monitoring up -d
 
 # Verify
 curl http://localhost:8000/health
 curl http://localhost:8000/ready
 ```
+
+Prefer `make`? `make install`, `make compose-up`, `make test`, `make lint` wrap the same commands — run `make help` for the full list.
 
 ### Option 2: Try the Live Demo first
 
@@ -168,8 +227,8 @@ Don't want to deploy? **[Try it online →](https://benluo.art/projects/rag-chat
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Start PostgreSQL + Redis + Qdrant via docker-compose
-docker-compose up -d postgres redis qdrant
+# Start PostgreSQL + Redis + Qdrant via docker compose
+docker compose up -d postgres redis qdrant
 
 # Run migrations & dev server
 alembic upgrade head
@@ -186,11 +245,15 @@ The chatbot is deployed and interactive at:
 
 > 🎯 **[benluo.art/projects/rag-chatbot/](https://benluo.art/projects/rag-chatbot/)**
 
-Try these scenarios:
-- 🛒 **Shop with confirmation gates**: Say "送女友一副降噪耳机,预算 400 以内" — the agent searches the catalog, proposes candidates, prepares a quote, and only orders after you explicitly confirm; payment is a separate confirmation
-- 🔔 **Pre-authorize a price watch**: Say "ANC-02 降到 300 以内就来问我" — the next time fresh provider prices satisfy the rule, the agent asks exactly once, and the card's price wins over any narration
-- 🧾 **Track the order**: Ask "我的订单怎么样了" — the timeline is rebuilt from authoritative rows (cart versions, quote TTL, order, payment, idempotency receipts)
-- 🔄 **Intent switch**: Ask "我要退款", partially answer, then ask "退货政策是什么"
+![Live demo: a gift-shopping turn with its full execution trace](assets/demo-live-turn.png)
+
+*A live shopping turn. Left: the agent proposes candidates under budget, adds nothing to the cart, and asks which color and quantity before ordering. Right: the real execution chain of that same turn — intent classification (shopping, 97% confidence), the agent tool loop with product searches and catalog lookups, per-stage latency, and turn metrics (TTFT, chunks, 27 trace events).*
+
+Try these scenarios (the demo replies in your language — EN / 中文 both work):
+- 🛒 **Shop with confirmation gates**: Say "Gift: noise-cancelling earbuds under ¥400"（送女友一副降噪耳机，预算 400 以内）— the agent searches the catalog, proposes candidates, prepares a quote, and only orders after you explicitly confirm; payment is a separate confirmation
+- 🔔 **Pre-authorize a price watch**: Say "Tell me when ANC-02 drops under ¥300"（ANC-02 降到 300 以内就来问我）— the next time fresh provider prices satisfy the rule, the agent asks exactly once, and the card's price wins over any narration
+- 🧾 **Track the order**: Ask "Where is my order?"（我的订单怎么样了）— the timeline is rebuilt from authoritative rows (cart versions, quote TTL, order, payment, idempotency receipts)
+- 🔄 **Intent switch**: Ask "I want a refund"（我要退款）, partially answer, then ask "What's the return policy?"（退货政策是什么）
 - 📚 **RAG retrieval**: Ask about return policy, shipping, warranty
 - 🛠️ **Function Calling**: Complete a refund/return/order query workflow
 
@@ -212,41 +275,86 @@ Try these scenarios:
 | **Embeddings** | BGE-M3 (local) | Free, multilingual, no API key |
 | **Observability** | OpenTelemetry + Prometheus + Grafana | Inspect demo traces and metrics |
 
+### System Components
+
+Wiring as deployed by `docker-compose.yml` (monitoring stack behind the `monitoring` profile; GraphRAG and the MCP server are opt-in):
+
+```mermaid
+flowchart LR
+    Visitor["Browser<br/>(guest cookie identity)"]
+    Nginx["nginx reverse proxy<br/>(optional, multi-replica upstream)"]
+
+    subgraph app["API container"]
+        API["FastAPI<br/>SSE streaming · guardrails · rate limits"]
+        Engine["LangGraph dialogue engine<br/>(14 nodes, Postgres checkpointer)"]
+        MCP["Commerce MCP server<br/>(optional, mcp extra)"]
+    end
+
+    subgraph stores["State & knowledge"]
+        PG[("PostgreSQL<br/>sessions · tickets · feedback")]
+        Redis[("Redis<br/>rate limits · caches")]
+        Qdrant[("Qdrant<br/>vectors + BM25 hybrid")]
+        Neo[("Neo4j<br/>(optional GraphRAG)")]
+    end
+
+    Provider["commerce-provider<br/>154,624 SKUs · SQLite WAL<br/>quote → order → pay (CAS + idempotency)"]
+
+    subgraph obs["Observability (optional)"]
+        Prom["Prometheus<br/>dns_sd scrape"]
+        Graf["Grafana"]
+    end
+
+    Visitor --> Nginx --> API
+    API --- Engine
+    API --> PG
+    API --> Redis
+    API --> Qdrant
+    API -.-> Neo
+    API --> Provider
+    MCP -.-> Provider
+    API -.metrics.-> Prom --> Graf
+```
+
+Embeddings run in-process (local BGE-M3) — no external embedding service in the default deployment.
+
 ### LangGraph Dialogue Graph
 
+```mermaid
+flowchart TD
+    START(("turn")) --> begin_turn["begin_turn<br/>reset turn state"]
+    begin_turn --> guardrail["guardrail<br/>injection scan · PII redaction"]
+    guardrail -- "blocked" --> DONE((end))
+    guardrail -- "continue" --> CACHE{{"L0 answer cache"}}
+    CACHE -- "hit" --> DONE
+    CACHE -- "skip · slots pending" --> collect_slots
+    CACHE -- "full" --> detect_intent
+    detect_intent --> handle_switch["handle_switch<br/>push / pop task stack"]
+    handle_switch --> ROUTE{{"route by intent"}}
+    ROUTE -- "task" --> collect_slots["collect_slots"]
+    ROUTE -- "knowledge" --> faq_lookup["faq_lookup<br/>curated fast path"]
+    ROUTE -- "agent" --> handle_agent["handle_agent<br/>bounded tool loop"]
+    ROUTE -- "handoff" --> handle_handoff["handle_handoff<br/>ticket + queue"]
+    ROUTE -- "direct" --> direct_response["direct_response"]
+    ROUTE -- "meta" --> generate_response
+    faq_lookup -- "hit" --> DONE
+    faq_lookup -- "miss" --> rag_lookup["rag_lookup<br/>hybrid + optional GraphRAG"]
+    handle_agent -- "done" --> DONE
+    handle_agent -- "fallback" --> collect_slots
+    collect_slots -- "missing" --> generate_response["generate_response<br/>claim-gated stream"]
+    collect_slots -- "complete" --> execute_tool["execute_tool"]
+    execute_tool -- "staged → confirm" --> DONE
+    execute_tool -- "done" --> generate_response
+    rag_lookup --> generate_response
+    generate_response --> DONE
+    direct_response --> DONE
+    handle_handoff --> DONE
 ```
-START
-  │
-  ▼
-guardrail (输入安全检查)
-  │
-  ▼
-detect_intent (意图识别)
-  │   cancel 优先 → 槽位值保持任务意图 → 元意图保持
-  ▼
-handle_switch (意图切换)
-  │   推栈保存 / 弹栈恢复
-  ▼
-route_intent (路由决策)
-  │
-  ├── task  → collect_slots (槽位收集)
-  │             │
-  │             ├── complete → execute_tool → generate_response → END
-  │             └── missing  → generate_response (追问) → END
-  │
-  ├── faq   → faq_lookup (策展命中直出) → generate_response → END
-  │
-  ├── rag   → rag_lookup → generate_response → END
-  │
-  ├── agent → handle_agent (工具循环) → generate_response → END
-  │
-  ├── direct → direct_response → END
-  │
-  └── meta  → generate_response → END
-              │
-              ▼ (情绪/复杂度触发)
-          handle_handoff (转人工工单) → END
-```
+
+Three wiring details worth knowing (all enforced by tests):
+
+- A knowledge intent tries the curated FAQ fast path **first**; only a miss falls through to full RAG retrieval.
+- Irreversible tools **stage** the action and end the turn with a fixed confirmation question — no LLM rewording between the user and the money.
+- A failed agent run (provider without function calling, LLM outage) falls back to the deterministic slot pipeline mid-flow, so the user is still served.
 
 ### Project Structure
 
@@ -257,7 +365,7 @@ rag_chatbot/
 │   ├── services/
 │   │   ├── dialogue/        # 🎯 LangGraph engine
 │   │   │   ├── graph.py     #   StateGraph construction + compile
-│   │   │   ├── nodes.py     #   12 dialogue nodes + conditional edges
+│   │   │   ├── nodes.py     #   dialogue node functions + conditional edges (14-node graph)
 │   │   │   ├── state.py     #   DialogueState TypedDict
 │   │   │   └── tools.py     #   ToolRegistry + 5 mock handlers
 │   │   ├── agent/           # Agent tool loop (bounded iterations)
@@ -490,7 +598,7 @@ separately configured checkpoint databases require their own recovery plans.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 4099 passed + 3 opt-in skipped / 93.56%)
+# Maintained core suite (70% minimum; currently 4105 passed + 3 opt-in skipped / 93.56%)
 pytest
 
 # Targeted runs
@@ -762,7 +870,7 @@ while its action-ref UI contract is obsolete. See the
 
 | Metric | Value |
 |--------|-------|
-| Maintained test results | **4099 passed, 3 opt-in skipped** |
+| Maintained test results | **4105 passed, 3 opt-in skipped** |
 | Maintained core coverage | **93.56%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
 | Python files (app/, incl. tests) | 558 (260 source + 298 tests; 289 test_ modules) |
 
@@ -776,7 +884,7 @@ while its action-ref UI contract is obsolete. See the
 - [x] Hybrid retrieval (vector + BM25 + rerank)
 - [x] GraphRAG with Neo4j (optional)
 - [x] OpenTelemetry tracing + Prometheus metrics
-- [x] 4099 passing core tests, 93.56% coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
+- [x] 4,100+ passing tests, 93.5%+ coverage; routing golden-set eval (19 cases / 31 turns over the real compiled graph) + retrieval baseline; runtime dependency lock (requirements-lock.txt) + pip-audit in CI
 - [x] Public shopping agent: semantic routing, deterministic virtual-catalog provider, staged quote → order → payment with expected_version CAS + request_key idempotency
 - [x] Server-authoritative cards: approval and price-watch cards assembled from durable rows + provider facts, riding the SSE completion receipt; the card wins over narration
 - [x] Pre-authorized price watches: "SKU X ≤ ¥Y → ask me" rules with event-driven evaluation and exactly-once ask delivery (notify-only, 5 rules / visitor, 30-day expiry)
@@ -807,7 +915,7 @@ PRs welcome! Especially:
 - 📚 More GraphRAG use cases (currently: customer service KB)
 - 🌍 i18n improvements
 
-Setup instructions, quality gates, and commit/PR conventions are in [CONTRIBUTING.md](CONTRIBUTING.md). For vulnerabilities, follow [SECURITY.md](SECURITY.md) — do not open public issues for security reports. By participating in this project you agree to uphold the [Code of Conduct](CODE_OF_CONDUCT.md).
+Setup instructions, quality gates, and commit/PR conventions are in [CONTRIBUTING.md](CONTRIBUTING.md). For vulnerabilities, follow [SECURITY.md](SECURITY.md) — do not open public issues for security reports. By participating in this project you agree to uphold the [Code of Conduct](CODE_OF_CONDUCT.md). Notable changes are documented in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -861,9 +969,13 @@ If this project helped you, please ⭐ star the repo — it helps others discove
 git clone https://github.com/Bensonluo/rag_chatbot.git
 cd rag_chatbot
 cp .env.example .env  # 填入 GLM_API_KEY
-docker-compose up -d
+docker compose up -d
 ```
 
 访问 http://localhost:8000/docs 查看 API 文档。
+
+**在线演示**：[benluo.art/projects/rag-chatbot/](https://benluo.art/projects/rag-chatbot/) — 无需注册，中英文均可对话。
+
+**更新记录**：重要变更见 [CHANGELOG.md](CHANGELOG.md)；常用命令 `make help` 一键查看。
 
 > 部署与接入：默认启动单 API 实例；企业业务接口通过 ToolRegistry 接入，鉴权、数据留存、监控与副本按部署环境配置。多租户知识隔离列在路线图，当前验证结果见 Testing & Quality。

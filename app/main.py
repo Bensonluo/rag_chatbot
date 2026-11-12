@@ -8,6 +8,7 @@ configures middleware, and includes all routers.
 import asyncio
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
+from importlib.metadata import version as package_version
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -120,7 +121,7 @@ def create_app() -> FastAPI:
         title="Agent Store",
         description="Shopping agent you can trust with money: quoted orders, idempotent payments, "
         "exactly-once price alerts — on the engine that also runs GraphRAG support",
-        version="0.1.0",
+        version=package_version("rag-chatbot"),
         docs_url="/docs" if settings.DEBUG else None,
         redoc_url="/redoc" if settings.DEBUG else None,
         lifespan=lifespan,
@@ -212,7 +213,7 @@ def create_app() -> FastAPI:
         """Root endpoint with API information"""
         return {
             "name": "RAG Chatbot API",
-            "version": "0.1.0",
+            "version": package_version("rag-chatbot"),
             "status": "running",
             "docs": "/docs" if settings.DEBUG else "disabled in production",
         }
