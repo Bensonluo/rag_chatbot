@@ -67,7 +67,10 @@ Deployment commands below start a single API instance. Replica templates, option
 
 ### Similar projects
 
-The RAG space has strong general-purpose engines and platforms. A few reference points:
+The RAG space has strong general-purpose engines and platforms. In the agentic-commerce
+niche, platform MCP servers (Shopify, Stripe, Spree, Medusa) expose store management,
+and protocol work (ACP, Google's UCP) standardizes discovery and payment. A few
+reference points:
 
 | Project | Lane | Stack |
 |---|---|---|
@@ -279,6 +282,58 @@ sandbox pay — answering every live elicitation confirmation by hand (or `--yes
 for scripted demos). It also calls `create_order` twice on purpose: the second
 call replays the same order instead of creating a second one, and declining any
 gate aborts with zero mutations.
+
+<details>
+<summary><b>See it run</b> — terminal capture against a local server (<code>--yes</code>)</summary>
+
+```text
+$ python examples/mcp_shopping_client.py --yes
+connected: 8 tools
+  create_order       destructive_hint=False idempotent_hint=True
+  discover_catalog   read_only_hint=True
+  get_categories     read_only_hint=True
+  get_product        read_only_hint=True
+  prepare_quote      destructive_hint=False idempotent_hint=True
+  sandbox_pay        destructive_hint=False idempotent_hint=True
+  search_products    read_only_hint=True
+  update_cart        destructive_hint=True idempotent_hint=True
+
+search '无线耳机': 3 result(s), total_estimate=998
+  SKU-00007168  恒锐 Astro A0000 耳机  ¥198.00
+  SKU-00007169  恒锐 Astro A0000 耳机  ¥198.00
+  SKU-00007170  恒锐 Astro A0000 耳机  ¥198.00
+
+get_product SKU-00007168: 恒锐 Astro A0000 耳机 (¥198.00, stock=43, max_order_quantity=10)
+
+=== purchase journey — each write needs a live confirmation ===
+
+  ⟳ server asks: 确认提交购物车变更？
+  ✓ auto-approved (--yes)
+cart c_e538cba4380b47c9a7b3179470c68c1c v1 subtotal ¥396.00
+
+  ⟳ server asks: 确认结算当前购物车并生成报价？
+  ✓ auto-approved (--yes)
+quote q_780c263d985d464a84495b163f283623 total ¥396.00 (expires 2026-11-14T16:33:46Z)
+
+  ⟳ server asks: 确认依据该报价创建订单？
+  ✓ auto-approved (--yes)
+order o_8868b71b1c2a41b58d871bb116911166 status=awaiting_payment
+
+  ⟳ server asks: 确认依据该报价创建订单？
+  ✓ auto-approved (--yes)
+retry create_order → o_8868b71b1c2a41b58d871bb116911166 (same order — replayed, nothing doubled)
+
+  ⟳ server asks: 确认在沙箱中支付该订单？
+  ✓ auto-approved (--yes)
+payment pay_c537dab83b8e42449ebae3bf2b275098 status=paid
+
+journey verified: quote → order → replay-safe → paid (sandbox)
+```
+
+Answering `n` at any gate instead prints the server's refusal —
+`user_declined: 未执行任何变更` — and nothing is written.
+
+</details>
 
 ---
 
