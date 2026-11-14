@@ -905,7 +905,7 @@ while its action-ref UI contract is obsolete. See the
 
 | Metric | Value |
 |--------|-------|
-| Maintained test results | **4146 passed, 3 opt-in skipped, 4 xfailed** |
+| Maintained test results | **4146 backend passed (3 opt-in skipped, 4 xfailed) + 147 frontend tests** |
 | Maintained core coverage | **93.66%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
 | Python files (app/, incl. tests) | 562 (269 source + 293 tests) |
 
