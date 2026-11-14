@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Documentation index (`docs/README.md`) mapping every tracked design contract,
+  operations runbook, and review/evidence document, linked from the README.
+- Runnable MCP client example (`examples/mcp_shopping_client.py`): connects to the
+  commerce provider over Streamable HTTP with the official `mcp` SDK and walks
+  the read-tool surface; verified against a live provider.
+- Dependabot configuration: weekly grouped updates for pip and GitHub Actions,
+  gated by the existing CI checks.
+
+### Changed
+
+- Public-repo hygiene: machine-local absolute paths in the 2026-09-26 review are
+  now repo-relative GitHub line anchors; `docker-compose.fullstack.yml` takes the
+  frontend build context from `PORTFOLIO_FE_DIR` (default `../portfolio-fe`) and
+  no longer ships a server-IP CORS default.
+- README/Makefile quality-gate numbers aligned with the enforced
+  `fail_under = 70` coverage floor and the 2026-11-14 measured baseline
+  (4146 passed / 93.66%).
+
 ## [0.3.0] - 2026-11-13
 
 ### Added
