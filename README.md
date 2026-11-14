@@ -222,6 +222,15 @@ curl http://localhost:8000/health
 curl http://localhost:8000/ready
 ```
 
+**Want the full product with the bundled UI?** The repo ships the standalone
+Agent Store page ([`frontend/`](frontend/README.md)) — one command brings up
+the page + API + commerce provider + data stores:
+
+```bash
+docker compose -f docker-compose.fullstack.yml up -d
+# Agent Store page: http://localhost:3000
+```
+
 Prefer `make`? `make install`, `make compose-up`, `make test`, `make lint` wrap the same commands — run `make help` for the full list.
 
 ### Option 2: Try the Live Demo first

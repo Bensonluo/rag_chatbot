@@ -20,9 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Public-repo hygiene: machine-local absolute paths in the 2026-09-26 review are
-  now repo-relative GitHub line anchors; `docker-compose.fullstack.yml` takes the
-  frontend build context from `PORTFOLIO_FE_DIR` (default `../portfolio-fe`) and
-  no longer ships a server-IP CORS default.
+  now repo-relative GitHub line anchors; `docker-compose.fullstack.yml` no longer
+  references the author's portfolio frontend or ships a server-IP CORS default.
+- The standalone Agent Store branding page moved into this repository
+  (`frontend/`): a static-export Next.js app with the guest chat, served by
+  nginx with a same-origin `/api` proxy, wired into the full-stack compose
+  profile. The repository is now the canonical home of the product frontend.
 - README/Makefile quality-gate numbers aligned with the enforced
   `fail_under = 70` coverage floor and the 2026-11-14 measured baseline
   (4146 passed / 93.66%).

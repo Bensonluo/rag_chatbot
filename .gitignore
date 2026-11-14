@@ -119,6 +119,8 @@ docker-compose.override.yml
 .playwright-mcp/
 *.png
 !assets/*.png
+!frontend/public/images/*.png
+!frontend/public/images/**/*.png
 
 # Server-specific deploy script + deployment runbooks stay local (public repo hygiene)
 /deploy/deploy-server.sh
