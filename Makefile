@@ -15,7 +15,7 @@ install: ## Create .venv and install the package with dev + mcp extras
 dev: ## Run the API dev server with reload on http://localhost:8000
 	.venv/bin/uvicorn app.main:create_app --factory --reload --host 0.0.0.0 --port 8000
 
-test: ## Run the full test suite (80% coverage gate enforced)
+test: ## Run the full test suite (70% coverage gate enforced, 93.5%+ maintained)
 	.venv/bin/pytest
 
 lint: ## Ruff lint + format check + strict mypy (same shape as CI)
