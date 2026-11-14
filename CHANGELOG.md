@@ -7,12 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Bundled frontend ships a favicon (`frontend/app/icon.svg`, Next.js App Router
+  file convention): an indigo shopping-bag mark with an agent spark, emitted as
+  its own static route with the `<link rel="icon">` tag injected in both root
+  and `/store` basePath builds.
+- Custom bilingual not-found page for the bundled frontend
+  (`app/not-found.tsx`): brand design tokens, dark-mode aware, and a
+  link home in both languages — served with a real 404 status through the
+  fixed nginx `error_page`.
+- Frontend unit in the full-stack compose stack now has a healthcheck
+  (busybox `wget` against the served root page), so `docker compose ps`
+  reports it alongside the API, Postgres and Redis units.
+
 ### Fixed
 
+- Bundled frontend nginx configs no longer serve a 200 homepage for unknown
+  paths (soft-404): `try_files` now falls through to a hard 404 and
+  `error_page` serves Next.js's generated not-found page. The BASE_PATH
+  Dockerfile stage copies that page to the mount root so `/store`-prefixed
+  builds return the branded 404 too. Verified against a live nginx container
+  in both root and `/store` prefix mounts.
 - qdrant-client 1.20 (part of the 2026-11-14 dependency refresh) removed the
   deprecated `client.search()` API: vector search now uses the universal
   `query_points()` API and reads hits from the `QueryResponse` envelope;
   affected unit-test mocks follow the new contract.
+
+### Changed
+
+- Release hygiene: `pyproject.toml` version re-aligned to the shipped v0.4.0
+  release (it still read 0.3.0 while the tag, CHANGELOG and bundled frontend
+  `package.json` were already at 0.4.0 — `/health` and installed-distribution
+  metadata reported the stale number). New release-hygiene pin tests fail the
+  suite when `pyproject.toml`, the latest CHANGELOG release heading and the
+  bundled frontend version ever drift apart again.
+- README evaluation-baseline table now lists the reproduce command for all
+  three gates, including the LLM-tier answer-quality eval (needs a model key).
+- Dependency refresh, part 2 (landed directly on main; the PR channel is
+  reserved for external contributors): pypdf 6.21.4 → 7.0.1 — the 7.0 text
+  extraction majors were regression-run against the full document-parsing
+  suite (173 green, layout mode included) — and CI actions checkout v4 → v7,
+  setup-python v5 → v7 (node24 runtime, no input changes). The Dependabot
+  version-update config is removed; CVE alerts are unaffected (repo-level
+  setting) and dependency bumps now ship as reviewed direct commits.
 
 ## [0.4.0] - 2026-11-14
 
