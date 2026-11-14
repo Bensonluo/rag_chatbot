@@ -1,0 +1,26 @@
+# Agent Store
+
+> An agent you can trust with money: a shopping agent with quotes-before-orders, idempotent payments and exactly-once price alerts, on an engine that also delivers cited RAG customer service. Simulated commerce — no real charges.
+
+Chat entry: https://benluo.art/store/
+
+## API
+- [Health](https://benluo.art/health): liveness of the deployed engine
+- [Repository](https://github.com/Bensonluo/rag_chatbot): full REST/MCP surface, one-command full-stack demo, evaluation baselines (API docs render at `/docs` on any local run)
+
+## MCP
+
+The store facts layer speaks Model Context Protocol (Streamable HTTP) — the same
+authoritative catalog, cart, quote, order and sandbox-payment tools as REST,
+with elicitation-gated writes and structurally derived idempotency keys. Run it
+locally with `python -m app.commerce_provider.mcp_server`; a runnable client is
+`examples/mcp_shopping_client.py` in the repository.
+
+## Guarantees
+
+- Every write carries a `request_key`; retries and reconnects never double-charge
+- Orders and payments are staged, then confirmed separately and explicitly
+- Approval and price-watch cards are server-authoritative; the card wins over narration
+- Price watches ask exactly once per trigger and never order on your behalf
+
+Simulated catalog (deterministic virtual store), simulated payments.
