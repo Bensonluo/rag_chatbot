@@ -38,7 +38,7 @@ dependencies = [
     # <1.10: client 1.10+ deprecates (and later removes) legacy
     # .search(), whose replacement query_points() needs Qdrant
     # server >=1.10 — the compose stack pins qdrant/qdrant:v1.7.4.
-    "qdrant-client>=1.8.0,<1.10",
+    "qdrant-client>=1.8.0,<1.21",
 
     # Cache
     "redis>=5.0.1",
