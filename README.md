@@ -93,7 +93,7 @@ This repo sits in a different lane: an end-to-end **transactional** customer-ser
 | Human handoff | Private sign-in workspace, tickets/queue, assigned context, two-way human messages, atomic final reply/closure | Carry context into staff handling and deliver a saved explanation |
 | Operational control | Epoch-scoped L0/L1/L2 cache, metrics/alerts, tracing, rate limits | Inspect latency, outcomes, cache consistency and load |
 
-**Recorded quality baseline (2026-11-14):** 4146 passing tests, 3 opt-in scenarios skipped by default, 4 expected failures, 93.66% coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
+**Recorded quality baseline (2026-11-14):** 4146 passing tests, 3 opt-in scenarios skipped by default, 4 expected failures, 93.71% coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
 
 [Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md) · [All docs](docs/README.md)
 
@@ -633,7 +633,7 @@ separately configured checkpoint databases require their own recovery plans.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 4146 passed + 3 opt-in skipped / 93.66%)
+# Maintained core suite (70% minimum; currently 4146 passed + 3 opt-in skipped / 93.71%; frontend adds 147)
 pytest
 
 # Targeted runs
@@ -906,7 +906,7 @@ while its action-ref UI contract is obsolete. See the
 | Metric | Value |
 |--------|-------|
 | Maintained test results | **4146 backend passed (3 opt-in skipped, 4 xfailed) + 147 frontend tests** |
-| Maintained core coverage | **93.66%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
+| Maintained core coverage | **93.71%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
 | Python files (app/, incl. tests) | 562 (269 source + 293 tests) |
 
 ### Measured evaluation baselines (offline, deterministic)
@@ -918,7 +918,7 @@ Reproduce with `python scripts/run_retrieval_eval.py` and `python scripts/run_ro
 |---|---|---|
 | Retrieval golden set | 48 bilingual cases | CJK-bigram keyword arm recall@1/3/10 = **0.875 / 0.979 / 1.000**, MRR 0.924 (zh 0.917/1.000/1.000; the pre-bigram tokenizer scored 0.000 on zh) |
 | Routing golden set | 19 cases / 31 turns over the real compiled graph | **31/31 passed (100%)** — confirmation gates, guardrail block, FAQ fast path, no-evidence, handoff, cross-turn |
-| Answer quality (LLM-tier) | 20 curated questions | latest recorded run + methodology: [docs/operations/answer-quality-evaluation.md](docs/operations/answer-quality-evaluation.md) |
+| Answer quality (LLM-tier) | 20 curated questions | **18/20 passed (90.0%), point coverage 93.8%, zero forbidden hits** — given-context generation gate, real model, 0 judge/generation errors (2026-11-14); methodology: [docs/operations/answer-quality-evaluation.md](docs/operations/answer-quality-evaluation.md) |
 
 ---
 
