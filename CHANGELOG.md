@@ -43,6 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The landing page's hard-bounds strip showed a stale test baseline
   (4,146 / 93.66%); it now carries the current measured numbers
   (4,148 / 93.71%), pinned by the page contract test.
+- The runnable MCP shopping example (`examples/mcp_shopping_client.py`)
+  now speaks the `httpx2` fork the `mcp` 2.x SDK is actually built on —
+  a plain `httpx` client fails the SDK's type surface on the injected
+  transport. Re-verified live end-to-end against a running provider:
+  connect, annotated tool listing, search, product detail, clean
+  session teardown.
+
+### Changed
+
+- `pyproject.toml` Homepage now points at the product's own page
+  (benluo.art/store/) instead of the author's portfolio write-up.
 
 ## [0.4.1] - 2026-11-14
 

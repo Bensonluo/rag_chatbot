@@ -24,7 +24,7 @@ import argparse
 import asyncio
 import os
 
-import httpx
+import httpx2
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 
@@ -32,10 +32,11 @@ from mcp.client.streamable_http import streamable_http_client
 async def run(url: str, token: str | None) -> None:
     headers = {"Authorization": f"Bearer {token}"} if token else None
     # The transport is the SDK's Streamable HTTP client; headers ride a
-    # pre-configured httpx.AsyncClient. Client() negotiates the protocol
+    # pre-configured httpx2.AsyncClient (the SDK's httpx fork). Client()
+    # negotiates the protocol
     # version and tool schemas by itself.
     transport = streamable_http_client(
-        url, http_client=httpx.AsyncClient(headers=headers) if headers else None
+        url, http_client=httpx2.AsyncClient(headers=headers) if headers else None
     )
     async with Client(transport) as client:
         listed = (await client.list_tools()).tools

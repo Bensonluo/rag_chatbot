@@ -136,7 +136,7 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://benluo.art/projects/rag-chatbot/"
+Homepage = "https://benluo.art/store/"
 Documentation = "https://github.com/Bensonluo/rag_chatbot#readme"
 Repository = "https://github.com/Bensonluo/rag_chatbot"
 Issues = "https://github.com/Bensonluo/rag_chatbot/issues"
