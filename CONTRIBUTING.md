@@ -21,6 +21,19 @@ uvicorn app.main:create_app --factory --reload --host 0.0.0.0 --port 8000
 
 Optional services (PostgreSQL, Redis, Qdrant, Neo4j, commerce provider) start with `docker-compose up -d`. Most of the test suite runs on SQLite/in-memory backends and does not require them.
 
+### Frontend (`frontend/`)
+
+The standalone Agent Store page is a static-export Next.js app. Node 22:
+
+```bash
+cd frontend
+npm install
+cp .env.example .env.local   # point NEXT_PUBLIC_API_URL at your API (dev only)
+npm run dev                  # http://localhost:3000
+```
+
+Gates (CI enforces both): `npm run type-check` and `npm run build`.
+
 ## Quality Gates — All Must Pass
 
 Run these before opening a PR:

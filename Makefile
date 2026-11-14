@@ -3,7 +3,7 @@
 # All python targets call the venv directly, so `make <target>` works
 # from a fresh shell without activating anything.
 
-.PHONY: help install dev test lint format compose-up compose-monitoring compose-down health clean
+.PHONY: help install dev test fe-install fe-dev fe-build lint format compose-up compose-monitoring compose-down health clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -17,6 +17,15 @@ dev: ## Run the API dev server with reload on http://localhost:8000
 
 test: ## Run the full test suite (70% coverage gate enforced, 93.5%+ maintained)
 	.venv/bin/pytest
+
+fe-install: ## Install frontend dependencies (Node 22)
+	cd frontend && npm install
+
+fe-dev: ## Run the Agent Store page dev server on http://localhost:3000
+	cd frontend && npm run dev
+
+fe-build: ## Type-check and statically export the frontend (CI gate)
+	cd frontend && npm run type-check && npm run build
 
 lint: ## Ruff lint + format check + strict mypy (same shape as CI)
 	.venv/bin/ruff check app/
