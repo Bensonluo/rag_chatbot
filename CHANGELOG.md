@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The bundled frontend's landing page is now fully bilingual: all copy
+  (hero, flows, trust/service cards, hard bounds, footer) follows the
+  visitor's locale with a manual EN / 中文 toggle in the nav, matching the
+  chat's existing language behavior. Copy lives in a typed
+  zh/en dictionary (`frontend/lib/i18n/store-copy.ts`) and a jest contract
+  test asserts both trees stay structurally identical.
+
+### Fixed
+
+- The landing page's hard-bounds strip showed a stale test baseline
+  (4,146 / 93.66%); it now carries the current measured numbers
+  (4,148 / 93.71%), pinned by the page contract test.
+
 ## [0.4.1] - 2026-11-14
 
 ### Added

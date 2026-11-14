@@ -1,8 +1,11 @@
 /** Store page contract: the adapted branding page keeps its section structure
  * and points every "engineering" link at the repository, never back at the
- * author's portfolio detail page (the decoupling contract of 2026-11-14). */
+ * author's portfolio detail page (the decoupling contract of 2026-11-14).
+ * The page renders the zh tree on the server (static export) and follows the
+ * visitor's locale on the client — the copy contract covers both trees. */
 import { renderToStaticMarkup } from 'react-dom/server.node';
 import StorePage from '@/app/page';
+import { storeCopy } from '@/lib/i18n/store-copy';
 
 const html = renderToStaticMarkup(<StorePage />);
 
@@ -22,8 +25,9 @@ test('keeps the trust, service and hard-bounds sections', () => {
 });
 
 test('hard bounds carry the current measured baseline, not stale counts', () => {
-  expect(html).toContain('4,146');
-  expect(html).toContain('93.66%');
+  expect(html).toContain('4,148');
+  expect(html).toContain('93.71%');
+  expect(html).not.toContain('4,146');
   expect(html).not.toContain('4,099');
 });
 
@@ -42,4 +46,27 @@ test('footer states the demo boundary and the repo as home', () => {
 test('the live chat panel is embedded with its dark scope', () => {
   expect(html).toContain('Agent Store · AI 店员');
   expect(html).toContain('● online');
+});
+
+test('a language toggle is rendered in the nav', () => {
+  expect(html).toContain('<button');
+  expect(html).toContain('EN');
+  expect(html).toMatch(/aria-label="(Switch to English|切换到中文)"/);
+});
+
+/** Structural parity: every locale must carry the same copy tree shape, so a
+ * key added to one language without its mirror fails here, not in production. */
+function shape(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map((v) => shape(v)).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((k) => `${k}:${shape(record[k])}`).join(',')}}`;
+  }
+  return typeof value;
+}
+
+test('zh and en copy trees are structurally identical', () => {
+  expect(shape(storeCopy.en)).toBe(shape(storeCopy.zh));
+  expect(storeCopy.en.hero.sub).toBe('Shopping × support, one agent you can trust');
+  expect(storeCopy.en.bounds.items[0].v).toBe('4,148');
 });

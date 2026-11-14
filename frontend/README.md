@@ -50,8 +50,10 @@ also copy `out/404/` to the prefix root so `error_page` can find it.
 
 ## Layout
 
-- `app/page.tsx` + `app/page.module.css` — the branding page (hero, flow,
-  live demo, trust cards, service, hard bounds, footer)
+- `app/page.tsx` (metadata) + `app/store-landing.tsx` +
+  `app/page.module.css` — the branding page (hero, flow, live demo, trust
+  cards, service, hard bounds, footer), bilingual via
+  `lib/i18n/store-copy.ts` (zh/en dictionary) and the shared locale context
 - `components/ChatInterfaceUpdated.tsx` — the guest chat (server-authoritative
   approval/price-watch cards, execution chain, citations)
 - `lib/api.ts`, `lib/guest-api.ts` — typed API clients (`NEXT_PUBLIC_API_URL`)
