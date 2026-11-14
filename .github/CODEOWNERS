@@ -1,0 +1,4 @@
+# Default owner: every file routes to the maintainer. External PRs — the
+# channel this repository reserves for contributors — get an automatic
+# review request on whatever they touch.
+* @Bensonluo

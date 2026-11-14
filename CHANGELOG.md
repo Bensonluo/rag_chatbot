@@ -37,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dynamic = "force-static"`), and schema.org `SoftwareApplication`
   JSON-LD on the landing page with the version auto-synced from
   `package.json`. The product welcomes agents — it is one.
+- Supply-chain hardening of the CI surface: every GitHub Actions use is
+  now pinned to a full commit SHA (tags are mutable), CI jobs run with
+  an explicit least-privilege `permissions: contents: read` token,
+  CodeQL static analysis runs on pushes/PRs plus a weekly sweep, and
+  `CODEOWNERS` routes external PRs to the maintainer automatically.
 
 ### Fixed
 
