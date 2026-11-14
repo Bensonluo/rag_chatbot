@@ -199,6 +199,13 @@ services:
     restart: unless-stopped
     networks:
       - rag-network
+    healthcheck:
+      # nginx:alpine ships busybox wget (no curl); the root page must return 2xx
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # ==========================================
   # NGINX REVERSE PROXY (Optional)

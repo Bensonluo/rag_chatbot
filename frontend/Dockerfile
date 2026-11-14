@@ -19,7 +19,10 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/out /tmp/out
 RUN if [ -n "$BASE_PATH" ]; then \
       mkdir -p "/usr/share/nginx/html$BASE_PATH" && \
-      cp -a /tmp/out/. "/usr/share/nginx/html$BASE_PATH/"; \
+      cp -a /tmp/out/. "/usr/share/nginx/html$BASE_PATH/" && \
+      # error_page 404 points at the root absolute path; keep a copy
+      # there so the not-found page works under a path-prefix mount too.
+      cp -a /tmp/out/404 /usr/share/nginx/html/404; \
     else \
       cp -a /tmp/out/. /usr/share/nginx/html/; \
     fi
