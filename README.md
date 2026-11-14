@@ -1009,6 +1009,13 @@ cp .env.example .env  # 填入 GLM_API_KEY
 docker compose up -d
 ```
 
+带界面一条命令起全栈（品牌页 + API + 商城 provider + 数据库）：
+
+```bash
+docker compose -f docker-compose.fullstack.yml up -d
+# Agent Store 页面: http://localhost:3000
+```
+
 访问 http://localhost:8000/docs 查看 API 文档。
 
 **在线演示**：[benluo.art/store/](https://benluo.art/store/) — 无需注册，中英文均可对话。
