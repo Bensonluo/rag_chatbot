@@ -4,7 +4,7 @@
 
 **An agent you can trust with money: agentic commerce with real transactional guarantees — quotes before orders, idempotent payments, exactly-once price alerts — running on an engine that also delivers enterprise RAG customer service. Built with FastAPI and LangGraph.**
 
-[![Live Demo](https://img.shields.io/badge/LIVE-DEMO-brightgreen?style=for-the-badge&logo=vercel)](https://benluo.art/projects/rag-chatbot/)
+[![Live Demo](https://img.shields.io/badge/LIVE-DEMO-brightgreen?style=for-the-badge&logo=vercel)](https://benluo.art/store/)
 [![Release](https://img.shields.io/github/v/release/Bensonluo/rag_chatbot?style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/Bensonluo/rag_chatbot/ci.yml?branch=main&style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/actions/workflows/ci.yml)
 [![GitHub stars](https://img.shields.io/github/stars/Bensonluo/rag_chatbot?style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/stargazers)
@@ -235,7 +235,7 @@ Prefer `make`? `make install`, `make compose-up`, `make test`, `make lint` wrap 
 
 ### Option 2: Try the Live Demo first
 
-Don't want to deploy? **[Try it online →](https://benluo.art/projects/rag-chatbot/)** — no signup, runs in your browser.
+Don't want to deploy? **[Try it online →](https://benluo.art/store/)** — no signup, runs in your browser.
 
 > 🔑 **Note on API keys**: configure at least one supported LLM key. Embeddings default to the local [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) model, so the first start downloads model weights and can take several minutes.
 
@@ -276,9 +276,9 @@ surface, and walks search → product detail against the running store.
 
 ## 🌐 Live Demo
 
-The chatbot is deployed and interactive at:
+The product's own page is deployed and interactive at:
 
-> 🎯 **[benluo.art/projects/rag-chatbot/](https://benluo.art/projects/rag-chatbot/)**
+> 🎯 **[benluo.art/store/](https://benluo.art/store/)** — the standalone Agent Store page (this repo's `frontend/`, deployed as its own unit); the [project write-up](https://benluo.art/projects/rag-chatbot/) lives on the author's portfolio.
 
 ![Live demo: a gift-shopping turn with its full execution trace](assets/demo-live-turn.png)
 
@@ -1011,7 +1011,7 @@ docker compose up -d
 
 访问 http://localhost:8000/docs 查看 API 文档。
 
-**在线演示**：[benluo.art/projects/rag-chatbot/](https://benluo.art/projects/rag-chatbot/) — 无需注册，中英文均可对话。
+**在线演示**：[benluo.art/store/](https://benluo.art/store/) — 无需注册，中英文均可对话。
 
 **更新记录**：重要变更见 [CHANGELOG.md](CHANGELOG.md)；常用命令 `make help` 一键查看。
 

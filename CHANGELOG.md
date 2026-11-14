@@ -17,8 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependabot configuration: weekly grouped updates for pip and GitHub Actions,
   gated by the existing CI checks.
 
+### Fixed
+
+- Security: patched dnspython CVE-2026-128089 (2.9.0 → 2.9.2) and
+  opentelemetry-api CVE-2026-126360 (1.45.1 → 1.45.2, with the whole
+  instrumentation family moving to 0.66b2 as one release train) in the
+  runtime lock; pip-audit is clean again.
+
 ### Changed
 
+- Live-demo links point at the product's own page (benluo.art/store) — the
+  standalone frontend shipped in this repo.
 - Public-repo hygiene: machine-local absolute paths in the 2026-09-26 review are
   now repo-relative GitHub line anchors; `docker-compose.fullstack.yml` no longer
   references the author's portfolio frontend or ships a server-IP CORS default.
