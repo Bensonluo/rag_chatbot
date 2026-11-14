@@ -1,24 +1,11 @@
-# Full-Stack Docker Compose for RAG Chatbot
-# Includes: Frontend (Next.js), Backend (FastAPI), PostgreSQL, Redis, Qdrant
-# Deploy with: docker-compose -f docker-compose.fullstack.yml up -d
+# Full-Stack Docker Compose for the Agent Store backend
+# Includes: Backend (FastAPI), PostgreSQL, Redis, Qdrant, optional nginx proxy
+# Deploy with: docker compose -f docker-compose.fullstack.yml up -d
+#
+# Frontends are decoupled: the public Agent Store page is a standalone app and
+# is NOT built from this compose file. Point any frontend at the API and set
+# CORS_ORIGINS to its origin (defaults to http://localhost:3000).
 services:
-  # ==========================================
-  # FRONTEND (Next.js Portfolio)
-  # ==========================================
-  frontend:
-    build:
-      context: ${PORTFOLIO_FE_DIR:-../portfolio-fe}
-      dockerfile: Dockerfile
-    image: portfolio-fe:latest
-    container_name: portfolio-frontend
-    ports:
-      - "3000:80"
-    depends_on:
-      - app
-    restart: unless-stopped
-    networks:
-      - rag-network
-
   # ==========================================
   # BACKEND API (FastAPI)
   # ==========================================
@@ -176,7 +163,6 @@ services:
       - ./deployment/nginx/ssl:/etc/nginx/ssl:ro
       - ./deployment/nginx/logs:/var/log/nginx
     depends_on:
-      - frontend
       - app
     restart: unless-stopped
     networks:
