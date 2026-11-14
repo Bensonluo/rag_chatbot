@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The runnable MCP shopping example now walks the complete purchase journey:
+  cart → quote → order → sandbox pay, answering every live elicitation
+  confirmation by hand (or `--yes` for scripted runs), deliberately calling
+  `create_order` twice to show the structural request key replaying the same
+  order — and a declined gate aborting with zero mutations. Verified
+  end-to-end over the wire against a running provider, both accept and
+  decline paths.
 - The bundled frontend's landing page is now fully bilingual: all copy
   (hero, flows, trust/service cards, hard bounds, footer) follows the
   visitor's locale with a manual EN / 中文 toggle in the nav, matching the

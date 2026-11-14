@@ -273,8 +273,12 @@ python -m app.commerce_provider.mcp_server --host 127.0.0.1 --port 8072 \
 Read tools (`search_products`, `get_product`, `get_categories`, `discover_catalog`) answer directly; write tools (`update_cart` → `prepare_quote` → `create_order` → `sandbox_pay`) carry an elicitation-style confirmation and derive `request_key` structurally, so a declined or retried request can never double-charge. Every tool declares spec `annotations` (`readOnlyHint` on reads; `idempotentHint` + explicit `destructiveHint` on writes) so MCP hosts can risk-classify calls without reading docstrings.
 
 A runnable client is in [`examples/mcp_shopping_client.py`](examples/mcp_shopping_client.py) —
-it connects over Streamable HTTP with the official `mcp` SDK, lists the tool
-surface, and walks search → product detail against the running store.
+it connects over Streamable HTTP with the official `mcp` SDK, lists the annotated
+tool surface, and walks the complete purchase journey — cart → quote → order →
+sandbox pay — answering every live elicitation confirmation by hand (or `--yes`
+for scripted demos). It also calls `create_order` twice on purpose: the second
+call replays the same order instead of creating a second one, and declining any
+gate aborts with zero mutations.
 
 ---
 
