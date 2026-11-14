@@ -1,7 +1,17 @@
-"""
-OpenAPI/Swagger documentation configuration.
+"""Custom OpenAPI schema for the DEBUG-gated /docs storefront.
 
-Enhances FastAPI auto-generated documentation with detailed descriptions.
+The single source of truth for title, description, and version stays the
+FastAPI constructor in ``app.main`` — this module reads them from the app
+instance instead of duplicating (and eventually contradicting) them. It only
+adds what FastAPI cannot infer from the code:
+
+- tag metadata for every router tag that exists in the tree,
+- servers (local development + the public storefront),
+- license, contact, and the JWT bearer security scheme.
+
+Placeholder values (``example.com`` addresses, hardcoded versions) are what
+the previous revision of this file shipped; ``app/tests/unit/api/v1/test_openapi_schema.py``
+pins them out.
 """
 
 from typing import Any
@@ -9,73 +19,85 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
 
+REPOSITORY_URL = "https://github.com/Bensonluo/rag_chatbot"
+STOREFRONT_URL = "https://benluo.art"
+
+TAG_METADATA: list[dict[str, str]] = [
+    {
+        "name": "public visitor",
+        "description": "Cookie-authenticated shopping and support conversations "
+        "for anonymous visitors — no registration, no shared IDs.",
+    },
+    {
+        "name": "chat",
+        "description": "Authenticated chat turns and SSE streaming through the full RAG pipeline.",
+    },
+    {
+        "name": "sessions",
+        "description": "Chat session lifecycle, history, and the QA review queue.",
+    },
+    {
+        "name": "authentication",
+        "description": "User registration, login, and JWT issuance.",
+    },
+    {
+        "name": "documents",
+        "description": "Knowledge-base document upload, ingestion, and deletion.",
+    },
+    {
+        "name": "feedback",
+        "description": "Thumbs up/down ratings on assistant messages.",
+    },
+    {
+        "name": "handoff",
+        "description": "Human-support tickets created when conversations escalate.",
+    },
+    {
+        "name": "analytics",
+        "description": "Containment and satisfaction aggregates for operations.",
+    },
+    {
+        "name": "commerce-admin",
+        "description": "Admin views over purchases and commerce coverage.",
+    },
+    {
+        "name": "graph",
+        "description": "GraphRAG queries and schema (included only when GRAPH_RAG_ENABLED=true).",
+    },
+]
+
 
 def custom_openapi(app: FastAPI) -> dict[str, Any]:
-    """
-    Custom OpenAPI schema with enhanced documentation.
-
-    Args:
-        app: FastAPI application
-
-    Returns:
-        dict: OpenAPI schema
-    """
+    """Build the enriched schema once and cache it on the app instance."""
     if app.openapi_schema:
         return app.openapi_schema
 
     openapi_schema = get_openapi(
-        title="RAG Chatbot API",
-        version="1.0.0",
-        description=openapi_description,
+        title=app.title,
+        version=app.version,
+        description=app.description,
         routes=app.routes,
     )
+    openapi_schema["tags"] = TAG_METADATA
 
-    # Add tags
-    openapi_schema["tags"] = [
-        {
-            "name": "auth",
-            "description": "Authentication and user management",
-        },
-        {
-            "name": "sessions",
-            "description": "Chat session management",
-        },
-        {
-            "name": "chat",
-            "description": "Chat interactions and streaming",
-        },
-        {
-            "name": "health",
-            "description": "Health checks and monitoring",
-        },
-    ]
-
-    # Add contact info
     openapi_schema["info"]["contact"] = {
-        "name": "API Support",
-        "email": "support@example.com",
+        "name": "Agent Store maintainers",
+        "url": f"{REPOSITORY_URL}/issues",
     }
-
-    # Add license
     openapi_schema["info"]["license"] = {
         "name": "MIT",
         "url": "https://opensource.org/licenses/MIT",
     }
 
-    # Add servers
     openapi_schema["servers"] = [
-        {
-            "url": "http://localhost:8000",
-            "description": "Development server",
-        },
-        {
-            "url": "https://api.example.com",
-            "description": "Production server",
-        },
+        {"url": "http://localhost:8000", "description": "Local development"},
+        {"url": STOREFRONT_URL, "description": "Public storefront (nginx routes /api here)"},
     ]
 
-    # Add components/schemas
-    openapi_schema["components"]["securitySchemes"] = {
+    # get_openapi only emits "components" when routes need it; a route-less
+    # app (tests) legitimately has none.
+    components = openapi_schema.setdefault("components", {})
+    components["securitySchemes"] = {
         "BearerAuth": {
             "type": "http",
             "scheme": "bearer",
@@ -84,157 +106,9 @@ def custom_openapi(app: FastAPI) -> dict[str, Any]:
     }
 
     app.openapi_schema = openapi_schema
-    return app.openapi_schema
-
-
-# OpenAPI description
-openapi_description = """
-# RAG Chatbot API
-
-Production-grade Retrieval-Augmented Generation (RAG) chatbot API with:
-
-- **Intelligent Intent Detection**: Hybrid rule-based and LLM-powered intent classification
-- **Memory Management**: Sliding window, summarization, and hybrid memory strategies
-- **Vector Search**: Hybrid semantic + keyword search with reranking
-- **Streaming Responses**: Real-time server-sent events
-- **Authentication**: JWT-based user authentication
-- **Rate Limiting**: Token bucket algorithm
-- **Monitoring**: Prometheus metrics and health checks
-
-## Architecture
-
-The API integrates multiple services:
-
-```
-Client Request
-    ↓
-[API Gateway]
-    ↓
-[Intent Detection] → Route to appropriate handler
-    ↓
-[Memory Service] → Retrieve conversation context
-    ↓
-[Retrieval Service] → Fetch relevant documents (if needed)
-    ↓
-[LLM Service] → Generate response
-    ↓
-[Memory Service] → Store conversation
-    ↓
-Client Response
-```
-
-## Authentication
-
-Most endpoints require JWT authentication:
-
-```bash
-# Register
-curl -X POST http://localhost:8000/api/v1/register \\
-  -H "Content-Type: application/json" \\
-  -d '{"email": "user@example.com", "password": "securepass"}'
-
-# Login
-curl -X POST http://localhost:8000/api/v1/login \\
-  -H "Content-Type: application/json" \\
-  -d '{"email": "user@example.com", "password": "securepass"}'
-
-# Use token
-curl http://localhost:8000/api/v1/chat \\
-  -H "Authorization: Bearer <token>" \\
-  -H "Content-Type: application/json" \\
-  -d '{"message": "Hello!", "session_id": 1}'
-```
-
-## Rate Limiting
-
-- **Default**: 60 requests per minute
-- **Headers**: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After`
-- **Whitelisted**: `/health`, `/metrics`, `/docs`
-
-## Error Responses
-
-All errors follow this format:
-
-```json
-{
-  "status_code": 400,
-  "message": "Error message",
-  "detail": "Detailed error information",
-  "path": "/api/v1/endpoint"
-}
-```
-
-## Chat Features
-
-### 1. Simple Chat
-
-```json
-POST /api/v1/chat
-{
-  "message": "What is Python?",
-  "session_id": 1
-}
-```
-
-### 2. Chat with Retrieval
-
-Automatically retrieves relevant documents for questions:
-
-```json
-POST /api/v1/chat
-{
-  "message": "How does FastAPI work?",
-  "session_id": 1
-}
-
-Response:
-{
-  "content": "FastAPI is a modern web framework...",
-  "sources": ["doc1", "doc2"],
-  "intent": "question"
-}
-```
-
-### 3. Streaming Chat
-
-Real-time response streaming:
-
-```bash
-curl -X POST http://localhost:8000/api/v1/chat/stream \\
-  -H "Authorization: Bearer <token>" \\
-  -H "Content-Type: application/json" \\
-  -d '{"message": "Tell me a story", "session_id": 1}'
-```
-
-## Memory Strategies
-
-Choose the best memory strategy for your use case:
-
-- **Sliding Window**: Fast, keeps last N messages (default for short chats)
-- **Summarization**: LLM-powered summaries (best for long conversations)
-- **Hybrid**: Adaptive strategy (recommended for production)
-
-## Monitoring
-
-- **Health**: `GET /health`
-- **Readiness**: `GET /ready`
-- **Metrics**: `GET /metrics` (Prometheus format)
-
-## Support
-
-For issues and questions:
-- GitHub: https://github.com/example/rag-chatbot
-- Email: support@example.com
-- Docs: https://docs.example.com
-"""
+    return openapi_schema
 
 
 def setup_openapi(app: FastAPI) -> None:
-    """
-    Setup custom OpenAPI documentation for FastAPI app.
-
-    Args:
-        app: FastAPI application
-    """
-    # Documented FastAPI idiom for customizing the schema endpoint.
+    """Install the custom schema generator (documented FastAPI idiom)."""
     app.openapi = lambda: custom_openapi(app)  # type: ignore[method-assign]

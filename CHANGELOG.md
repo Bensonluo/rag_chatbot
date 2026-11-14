@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The OpenAPI schema behind the DEBUG-gated `/docs` storefront is now
+  enriched and wired in: metadata for all ten router tags, real servers
+  (local development + the public storefront), MIT license, repository
+  contact, and the JWT bearer scheme. Title/description/version are read
+  from the app constructor — the module can no longer drift from the
+  package version the way its unwired predecessor (placeholder
+  `example.com` hosts, hardcoded `1.0.0`) silently had. New schema
+  contract tests pin out placeholders and require every route tag to have
+  metadata.
 - The runnable MCP shopping example now walks the complete purchase journey:
   cart → quote → order → sandbox pay, answering every live elicitation
   confirmation by hand (or `--yes` for scripted runs), deliberately calling

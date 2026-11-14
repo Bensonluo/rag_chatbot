@@ -170,6 +170,12 @@ def create_app() -> FastAPI:
 
     app.include_router(api_router, prefix=settings.API_PREFIX)
 
+    # Enrich the OpenAPI schema (tag metadata, servers, license, BearerAuth).
+    # Title/description/version stay owned by the constructor above.
+    from app.api.v1.openapi import setup_openapi
+
+    setup_openapi(app)
+
     # Health check endpoint
     @app.get("/health")
     async def health_check() -> dict[str, str]:
