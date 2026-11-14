@@ -4,7 +4,7 @@
 
 **An agent you can trust with money: agentic commerce with real transactional guarantees — quotes before orders, idempotent payments, exactly-once price alerts — running on an engine that also delivers enterprise RAG customer service. Built with FastAPI and LangGraph.**
 
-[![Live Demo](https://img.shields.io/badge/LIVE-DEMO-brightgreen?style=for-the-badge&logo=vercel)](https://benluo.art/projects/rag-chatbot/)
+[![Live Demo](https://img.shields.io/badge/LIVE-DEMO-brightgreen?style=for-the-badge&logo=vercel)](https://benluo.art/store/)
 [![Release](https://img.shields.io/github/v/release/Bensonluo/rag_chatbot?style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/Bensonluo/rag_chatbot/ci.yml?branch=main&style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/actions/workflows/ci.yml)
 [![GitHub stars](https://img.shields.io/github/stars/Bensonluo/rag_chatbot?style=for-the-badge)](https://github.com/Bensonluo/rag_chatbot/stargazers)
@@ -93,7 +93,7 @@ This repo sits in a different lane: an end-to-end **transactional** customer-ser
 | Human handoff | Private sign-in workspace, tickets/queue, assigned context, two-way human messages, atomic final reply/closure | Carry context into staff handling and deliver a saved explanation |
 | Operational control | Epoch-scoped L0/L1/L2 cache, metrics/alerts, tracing, rate limits | Inspect latency, outcomes, cache consistency and load |
 
-**Recorded quality baseline (2026-11-13):** 4146 passing tests, 3 opt-in scenarios skipped by default, 93.71% coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
+**Recorded quality baseline (2026-11-14):** 4146 passing tests, 3 opt-in scenarios skipped by default, 4 expected failures, 93.66% coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
 
 [Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md) · [All docs](docs/README.md)
 
@@ -222,11 +222,20 @@ curl http://localhost:8000/health
 curl http://localhost:8000/ready
 ```
 
+**Want the full product with the bundled UI?** The repo ships the standalone
+Agent Store page ([`frontend/`](frontend/README.md)) — one command brings up
+the page + API + commerce provider + data stores:
+
+```bash
+docker compose -f docker-compose.fullstack.yml up -d
+# Agent Store page: http://localhost:3000
+```
+
 Prefer `make`? `make install`, `make compose-up`, `make test`, `make lint` wrap the same commands — run `make help` for the full list.
 
 ### Option 2: Try the Live Demo first
 
-Don't want to deploy? **[Try it online →](https://benluo.art/projects/rag-chatbot/)** — no signup, runs in your browser.
+Don't want to deploy? **[Try it online →](https://benluo.art/store/)** — no signup, runs in your browser.
 
 > 🔑 **Note on API keys**: configure at least one supported LLM key. Embeddings default to the local [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) model, so the first start downloads model weights and can take several minutes.
 
@@ -267,9 +276,9 @@ surface, and walks search → product detail against the running store.
 
 ## 🌐 Live Demo
 
-The chatbot is deployed and interactive at:
+The product's own page is deployed and interactive at:
 
-> 🎯 **[benluo.art/projects/rag-chatbot/](https://benluo.art/projects/rag-chatbot/)**
+> 🎯 **[benluo.art/store/](https://benluo.art/store/)** — the standalone Agent Store page (this repo's `frontend/`, deployed as its own unit); the [project write-up](https://benluo.art/projects/rag-chatbot/) lives on the author's portfolio.
 
 ![Live demo: a gift-shopping turn with its full execution trace](assets/demo-live-turn.png)
 
@@ -624,7 +633,7 @@ separately configured checkpoint databases require their own recovery plans.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 4105 passed + 3 opt-in skipped / 93.56%)
+# Maintained core suite (70% minimum; currently 4146 passed + 3 opt-in skipped / 93.66%)
 pytest
 
 # Targeted runs
@@ -896,9 +905,9 @@ while its action-ref UI contract is obsolete. See the
 
 | Metric | Value |
 |--------|-------|
-| Maintained test results | **4105 passed, 3 opt-in skipped** |
-| Maintained core coverage | **93.56%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
-| Python files (app/, incl. tests) | 558 (260 source + 298 tests; 289 test_ modules) |
+| Maintained test results | **4146 passed, 3 opt-in skipped, 4 xfailed** |
+| Maintained core coverage | **93.66%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
+| Python files (app/, incl. tests) | 562 (269 source + 293 tests) |
 
 ---
 
@@ -1002,7 +1011,7 @@ docker compose up -d
 
 访问 http://localhost:8000/docs 查看 API 文档。
 
-**在线演示**：[benluo.art/projects/rag-chatbot/](https://benluo.art/projects/rag-chatbot/) — 无需注册，中英文均可对话。
+**在线演示**：[benluo.art/store/](https://benluo.art/store/) — 无需注册，中英文均可对话。
 
 **更新记录**：重要变更见 [CHANGELOG.md](CHANGELOG.md)；常用命令 `make help` 一键查看。
 

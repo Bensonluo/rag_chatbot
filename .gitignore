@@ -119,9 +119,12 @@ docker-compose.override.yml
 .playwright-mcp/
 *.png
 !assets/*.png
+!frontend/public/images/*.png
+!frontend/public/images/**/*.png
 
 # Server-specific deploy script + deployment runbooks stay local (public repo hygiene)
 /deploy/deploy-server.sh
+/deploy/deploy-store-frontend.sh
 /docs/operations/*deployment*.md
 
 # Agent loop working notes (internal — never publish: incident evidence, server details, strategy)
@@ -131,3 +134,4 @@ docker-compose.override.yml
 /WATCHDOG.yml
 /docker-compose.local.yml
 /docs/research/
+/.claude/

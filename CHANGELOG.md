@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Documentation index (`docs/README.md`) mapping every tracked design contract,
+  operations runbook, and review/evidence document, linked from the README.
+- Runnable MCP client example (`examples/mcp_shopping_client.py`): connects to the
+  commerce provider over Streamable HTTP with the official `mcp` SDK and walks
+  the read-tool surface; verified against a live provider.
+- Dependabot configuration: weekly grouped updates for pip and GitHub Actions,
+  gated by the existing CI checks.
+
+### Fixed
+
+- Security: patched dnspython CVE-2026-128089 (2.9.0 → 2.9.2) and
+  opentelemetry-api CVE-2026-126360 (1.45.1 → 1.45.2, with the whole
+  instrumentation family moving to 0.66b2 as one release train) in the
+  runtime lock; pip-audit is clean again.
+
+### Changed
+
+- Live-demo links point at the product's own page (benluo.art/store) — the
+  standalone frontend shipped in this repo.
+- Public-repo hygiene: machine-local absolute paths in the 2026-09-26 review are
+  now repo-relative GitHub line anchors; `docker-compose.fullstack.yml` no longer
+  references the author's portfolio frontend or ships a server-IP CORS default.
+- The standalone Agent Store branding page moved into this repository
+  (`frontend/`): a static-export Next.js app with the guest chat, served by
+  nginx with a same-origin `/api` proxy, wired into the full-stack compose
+  profile. The repository is now the canonical home of the product frontend.
+- README/Makefile quality-gate numbers aligned with the enforced
+  `fail_under = 70` coverage floor and the 2026-11-14 measured baseline
+  (4146 passed / 93.66%).
+
 ## [0.3.0] - 2026-11-13
 
 ### Added
