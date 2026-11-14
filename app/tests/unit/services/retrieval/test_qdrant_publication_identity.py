@@ -24,7 +24,8 @@ async def test_conflicting_raw_identity_stays_unusable_through_vector_and_bm25_c
 ):
     point = SimpleNamespace(id="chunk", score=1, payload={"content": "policy text", **payload})
     sdk = Mock(
-        search=AsyncMock(return_value=[point]), scroll=AsyncMock(return_value=([point], None))
+        query_points=AsyncMock(return_value=SimpleNamespace(points=[point])),
+        scroll=AsyncMock(return_value=([point], None)),
     )
     client = QdrantClient(url="unused", collection_name="policies", client=sdk)
     monkeypatch.setattr(client, "_ensure_collection", AsyncMock())

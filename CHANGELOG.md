@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- qdrant-client 1.20 (part of the 2026-11-14 dependency refresh) removed the
+  deprecated `client.search()` API: vector search now uses the universal
+  `query_points()` API and reads hits from the `QueryResponse` envelope;
+  affected unit-test mocks follow the new contract.
+
 ## [0.4.0] - 2026-11-14
 
 ### Added

@@ -1,5 +1,6 @@
 """Tests for Qdrant vector client"""
 
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -245,7 +246,9 @@ class TestQdrantClient:
             },
             score=0.95,
         )
-        mock_client.search = AsyncMock(return_value=[mock_search_result])
+        mock_client.query_points = AsyncMock(
+            return_value=SimpleNamespace(points=[mock_search_result])
+        )
 
         client = QdrantClient(
             url="http://localhost:6333", collection_name="test_collection", client=mock_client
@@ -276,7 +279,7 @@ class TestQdrantClient:
         from app.services.retrieval.vector_base import VectorSearchRequest
 
         mock_client = Mock()
-        mock_client.search = AsyncMock(return_value=[])
+        mock_client.query_points = AsyncMock(return_value=SimpleNamespace(points=[]))
 
         client = QdrantClient(
             url="http://localhost:6333", collection_name="test_collection", client=mock_client
@@ -291,8 +294,8 @@ class TestQdrantClient:
             await client.search(request)
 
             # Assert - Verify filters were passed
-            mock_client.search.assert_called_once()
-            call_args = mock_client.search.call_args
+            mock_client.query_points.assert_called_once()
+            call_args = mock_client.query_points.call_args
             assert call_args is not None
 
     @pytest.mark.asyncio
@@ -693,14 +696,17 @@ class TestVanishedCollectionReconciliation:
         from app.services.retrieval.vector_base import VectorSearchRequest
 
         client, mock_client, models = self._make_client()
-        mock_client.search = AsyncMock(
-            side_effect=[_FakeQdrant404("Collection `documents` doesn't exist!"), []]
+        mock_client.query_points = AsyncMock(
+            side_effect=[
+                _FakeQdrant404("Collection `documents` doesn't exist!"),
+                SimpleNamespace(points=[]),
+            ]
         )
         with patch.object(client, "_qdrant_model", side_effect=lambda name: models[name]):
             results = await client.search(VectorSearchRequest("refund policy", top_k=3))
 
         assert results == []
-        assert mock_client.search.await_count == 2
+        assert mock_client.query_points.await_count == 2
         mock_client.create_collection.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -708,14 +714,14 @@ class TestVanishedCollectionReconciliation:
         from app.services.retrieval.vector_base import VectorClientError, VectorSearchRequest
 
         client, mock_client, models = self._make_client()
-        mock_client.search = AsyncMock(side_effect=RuntimeError("connection refused"))
+        mock_client.query_points = AsyncMock(side_effect=RuntimeError("connection refused"))
         with (
             patch.object(client, "_qdrant_model", side_effect=lambda name: models[name]),
             pytest.raises(VectorClientError),
         ):
             await client.search(VectorSearchRequest("refund policy", top_k=3))
 
-        assert mock_client.search.await_count == 1
+        assert mock_client.query_points.await_count == 1
         mock_client.create_collection.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -811,8 +817,11 @@ class TestSelfHealMetrics:
 
         before = self._count("vanished")
         client, mock_client, models = TestVanishedCollectionReconciliation()._make_client()
-        mock_client.search = AsyncMock(
-            side_effect=[_FakeQdrant404("Collection `documents` doesn't exist!"), []]
+        mock_client.query_points = AsyncMock(
+            side_effect=[
+                _FakeQdrant404("Collection `documents` doesn't exist!"),
+                SimpleNamespace(points=[]),
+            ]
         )
         with patch.object(client, "_qdrant_model", side_effect=lambda name: models[name]):
             await client.search(VectorSearchRequest("refund", top_k=3))

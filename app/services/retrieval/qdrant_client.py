@@ -227,17 +227,19 @@ class QdrantClient(VectorClient):
                     metadata_prefix=True,
                 )
 
-            # Search in Qdrant
-            response = await self.client.search(
+            # Search in Qdrant (query_points: the universal query API —
+            # client.search was removed in qdrant-client 1.20)
+            response = await self.client.query_points(
                 collection_name=self.collection_name,
-                query_vector=query_embedding,
+                query=query_embedding,
                 limit=request.top_k,
                 query_filter=search_filter,
             )
 
-            # Convert to SearchResult objects
+            # Convert to SearchResult objects (query_points returns a
+            # QueryResponse envelope; the hits live in .points)
             results = []
-            for hit in response:
+            for hit in response.points:
                 payload = hit.payload or {}
                 result = SearchResult(
                     document_id=str(payload.get("document_id", hit.id)),
