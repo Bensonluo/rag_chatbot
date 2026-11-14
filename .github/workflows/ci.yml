@@ -234,3 +234,7 @@ jobs:
       - name: Static export build
         working-directory: frontend
         run: npm run build
+
+      - name: Unit tests (141-test chat battery)
+        working-directory: frontend
+        run: npm test -- --ci
