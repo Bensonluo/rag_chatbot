@@ -9,9 +9,9 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -41,9 +41,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -79,7 +79,7 @@ jobs:
       # Match the deployed engine so newer PromQL cannot hide incompatibility.
       PROMETHEUS_TEST_IMAGE: prom/prometheus:v2.47.2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Validate Prometheus alert rules
         run: >-
@@ -116,9 +116,9 @@ jobs:
     env:
       CI_MIGRATION_DATABASE_URL: postgresql+asyncpg://ci_test:ci_test_password@localhost:5432/ci_migrations
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -194,12 +194,12 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # pip-audit (PyPA) checks every pin in the runtime lock against
       # the OSV/PyPI advisory databases. GitHub-hosted runners reach
       # the advisory APIs directly.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -212,7 +212,7 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The standalone Agent Store page (frontend/) is the product's public
       # face; a TypeScript error or a broken static export must fail CI the
