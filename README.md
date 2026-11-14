@@ -909,6 +909,17 @@ while its action-ref UI contract is obsolete. See the
 | Maintained core coverage | **93.66%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
 | Python files (app/, incl. tests) | 562 (269 source + 293 tests) |
 
+### Measured evaluation baselines (offline, deterministic)
+
+Reproduce with `python scripts/run_retrieval_eval.py` and `python scripts/run_routing_eval.py`
+— both run the real pipeline with deterministic stubs only at network seams, no model keys needed.
+
+| Evaluation | Scope | Result (2026-11-14) |
+|---|---|---|
+| Retrieval golden set | 48 bilingual cases | CJK-bigram keyword arm recall@1/3/10 = **0.875 / 0.979 / 1.000**, MRR 0.924 (zh 0.917/1.000/1.000; the pre-bigram tokenizer scored 0.000 on zh) |
+| Routing golden set | 19 cases / 31 turns over the real compiled graph | **31/31 passed (100%)** — confirmation gates, guardrail block, FAQ fast path, no-evidence, handoff, cross-turn |
+| Answer quality (LLM-tier) | 20 curated questions | latest recorded run + methodology: [docs/operations/answer-quality-evaluation.md](docs/operations/answer-quality-evaluation.md) |
+
 ---
 
 ## 🗺️ Roadmap
@@ -936,6 +947,7 @@ while its action-ref UI contract is obsolete. See the
 - [x] Containment proxy and reply-status cohorts (separate from confirmed resolution, DB-bridged gauges)
 - [x] 2→N scaling readiness (nginx upstream template + dns_sd multi-replica metrics)
 - [x] Graceful shutdown choreography (background refreshers stop before pools close)
+- [x] Standalone Agent Store page bundled in-repo (`frontend/`) and deployed as its own unit — the repository is the complete product, backend to UI
 - [ ] Fine-tuned intent classifier (replace LLM-based with small specialized model)
 - [ ] A/B testing framework for prompt variants
 - [ ] Multi-tenant knowledge bases

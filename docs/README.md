@@ -6,6 +6,9 @@ reviews directory records what was actually measured and when. Most design
 notes were written during development in Chinese; the README and docstrings
 carry the English summary.
 
+The product's public frontend lives in [`frontend/`](../frontend/README.md) — the
+standalone Agent Store page with its own build, Docker, and deploy story.
+
 ## Design contracts (`design/`)
 
 | Document | What it fixes |
