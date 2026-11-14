@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `CITATION.cff` (validated against schema 1.2.0): GitHub renders a "cite
+  this repository" entry from it, with the version pinned to releases by
+  the release-hygiene tests (now a four-way sync: pyproject, CHANGELOG,
+  frontend package.json, CITATION.cff).
 - MCP tool safety metadata: every tool on the commerce MCP server now
   declares spec `annotations` — reads are `readOnlyHint`; additive writes
   (quote, order, sandbox pay) declare `idempotentHint` (from their

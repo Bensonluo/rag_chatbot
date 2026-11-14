@@ -17,6 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
 FRONTEND_PACKAGE = REPO_ROOT / "frontend" / "package.json"
+CITATION = REPO_ROOT / "CITATION.cff"
 
 
 def _pyproject_version() -> str:
@@ -35,9 +36,19 @@ def _frontend_version() -> str:
     return str(json.loads(FRONTEND_PACKAGE.read_text())["version"])
 
 
+def _citation_version() -> str:
+    match = re.search(r"^version: (\d+\.\d+\.\d+)$", CITATION.read_text(), flags=re.MULTILINE)
+    assert match, "CITATION.cff has no version field"
+    return str(match.group(1))
+
+
 def test_pyproject_version_matches_latest_changelog_release() -> None:
     assert _pyproject_version() == _latest_changelog_release()
 
 
 def test_pyproject_version_matches_bundled_frontend() -> None:
     assert _pyproject_version() == _frontend_version()
+
+
+def test_pyproject_version_matches_citation_file() -> None:
+    assert _pyproject_version() == _citation_version()

@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite it using the metadata from this
+  file.
+type: software
+title: Agent Store
+authors:
+  - given-names: Peng
+    family-names: Luo
+    website: https://benluo.art/
+identifiers:
+  - type: url
+    value: https://github.com/Bensonluo/rag_chatbot
+    description: Repository
+repository-code: https://github.com/Bensonluo/rag_chatbot
+url: https://benluo.art/store/
+abstract: >-
+  An open-source agent you can trust with money: agentic commerce with
+  quotes before orders, idempotent payments and exactly-once price alerts,
+  on an engine that also delivers cited RAG customer service. Simulated
+  commerce — no real charges.
+keywords:
+  - llm-agents
+  - agentic-commerce
+  - rag
+  - customer-service
+  - mcp
+  - langgraph
+  - fastapi
+license: MIT
+version: 0.4.1
+date-released: "2026-11-14"
