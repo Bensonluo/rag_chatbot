@@ -7,6 +7,10 @@
 FROM node:22-alpine AS build
 ARG BASE_PATH=""
 ENV NEXT_PUBLIC_BASE_PATH=${BASE_PATH}
+# Baked into robots.txt / sitemap.xml / JSON-LD at build time; without it
+# they advertise http://localhost:3000.
+ARG NEXT_PUBLIC_SITE_URL=""
+ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --no-audit --no-fund
