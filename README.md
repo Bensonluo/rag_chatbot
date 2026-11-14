@@ -259,6 +259,10 @@ python -m app.commerce_provider.mcp_server --host 127.0.0.1 --port 8072 \
 
 Read tools (`search_products`, `get_product`, `get_categories`, `discover_catalog`) answer directly; write tools (`update_cart` → `prepare_quote` → `create_order` → `sandbox_pay`) carry an elicitation-style confirmation and derive `request_key` structurally, so a declined or retried request can never double-charge.
 
+A runnable client is in [`examples/mcp_shopping_client.py`](examples/mcp_shopping_client.py) —
+it connects over Streamable HTTP with the official `mcp` SDK, lists the tool
+surface, and walks search → product detail against the running store.
+
 ---
 
 ## 🌐 Live Demo
