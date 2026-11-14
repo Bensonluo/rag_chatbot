@@ -95,7 +95,7 @@ This repo sits in a different lane: an end-to-end **transactional** customer-ser
 
 **Recorded quality baseline (2026-11-13):** 4146 passing tests, 3 opt-in scenarios skipped by default, 93.71% coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
 
-[Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md)
+[Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md) · [All docs](docs/README.md)
 
 ---
 
