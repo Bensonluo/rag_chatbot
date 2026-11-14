@@ -1,6 +1,6 @@
 {
   "name": "agent-store-frontend",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "Standalone Agent Store branding page — the product's public frontend (chat with the Agent Store backend).",
   "scripts": {

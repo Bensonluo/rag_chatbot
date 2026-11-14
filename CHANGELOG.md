@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-15
+
 ### Added
 
 - The OpenAPI schema behind the DEBUG-gated `/docs` storefront is now
@@ -33,8 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   chat's existing language behavior. Copy lives in a typed
   zh/en dictionary (`frontend/lib/i18n/store-copy.ts`) and a jest contract
   test asserts both trees stay structurally identical.
-
-### Added
 
 - `CITATION.cff` (validated against schema 1.2.0): GitHub renders a "cite
   this repository" entry from it, with the version pinned to releases by
