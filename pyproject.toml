@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rag-chatbot"
-version = "0.3.0"
+version = "0.4.0"
 description = "Transactional shopping and customer-service agent: LangGraph dialogue engine, hybrid retrieval + GraphRAG, guardrails, confirmation-gated commerce, human handoff, MCP server"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -252,6 +252,7 @@ testpaths = [
     "app/tests/unit/test_readiness_honesty.py",
     "app/tests/unit/test_pyproject_deps.py",
     "app/tests/unit/test_dependency_lock.py",
+    "app/tests/unit/test_release_hygiene.py",
     "app/tests/unit/services/llm/test_anthropic_client.py",
     "app/tests/unit/services/llm/test_openai_client.py",
     "app/tests/unit/services/llm/test_resilience.py",
