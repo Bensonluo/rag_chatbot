@@ -7,8 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-14
+
 ### Added
 
+- README opens with a hero screenshot of the bundled frontend's landing
+  page (captured from the shipped Docker image at 1440×900).
 - Bundled frontend ships a favicon (`frontend/app/icon.svg`, Next.js App Router
   file convention): an indigo shopping-bag mark with an agent spark, emitted as
   its own static route with the `<link rel="icon">` tag injected in both root

@@ -19,6 +19,10 @@
 
 `support: intent routing → slot filling / tool call / FAQ fast path / agent loop / hybrid retrieval → claim-gated streaming → handoff`
 
+<img src="assets/store-hero.png" width="720" alt="Agent Store landing page: confirmation-gated buying and support flows, with quotes before orders and every irreversible action behind an explicit user confirmation" />
+
+*(the landing page of the bundled frontend — [live demo](https://benluo.art/store/); the UI is bilingual, following the visitor's language)*
+
 <a href="#-live-demo">
   <img src="assets/demo-live-turn.png" width="480" alt="Agent Store demo: a gift-shopping chat turn beside its execution trace" />
 </a>

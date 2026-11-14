@@ -39,6 +39,15 @@ Any static file server + reverse proxy works: serve `out/` and proxy
 `/api/` to the backend (SSE enabled). For a different public origin, set
 `NEXT_PUBLIC_SITE_URL` at build time for correct OpenGraph URLs.
 
+### Not-found behavior
+
+The bundled nginx configs return a **hard 404** — `try_files ... =404` plus
+`error_page 404 /404/index.html` serving the generated bilingual not-found
+page. If you serve `out/` with your own server, replicate that: never fall
+back to serving `index.html` with a 200 for unknown paths (a soft-404 breaks
+link checkers and search indexing). Under a path prefix (e.g. `/store`),
+also copy `out/404/` to the prefix root so `error_page` can find it.
+
 ## Layout
 
 - `app/page.tsx` + `app/page.module.css` — the branding page (hero, flow,
