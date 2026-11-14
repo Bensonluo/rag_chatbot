@@ -45,13 +45,13 @@ README 已明确定位为单实例技术 Demo，因此不能把未接真实订�
 
 > **修复更新（2026-09-27，d12a1cd，方案② DEMO_MODE 开关）**：新增 `DEMO_MODE` 设置（默认 `true`，公共演示行为完全不变——匿名访客按 body `user_id` 聊天、按裸 `session_id` 读写历史）。`DEMO_MODE=false` 时关闭本条主路径：身份只取认证上下文（匿名 chat/流式/历史 401；body `user_id` 与令牌矛盾 403）；历史读取/清空先经 `SessionService.get_session_by_id` 归属校验（他人会话与不存在会话统一 404，不泄露存在性）；知识库上传/删除要求管理员（`is_admin`）。实现位于 `app/api/deps/authorization.py`，调用点在端点 try 块之前，避免 401/403/404 被通用异常处理器吞成 500。**剩余**：feedback 接口的消息归属校验；检索 ACL 服务端注入；访客凭据方案（①，被本方案取代暂不做）；`_owned_order` 匿名放行在严格模式下经入口 401 已不可达。
 
-**已确认。** [聊天入口](/Users/luopeng/Documents/GitHub/rag_chatbot/app/api/v1/chat.py:352) 在未登录时采用请求体中的 `user_id`，流式入口有相同逻辑。[历史读取](/Users/luopeng/Documents/GitHub/rag_chatbot/app/api/v1/chat.py:454) 和历史删除忽略 `current_user`，按外部传入的 `session_id` 操作。图的 `thread_id` 也只由该会话编号构成。
+**已确认。** [聊天入口](app/api/v1/chat.py#L352) 在未登录时采用请求体中的 `user_id`，流式入口有相同逻辑。[历史读取](app/api/v1/chat.py#L454) 和历史删除忽略 `current_user`，按外部传入的 `session_id` 操作。图的 `thread_id` 也只由该会话编号构成。
 
 > **修复更新（2026-10-01，148507d + 9c1b2e5，#1 全部子项闭环）**：feedback 消息归属（148507d）：严格模式先经 message→session→user 归属探测，他人/不存在统一 404，评价与 downvote 缓存失效不再触碰他人消息；demo 姿态保持存在性检查。检索 ACL 服务端注入（9c1b2e5）：`VectorSearchRequest` 新增独立 `acl_filters` 通道，仅由服务端 `retrieval_acl_scope()` 从身份上下文构造（永不出自请求体/槽位抽取），白名单不适用于它；hybrid 在分发点把 scope 折入两腿的 filters（键冲突时 ACL 覆盖，伪造业务 filter 无法放宽）；filter-miss 回退丢业务 filter 但**保留 ACL 通道**（召回保护不成为越权通道）；L2 检索缓存 key 折入 scope；agent `search_knowledge_base` 工具同通道（无旁路）。当前 KB 全公开（无归属列），scope 为空约束——今日行为零变化，此为 P2 私有文档的接入缝（完整设计 docs/design/per-user-architecture.md；demo 单用户共享为最终形态、隐私不设防是用户 2026-10-01 决策，严格模式即每用户产品）。**#1 无剩余项。**
 
-本地入口模拟确认：匿名请求的 `user_id=1` 被直接传给服务；匿名历史请求进入历史读取函数。默认订单工具的 [_owned_order](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/tools.py:180) 只在 caller_id 非零时检查归属，本地匿名查询 Demo 订单返回成功。
+本地入口模拟确认：匿名请求的 `user_id=1` 被直接传给服务；匿名历史请求进入历史读取函数。默认订单工具的 [_owned_order](app/services/dialogue/tools.py#L180) 只在 caller_id 非零时检查归属，本地匿名查询 Demo 订单返回成功。
 
-另一个边界是知识库：[上传](/Users/luopeng/Documents/GitHub/rag_chatbot/app/api/v1/documents.py:159) 与[删除](/Users/luopeng/Documents/GitHub/rag_chatbot/app/api/v1/documents.py:324) 仅要求普通登录，没有管理员角色或文档所有权检查；项目又开放普通用户注册。普通客户可修改共享客服知识库。[反馈接口](/Users/luopeng/Documents/GitHub/rag_chatbot/app/api/v1/feedback.py:28) 同样没有检查消息归属。
+另一个边界是知识库：[上传](app/api/v1/documents.py#L159) 与[删除](app/api/v1/documents.py#L324) 仅要求普通登录，没有管理员角色或文档所有权检查；项目又开放普通用户注册。普通客户可修改共享客服知识库。[反馈接口](app/api/v1/feedback.py#L28) 同样没有检查消息归属。
 
 **影响：** 接真实数据后存在身份冒用、读取/污染他人会话、知识库投毒与删除、操纵反馈和缓存失效的路径。应用代码已确认存在该边界问题；线上是否另有网关限制未验证。
 
@@ -61,7 +61,7 @@ README 已明确定位为单实例技术 Demo，因此不能把未接真实订�
 
 **修复更新（2026-09-27）：已修复。** 图入口的安全检查后新增阻断分支（`route_after_guardrail`）：被拦截的轮次直接结束，不再进入缓存、意图识别、工具执行或生成；拒绝文案由 guardrail 节点自行推送至流式队列。工具执行、Agent 循环、待确认动作的执行边界增加 blocked 二次校验（纵深防御）。新增 9 个回归用例（`test_blocked_turn.py`），验收即评审要求的标准：被拦截时工具调用次数为零。下文保留修复前的取证记录。
 
-**完整图已复现。** [guardrail_node](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/nodes.py:174) 返回 `blocked=True`；但[图路由](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/graph.py:143) 无条件继续到缓存和意图识别。缓存节点遇到 blocked 只是 miss，并没有结束本轮。工具执行节点也未检查 blocked。
+**完整图已复现。** [guardrail_node](app/services/dialogue/nodes.py#L174) 返回 `blocked=True`；但[图路由](app/services/dialogue/graph.py#L143) 无条件继续到缓存和意图识别。缓存节点遇到 blocked 只是 miss，并没有结束本轮。工具执行节点也未检查 blocked。
 
 模拟输入包含已被正则识别的提示注入文本与查询订单意图，得到：
 
@@ -81,7 +81,7 @@ has_tool_result = true
 
 **修复更新（2026-09-26）：已修复于当前工作区。** 图入口新增 `begin_turn`，在安全检查、缓存和路由之前重置 `TurnState` 中的临时字段；保留待确认动作、槽位、任务栈及任务已执行标记。每轮生成独立 `turn_id`，完成后的消息元数据记录该编号。上一轮工具信息单独保存在 `last_tool_execution`，仅用于转人工上下文，不参与本轮生成。新增 21 个完整图回归用例，覆盖普通/流式响应、政策事实检查、缓存、确认、任务栈与 checkpoint 恢复；下文保留修复前的取证记录。该更新仅关闭本条问题，不代表其他评审项已修复。
 
-**完整图已复现。** [ChatService 输入](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/chat/chat_service.py:139) 每轮只提供消息、会话和用户；checkpoint 会保留其他字段。[handle_switch_node](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/nodes.py:379) 清理部分任务状态，却没有清理旧 `tool_result`。[生成分支](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/nodes.py:907) 优先使用工具结果，再考虑检索资料。
+**完整图已复现。** [ChatService 输入](app/services/chat/chat_service.py#L139) 每轮只提供消息、会话和用户；checkpoint 会保留其他字段。[handle_switch_node](app/services/dialogue/nodes.py#L379) 清理部分任务状态，却没有清理旧 `tool_result`。[生成分支](app/services/dialogue/nodes.py#L907) 优先使用工具结果，再考虑检索资料。
 
 实际两轮模拟：第一轮「查询订单 ORD1001」产生工具结果；第二轮「退货政策是什么」被正确识别为 policy，也检索到 1 条政策资料，但生成提示仍包含上一轮订单工具结果。
 
@@ -93,7 +93,7 @@ has_tool_result = true
 
 **修复更新（2026-09-27）：已修复。** 新增 `PIIStreamRedactor`（guardrails/stream_redactor.py）：句子缓冲 PII 脱敏，与声明流式门同构的 feed/flush 契约——PII 模式为无空白连续串，句子边界不会切断一个完整值，跨 chunk 的手机号/邮箱仍能整值捕获。`_call_llm` 在接入任意 guardrail 时，把全部流式发射（含声明门未武装的闲聊路径）先过 redactor 再入队，flush 与失败路径同样排空；guardrail 故障时原样放行（不阻断对话）。direct 层缓存未命中路径在答案离开节点前、写入 L1 前补上 `check_output`。验收即评审标准：流式拼接、图最终 response 一致且均已脱敏（新增 8 个用例：两种传输 × 两半泄漏 + redactor 单元契约 + 非流式 RAG 回归钉）。下文保留修复前的取证记录。
 
-**已复现。** [_call_llm](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/nodes.py:1547) 将过滤思考内容、部分政策校验后的文本放入队列，但没有做输出 PII 检查。[generate_response_node](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/nodes.py:848) 在生成结束后才脱敏，此时已发出的内容无法撤回。
+**已复现。** [_call_llm](app/services/dialogue/nodes.py#L1547) 将过滤思考内容、部分政策校验后的文本放入队列，但没有做输出 PII 检查。[generate_response_node](app/services/dialogue/nodes.py#L848) 在生成结束后才脱敏，此时已发出的内容无法撤回。
 
 模拟输出被切成两个 chunk，结果如下：
 
@@ -102,7 +102,7 @@ has_tool_result = true
 图最终 response：联络邮箱：[REDACTED]。
 ```
 
-[direct_response_node](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/nodes.py:965) 在缓存未命中时直接生成并返回，既未经过统一输出检查，也未经过统一的完整响应事实检查。本地非流式 direct 调用同样返回未脱敏邮箱。
+[direct_response_node](app/services/dialogue/nodes.py#L965) 在缓存未命中时直接生成并返回，既未经过统一输出检查，也未经过统一的完整响应事实检查。本地非流式 direct 调用同样返回未脱敏邮箱。
 
 **建议：** 所有生成分支共用“缓冲 → 事实与隐私检查 → 发送 → 持久化”的出口；对跨 chunk 的手机号、邮箱等保留必要缓冲。验收要求流式拼接、最终状态与持久化正文一致，且均通过相同检查。
 
@@ -110,7 +110,7 @@ has_tool_result = true
 
 **修复更新（2026-09-27）：已修复。** `_call_llm` 在生成提示词引入了会话历史或跨会话用户画像时，在每次请求的 config 上打 `generation_used_history` 标记；generate_response 节点将其发布为 `personalized` 轮次标记，ChatService 的 L0 写入门与 direct 层的 L1 写入门（`_maybe_put_semantic`）据此拒绝写入——写缓存的答案按构造即为无上下文版本，匿名会话的历史派生答案不再进入共享缓存。新增 7 个回归用例（`test_cache_eligibility.py`，覆盖非流式/流式 × L0/L1，并守卫「无历史仍正常写缓存」不过度收紧）。存量受污染条目随 KB epoch 轮换整体失效。下文保留修复前的取证记录。
 
-**已复现。** [_call_llm](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/nodes.py:1517) 会引入当前会话历史，包含匿名会话。[L0 写入条件](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/chat/chat_service.py:366) 检查匿名、来源、待收集槽位等，却没有检查答案是否使用了历史。缓存键也不包含会话上下文。[L1 写入](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/nodes.py:977) 有类似问题。
+**已复现。** [_call_llm](app/services/dialogue/nodes.py#L1517) 会引入当前会话历史，包含匿名会话。[L0 写入条件](app/services/chat/chat_service.py#L366) 检查匿名、来源、待收集槽位等，却没有检查答案是否使用了历史。缓存键也不包含会话上下文。[L1 写入](app/services/dialogue/nodes.py#L977) 有类似问题。
 
 本地模拟中，会话 A 的历史是「我使用 A 款设备」，随后问「可以吗？」；含该历史信息的答案成功写入共享缓存。会话 B 发送相同短问句，命中并收到「此前您说我使用 A 款设备……」。
 
@@ -118,7 +118,7 @@ has_tool_result = true
 
 ### 6. [P1/P2] 中文关键词检索偏弱，多轮检索与候选召回仍有提升空间
 
-**中文问题已复现。** [KeywordSearch](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/retrieval/hybrid_search.py:159) 使用 `\b\w+\b`，会把连续中文当成一个词；所谓 BM25 实际是集合交集比例，没有 IDF、词频或长度归一化。
+**中文问题已复现。** [KeywordSearch](app/services/retrieval/hybrid_search.py#L159) 使用 `\b\w+\b`，会把连续中文当成一个词；所谓 BM25 实际是集合交集比例，没有 IDF、词频或长度归一化。
 
 ```text
 文档：商品支持七天无理由退货
@@ -128,7 +128,7 @@ has_tool_result = true
 
 这不代表向量分支也一定失败，但关键词召回对典型中文客服问题帮助有限。其他代码层面的改进点：
 
-- [RAG 检索](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/nodes.py:651) 以本轮消息和槽位扩展为主；历史直到生成时才加入。「那运费呢？」等追问需要先结合历史改写成独立检索问题。
+- [RAG 检索](app/services/dialogue/nodes.py#L651) 以本轮消息和槽位扩展为主；历史直到生成时才加入。「那运费呢？」等追问需要先结合历史改写成独立检索问题。
 - 同一路径 `top_k=3` 后才重排，重排只能重排已召回的三个候选。应区分较大的候选池和较小的最终上下文，用评测确定数量。
 - 无检索结果时进入通用生成。政策/承诺类问题应有确定性的证据不足分支，澄清或转人工，并区分“没有相关知识”和“检索服务失败”。
 
@@ -152,7 +152,7 @@ has_tool_result = true
 > 多副本场景与既有 refresher 同一 doctrine：各副本在下一个重建周期收敛；共享外部索引仍是
 > 大语料时的长期方案。+7 测试，全套 1620 通过，覆盖率 87.1%。
 
-**静态链路推导，未做真实 Redis/Qdrant 联调复现。** [文档删除](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/documents/ingestion.py:371) 删除向量数据后立即切换 epoch，但各进程的[关键词索引](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/retrieval/keyword_refresh.py:78) 默认每 300 秒才重建。
+**静态链路推导，未做真实 Redis/Qdrant 联调复现。** [文档删除](app/services/documents/ingestion.py#L371) 删除向量数据后立即切换 epoch，但各进程的[关键词索引](app/services/retrieval/keyword_refresh.py#L78) 默认每 300 秒才重建。
 
 在此窗口里，旧关键词结果仍可能被检出，并写入新 epoch 的 L2 或 L0。关键词索引之后刷新时没有再切换 epoch，因此旧答案的影响可能持续到 L0 默认 24 小时 TTL，而非只持续 5 分钟。是否命中该路径取决于旧文档是否被关键词分支召回等条件。
 
@@ -168,9 +168,9 @@ has_tool_result = true
 > `pending_confirmation` 随消息一起销毁，清空后一句裸"确认"不再执行已废弃的退款。
 > 新增 6 测试（`test_turn_finalization.py`），全套 1610 通过，覆盖率 87%。
 
-**已复现。** [流式持久化](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/chat/chat_service.py:341) 只传正文和 LLM 调用次数，没有像非流式路径那样保存 intent、sources、executed_tools。正常完成的模拟 refund 响应，其保存参数确实不含这些字段。异常退出写入部分内容时，也没有传入失败状态，沿用 persister 默认 COMPLETED。
+**已复现。** [流式持久化](app/services/chat/chat_service.py#L341) 只传正文和 LLM 调用次数，没有像非流式路径那样保存 intent、sources、executed_tools。正常完成的模拟 refund 响应，其保存参数确实不含这些字段。异常退出写入部分内容时，也没有传入失败状态，沿用 persister 默认 COMPLETED。
 
-此外，[clear_chat_history](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/chat/chat_service.py:409) 只清 memory_strategy 的消息。使用实际 MemorySaver 预置退款 pending_confirmation 后，调用清空历史，该待确认动作仍在 checkpoint 中。
+此外，[clear_chat_history](app/services/chat/chat_service.py#L409) 只清 memory_strategy 的消息。使用实际 MemorySaver 预置退款 pending_confirmation 后，调用清空历史，该待确认动作仍在 checkpoint 中。
 
 **建议：** 流式与非流式共用 turn finalization，把实际执行记录、引用、终态与中断原因一起保存；业务写操作审计不能只依赖尽力而为的消息落库。明确清空历史与重置会话的产品语义，重置时同步清除 checkpoint 中的待确认动作和任务状态。
 
@@ -192,18 +192,18 @@ has_tool_result = true
 > ——staged 动作存于服务端 checkpoint 状态、从不经客户端往返，无伪造面。**#9 剩余**：接真实售后系统
 > 时的幂等键/写并发控制/事务边界/对账——维持声明限制。+5 测试，全套 1809 通过。
 
-这是当前项目声明过的范围限制。[默认退款、退货等 handler](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/tools.py:201) 返回模拟结果与随机单号；这能展示工具调用和确认交互，不能证明真实售后闭环已完成。
+这是当前项目声明过的范围限制。[默认退款、退货等 handler](app/services/dialogue/tools.py#L201) 返回模拟结果与随机单号；这能展示工具调用和确认交互，不能证明真实售后闭环已完成。
 
-接业务系统时，显式确认只是第一步，还需服务端校验可退款金额/状态、不可伪造且有期限的 action_id、重复确认/超时重试的幂等键、同会话写操作并发控制、执行结果查询与对账。确认后实际执行的审计也要覆盖确定性分支：当前 [_handle_meta_intent](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/nodes.py:1410) 没有生成与 Agent 路径一致的 executed_tools 记录。
+接业务系统时，显式确认只是第一步，还需服务端校验可退款金额/状态、不可伪造且有期限的 action_id、重复确认/超时重试的幂等键、同会话写操作并发控制、执行结果查询与对账。确认后实际执行的审计也要覆盖确定性分支：当前 [_handle_meta_intent](app/services/dialogue/nodes.py#L1410) 没有生成与 Agent 路径一致的 executed_tools 记录。
 
 建议先接通一个低风险、可核验的真实只读工具，再逐个接入有副作用操作。上线验收加入双击确认、断线重试、执行成功但本地落库失败等场景。
 
 ### 10. [P2] 测试数量可观，但当前覆盖率和回答评测不能代表完整产品质量
 
-- [覆盖率配置](/Users/luopeng/Documents/GitHub/rag_chatbot/pyproject.toml:278) 排除了主路径 graph.py、nodes.py、tools.py；默认 coverage 的模块列表也不包含完整 chat/agent/API。因此 README 的 core coverage 不能解释成整个系统覆盖率。
-- [集成聊天测试](/Users/luopeng/Documents/GitHub/rag_chatbot/app/tests/integration/test_chat_pipeline.py:1) 使用 scripted graph，主要验证适配层，不能覆盖真实节点之间的交互。
-- [一处状态回归测试](/Users/luopeng/Documents/GitHub/rag_chatbot/app/tests/unit/services/dialogue/test_dialogue_flow.py:34) 名为状态重置测试，却只断言手工字典已有的内容，没有运行被测实现。
-- 回答 golden set 有 20 例，意图集 45 例、claim 集 18 例。[真实模型评测脚本](/Users/luopeng/Documents/GitHub/rag_chatbot/scripts/run_answer_eval.py:73) 直接按 faq_ids 注入正确政策，再生成答案，绕过了真实意图路由、FAQ 匹配、检索、缓存和工具。这适合测“给对资料后能否回答”，不能测完整客服解决能力。
+- [覆盖率配置](pyproject.toml#L278) 排除了主路径 graph.py、nodes.py、tools.py；默认 coverage 的模块列表也不包含完整 chat/agent/API。因此 README 的 core coverage 不能解释成整个系统覆盖率。
+- [集成聊天测试](app/tests/integration/test_chat_pipeline.py#L1) 使用 scripted graph，主要验证适配层，不能覆盖真实节点之间的交互。
+- [一处状态回归测试](app/tests/unit/services/dialogue/test_dialogue_flow.py#L34) 名为状态重置测试，却只断言手工字典已有的内容，没有运行被测实现。
+- 回答 golden set 有 20 例，意图集 45 例、claim 集 18 例。[真实模型评测脚本](scripts/run_answer_eval.py#L73) 直接按 faq_ids 注入正确政策，再生成答案，绕过了真实意图路由、FAQ 匹配、检索、缓存和工具。这适合测“给对资料后能否回答”，不能测完整客服解决能力。
 - 本地 `mypy app/` 返回 30 个错误，而 CI 正在执行同一条检查命令。应先恢复严格检查可重复通过，并锁定依赖版本；仓库目前没有依赖锁文件，也没有发现 CI 依赖漏洞审计步骤。本次没有进行 CVE 扫描。
 
 > **修复更新（2026-09-27，commit 5c5ffc4，部分修复）**：mypy 子项已闭环——本地 `mypy app/` 从 55 个错误恢复到 0（CI 执行同一命令），其中 53 个为测试文件类型标注（yaml.safe_load 返回 Any、Pregel.ainvoke 需要 RunnableConfig 配置字典、测试桩与正式服务接口的 cast 边界等），2 个为 factory.py 两个缓存装配点把 redis-py 客户端直接传给窄 RedisSeam 协议；`app.tests.*` 的 mypy override 补充放宽 `disallow_incomplete_defs`（测试方法带 fixture 参数的部分标注不携带信息）。改动仅限类型标注与 cast，行为不变（全套 1620 通过，覆盖率 87.10%）。剩余子项未动：graph.py/nodes.py/tools.py 的覆盖率排除、集成测试真实性、评测脚本绕过真实管线、依赖锁文件与 CVE 扫描。
@@ -226,7 +226,7 @@ has_tool_result = true
 
 ### 11. [P2] “一次解决率”当前更接近自动留存代理指标
 
-[get_one_shot_stats](/Users/luopeng/Documents/GitHub/rag_chatbot/app/repositories/ticket_repository.py:228) 把有机器人回复、没有人工工单且没有差评的会话算作成功。用户没解决就离开、机器人反复说抱歉、没有人评分，都可能被算作成功；逻辑也没有要求一次交互解决。
+[get_one_shot_stats](app/repositories/ticket_repository.py#L228) 把有机器人回复、没有人工工单且没有差评的会话算作成功。用户没解决就离开、机器人反复说抱歉、没有人评分，都可能被算作成功；逻辑也没有要求一次交互解决。
 
 **建议：** 保留该指标但准确命名，另行记录明确 resolved 状态、业务动作成功凭证或用户确认、同一问题短期重开/再次求助；结合人工抽检估计解决率。不要用没有转人工来替代已经解决。
 
@@ -240,7 +240,7 @@ has_tool_result = true
 
 > **修复更新（2026-09-27，commit 097e69e）：** 四条静默降级路径全部闭环。(1) API 装配层拒绝 graph=None 的服务（initialize_chat_service 抛 RuntimeError → lifespan 保持 not_ready）；(2) 两种传输先行快速失败：POST /chat 映射为 503（GraphUnavailableError），/stream 按既有约定输出 STREAM_ERROR 帧，不再以 AttributeError 500 暴露；(3) checkpointer 新增 degraded 标志，Postgres 模式被替换为 MemorySaver 时 lifespan 扣留就绪，编排器看到的是 not-ready 副本而不是悄悄遗忘会话状态的副本；(4) backup.sh 的 pg_dump 失败分支改为 exit 1（并跳过保留期清理，保住最近一次好备份），退出码可被监控捕获。+8 测试（app/tests/unit/test_readiness_honesty.py），全套 1604 通过。
 
-[工厂](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/chat/factory.py:344) 构图异常后仍返回 graph=None 的 ChatService；[lifespan](/Users/luopeng/Documents/GitHub/rag_chatbot/app/main.py:49) 随后可将 chat_ready 标记为 True，但 process_message 无条件调用 graph.ainvoke。与此同时，[Postgres checkpointer](/Users/luopeng/Documents/GitHub/rag_chatbot/app/services/dialogue/checkpointer.py:55) 连接失败会降级到进程内 MemorySaver，即使是多副本部署。
+[工厂](app/services/chat/factory.py#L344) 构图异常后仍返回 graph=None 的 ChatService；[lifespan](app/main.py#L49) 随后可将 chat_ready 标记为 True，但 process_message 无条件调用 graph.ainvoke。与此同时，[Postgres checkpointer](app/services/dialogue/checkpointer.py#L55) 连接失败会降级到进程内 MemorySaver，即使是多副本部署。
 
 **影响：** 服务可能 /ready 成功却无法聊天，或请求换副本后丢失待确认状态。缓存、重排可以按业务需要降级；核心图、身份和交易状态不能用同样的降级策略。
 
