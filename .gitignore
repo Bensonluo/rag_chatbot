@@ -131,3 +131,4 @@ docker-compose.override.yml
 /WATCHDOG.yml
 /docker-compose.local.yml
 /docs/research/
+/.claude/

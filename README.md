@@ -93,7 +93,7 @@ This repo sits in a different lane: an end-to-end **transactional** customer-ser
 | Human handoff | Private sign-in workspace, tickets/queue, assigned context, two-way human messages, atomic final reply/closure | Carry context into staff handling and deliver a saved explanation |
 | Operational control | Epoch-scoped L0/L1/L2 cache, metrics/alerts, tracing, rate limits | Inspect latency, outcomes, cache consistency and load |
 
-**Recorded quality baseline (2026-11-13):** 4146 passing tests, 3 opt-in scenarios skipped by default, 93.71% coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
+**Recorded quality baseline (2026-11-14):** 4146 passing tests, 3 opt-in scenarios skipped by default, 4 expected failures, 93.66% coverage. Containment rate measures sessions without handoff or downvote; confirmed resolution, reopen counts and human QA are tracked separately. Failed, completed and latest-failed reply cohorts are also reported independently.
 
 [Answer citation contract](docs/design/answer-citations.md) · [Staff handoff context](docs/operations/handoff-context.md) · [Backup and recovery](docs/operations/backup-and-recovery.md) · [All docs](docs/README.md)
 
@@ -624,7 +624,7 @@ separately configured checkpoint databases require their own recovery plans.
 ## 🧪 Testing & Quality
 
 ```bash
-# Maintained core suite (70% minimum; currently 4105 passed + 3 opt-in skipped / 93.56%)
+# Maintained core suite (70% minimum; currently 4146 passed + 3 opt-in skipped / 93.66%)
 pytest
 
 # Targeted runs
@@ -896,9 +896,9 @@ while its action-ref UI contract is obsolete. See the
 
 | Metric | Value |
 |--------|-------|
-| Maintained test results | **4105 passed, 3 opt-in skipped** |
-| Maintained core coverage | **93.56%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
-| Python files (app/, incl. tests) | 558 (260 source + 298 tests; 289 test_ modules) |
+| Maintained test results | **4146 passed, 3 opt-in skipped, 4 xfailed** |
+| Maintained core coverage | **93.66%** (70% minimum enforced locally; main dialogue path graph/nodes/tools measured since 2026-10-01) |
+| Python files (app/, incl. tests) | 562 (269 source + 293 tests) |
 
 ---
 
