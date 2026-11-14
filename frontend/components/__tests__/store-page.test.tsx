@@ -54,6 +54,13 @@ test('a language toggle is rendered in the nav', () => {
   expect(html).toMatch(/aria-label="(Switch to English|切换到中文)"/);
 });
 
+test('structured data describes the application for search and AI agents', () => {
+  expect(html).toContain('application/ld+json');
+  expect(html).toContain('"@type":"SoftwareApplication"');
+  expect(html).toMatch(/"softwareVersion":"0\.\d+\.\d+"/);
+  expect(html).toContain('https://github.com/Bensonluo/rag_chatbot');
+});
+
 /** Structural parity: every locale must carry the same copy tree shape, so a
  * key added to one language without its mirror fails here, not in production. */
 function shape(value: unknown): string {

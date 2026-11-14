@@ -16,6 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   zh/en dictionary (`frontend/lib/i18n/store-copy.ts`) and a jest contract
   test asserts both trees stay structurally identical.
 
+### Added
+
+- Search/AI-agent readiness for the bundled frontend: an explicit
+  allow-all `robots.txt` with a sitemap pointer (`app/robots.ts`), a
+  generated `sitemap.xml` (`app/sitemap.ts`, both static-export safe via
+  `dynamic = "force-static"`), and schema.org `SoftwareApplication`
+  JSON-LD on the landing page with the version auto-synced from
+  `package.json`. The product welcomes agents — it is one.
+
 ### Fixed
 
 - The landing page's hard-bounds strip showed a stale test baseline

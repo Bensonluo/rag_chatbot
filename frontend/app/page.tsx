@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import pkg from "../package.json";
 import { StoreLanding } from "./store-landing";
 
 export const metadata: Metadata = {
@@ -17,6 +18,37 @@ export const metadata: Metadata = {
   },
 };
 
+/* Machine-facing structured data (English: the lingua franca of crawlers).
+ * The version is imported from package.json so it can never drift from the
+ * shipped release. */
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Agent Store",
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  softwareVersion: pkg.version,
+  description:
+    "An open-source agent you can trust with money: agentic commerce with quotes before orders, idempotent payments and exactly-once price alerts, on an engine that also delivers cited RAG customer service. Simulated commerce — no real charges.",
+  url: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}${
+    process.env.NEXT_PUBLIC_BASE_PATH ?? ""
+  }/`,
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  isAccessibleForFree: true,
+  license: "https://opensource.org/licenses/MIT",
+  author: { "@type": "Person", name: "Peng Luo", url: "https://benluo.art/" },
+  sameAs: ["https://github.com/Bensonluo/rag_chatbot"],
+};
+
 export default function StorePage() {
-  return <StoreLanding />;
+  return (
+    <>
+      <StoreLanding />
+      <script
+        type="application/ld+json"
+        // Structured data for search engines and AI agents reading the page.
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+    </>
+  );
 }
