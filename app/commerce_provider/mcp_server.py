@@ -51,6 +51,7 @@ from mcp.server.mcpserver import (
     Resolve,
 )
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import ToolAnnotations
 from pydantic import AnyHttpUrl, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -317,7 +318,10 @@ def create_mcp_server(
 
     # --- read tools -----------------------------------------------------------
 
-    @mcp.tool()
+    @mcp.tool(
+        title="Search products",
+        annotations=ToolAnnotations(readOnlyHint=True),
+    )
     async def search_products(
         query: QueryParam,
         owner_user_id: OwnerParam,
@@ -340,7 +344,10 @@ def create_mcp_server(
         except ProviderError as exc:
             raise _provider_error(exc) from exc
 
-    @mcp.tool()
+    @mcp.tool(
+        title="Get product",
+        annotations=ToolAnnotations(readOnlyHint=True),
+    )
     async def get_product(sku_id: IdParam, owner_user_id: OwnerParam, ctx: Context) -> CatalogItem:
         """读取单个 SKU 的权威商品事实（价格、属性、库存）。"""
         try:
@@ -348,7 +355,10 @@ def create_mcp_server(
         except ProviderError as exc:
             raise _provider_error(exc) from exc
 
-    @mcp.tool()
+    @mcp.tool(
+        title="Get categories",
+        annotations=ToolAnnotations(readOnlyHint=True),
+    )
     async def get_categories(
         owner_user_id: OwnerParam,
         ctx: Context,
@@ -362,7 +372,10 @@ def create_mcp_server(
         except ProviderError as exc:
             raise _provider_error(exc) from exc
 
-    @mcp.tool()
+    @mcp.tool(
+        title="Discover catalog",
+        annotations=ToolAnnotations(readOnlyHint=True),
+    )
     async def discover_catalog(
         query: QueryParam,
         owner_user_id: OwnerParam,
@@ -381,7 +394,12 @@ def create_mcp_server(
 
     # --- write tools (confirmation + structural idempotency) ------------------
 
-    @mcp.tool()
+    @mcp.tool(
+        title="Update cart",
+        # Whole-replace semantics (guarded by an optimistic version check):
+        # destructive of the previous cart contents, replay-safe by design.
+        annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True),
+    )
     async def update_cart(
         owner_user_id: OwnerParam,
         lines: Annotated[list[CartLineSelection], Field(min_length=0, max_length=MAX_CART_LINES)],
@@ -406,7 +424,10 @@ def create_mcp_server(
         except ProviderError as exc:
             raise _provider_error(exc) from exc
 
-    @mcp.tool()
+    @mcp.tool(
+        title="Prepare quote",
+        annotations=ToolAnnotations(destructiveHint=False, idempotentHint=True),
+    )
     async def prepare_quote(
         owner_user_id: OwnerParam,
         cart_id: IdParam,
@@ -429,7 +450,12 @@ def create_mcp_server(
         except ProviderError as exc:
             raise _provider_error(exc) from exc
 
-    @mcp.tool()
+    @mcp.tool(
+        title="Create order",
+        # Additive and replay-safe (structural request key); the real gate is
+        # the server-side elicitation confirmation, not any client-side hint.
+        annotations=ToolAnnotations(destructiveHint=False, idempotentHint=True),
+    )
     async def create_order(
         owner_user_id: OwnerParam,
         quote_id: IdParam,
@@ -448,7 +474,10 @@ def create_mcp_server(
         except ProviderError as exc:
             raise _provider_error(exc) from exc
 
-    @mcp.tool()
+    @mcp.tool(
+        title="Sandbox pay",
+        annotations=ToolAnnotations(destructiveHint=False, idempotentHint=True),
+    )
     async def sandbox_pay(
         owner_user_id: OwnerParam,
         ctx: Context,

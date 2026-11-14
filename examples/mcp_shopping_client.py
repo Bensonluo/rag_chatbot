@@ -38,8 +38,21 @@ async def run(url: str, token: str | None) -> None:
         url, http_client=httpx.AsyncClient(headers=headers) if headers else None
     )
     async with Client(transport) as client:
-        tools = sorted(tool.name for tool in (await client.list_tools()).tools)
-        print(f"connected: {len(tools)} tools — {', '.join(tools)}\n")
+        listed = (await client.list_tools()).tools
+        print(f"connected: {len(listed)} tools")
+        for tool in sorted(listed, key=lambda t: t.name):
+            hints = tool.annotations
+            flags = (
+                " ".join(
+                    f"{flag}={getattr(hints, flag)}"
+                    for flag in ("read_only_hint", "destructive_hint", "idempotent_hint")
+                    if getattr(hints, flag, None) is not None
+                )
+                if hints is not None
+                else ""
+            )
+            print(f"  {tool.name:<18} {flags or '(no annotations)'}")
+        print()
 
         query = os.environ.get("DEMO_QUERY", "无线耳机")
         page = await client.call_tool(

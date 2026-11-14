@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- MCP tool safety metadata: every tool on the commerce MCP server now
+  declares spec `annotations` — reads are `readOnlyHint`; additive writes
+  (quote, order, sandbox pay) declare `idempotentHint` (from their
+  structural request keys) and an explicit `destructiveHint: false`
+  (omitted hints default to destructive in client risk models), while
+  `update_cart` honestly declares its whole-replace `destructiveHint`.
+  Every tool also carries a human `title`. A handshake contract test
+  pins the full annotation map, so agent clients can gate calls without
+  reading docstrings.
 - Search/AI-agent readiness for the bundled frontend: an explicit
   allow-all `robots.txt` with a sitemap pointer (`app/robots.ts`), a
   generated `sitemap.xml` (`app/sitemap.ts`, both static-export safe via

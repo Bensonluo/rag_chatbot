@@ -77,6 +77,30 @@ async def test_handshake_lists_the_documented_tool_surface(mcp) -> None:
     assert tools == EXPECTED_TOOLS
 
 
+async def test_every_tool_carries_safety_annotations(mcp) -> None:
+    """Read tools declare readOnly; writes declare replay-safety (and
+    update_cart its whole-replace semantics) so agent clients can gate
+    them without reverse-engineering docstrings."""
+    expected = {
+        "search_products": {"read_only_hint": True},
+        "get_product": {"read_only_hint": True},
+        "get_categories": {"read_only_hint": True},
+        "discover_catalog": {"read_only_hint": True},
+        "update_cart": {"destructive_hint": True, "idempotent_hint": True},
+        "prepare_quote": {"destructive_hint": False, "idempotent_hint": True},
+        "create_order": {"destructive_hint": False, "idempotent_hint": True},
+        "sandbox_pay": {"destructive_hint": False, "idempotent_hint": True},
+    }
+    async with Client(mcp) as client:
+        tools = {t.name: t for t in (await client.list_tools()).tools}
+    for name, hints in expected.items():
+        tool = tools[name]
+        assert tool.annotations is not None, f"{name} lacks annotations"
+        got = {hint: getattr(tool.annotations, hint) for hint in hints}
+        assert got == hints, f"{name}: {got}"
+        assert tool.title, f"{name} lacks a human title"
+
+
 async def test_search_products_returns_structured_catalog_page(mcp) -> None:
     async with Client(mcp) as client:
         result = await client.call_tool(

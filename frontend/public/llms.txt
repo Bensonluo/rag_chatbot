@@ -12,7 +12,9 @@ Chat entry: https://benluo.art/store/
 
 The store facts layer speaks Model Context Protocol (Streamable HTTP) — the same
 authoritative catalog, cart, quote, order and sandbox-payment tools as REST,
-with elicitation-gated writes and structurally derived idempotency keys. Run it
+with elicitation-gated writes and structurally derived idempotency keys; every
+tool declares spec annotations (readOnlyHint / idempotentHint / destructiveHint)
+so hosts can risk-classify calls without reading docstrings. Run it
 locally with `python -m app.commerce_provider.mcp_server`; a runnable client is
 `examples/mcp_shopping_client.py` in the repository.
 
