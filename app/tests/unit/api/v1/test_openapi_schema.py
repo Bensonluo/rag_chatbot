@@ -8,13 +8,14 @@ routers actually mounted in the tree.
 
 import json
 from importlib.metadata import version as package_version
+from typing import Any
 
 from fastapi import FastAPI
 
 from app.api.v1.openapi import REPOSITORY_URL, STOREFRONT_URL, setup_openapi
 
 
-def _schema() -> dict[str, object]:
+def _schema() -> dict[str, Any]:
     # Reuse the production factory so the schema reflects mounted routers
     # (guest/chat/handoff/...) rather than a hand-picked subset.
     from app.main import create_app
