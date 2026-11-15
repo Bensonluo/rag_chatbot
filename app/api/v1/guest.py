@@ -93,6 +93,21 @@ def _shopping_stage_timeline(events: list[TraceEvent]) -> str:
 router = APIRouter(prefix="/guest", tags=["public visitor"], route_class=PrivateAPIRoute)
 
 
+def _error_responses(*codes: int) -> dict[int | str, dict[str, str]]:
+    """OpenAPI documentation for the error codes a visitor endpoint raises."""
+    descriptions = {
+        401: "Visitor cookie missing or expired — bootstrap a new session",
+        403: "Same-origin browser check failed (missing visitor header or disallowed Origin)",
+        404: "Conversation or purchase not found for this visitor",
+        409: "Conversation or purchase state changed — explicitly refresh before continuing",
+        422: "Malformed input",
+        423: "Human support is handling this conversation",
+        429: "Chat budget exhausted — retry after the window",
+        503: "Identity, coordination, or commerce provider temporarily unavailable",
+    }
+    return {code: {"description": descriptions[code]} for code in codes}
+
+
 class GuestBootstrapRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -245,7 +260,11 @@ async def require_guest_conversation(
         raise HTTPException(409, "Conversation changed; explicitly reopen it") from exc
 
 
-@router.post("/bootstrap", summary="Start an anonymous visitor session")
+@router.post(
+    "/bootstrap",
+    summary="Start an anonymous visitor session",
+    responses=_error_responses(403, 503),
+)
 async def bootstrap(
     _body: GuestBootstrapRequest,
     request: Request,
@@ -279,6 +298,7 @@ async def bootstrap(
     "/chat",
     response_model=chat_api.ChatResponse,
     summary="Send a visitor chat turn (support or shopping)",
+    responses=_error_responses(401, 403, 404, 409, 422, 423, 429, 503),
 )
 async def chat(
     body: GuestChatRequest,
@@ -317,7 +337,11 @@ async def chat(
     )
 
 
-@router.post("/chat/stream", summary="Stream a visitor chat turn")
+@router.post(
+    "/chat/stream",
+    summary="Stream a visitor chat turn",
+    responses=_error_responses(401, 403, 404, 409, 422, 423, 429, 503),
+)
 async def chat_stream(
     body: GuestChatRequest,
     request: Request,
@@ -561,6 +585,7 @@ async def chat_stream(
     "/history",
     response_model=chat_api.ChatHistoryResponse,
     summary="List a visitor conversation's history",
+    responses=_error_responses(401, 403, 404, 409, 503),
 )
 async def history(
     principal: Annotated[GuestPrincipal, Depends(get_guest_principal)],
@@ -585,6 +610,7 @@ async def history(
     "/history",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Clear a visitor conversation's history",
+    responses=_error_responses(401, 403, 404, 409, 503),
 )
 async def clear_history(
     principal: Annotated[GuestPrincipal, Depends(get_guest_principal)],
@@ -604,7 +630,10 @@ async def clear_history(
 
 
 @router.post(
-    "/feedback", response_model=FeedbackResponse, summary="Rate an assistant message as a visitor"
+    "/feedback",
+    response_model=FeedbackResponse,
+    summary="Rate an assistant message as a visitor",
+    responses=_error_responses(401, 403, 404, 422, 503),
 )
 async def feedback(
     body: FeedbackCreate,
@@ -621,7 +650,11 @@ async def feedback(
     )
 
 
-@router.get("/commerce/purchases/active", summary="Show the visitor's active purchase")
+@router.get(
+    "/commerce/purchases/active",
+    summary="Show the visitor's active purchase",
+    responses=_error_responses(401, 403, 404, 409, 422, 423, 503),
+)
 async def active_purchase(
     principal: Annotated[GuestPrincipal, Depends(get_guest_principal)],
     commerce: Annotated[CommerceConversation, Depends(get_guest_commerce_conversation)],
@@ -641,7 +674,11 @@ async def active_purchase(
     }
 
 
-@router.get("/commerce/purchases/{purchase_id}", summary="Show one visitor purchase by id")
+@router.get(
+    "/commerce/purchases/{purchase_id}",
+    summary="Show one visitor purchase by id",
+    responses=_error_responses(401, 403, 404, 409, 422, 423, 503),
+)
 async def purchase_status(
     purchase_id: SessionKey,
     principal: Annotated[GuestPrincipal, Depends(get_guest_principal)],

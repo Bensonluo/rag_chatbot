@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Swagger UI shows one line per operation instead of bare route ids);
   coverage is complete across all ten routers and stays consistent with the
   summaries the auth/sessions routers already had.
+- The eight public visitor endpoints (`/api/v1/guest/*`) now document the
+  error codes their handlers actually raise (`responses=` metadata with a
+  one-line cause per code — expired cookie, same-origin check, rate budget,
+  human-handoff lock, provider unavailability). The documented sets come
+  from the real code paths (the `commerce_errors` mapper, identity/CSRF
+  guards, and the chat rate limiter), and a schema contract test pins the
+  chat and bootstrap sets so the storefront cannot silently drop them.
 
 ## [0.4.2] - 2026-11-15
 

@@ -59,6 +59,20 @@ def test_servers_license_and_bearer_scheme_are_real() -> None:
     assert schema["components"]["securitySchemes"]["BearerAuth"]["scheme"] == "bearer"
 
 
+def test_guest_operations_document_their_error_codes() -> None:
+    """The public visitor surface declares the codes its handlers raise."""
+    paths = _schema()["paths"]
+    chat = paths["/api/v1/guest/chat"]["post"]
+    assert {"200", "401", "403", "404", "409", "422", "423", "429", "503"} <= set(
+        chat["responses"]
+    )
+    bootstrap = paths["/api/v1/guest/bootstrap"]["post"]
+    # 422 is FastAPI's automatic body-validation response (bootstrap takes a
+    # request model); the handler-raised codes are the documented 403/503.
+    assert set(bootstrap["responses"]) == {"200", "403", "422", "503"}
+    assert "Same-origin browser check failed" in bootstrap["responses"]["403"]["description"]
+
+
 def test_setup_openapi_is_idempotent_per_app() -> None:
     app = FastAPI(title="t", version="0")
     setup_openapi(app)
