@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The docs-hygiene drift pins now cover the ZH quickstart too: the 环境要求
+  line's backticked port map and Python floor must match docker-compose.yml
+  and pyproject exactly, like the English Requirements block. The new pin
+  immediately caught the ZH mirror lagging behind — it omitted the
+  monitoring profile's Prometheus `9090` and Grafana `3001`.
 - Every one of the 66 REST endpoints now carries a human OpenAPI `summary`
   (Swagger UI shows one line per operation instead of bare route ids);
   coverage is complete across all ten routers and stays consistent with the

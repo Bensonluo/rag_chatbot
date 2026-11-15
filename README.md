@@ -1113,7 +1113,7 @@ docker compose -f docker-compose.fullstack.yml up -d
 # Agent Store 页面: http://localhost:3000
 ```
 
-**环境要求**：macOS / Linux（CI 验证）+ Docker Compose v2；回环端口 API `8000–8003`、PostgreSQL `5432`、Redis `6379`、Qdrant `6333/6334`、Neo4j `7474/7687`（全部只绑 `127.0.0.1`，不对外暴露）；`.env` 至少一个 LLM key（默认 `GLM_API_KEY`）；快速开始路径用 GLM key 做向量（`EMBEDDING_PROVIDER=glm`），离线免 key 方案需 `pip install -e ".[local]"`（6 GB+ torch）；本地开发 / 测试 / MCP 示例需 Python ≥ 3.11。请先 `cp .env.example .env` 再启动 —— 缺省时 Compose 会把 `EMBEDDING_PROVIDER` 置为 `local`，而 API 镜像不带 torch。
+**环境要求**：macOS / Linux（CI 验证）+ Docker Compose v2；回环端口 API `8000–8003`、PostgreSQL `5432`、Redis `6379`、Qdrant `6333/6334`、Neo4j `7474/7687`，`monitoring` profile 追加 Prometheus `9090` 与 Grafana `3001`（全部只绑 `127.0.0.1`，不对外暴露）；`.env` 至少一个 LLM key（默认 `GLM_API_KEY`）；快速开始路径用 GLM key 做向量（`EMBEDDING_PROVIDER=glm`），离线免 key 方案需 `pip install -e ".[local]"`（6 GB+ torch）；本地开发 / 测试 / MCP 示例需 Python ≥ 3.11。请先 `cp .env.example .env` 再启动 —— 缺省时 Compose 会把 `EMBEDDING_PROVIDER` 置为 `local`，而 API 镜像不带 torch。
 
 访问 http://localhost:8000/docs 查看 API 文档。
 

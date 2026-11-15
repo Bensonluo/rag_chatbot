@@ -82,6 +82,36 @@ def test_readme_python_floor_matches_pyproject() -> None:
     )
 
 
+def _zh_requirements_line() -> str:
+    """The ZH quickstart condenses Requirements into one bolded line."""
+    text = README.read_text()
+    match = re.search(r"^\*\*环境要求\*\*：(.*)$", text, flags=re.MULTILINE)
+    assert match, "README has no '**环境要求**' line for the ZH quickstart"
+    return str(match.group(1))
+
+
+def test_zh_quickstart_port_map_matches_compose_exactly() -> None:
+    compose_ports = _compose_host_ports()
+    documented: set[int] = set()
+    for token in re.findall(r"`([^`]+)`", _zh_requirements_line()):
+        documented.update(_expand_port_token(token))
+    drift = documented ^ compose_ports
+    assert not drift, (
+        f"ZH 环境要求 ports drifted from docker-compose.yml: "
+        f"symmetric difference {sorted(drift)} — update both sides together"
+    )
+
+
+def test_zh_quickstart_python_floor_matches_pyproject() -> None:
+    with PYPROJECT.open("rb") as handle:
+        requires = str(tomllib.load(handle)["project"]["requires-python"])
+    floor = requires.removeprefix(">=")
+    line = _zh_requirements_line()
+    assert f"Python ≥ {floor}" in line, (
+        f"ZH 环境要求 does not state 'Python ≥ {floor}' (pyproject requires-python is {requires})"
+    )
+
+
 NGINX_CONFIGS = [
     REPO_ROOT / "frontend" / "nginx.conf",
     REPO_ROOT / "frontend" / "nginx.server.conf",
