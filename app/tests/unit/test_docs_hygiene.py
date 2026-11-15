@@ -80,3 +80,36 @@ def test_readme_python_floor_matches_pyproject() -> None:
         f"README Requirements does not state 'Python ≥ {floor}' "
         f"(pyproject requires-python is {requires})"
     )
+
+
+NGINX_CONFIGS = [
+    REPO_ROOT / "frontend" / "nginx.conf",
+    REPO_ROOT / "frontend" / "nginx.server.conf",
+]
+
+
+def _nginx_location_block(path: Path, prefix: str) -> str:
+    text = path.read_text()
+    match = re.search(rf"location {re.escape(prefix)} \{{(.*?)\}}", text, flags=re.DOTALL)
+    assert match, f"{path.name} has no 'location {prefix}' block"
+    return str(match.group(1))
+
+
+class TestNginxCachingPinned:
+    """The frontend's nginx variants serve a Next.js static export; both
+    must cache content-hashed build assets as immutable (the header Next.js
+    itself sets on ``_next/static`` — with a pure nginx export the server
+    must replicate it) and give un-hashed images a bounded TTL. Without a
+    pin a config edit can silently drop the cache policy again."""
+
+    def test_hashed_build_assets_cache_immutable(self) -> None:
+        for conf in NGINX_CONFIGS:
+            block = _nginx_location_block(conf, "/_next/static/")
+            assert "max-age=31536000" in block, conf.name
+            assert "immutable" in block, conf.name
+
+    def test_unhashed_images_cache_is_bounded(self) -> None:
+        for conf in NGINX_CONFIGS:
+            block = _nginx_location_block(conf, "/images/")
+            assert "max-age=86400" in block, conf.name
+            assert "immutable" not in block, conf.name

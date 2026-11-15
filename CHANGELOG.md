@@ -155,6 +155,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The frontend's two nginx serving variants now set cache policy:
+  content-hashed Next.js build assets (`/_next/static/`) are served
+  `public, max-age=31536000, immutable` — the header Next.js itself
+  sets when it serves those files — and un-hashed `/images/` assets get
+  a bounded day of cache. Returning visitors skip re-downloading the
+  JS/CSS bundles; a docs-hygiene test pins the policy in both configs.
 - `pyproject.toml` Homepage now points at the product's own page
   (benluo.art/store/) instead of the author's portfolio write-up.
 
