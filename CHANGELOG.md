@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Every one of the 66 REST endpoints now carries a human OpenAPI `summary`
+  (Swagger UI shows one line per operation instead of bare route ids);
+  coverage is complete across all ten routers and stays consistent with the
+  summaries the auth/sessions routers already had.
+
 ## [0.4.2] - 2026-11-15
 
 ### Added

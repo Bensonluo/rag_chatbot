@@ -472,7 +472,12 @@ def _stored_commerce_ui(value: Any) -> dict[str, Any] | None:
 # ── Endpoints ─────────────────────────────────────────────────────────────
 
 
-@router.post("", response_model=ChatResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "",
+    response_model=ChatResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Send a chat turn through the RAG pipeline",
+)
 async def chat(
     request: ChatRequest,
     http_req: Request,
@@ -604,7 +609,7 @@ class _ClosingStreamingResponse(StreamingResponse):
                 await close()
 
 
-@router.post("/stream")
+@router.post("/stream", summary="Stream a chat turn as server-sent events")
 async def chat_stream(
     request: ChatRequest,
     http_req: Request,
@@ -711,7 +716,7 @@ async def chat_stream(
         ) from e
 
 
-@router.get("/history", response_model=ChatHistoryResponse)
+@router.get("/history", response_model=ChatHistoryResponse, summary="List a session's chat history")
 async def get_chat_history(
     session_id: int = Query(..., gt=0, description="Session ID"),
     expected_session_key: SessionKey | None = Query(None),
@@ -785,7 +790,9 @@ async def get_chat_history(
         ) from e
 
 
-@router.delete("/history", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/history", status_code=status.HTTP_204_NO_CONTENT, summary="Clear a session's chat history"
+)
 async def clear_chat_history(
     session_id: int = Query(..., gt=0, description="Session ID"),
     expected_session_key: SessionKey | None = Query(None),

@@ -245,7 +245,7 @@ async def require_guest_conversation(
         raise HTTPException(409, "Conversation changed; explicitly reopen it") from exc
 
 
-@router.post("/bootstrap")
+@router.post("/bootstrap", summary="Start an anonymous visitor session")
 async def bootstrap(
     _body: GuestBootstrapRequest,
     request: Request,
@@ -275,7 +275,11 @@ async def bootstrap(
     }
 
 
-@router.post("/chat", response_model=chat_api.ChatResponse)
+@router.post(
+    "/chat",
+    response_model=chat_api.ChatResponse,
+    summary="Send a visitor chat turn (support or shopping)",
+)
 async def chat(
     body: GuestChatRequest,
     request: Request,
@@ -313,7 +317,7 @@ async def chat(
     )
 
 
-@router.post("/chat/stream")
+@router.post("/chat/stream", summary="Stream a visitor chat turn")
 async def chat_stream(
     body: GuestChatRequest,
     request: Request,
@@ -553,7 +557,11 @@ async def chat_stream(
     return chat_api._ClosingStreamingResponse(generate(), media_type="text/event-stream")
 
 
-@router.get("/history", response_model=chat_api.ChatHistoryResponse)
+@router.get(
+    "/history",
+    response_model=chat_api.ChatHistoryResponse,
+    summary="List a visitor conversation's history",
+)
 async def history(
     principal: Annotated[GuestPrincipal, Depends(get_guest_principal)],
     chat_service: Annotated[ChatService, Depends(get_guest_chat_service)],
@@ -573,7 +581,11 @@ async def history(
     )
 
 
-@router.delete("/history", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/history",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Clear a visitor conversation's history",
+)
 async def clear_history(
     principal: Annotated[GuestPrincipal, Depends(get_guest_principal)],
     chat_service: Annotated[ChatService, Depends(get_guest_chat_service)],
@@ -591,7 +603,9 @@ async def clear_history(
     )
 
 
-@router.post("/feedback", response_model=FeedbackResponse)
+@router.post(
+    "/feedback", response_model=FeedbackResponse, summary="Rate an assistant message as a visitor"
+)
 async def feedback(
     body: FeedbackCreate,
     principal: Annotated[GuestPrincipal, Depends(get_guest_principal)],
@@ -607,7 +621,7 @@ async def feedback(
     )
 
 
-@router.get("/commerce/purchases/active")
+@router.get("/commerce/purchases/active", summary="Show the visitor's active purchase")
 async def active_purchase(
     principal: Annotated[GuestPrincipal, Depends(get_guest_principal)],
     commerce: Annotated[CommerceConversation, Depends(get_guest_commerce_conversation)],
@@ -627,7 +641,7 @@ async def active_purchase(
     }
 
 
-@router.get("/commerce/purchases/{purchase_id}")
+@router.get("/commerce/purchases/{purchase_id}", summary="Show one visitor purchase by id")
 async def purchase_status(
     purchase_id: SessionKey,
     principal: Annotated[GuestPrincipal, Depends(get_guest_principal)],

@@ -75,7 +75,11 @@ def _human_error(exc: Exception) -> HTTPException:
     return HTTPException(503, "Human conversation could not be confirmed", headers=headers)
 
 
-@router.get("/sessions/{session_id}/messages", response_model=HandoffConversationPage)
+@router.get(
+    "/sessions/{session_id}/messages",
+    response_model=HandoffConversationPage,
+    summary="List a conversation's customer messages",
+)
 async def get_customer_messages(
     response: Response,
     session_id: int = Path(..., gt=0, le=2_147_483_647),
@@ -100,7 +104,11 @@ async def get_customer_messages(
         raise _human_error(exc) from exc
 
 
-@router.post("/sessions/{session_id}/messages", response_model=HandoffMessageAcknowledgement)
+@router.post(
+    "/sessions/{session_id}/messages",
+    response_model=HandoffMessageAcknowledgement,
+    summary="Send a customer-side message",
+)
 async def send_customer_message(
     request: HandoffCustomerMessageRequest,
     response: Response,
@@ -122,7 +130,11 @@ async def send_customer_message(
         raise _human_error(exc) from exc
 
 
-@router.get("/tickets/{ticket_id}/messages", response_model=HandoffConversationPage)
+@router.get(
+    "/tickets/{ticket_id}/messages",
+    response_model=HandoffConversationPage,
+    summary="List a ticket's staff messages",
+)
 async def get_staff_messages(
     response: Response,
     ticket_id: int = Path(..., gt=0, le=2_147_483_647),
@@ -146,7 +158,11 @@ async def get_staff_messages(
         raise _human_error(exc) from exc
 
 
-@router.post("/tickets/{ticket_id}/messages", response_model=HandoffMessageAcknowledgement)
+@router.post(
+    "/tickets/{ticket_id}/messages",
+    response_model=HandoffMessageAcknowledgement,
+    summary="Send a staff reply to a ticket",
+)
 async def send_staff_message(
     request: HandoffStaffMessageRequest,
     response: Response,
@@ -168,7 +184,7 @@ async def send_staff_message(
         raise _human_error(exc) from exc
 
 
-@router.get("/tickets")
+@router.get("/tickets", summary="List human-support tickets")
 async def list_tickets(
     response: Response,
     ticket_status: str = Query("open", pattern="^(open|claimed|resolved)$", alias="status"),
@@ -183,7 +199,7 @@ async def list_tickets(
     return {"tickets": tickets, "count": len(tickets)}
 
 
-@router.get("/stats")
+@router.get("/stats", summary="Ticket queue statistics")
 async def queue_stats(
     response: Response,
     _admin: User = Depends(require_admin),
@@ -199,7 +215,11 @@ async def queue_stats(
     return await service.queue_stats()
 
 
-@router.get("/tickets/{ticket_id}/history", response_model=HandoffHistoryResponse)
+@router.get(
+    "/tickets/{ticket_id}/history",
+    response_model=HandoffHistoryResponse,
+    summary="Get a ticket's full history",
+)
 async def get_ticket_history(
     response: Response,
     ticket_id: int = Path(..., gt=0, le=2_147_483_647),
@@ -238,7 +258,7 @@ async def get_ticket_history(
     return history
 
 
-@router.post("/tickets/{ticket_id}/claim")
+@router.post("/tickets/{ticket_id}/claim", summary="Claim a ticket for handling")
 async def claim_ticket(
     response: Response,
     ticket_id: int,
@@ -262,7 +282,7 @@ async def claim_ticket(
         ) from None
 
 
-@router.post("/tickets/{ticket_id}/resolve")
+@router.post("/tickets/{ticket_id}/resolve", summary="Resolve a ticket")
 async def resolve_ticket(
     response: Response,
     ticket_id: int,

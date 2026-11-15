@@ -54,7 +54,7 @@ def get_session_chat_service() -> ChatService:
     return get_chat_service()
 
 
-@router.get("/containment-stats")
+@router.get("/containment-stats", summary="Containment and resolution cross-stats")
 async def get_containment_stats(
     window_days: Annotated[int, Query(ge=1, le=90)] = 7,
     db: AsyncSession = Depends(get_db),
@@ -80,7 +80,7 @@ async def get_containment_stats(
     return await repo.get_containment_stats(since=since)
 
 
-@router.get("/review-queue")
+@router.get("/review-queue", summary="Sample sessions for QA review")
 async def get_review_queue(
     window_days: Annotated[int, Query(ge=1, le=90)] = 7,
     limit: Annotated[int, Query(ge=1, le=20)] = 10,
@@ -121,7 +121,7 @@ async def get_review_queue(
     return {"window_start": since.isoformat(), "items": items}
 
 
-@router.get("/{session_id}/review")
+@router.get("/{session_id}/review", summary="Get QA review context for a session")
 async def get_review_context(
     session_id: Annotated[int, Path(ge=1, le=2_147_483_647)],
     db: AsyncSession = Depends(get_db),
@@ -145,7 +145,7 @@ async def get_review_context(
         raise HTTPException(503, "Review coordination is unavailable") from exc
 
 
-@router.post("/{session_id}/review")
+@router.post("/{session_id}/review", summary="Record a QA review verdict")
 async def review_session(
     session_id: Annotated[int, Path(ge=1, le=2_147_483_647)],
     verdict: SessionReviewVerdict,

@@ -75,7 +75,7 @@ class StructuredImportRequest(BaseModel):
 # --- Endpoints ---
 
 
-@router.get("/health")
+@router.get("/health", summary="Check graph database connectivity")
 async def graph_health() -> dict[str, str]:
     """Check graph database connectivity (anonymous: liveness probe)."""
     try:
@@ -89,7 +89,7 @@ async def graph_health() -> dict[str, str]:
         return {"status": "error"}
 
 
-@router.get("/stats")
+@router.get("/stats", summary="Graph store statistics")
 async def graph_stats(
     current_user: User = Depends(get_current_active_user),  # noqa: ARG001
 ) -> dict[str, Any]:
@@ -103,7 +103,7 @@ async def graph_stats(
         raise HTTPException(status_code=500, detail="Failed to load graph stats") from e
 
 
-@router.get("/schema")
+@router.get("/schema", summary="Get the graph schema")
 async def graph_schema(
     current_user: User = Depends(get_current_active_user),  # noqa: ARG001
 ) -> dict[str, Any]:
@@ -117,7 +117,7 @@ async def graph_schema(
         raise HTTPException(status_code=500, detail="Failed to load graph schema") from e
 
 
-@router.post("/query", response_model=GraphQueryResponse)
+@router.post("/query", response_model=GraphQueryResponse, summary="Answer a query from the graph")
 async def graph_query(
     request: GraphQueryRequest,
     current_user: User = Depends(get_current_active_user),  # noqa: ARG001
@@ -158,7 +158,7 @@ async def graph_query(
         raise HTTPException(status_code=500, detail="Graph query failed") from e
 
 
-@router.post("/import/structured")
+@router.post("/import/structured", summary="Import structured data into the graph")
 async def import_structured(
     request: StructuredImportRequest,
     admin: User = Depends(require_admin),  # noqa: ARG001
@@ -217,7 +217,7 @@ async def import_structured(
         raise HTTPException(status_code=500, detail="Structured import failed") from e
 
 
-@router.post("/communities/detect")
+@router.post("/communities/detect", summary="Detect graph communities")
 async def detect_communities(
     min_size: int = Query(3, gt=0),
     max_levels: int = Query(5, gt=0),

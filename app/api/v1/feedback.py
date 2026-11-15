@@ -33,7 +33,12 @@ async def _get_db() -> AsyncGenerator[AsyncSession, None]:
         yield session
 
 
-@router.post("", response_model=FeedbackResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "",
+    response_model=FeedbackResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Rate an assistant message",
+)
 async def submit_feedback(
     feedback: FeedbackCreate,
     db: AsyncSession = Depends(_get_db),
@@ -122,7 +127,7 @@ async def submit_scoped_feedback(
     )
 
 
-@router.get("/stats")
+@router.get("/stats", summary="Aggregate feedback statistics")
 async def get_feedback_stats(
     db: AsyncSession = Depends(_get_db),
     current_user: User = Depends(get_current_active_user),  # noqa: ARG001  # FastAPI DI: enforces auth; value unused

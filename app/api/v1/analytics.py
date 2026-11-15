@@ -41,7 +41,7 @@ class ResolveGapRequest(BaseModel):
         return stripped
 
 
-@router.get("/knowledge-gaps")
+@router.get("/knowledge-gaps", summary="List recorded knowledge gaps")
 async def get_knowledge_gaps(
     days: int = Query(default=7, ge=1, le=90, description="Lookback window in days"),
     limit: int = Query(default=20, ge=1, le=100, description="Max gap groups to return"),
@@ -57,7 +57,7 @@ async def get_knowledge_gaps(
     return {"days": days, "total": len(gaps), "gaps": gaps}
 
 
-@router.post("/knowledge-gaps/resolve")
+@router.post("/knowledge-gaps/resolve", summary="Mark a knowledge gap resolved")
 async def resolve_knowledge_gap(
     request: ResolveGapRequest,
     db: AsyncSession = Depends(_get_db),

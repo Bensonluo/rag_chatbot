@@ -230,7 +230,12 @@ def _api_error(exc: Exception) -> HTTPException:
     return HTTPException(500, "Document operation failed")
 
 
-@router.post("/upload", response_model=DocumentUploadResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/upload",
+    response_model=DocumentUploadResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Upload a text document for ingestion",
+)
 async def upload_document_text(
     request: DocumentUploadRequest,
     current_user: User = Depends(get_document_manager),
@@ -258,7 +263,10 @@ async def upload_document_text(
 
 
 @router.post(
-    "/upload/file", response_model=DocumentUploadResponse, status_code=status.HTTP_202_ACCEPTED
+    "/upload/file",
+    response_model=DocumentUploadResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Upload a document file for ingestion",
 )
 async def upload_document_file(
     file: UploadFile = File(...),
@@ -321,7 +329,11 @@ async def list_documents(
     return await jobs.list_documents(offset, limit)
 
 
-@router.get("/versions/{version_id}", response_model=DocumentUploadResponse)
+@router.get(
+    "/versions/{version_id}",
+    response_model=DocumentUploadResponse,
+    summary="Get a document version's status",
+)
 async def get_version(
     version_id: str,
     current_user: User = Depends(get_document_manager),
@@ -334,7 +346,12 @@ async def get_version(
         raise _api_error(exc) from exc
 
 
-@router.post("/versions/{version_id}/retry", response_model=DocumentUploadResponse, status_code=202)
+@router.post(
+    "/versions/{version_id}/retry",
+    response_model=DocumentUploadResponse,
+    status_code=202,
+    summary="Retry a failed ingestion",
+)
 async def retry_version(
     version_id: str,
     current_user: User = Depends(get_document_manager),
@@ -347,7 +364,7 @@ async def retry_version(
         raise _api_error(exc) from exc
 
 
-@router.get("/versions/{version_id}/source")
+@router.get("/versions/{version_id}/source", summary="Download a version's original source")
 async def download_source(
     version_id: str,
     current_user: User = Depends(get_document_manager),
@@ -369,7 +386,7 @@ async def download_source(
         raise _api_error(exc) from exc
 
 
-@router.get("/versions/{version_id}/text")
+@router.get("/versions/{version_id}/text", summary="Download a version's normalized text")
 async def download_normalized_text(
     version_id: str,
     current_user: User = Depends(get_document_manager),
@@ -392,7 +409,11 @@ async def download_normalized_text(
         raise _api_error(exc) from exc
 
 
-@router.get("/{document_id}/versions", response_model=list[DocumentUploadResponse])
+@router.get(
+    "/{document_id}/versions",
+    response_model=list[DocumentUploadResponse],
+    summary="List a document's versions",
+)
 async def list_versions(
     document_id: str,
     current_user: User = Depends(get_document_manager),
@@ -405,7 +426,9 @@ async def list_versions(
         raise _api_error(exc) from exc
 
 
-@router.post("/search", response_model=SearchResponse)
+@router.post(
+    "/search", response_model=SearchResponse, summary="Hybrid search over the knowledge base"
+)
 async def search_documents(
     request: SearchRequest,
     current_user: User = Depends(get_current_active_user),
@@ -441,7 +464,9 @@ async def search_documents(
         raise _api_error(exc) from exc
 
 
-@router.delete("/{document_id}", response_model=DeleteResponse)
+@router.delete(
+    "/{document_id}", response_model=DeleteResponse, summary="Delete a knowledge document"
+)
 async def delete_document(
     document_id: str,
     current_user: User = Depends(get_document_manager),
@@ -457,7 +482,7 @@ async def delete_document(
         await ingestion_service.close()
 
 
-@router.get("/health")
+@router.get("/health", summary="Documents service health")
 async def health_check(request: Request) -> Response:
     from fastapi.responses import JSONResponse
 

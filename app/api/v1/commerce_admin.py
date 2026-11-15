@@ -89,7 +89,11 @@ def _review_response(review: CommerceCoverageReview) -> CoverageReviewResponse:
     )
 
 
-@router.get("/taxonomy/versions", response_model=list[TaxonomyVersionResponse])
+@router.get(
+    "/taxonomy/versions",
+    response_model=list[TaxonomyVersionResponse],
+    summary="List taxonomy versions",
+)
 async def list_taxonomy_versions(
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001
     registry: Annotated[CommerceTaxonomyRegistry, Depends(get_taxonomy_registry)],
@@ -99,7 +103,12 @@ async def list_taxonomy_versions(
     return [TaxonomyVersionResponse.model_validate(summary) for summary in summaries]
 
 
-@router.post("/taxonomy/versions", response_model=TaxonomyVersionResponse, status_code=201)
+@router.post(
+    "/taxonomy/versions",
+    response_model=TaxonomyVersionResponse,
+    status_code=201,
+    summary="Create a taxonomy version",
+)
 async def create_taxonomy_version(
     request: TaxonomyVersionCreateRequest,
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001
@@ -119,7 +128,11 @@ async def create_taxonomy_version(
         raise _taxonomy_error(exc) from exc
 
 
-@router.post("/taxonomy/versions/{version_id}/activate", response_model=TaxonomyVersionResponse)
+@router.post(
+    "/taxonomy/versions/{version_id}/activate",
+    response_model=TaxonomyVersionResponse,
+    summary="Activate a taxonomy version",
+)
 async def activate_taxonomy_version(
     version_id: str,
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001
@@ -134,7 +147,9 @@ async def activate_taxonomy_version(
         raise _taxonomy_error(exc) from exc
 
 
-@router.get("/taxonomy/export", response_model=RegistryTaxonomy)
+@router.get(
+    "/taxonomy/export", response_model=RegistryTaxonomy, summary="Export the active taxonomy"
+)
 async def export_active_taxonomy(
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001
     registry: Annotated[CommerceTaxonomyRegistry, Depends(get_taxonomy_registry)],
@@ -144,7 +159,9 @@ async def export_active_taxonomy(
     return await registry.load_active()
 
 
-@router.post("/taxonomy/external-mappings", status_code=201)
+@router.post(
+    "/taxonomy/external-mappings", status_code=201, summary="Create an external taxonomy mapping"
+)
 async def create_external_mapping(
     request: ExternalCategoryMappingRequest,
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001
@@ -164,7 +181,9 @@ async def create_external_mapping(
         raise _taxonomy_error(exc) from exc
 
 
-@router.get("/coverage/events", response_model=list[CoverageEventResponse])
+@router.get(
+    "/coverage/events", response_model=list[CoverageEventResponse], summary="List coverage events"
+)
 async def list_coverage_events(
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001
     registry: Annotated[CommerceTaxonomyRegistry, Depends(get_taxonomy_registry)],
@@ -175,7 +194,12 @@ async def list_coverage_events(
     return [_event_response(event) for event in events]
 
 
-@router.post("/coverage/reviews", response_model=CoverageReviewResponse, status_code=201)
+@router.post(
+    "/coverage/reviews",
+    response_model=CoverageReviewResponse,
+    status_code=201,
+    summary="Create a coverage review",
+)
 async def create_coverage_review(
     request: CoverageReviewCreateRequest,
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001
@@ -192,7 +216,11 @@ async def create_coverage_review(
         raise _taxonomy_error(exc) from exc
 
 
-@router.get("/coverage/reviews", response_model=list[CoverageReviewResponse])
+@router.get(
+    "/coverage/reviews",
+    response_model=list[CoverageReviewResponse],
+    summary="List coverage reviews",
+)
 async def list_coverage_reviews(
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001
     registry: Annotated[CommerceTaxonomyRegistry, Depends(get_taxonomy_registry)],
@@ -203,7 +231,11 @@ async def list_coverage_reviews(
     return [_review_response(review) for review in reviews]
 
 
-@router.post("/coverage/reviews/{review_id}/approve", response_model=CoverageReviewResponse)
+@router.post(
+    "/coverage/reviews/{review_id}/approve",
+    response_model=CoverageReviewResponse,
+    summary="Approve a coverage review",
+)
 async def approve_coverage_review(
     review_id: int,
     request: CoverageReviewDecisionRequest,
@@ -227,7 +259,11 @@ async def approve_coverage_review(
         raise _taxonomy_error(exc) from exc
 
 
-@router.post("/coverage/reviews/{review_id}/reject", response_model=CoverageReviewResponse)
+@router.post(
+    "/coverage/reviews/{review_id}/reject",
+    response_model=CoverageReviewResponse,
+    summary="Reject a coverage review",
+)
 async def reject_coverage_review(
     review_id: int,
     request: CoverageReviewDecisionRequest,
@@ -250,7 +286,9 @@ async def reject_coverage_review(
         raise _taxonomy_error(exc) from exc
 
 
-@router.get("/coverage/metrics", response_model=CoverageMetricsResponse)
+@router.get(
+    "/coverage/metrics", response_model=CoverageMetricsResponse, summary="Coverage metrics summary"
+)
 async def coverage_metrics(
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001
     registry: Annotated[CommerceTaxonomyRegistry, Depends(get_taxonomy_registry)],
