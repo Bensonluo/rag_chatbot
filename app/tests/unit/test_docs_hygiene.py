@@ -132,11 +132,18 @@ NGINX_CONFIGS = [
     REPO_ROOT / "frontend" / "nginx.server.conf",
 ]
 
+# Regex locations with an optional single-segment prefix: the server unit
+# mounts the export under BASE_PATH=/store, so hashed assets arrive as
+# /store/_next/static/... — a plain prefix location never matched them
+# and the cache headers silently never fired (observed live 2026-11-15).
+NGINX_HASHED_ASSET_PATTERN = r"^/(?:[^/]+/)?_next/static/"
+NGINX_IMAGE_PATTERN = r"^/(?:[^/]+/)?images/"
 
-def _nginx_location_block(path: Path, prefix: str) -> str:
+
+def _nginx_location_block(path: Path, pattern: str) -> str:
     text = path.read_text()
-    match = re.search(rf"location {re.escape(prefix)} \{{(.*?)\}}", text, flags=re.DOTALL)
-    assert match, f"{path.name} has no 'location {prefix}' block"
+    match = re.search(rf"location ~ {re.escape(pattern)} \{{(.*?)\}}", text, flags=re.DOTALL)
+    assert match, f"{path.name} has no 'location ~ {pattern}' block"
     return str(match.group(1))
 
 
@@ -144,17 +151,19 @@ class TestNginxCachingPinned:
     """The frontend's nginx variants serve a Next.js static export; both
     must cache content-hashed build assets as immutable (the header Next.js
     itself sets on ``_next/static`` — with a pure nginx export the server
-    must replicate it) and give un-hashed images a bounded TTL. Without a
-    pin a config edit can silently drop the cache policy again."""
+    must replicate it) and give un-hashed images a bounded TTL. The
+    locations must be BASE_PATH-agnostic regexes, or a /store mount
+    serves its assets with no cache header at all. Without a pin a config
+    edit can silently drop the cache policy again."""
 
     def test_hashed_build_assets_cache_immutable(self) -> None:
         for conf in NGINX_CONFIGS:
-            block = _nginx_location_block(conf, "/_next/static/")
+            block = _nginx_location_block(conf, NGINX_HASHED_ASSET_PATTERN)
             assert "max-age=31536000" in block, conf.name
             assert "immutable" in block, conf.name
 
     def test_unhashed_images_cache_is_bounded(self) -> None:
         for conf in NGINX_CONFIGS:
-            block = _nginx_location_block(conf, "/images/")
+            block = _nginx_location_block(conf, NGINX_IMAGE_PATTERN)
             assert "max-age=86400" in block, conf.name
             assert "immutable" not in block, conf.name

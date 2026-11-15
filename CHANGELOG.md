@@ -139,6 +139,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   defaults to the code's own fallback (`http://localhost:3000`), and all
   four SITE_URL reads use `||` so a set-but-empty env means "unset".
   Caught by the new CI docker-images job on its first run.
+- The standalone store unit's nginx cache headers never fired: the
+  locations were plain prefixes (`/_next/static/`), but the server unit
+  mounts the export under `BASE_PATH=/store`, where assets arrive as
+  `/store/_next/static/...` and fell through to the generic location
+  with no cache header at all — found by post-deploy verification of the
+  live store (hashed assets answered 200 with no `Cache-Control`). Both
+  nginx variants now use BASE_PATH-agnostic regex locations (optional
+  single-segment prefix), validated with `nginx -t` in the runtime image,
+  and the caching pins follow the new shape.
 
 ## [0.4.2] - 2026-11-15
 
