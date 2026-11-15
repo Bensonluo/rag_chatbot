@@ -59,18 +59,26 @@ def test_servers_license_and_bearer_scheme_are_real() -> None:
     assert schema["components"]["securitySchemes"]["BearerAuth"]["scheme"] == "bearer"
 
 
-def test_guest_operations_document_their_error_codes() -> None:
-    """The public visitor surface declares the codes its handlers raise."""
+def test_operations_document_their_error_codes() -> None:
+    """Guest and authenticated surfaces declare handler-raised codes."""
     paths = _schema()["paths"]
-    chat = paths["/api/v1/guest/chat"]["post"]
+    guest_chat = paths["/api/v1/guest/chat"]["post"]
     assert {"200", "401", "403", "404", "409", "422", "423", "429", "503"} <= set(
-        chat["responses"]
+        guest_chat["responses"]
     )
     bootstrap = paths["/api/v1/guest/bootstrap"]["post"]
     # 422 is FastAPI's automatic body-validation response (bootstrap takes a
     # request model); the handler-raised codes are the documented 403/503.
     assert set(bootstrap["responses"]) == {"200", "403", "422", "503"}
     assert "Same-origin browser check failed" in bootstrap["responses"]["403"]["description"]
+    # The authenticated surface pins its own sets (chat budget, handoff lock,
+    # coordination outages; feedback ownership; missing-session update).
+    chat = paths["/api/v1/chat"]["post"]
+    assert {"401", "403", "404", "409", "423", "429", "503"} <= set(chat["responses"])
+    feedback = paths["/api/v1/feedback"]["post"]
+    assert {"404", "409", "503"} <= set(feedback["responses"])
+    update = paths["/api/v1/sessions/{session_id}"]["put"]
+    assert "404" in update["responses"]  # missing session must not surface as 500-only
 
 
 def test_setup_openapi_is_idempotent_per_app() -> None:

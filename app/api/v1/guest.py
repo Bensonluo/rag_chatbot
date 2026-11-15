@@ -24,6 +24,7 @@ from app.api.deps import get_db
 from app.api.deps.private_response import PrivateAPIRoute
 from app.api.v1 import chat as chat_api
 from app.api.v1 import feedback as feedback_api
+from app.api.v1.openapi import make_error_responses
 from app.config.settings import settings
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.schemas.feedback import FeedbackCreate, FeedbackResponse
@@ -93,9 +94,8 @@ def _shopping_stage_timeline(events: list[TraceEvent]) -> str:
 router = APIRouter(prefix="/guest", tags=["public visitor"], route_class=PrivateAPIRoute)
 
 
-def _error_responses(*codes: int) -> dict[int | str, dict[str, str]]:
-    """OpenAPI documentation for the error codes a visitor endpoint raises."""
-    descriptions = {
+_error_responses = make_error_responses(
+    {
         401: "Visitor cookie missing or expired — bootstrap a new session",
         403: "Same-origin browser check failed (missing visitor header or disallowed Origin)",
         404: "Conversation or purchase not found for this visitor",
@@ -105,7 +105,7 @@ def _error_responses(*codes: int) -> dict[int | str, dict[str, str]]:
         429: "Chat budget exhausted — retry after the window",
         503: "Identity, coordination, or commerce provider temporarily unavailable",
     }
-    return {code: {"description": descriptions[code]} for code in codes}
+)
 
 
 class GuestBootstrapRequest(BaseModel):

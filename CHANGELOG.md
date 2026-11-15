@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the real code paths (the `commerce_errors` mapper, identity/CSRF
   guards, and the chat rate limiter), and a schema contract test pins the
   chat and bootstrap sets so the storefront cannot silently drop them.
+- Error-response documentation extended to the authenticated surface:
+  sessions (9 endpoints), chat (4), and feedback (2) now declare their
+  handler-raised codes through a shared `make_error_responses` factory in
+  the OpenAPI module (one code→cause table per router, per-endpoint
+  subsets). The sweep also exposed and fixed a real defect: updating a
+  missing session surfaced as 500 (service `NotFoundError` uncaught) — now
+  404, pinned by an integration regression test, and the schema contract
+  test now pins error sets on the chat/feedback/sessions operations too.
 
 ## [0.4.2] - 2026-11-15
 

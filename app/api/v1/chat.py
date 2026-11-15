@@ -23,6 +23,7 @@ from app.api.deps import get_current_user
 from app.api.deps.authorization import ensure_session_access, resolve_chat_identity
 from app.api.deps.private_response import PrivateAPIRoute
 from app.api.deps.publication import get_publication_guard
+from app.api.v1.openapi import make_error_responses
 from app.api.v1.sessions import get_session_service
 from app.config.settings import settings
 from app.middleware.rate_limiter_redis import EndpointRateLimiter, client_ip_from_request
@@ -66,6 +67,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"], route_class=PrivateAPIRoute)
+
+
+_error_responses = make_error_responses(
+    {
+        401: "Supplied JWT invalid or expired; strict mode requires a valid token",
+        403: "Caller does not own this session",
+        404: "Session not found",
+        409: "Conversation changed or an action is in progress",
+        422: "Invalid chat request",
+        423: "Human support is handling this conversation",
+        429: "Chat request budget exhausted — retry after the window",
+        503: "Chat service not initialized or coordination unavailable",
+    }
+)
 
 # Global chat service instance (initialized on startup)
 _chat_service: ChatService | None = None
@@ -477,6 +492,7 @@ def _stored_commerce_ui(value: Any) -> dict[str, Any] | None:
     response_model=ChatResponse,
     status_code=status.HTTP_200_OK,
     summary="Send a chat turn through the RAG pipeline",
+    responses=_error_responses(401, 403, 404, 409, 422, 423, 429, 503),
 )
 async def chat(
     request: ChatRequest,
@@ -609,7 +625,11 @@ class _ClosingStreamingResponse(StreamingResponse):
                 await close()
 
 
-@router.post("/stream", summary="Stream a chat turn as server-sent events")
+@router.post(
+    "/stream",
+    summary="Stream a chat turn as server-sent events",
+    responses=_error_responses(401, 403, 404, 409, 422, 423, 429, 503),
+)
 async def chat_stream(
     request: ChatRequest,
     http_req: Request,
@@ -716,7 +736,12 @@ async def chat_stream(
         ) from e
 
 
-@router.get("/history", response_model=ChatHistoryResponse, summary="List a session's chat history")
+@router.get(
+    "/history",
+    response_model=ChatHistoryResponse,
+    summary="List a session's chat history",
+    responses=_error_responses(401, 403, 404, 409, 422, 503),
+)
 async def get_chat_history(
     session_id: int = Query(..., gt=0, description="Session ID"),
     expected_session_key: SessionKey | None = Query(None),
@@ -791,7 +816,10 @@ async def get_chat_history(
 
 
 @router.delete(
-    "/history", status_code=status.HTTP_204_NO_CONTENT, summary="Clear a session's chat history"
+    "/history",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Clear a session's chat history",
+    responses=_error_responses(401, 403, 404, 409, 422, 503),
 )
 async def clear_chat_history(
     session_id: int = Query(..., gt=0, description="Session ID"),

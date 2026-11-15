@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user
 from app.api.deps.private_response import PrivateAPIRoute
+from app.api.v1.openapi import make_error_responses
 from app.config.settings import settings
 from app.models.database.user import User
 from app.models.schemas.feedback import FeedbackCreate, FeedbackResponse
@@ -26,6 +27,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/feedback", tags=["feedback"], route_class=PrivateAPIRoute)
 
 
+_error_responses = make_error_responses(
+    {
+        401: "JWT missing, expired, or invalid",
+        404: "Message not found for this caller",
+        409: "Conversation changed or an action is in progress — reopen before rating",
+        422: "Invalid feedback input",
+        503: "Conversation coordination is unavailable",
+    }
+)
+
+
 async def _get_db() -> AsyncGenerator[AsyncSession, None]:
     from app.api.database import async_session_maker
 
@@ -38,6 +50,7 @@ async def _get_db() -> AsyncGenerator[AsyncSession, None]:
     response_model=FeedbackResponse,
     status_code=status.HTTP_200_OK,
     summary="Rate an assistant message",
+    responses=_error_responses(401, 404, 409, 422, 503),
 )
 async def submit_feedback(
     feedback: FeedbackCreate,
@@ -127,7 +140,11 @@ async def submit_scoped_feedback(
     )
 
 
-@router.get("/stats", summary="Aggregate feedback statistics")
+@router.get(
+    "/stats",
+    summary="Aggregate feedback statistics",
+    responses=_error_responses(401, 422),
+)
 async def get_feedback_stats(
     db: AsyncSession = Depends(_get_db),
     current_user: User = Depends(get_current_active_user),  # noqa: ARG001  # FastAPI DI: enforces auth; value unused

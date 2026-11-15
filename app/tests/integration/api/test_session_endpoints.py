@@ -313,3 +313,16 @@ class TestSessionEndpoints:
 
         # Assert
         assert response.status_code == 422  # Validation error
+
+    @pytest.mark.asyncio
+    async def test_update_session_not_found(self, app_client: AsyncClient, test_token: str) -> None:
+        """Updating a missing session returns 404, not a masked 500."""
+        headers = {"Authorization": f"Bearer {test_token}"}
+
+        response = await app_client.put(
+            "/api/v1/sessions/999999",
+            json={"title": "ghost"},
+            headers=headers,
+        )
+
+        assert response.status_code == 404

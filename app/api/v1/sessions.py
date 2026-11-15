@@ -18,6 +18,7 @@ from app.api.deps import (
 )
 from app.api.deps.authorization import require_qa_reviewer
 from app.api.deps.private_response import PrivateAPIRoute
+from app.api.v1.openapi import make_error_responses
 from app.core.exceptions import NotFoundError
 from app.models.database.session import ChatSession
 from app.models.database.user import User
@@ -47,6 +48,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["sessions"], route_class=PrivateAPIRoute)
 
 
+_error_responses = make_error_responses(
+    {
+        401: "JWT missing, expired, or invalid",
+        403: "Administrator role required (review surface)",
+        404: "Session not found",
+        409: "Conversation changed or an action is in progress — reopen/refresh explicitly",
+        422: "Invalid session input",
+        423: "Human support is handling this conversation",
+        500: "Session store operation failed",
+        503: "Conversation coordination is unavailable",
+    }
+)
+
+
 def get_session_chat_service() -> ChatService:
     # Lazy import avoids the chat router's session-service dependency cycle.
     from app.api.v1.chat import get_chat_service
@@ -54,7 +69,11 @@ def get_session_chat_service() -> ChatService:
     return get_chat_service()
 
 
-@router.get("/containment-stats", summary="Containment and resolution cross-stats")
+@router.get(
+    "/containment-stats",
+    summary="Containment and resolution cross-stats",
+    responses=_error_responses(401, 422),
+)
 async def get_containment_stats(
     window_days: Annotated[int, Query(ge=1, le=90)] = 7,
     db: AsyncSession = Depends(get_db),
@@ -80,7 +99,11 @@ async def get_containment_stats(
     return await repo.get_containment_stats(since=since)
 
 
-@router.get("/review-queue", summary="Sample sessions for QA review")
+@router.get(
+    "/review-queue",
+    summary="Sample sessions for QA review",
+    responses=_error_responses(401, 403, 422, 503),
+)
 async def get_review_queue(
     window_days: Annotated[int, Query(ge=1, le=90)] = 7,
     limit: Annotated[int, Query(ge=1, le=20)] = 10,
@@ -121,7 +144,11 @@ async def get_review_queue(
     return {"window_start": since.isoformat(), "items": items}
 
 
-@router.get("/{session_id}/review", summary="Get QA review context for a session")
+@router.get(
+    "/{session_id}/review",
+    summary="Get QA review context for a session",
+    responses=_error_responses(401, 403, 404, 409, 422, 503),
+)
 async def get_review_context(
     session_id: Annotated[int, Path(ge=1, le=2_147_483_647)],
     db: AsyncSession = Depends(get_db),
@@ -145,7 +172,11 @@ async def get_review_context(
         raise HTTPException(503, "Review coordination is unavailable") from exc
 
 
-@router.post("/{session_id}/review", summary="Record a QA review verdict")
+@router.post(
+    "/{session_id}/review",
+    summary="Record a QA review verdict",
+    responses=_error_responses(401, 403, 404, 409, 422, 500, 503),
+)
 async def review_session(
     session_id: Annotated[int, Path(ge=1, le=2_147_483_647)],
     verdict: SessionReviewVerdict,
@@ -222,6 +253,7 @@ async def get_session_service(
     response_model=SessionResponse,
     status_code=status.HTTP_200_OK,
     summary="Create a new chat session",
+    responses=_error_responses(401, 422, 500),
 )
 async def create_session(
     session_data: SessionCreate,
@@ -259,6 +291,7 @@ async def create_session(
     "",
     response_model=SessionListResponse,
     summary="List user's chat sessions",
+    responses=_error_responses(401, 422, 500),
 )
 async def list_sessions(
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -299,6 +332,7 @@ async def list_sessions(
     "/{session_id}",
     response_model=SessionResponse,
     summary="Get a specific chat session",
+    responses=_error_responses(401, 404, 422),
 )
 async def get_session(
     session_id: int,
@@ -327,6 +361,7 @@ async def get_session(
     "/{session_id}",
     response_model=SessionResponse,
     summary="Update a chat session",
+    responses=_error_responses(401, 404, 409, 422, 500),
 )
 async def update_session(
     session_id: int,
@@ -353,6 +388,8 @@ async def update_session(
         return session
     except ConversationChangedError as e:
         raise HTTPException(409, "Conversation changed; reopen it before continuing") from e
+    except NotFoundError as e:
+        raise HTTPException(404, "Session not found") from e
     except HTTPException:
         raise
     except Exception as e:
@@ -367,6 +404,7 @@ async def update_session(
     "/{session_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a chat session",
+    responses=_error_responses(401, 404, 409, 422, 423, 500, 503),
 )
 async def delete_session(
     session_id: int,

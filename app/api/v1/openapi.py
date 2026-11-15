@@ -14,6 +14,7 @@ the previous revision of this file shipped; ``app/tests/unit/api/v1/test_openapi
 pins them out.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import FastAPI
@@ -107,6 +108,22 @@ def custom_openapi(app: FastAPI) -> dict[str, Any]:
 
     app.openapi_schema = openapi_schema
     return openapi_schema
+
+
+def make_error_responses(
+    descriptions: dict[int, str],
+) -> Callable[..., dict[int | str, dict[str, str]]]:
+    """Build a per-router ``responses=`` helper from a code-to-cause table.
+
+    Each router declares the error codes its handlers actually raise plus a
+    one-line cause, and picks the subset per endpoint — so the OpenAPI
+    storefront documents real paths instead of a generic 500.
+    """
+
+    def _responses(*codes: int) -> dict[int | str, dict[str, str]]:
+        return {code: {"description": descriptions[code]} for code in codes}
+
+    return _responses
 
 
 def setup_openapi(app: FastAPI) -> None:
