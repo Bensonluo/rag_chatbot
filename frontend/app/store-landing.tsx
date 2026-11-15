@@ -11,6 +11,7 @@
  * metadata and shells out to this. */
 
 import { Fragment, type ReactNode } from "react";
+import { ChatErrorBoundary } from "@/components/ChatErrorBoundary";
 import { ChatInterfaceUpdated } from "@/components/ChatInterfaceUpdated";
 import { LOCALE_BOOTSTRAP, useLanguage, type Locale } from "@/lib/i18n/context";
 import {
@@ -223,7 +224,9 @@ export function StoreLanding() {
               <div className={`${styles.status} ${styles.mono}`}>● online</div>
             </div>
             <div className={`${styles.livePad} dark`}>
-              <ChatInterfaceUpdated />
+              <ChatErrorBoundary>
+                <ChatInterfaceUpdated />
+              </ChatErrorBoundary>
             </div>
           </div>
           <Bi as="div" className={`${styles.demoCap} ${styles.mono}`}>

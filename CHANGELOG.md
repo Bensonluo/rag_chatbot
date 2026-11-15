@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The embedded live-chat panel is now wrapped in an error boundary: a
+  render-time crash inside the chat island degrades to a bilingual
+  fallback ("the rest of the page is unaffected") with a retry button,
+  instead of React unmounting the entire storefront — which is its
+  documented behavior for uncaught errors. Pinned by three jest tests
+  (containment, retry remount, locale-following fallback).
 - The docs-hygiene drift pins now cover the ZH quickstart too: the 环境要求
   line's backticked port map and Python floor must match docker-compose.yml
   and pyproject exactly, like the English Requirements block. The new pin
