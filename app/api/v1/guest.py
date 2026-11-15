@@ -109,11 +109,23 @@ _error_responses = make_error_responses(
 
 
 class GuestBootstrapRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [{}]})
 
 
 class GuestChatRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "message": "Where is my order? Timeline and current status.",
+                    "session_id": 317,
+                    "expected_session_key": "11111111-1111-4111-8111-111111111111",
+                    "include_citations": True,
+                }
+            ]
+        },
+    )
 
     message: str = Field(min_length=1, max_length=8000)
     session_id: int = Field(gt=0, le=2_147_483_647, strict=True)

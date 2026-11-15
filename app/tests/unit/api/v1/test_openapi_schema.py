@@ -134,3 +134,22 @@ def test_setup_openapi_is_idempotent_per_app() -> None:
     first = app.openapi()
     second = app.openapi()
     assert first is second  # cached on the app instance, not rebuilt per request
+
+
+def test_public_request_examples_are_valid_bodies() -> None:
+    """The storefront's four public request models ship hand-written
+    examples; Swagger UI shows them as pre-filled request bodies. An
+    example that fails its own model (the auto-generated ``session_id: 0``
+    style) is worse than none — each must validate cleanly."""
+    from app.api.v1.chat import ChatRequest
+    from app.api.v1.guest import GuestBootstrapRequest, GuestChatRequest
+    from app.models.schemas.feedback import FeedbackCreate
+
+    schema = _schema()
+    components = schema["components"]["schemas"]
+    for model in (ChatRequest, GuestBootstrapRequest, GuestChatRequest, FeedbackCreate):
+        name = model.__name__
+        examples = components[name].get("examples")
+        assert examples, f"{name} ships no request example"
+        for example in examples:
+            model.model_validate(example)

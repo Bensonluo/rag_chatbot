@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The storefront's four public request models (`ChatRequest`,
+  `GuestBootstrapRequest`, `GuestChatRequest`, `FeedbackCreate`) now ship
+  hand-written OpenAPI examples, so `/docs` pre-fills realistic request
+  bodies instead of auto-generated ones that fail the models' own
+  validation (e.g. `session_id: 0`). A schema contract test validates
+  every example against its model — examples can never silently rot.
 - The embedded live-chat panel is now wrapped in an error boundary: a
   render-time crash inside the chat island degrades to a bilingual
   fallback ("the rest of the page is unaffected") with a retry button,

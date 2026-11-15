@@ -1,12 +1,24 @@
 """Pydantic schemas for feedback API."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.schemas.session_key import SessionKey
 
 
 class FeedbackCreate(BaseModel):
     """Request body for submitting feedback."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "message_id": 51,
+                    "rating": 1,
+                    "text": "Cited the exact policy section — thanks!",
+                }
+            ]
+        }
+    )
 
     message_id: int = Field(..., description="ID of the assistant message to rate")
     rating: int = Field(..., ge=-1, le=1, description="Rating: 1=thumbs up, -1=thumbs down")

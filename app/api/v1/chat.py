@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.types import Send
 
@@ -400,6 +400,19 @@ def get_chat_service() -> ChatService:
 
 class ChatRequest(BaseModel):
     """Chat message request."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "message": "What is your return policy for sale items?",
+                    "session_id": 317,
+                    "expected_session_key": "11111111-1111-4111-8111-111111111111",
+                    "include_citations": True,
+                }
+            ]
+        }
+    )
 
     message: str = Field(..., min_length=1, description="User message")
     session_id: int = Field(..., gt=0, le=2_147_483_647, description="Session ID")
