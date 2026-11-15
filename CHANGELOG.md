@@ -115,6 +115,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contrast failures), and the `--primary` token now carries actual Indigo 600
   instead of the mislabeled Indigo 400 value (white-on-primary ≈ 6.3:1,
   fixing the CTA button).
+- The README hero screenshot is recaptured at a 960px-deep viewport so both
+  confirmation-gate pipeline rows (buy and support) render fully instead of
+  the support row being cut at the bottom edge, and a docs-hygiene pin now
+  fails the suite when any README local image reference points at a file
+  that does not exist — screenshots are binary assets, so a rename or a
+  missed `git add` would otherwise ship a broken image silently.
 
 ### Fixed
 

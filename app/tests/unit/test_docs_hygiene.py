@@ -82,6 +82,21 @@ def test_readme_python_floor_matches_pyproject() -> None:
     )
 
 
+def _readme_local_image_refs() -> set[str]:
+    """Local image paths README references, markdown and HTML ``<img>`` forms."""
+    text = README.read_text()
+    refs = re.findall(r"<img[^>]+src=\"([^\"]+)\"", text)
+    refs += re.findall(r"!\[[^\]]*\]\(([^)\s]+)\)", text)
+    return {r for r in refs if not r.startswith(("http://", "https://"))}
+
+
+def test_readme_local_images_exist() -> None:
+    refs = _readme_local_image_refs()
+    assert refs, "README references no local image — the hero/demo shots dropped?"
+    missing = [r for r in sorted(refs) if not (REPO_ROOT / r).is_file()]
+    assert not missing, f"README references images that do not exist: {missing}"
+
+
 def _zh_requirements_line() -> str:
     """The ZH quickstart condenses Requirements into one bolded line."""
     text = README.read_text()
