@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The demo's most-read response models (`ChatResponse`,
+  `FeedbackResponse`) now ship hand-written OpenAPI examples too, so
+  `/docs` shows a realistic commerce-agent reply — answer copy, intent,
+  a FAQ citation excerpt, message id — instead of a generated stub. A
+  sibling contract test validates response examples against their
+  models, mirroring the request-example pin.
 - CI now builds both Docker images the quick-start ships (`docker
   compose up` builds exactly these): a new `docker-images` job gates the
   API and frontend images on every push and PR via build-push-action

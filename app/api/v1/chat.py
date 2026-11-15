@@ -426,6 +426,36 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     """Chat message response."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "content": (
+                        "Order 1024 shipped yesterday via standard delivery "
+                        "and is due Thursday. Anything else you'd like me to "
+                        "check on it?"
+                    ),
+                    "session_id": 317,
+                    "session_key": "11111111-1111-4111-8111-111111111111",
+                    "intent": "QUESTION",
+                    "sources": ["commerce:order_timeline"],
+                    "citations": [
+                        {
+                            "source_type": "faq",
+                            "faq_id": "delivery-timeline",
+                            "title": "Delivery timeline",
+                            "excerpt": "Standard-delivery orders arrive 2-4 days after shipping.",
+                            "start_pos": 0,
+                            "end_pos": 58,
+                        }
+                    ],
+                    "message_id": 51,
+                    "status": "completed",
+                }
+            ]
+        }
+    )
+
     content: str
     session_id: int
     session_key: SessionKey | None = None

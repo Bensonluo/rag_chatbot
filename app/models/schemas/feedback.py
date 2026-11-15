@@ -29,6 +29,20 @@ class FeedbackCreate(BaseModel):
 class FeedbackResponse(BaseModel):
     """Response after submitting feedback."""
 
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "success": True,
+                    "message_id": 51,
+                    "rating": 1,
+                    "session_id": 317,
+                    "session_key": "11111111-1111-4111-8111-111111111111",
+                }
+            ]
+        }
+    )
+
     success: bool
     message_id: int
     rating: int

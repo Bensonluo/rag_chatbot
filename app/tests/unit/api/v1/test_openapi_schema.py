@@ -153,3 +153,21 @@ def test_public_request_examples_are_valid_bodies() -> None:
         assert examples, f"{name} ships no request example"
         for example in examples:
             model.model_validate(example)
+
+
+def test_public_response_examples_are_valid_bodies() -> None:
+    """The demo's most-read replies (chat answer, feedback ack) ship
+    hand-written response examples, so /docs readers see a realistic
+    commerce-agent reply instead of a bare generated stub. Each example
+    must validate against its own response model."""
+    from app.api.v1.chat import ChatResponse
+    from app.models.schemas.feedback import FeedbackResponse
+
+    schema = _schema()
+    components = schema["components"]["schemas"]
+    for model in (ChatResponse, FeedbackResponse):
+        name = model.__name__
+        examples = components[name].get("examples")
+        assert examples, f"{name} ships no response example"
+        for example in examples:
+            model.model_validate(example)
