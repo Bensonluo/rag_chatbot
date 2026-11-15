@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- CI now builds both Docker images the quick-start ships (`docker
+  compose up` builds exactly these): a new `docker-images` job gates the
+  API and frontend images on every push and PR via build-push-action
+  (`push: false`) with GitHub Actions layer caching — a broken
+  Dockerfile layer or an uninstallable lockfile fails the PR, not the
+  user's first `up`.
 - The storefront's four public request models (`ChatRequest`,
   `GuestBootstrapRequest`, `GuestChatRequest`, `FeedbackCreate`) now ship
   hand-written OpenAPI examples, so `/docs` pre-fills realistic request
