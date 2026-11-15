@@ -100,6 +100,34 @@ def test_every_api_operation_documents_error_codes() -> None:
     assert not undocumented, f"operations without documented errors: {sorted(undocumented)}"
 
 
+def test_documented_error_codes_declare_their_body_schema() -> None:
+    """Non-422 error docs carry the {"detail": str} body handlers return.
+
+    422 is excluded: FastAPI's body-validation failures return the
+    structured ValidationError array, not handler prose.
+    """
+    schema = _schema()
+    error_detail = schema["components"]["schemas"]["ErrorDetail"]
+    assert error_detail["properties"]["detail"]["type"] == "string"
+    for path, path_item in schema["paths"].items():
+        if not path.startswith("/api/v1/") or path.endswith("/health"):
+            continue
+        for method, operation in path_item.items():
+            if not isinstance(operation, dict):
+                continue
+            for code, response in operation.get("responses", {}).items():
+                if not code.isdigit() or int(code) < 400 or code == "422":
+                    continue
+                content = response.get("content", {})
+                assert "application/json" in content, (
+                    f"{method.upper()} {path} {code} documents no JSON body"
+                )
+                ref = content["application/json"]["schema"].get("$ref", "")
+                assert ref.endswith("ErrorDetail"), (
+                    f"{method.upper()} {path} {code} body is not ErrorDetail"
+                )
+
+
 def test_setup_openapi_is_idempotent_per_app() -> None:
     app = FastAPI(title="t", version="0")
     setup_openapi(app)

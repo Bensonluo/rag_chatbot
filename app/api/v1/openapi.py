@@ -19,6 +19,14 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.openapi.utils import get_openapi
+from pydantic import BaseModel
+
+
+class ErrorDetail(BaseModel):
+    """Body every handler-raised ``HTTPException`` actually returns."""
+
+    detail: str
+
 
 REPOSITORY_URL = "https://github.com/Bensonluo/rag_chatbot"
 STOREFRONT_URL = "https://benluo.art"
@@ -112,16 +120,26 @@ def custom_openapi(app: FastAPI) -> dict[str, Any]:
 
 def make_error_responses(
     descriptions: dict[int, str],
-) -> Callable[..., dict[int | str, dict[str, str]]]:
+) -> Callable[..., dict[int | str, dict[str, dict[str, Any]]]]:
     """Build a per-router ``responses=`` helper from a code-to-cause table.
 
     Each router declares the error codes its handlers actually raise plus a
     one-line cause, and picks the subset per endpoint — so the OpenAPI
-    storefront documents real paths instead of a generic 500.
+    storefront documents real paths instead of a generic 500. Every
+    handler-raised code carries the JSON body those handlers actually
+    return (``{"detail": "..."}`` from ``HTTPException``); 422 stays
+    description-only because FastAPI's body-validation failures return the
+    structured ``ValidationError`` array, not handler prose.
     """
 
-    def _responses(*codes: int) -> dict[int | str, dict[str, str]]:
-        return {code: {"description": descriptions[code]} for code in codes}
+    def _responses(*codes: int) -> dict[int | str, dict[str, Any]]:
+        entries: dict[int | str, dict[str, Any]] = {}
+        for code in codes:
+            entry: dict[str, Any] = {"description": descriptions[code]}
+            if code != 422:
+                entry["model"] = ErrorDetail
+            entries[code] = entry
+        return entries
 
     return _responses
 

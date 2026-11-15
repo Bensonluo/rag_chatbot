@@ -63,6 +63,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the identity) and re-reads history, so the client heals the stale session
   key in one tap — pinned by a guest-chat test driving the 409, the refresh,
   and the re-synced server state.
+- Every documented error response in the OpenAPI storefront now carries its
+  body schema: the shared `ErrorDetail` (`{"detail": string}`) model that
+  handler-raised `HTTPException`s actually return, wired through the same
+  `make_error_responses` factory — 422 stays description-only because
+  FastAPI's body-validation failures return the structured `ValidationError`
+  array, not handler prose. A schema contract test pins that every
+  documented non-422 error code declares a JSON body referencing
+  `ErrorDetail`.
 
 ## [0.4.2] - 2026-11-15
 
