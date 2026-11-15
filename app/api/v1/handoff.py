@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, st
 
 from app.api.deps import get_current_active_user, require_admin
 from app.api.deps.private_response import PrivateAPIRoute
+from app.api.v1.openapi import make_error_responses
 from app.core.exceptions import ConflictError
 from app.models.database.user import User
 from app.models.schemas.handoff import (
@@ -35,6 +36,17 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/handoff", tags=["handoff"], route_class=PrivateAPIRoute)
+_error_responses = make_error_responses(
+    {
+        401: "JWT missing, expired, or invalid",
+        403: "Administrator role required (staff surface)",
+        404: "Conversation or ticket not found for this caller",
+        409: "Conversation command conflicts with its current state",
+        422: "Invalid conversation request",
+        503: "Conversation coordination unavailable or operation could not be confirmed",
+    }
+)
+
 
 _handoff_service: HandoffService | None = None
 
@@ -79,6 +91,7 @@ def _human_error(exc: Exception) -> HTTPException:
     "/sessions/{session_id}/messages",
     response_model=HandoffConversationPage,
     summary="List a conversation's customer messages",
+    responses=_error_responses(401, 404, 409, 422, 503),
 )
 async def get_customer_messages(
     response: Response,
@@ -108,6 +121,7 @@ async def get_customer_messages(
     "/sessions/{session_id}/messages",
     response_model=HandoffMessageAcknowledgement,
     summary="Send a customer-side message",
+    responses=_error_responses(401, 404, 409, 422, 503),
 )
 async def send_customer_message(
     request: HandoffCustomerMessageRequest,
@@ -134,6 +148,7 @@ async def send_customer_message(
     "/tickets/{ticket_id}/messages",
     response_model=HandoffConversationPage,
     summary="List a ticket's staff messages",
+    responses=_error_responses(401, 403, 404, 409, 422, 503),
 )
 async def get_staff_messages(
     response: Response,
@@ -162,6 +177,7 @@ async def get_staff_messages(
     "/tickets/{ticket_id}/messages",
     response_model=HandoffMessageAcknowledgement,
     summary="Send a staff reply to a ticket",
+    responses=_error_responses(401, 403, 404, 409, 422, 503),
 )
 async def send_staff_message(
     request: HandoffStaffMessageRequest,
@@ -184,7 +200,11 @@ async def send_staff_message(
         raise _human_error(exc) from exc
 
 
-@router.get("/tickets", summary="List human-support tickets")
+@router.get(
+    "/tickets",
+    summary="List human-support tickets",
+    responses=_error_responses(401, 403, 422),
+)
 async def list_tickets(
     response: Response,
     ticket_status: str = Query("open", pattern="^(open|claimed|resolved)$", alias="status"),
@@ -199,7 +219,11 @@ async def list_tickets(
     return {"tickets": tickets, "count": len(tickets)}
 
 
-@router.get("/stats", summary="Ticket queue statistics")
+@router.get(
+    "/stats",
+    summary="Ticket queue statistics",
+    responses=_error_responses(401, 403, 422),
+)
 async def queue_stats(
     response: Response,
     _admin: User = Depends(require_admin),
@@ -219,6 +243,7 @@ async def queue_stats(
     "/tickets/{ticket_id}/history",
     response_model=HandoffHistoryResponse,
     summary="Get a ticket's full history",
+    responses=_error_responses(401, 403, 404, 409, 422, 503),
 )
 async def get_ticket_history(
     response: Response,
@@ -258,7 +283,11 @@ async def get_ticket_history(
     return history
 
 
-@router.post("/tickets/{ticket_id}/claim", summary="Claim a ticket for handling")
+@router.post(
+    "/tickets/{ticket_id}/claim",
+    summary="Claim a ticket for handling",
+    responses=_error_responses(401, 403, 404, 409, 422, 503),
+)
 async def claim_ticket(
     response: Response,
     ticket_id: int,
@@ -282,7 +311,11 @@ async def claim_ticket(
         ) from None
 
 
-@router.post("/tickets/{ticket_id}/resolve", summary="Resolve a ticket")
+@router.post(
+    "/tickets/{ticket_id}/resolve",
+    summary="Resolve a ticket",
+    responses=_error_responses(401, 403, 404, 409, 422, 503),
+)
 async def resolve_ticket(
     response: Response,
     ticket_id: int,

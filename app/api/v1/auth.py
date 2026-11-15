@@ -15,6 +15,7 @@ from app.api.deps import (
     get_current_active_user,
 )
 from app.api.deps.private_response import PrivateAPIRoute
+from app.api.v1.openapi import make_error_responses
 from app.core.exceptions import ConflictError, ValidationError
 from app.models.database.user import User
 from app.models.schemas.user import (
@@ -29,6 +30,14 @@ from app.services.auth_service import AuthenticationService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["authentication"], route_class=PrivateAPIRoute)
+_error_responses = make_error_responses(
+    {
+        401: "Invalid credentials or token",
+        409: "Email already registered",
+        422: "Invalid registration or login input",
+        500: "Account operation failed",
+    }
+)
 
 
 @router.post(
@@ -36,6 +45,7 @@ router = APIRouter(prefix="/auth", tags=["authentication"], route_class=PrivateA
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Register a new user",
+    responses=_error_responses(409, 422, 500),
 )
 async def register(
     user_data: UserCreate,
@@ -81,6 +91,7 @@ async def register(
     "/login",
     response_model=TokenResponse,
     summary="Login with email and password",
+    responses=_error_responses(401, 422),
 )
 async def login(
     user_credentials: UserLogin,
@@ -122,6 +133,7 @@ async def login(
     "/refresh",
     response_model=TokenResponse,
     summary="Refresh access token",
+    responses=_error_responses(401, 422),
 )
 async def refresh_token(
     token_data: RefreshTokenRequest,
@@ -152,6 +164,7 @@ async def refresh_token(
     "/me",
     response_model=UserResponse,
     summary="Get current user",
+    responses=_error_responses(401),
 )
 async def get_current_user_info(
     current_user: Annotated[User, Depends(get_current_active_user)],

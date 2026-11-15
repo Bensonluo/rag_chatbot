@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import require_admin
+from app.api.v1.openapi import make_error_responses
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.database.commerce_taxonomy import CommerceCoverageEvent, CommerceCoverageReview
 from app.models.database.user import User
@@ -25,6 +26,17 @@ from app.models.schemas.commerce_taxonomy import (
 from app.services.commerce.taxonomy import CommerceTaxonomyRegistry
 
 router = APIRouter(prefix="/commerce/admin", tags=["commerce-admin"])
+_error_responses = make_error_responses(
+    {
+        401: "JWT missing, expired, or invalid",
+        403: "Administrator role required",
+        404: "Taxonomy or review resource not found",
+        409: "Conflicting taxonomy or review state",
+        422: "Invalid taxonomy or coverage input",
+        500: "Commerce taxonomy operation failed",
+    }
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -93,6 +105,7 @@ def _review_response(review: CommerceCoverageReview) -> CoverageReviewResponse:
     "/taxonomy/versions",
     response_model=list[TaxonomyVersionResponse],
     summary="List taxonomy versions",
+    responses=_error_responses(401, 403, 500),
 )
 async def list_taxonomy_versions(
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001
@@ -108,6 +121,7 @@ async def list_taxonomy_versions(
     response_model=TaxonomyVersionResponse,
     status_code=201,
     summary="Create a taxonomy version",
+    responses=_error_responses(401, 403, 409, 422, 500),
 )
 async def create_taxonomy_version(
     request: TaxonomyVersionCreateRequest,
@@ -132,6 +146,7 @@ async def create_taxonomy_version(
     "/taxonomy/versions/{version_id}/activate",
     response_model=TaxonomyVersionResponse,
     summary="Activate a taxonomy version",
+    responses=_error_responses(401, 403, 404, 409, 500),
 )
 async def activate_taxonomy_version(
     version_id: str,
@@ -148,7 +163,10 @@ async def activate_taxonomy_version(
 
 
 @router.get(
-    "/taxonomy/export", response_model=RegistryTaxonomy, summary="Export the active taxonomy"
+    "/taxonomy/export",
+    response_model=RegistryTaxonomy,
+    summary="Export the active taxonomy",
+    responses=_error_responses(401, 403, 500),
 )
 async def export_active_taxonomy(
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001
@@ -160,7 +178,10 @@ async def export_active_taxonomy(
 
 
 @router.post(
-    "/taxonomy/external-mappings", status_code=201, summary="Create an external taxonomy mapping"
+    "/taxonomy/external-mappings",
+    status_code=201,
+    summary="Create an external taxonomy mapping",
+    responses=_error_responses(401, 403, 404, 409, 422, 500),
 )
 async def create_external_mapping(
     request: ExternalCategoryMappingRequest,
@@ -182,7 +203,10 @@ async def create_external_mapping(
 
 
 @router.get(
-    "/coverage/events", response_model=list[CoverageEventResponse], summary="List coverage events"
+    "/coverage/events",
+    response_model=list[CoverageEventResponse],
+    summary="List coverage events",
+    responses=_error_responses(401, 403, 422, 500),
 )
 async def list_coverage_events(
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001
@@ -199,6 +223,7 @@ async def list_coverage_events(
     response_model=CoverageReviewResponse,
     status_code=201,
     summary="Create a coverage review",
+    responses=_error_responses(401, 403, 422, 500),
 )
 async def create_coverage_review(
     request: CoverageReviewCreateRequest,
@@ -220,6 +245,7 @@ async def create_coverage_review(
     "/coverage/reviews",
     response_model=list[CoverageReviewResponse],
     summary="List coverage reviews",
+    responses=_error_responses(401, 403, 422, 500),
 )
 async def list_coverage_reviews(
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001
@@ -235,6 +261,7 @@ async def list_coverage_reviews(
     "/coverage/reviews/{review_id}/approve",
     response_model=CoverageReviewResponse,
     summary="Approve a coverage review",
+    responses=_error_responses(401, 403, 404, 409, 422, 500),
 )
 async def approve_coverage_review(
     review_id: int,
@@ -263,6 +290,7 @@ async def approve_coverage_review(
     "/coverage/reviews/{review_id}/reject",
     response_model=CoverageReviewResponse,
     summary="Reject a coverage review",
+    responses=_error_responses(401, 403, 404, 409, 422, 500),
 )
 async def reject_coverage_review(
     review_id: int,
@@ -287,7 +315,10 @@ async def reject_coverage_review(
 
 
 @router.get(
-    "/coverage/metrics", response_model=CoverageMetricsResponse, summary="Coverage metrics summary"
+    "/coverage/metrics",
+    response_model=CoverageMetricsResponse,
+    summary="Coverage metrics summary",
+    responses=_error_responses(401, 403, 500),
 )
 async def coverage_metrics(
     admin: Annotated[User, Depends(require_admin)],  # noqa: ARG001

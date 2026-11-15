@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_active_user, require_admin
 from app.api.deps.publication import get_publication_guard
+from app.api.v1.openapi import make_error_responses
 from app.config.settings import settings
 from app.models.database.user import User
 from app.services.retrieval.publication import PublicationGuard, PublicationUnavailableError
@@ -27,6 +28,16 @@ from app.services.retrieval.publication import PublicationGuard, PublicationUnav
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/graph", tags=["graph"])
+_error_responses = make_error_responses(
+    {
+        401: "JWT missing, expired, or invalid",
+        403: "Administrator role required",
+        422: "Invalid graph request",
+        500: "Graph operation failed",
+        503: "Graph store or published knowledge unavailable",
+    }
+)
+
 
 _graph_client = None
 
@@ -75,7 +86,11 @@ class StructuredImportRequest(BaseModel):
 # --- Endpoints ---
 
 
-@router.get("/health", summary="Check graph database connectivity")
+@router.get(
+    "/health",
+    summary="Check graph database connectivity",
+    responses=_error_responses(503),
+)
 async def graph_health() -> dict[str, str]:
     """Check graph database connectivity (anonymous: liveness probe)."""
     try:
@@ -89,7 +104,11 @@ async def graph_health() -> dict[str, str]:
         return {"status": "error"}
 
 
-@router.get("/stats", summary="Graph store statistics")
+@router.get(
+    "/stats",
+    summary="Graph store statistics",
+    responses=_error_responses(401, 500),
+)
 async def graph_stats(
     current_user: User = Depends(get_current_active_user),  # noqa: ARG001
 ) -> dict[str, Any]:
@@ -103,7 +122,11 @@ async def graph_stats(
         raise HTTPException(status_code=500, detail="Failed to load graph stats") from e
 
 
-@router.get("/schema", summary="Get the graph schema")
+@router.get(
+    "/schema",
+    summary="Get the graph schema",
+    responses=_error_responses(401, 500),
+)
 async def graph_schema(
     current_user: User = Depends(get_current_active_user),  # noqa: ARG001
 ) -> dict[str, Any]:
@@ -117,7 +140,12 @@ async def graph_schema(
         raise HTTPException(status_code=500, detail="Failed to load graph schema") from e
 
 
-@router.post("/query", response_model=GraphQueryResponse, summary="Answer a query from the graph")
+@router.post(
+    "/query",
+    response_model=GraphQueryResponse,
+    summary="Answer a query from the graph",
+    responses=_error_responses(401, 422, 500, 503),
+)
 async def graph_query(
     request: GraphQueryRequest,
     current_user: User = Depends(get_current_active_user),  # noqa: ARG001
@@ -158,7 +186,11 @@ async def graph_query(
         raise HTTPException(status_code=500, detail="Graph query failed") from e
 
 
-@router.post("/import/structured", summary="Import structured data into the graph")
+@router.post(
+    "/import/structured",
+    summary="Import structured data into the graph",
+    responses=_error_responses(401, 403, 422, 500),
+)
 async def import_structured(
     request: StructuredImportRequest,
     admin: User = Depends(require_admin),  # noqa: ARG001
@@ -217,7 +249,11 @@ async def import_structured(
         raise HTTPException(status_code=500, detail="Structured import failed") from e
 
 
-@router.post("/communities/detect", summary="Detect graph communities")
+@router.post(
+    "/communities/detect",
+    summary="Detect graph communities",
+    responses=_error_responses(401, 403, 422, 500),
+)
 async def detect_communities(
     min_size: int = Query(3, gt=0),
     max_levels: int = Query(5, gt=0),

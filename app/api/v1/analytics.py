@@ -14,10 +14,17 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_user
+from app.api.v1.openapi import make_error_responses
 from app.models.database.user import User
 from app.repositories.knowledge_gap_repository import KnowledgeGapRepository
 
 router = APIRouter(prefix="/analytics", tags=["analytics"])
+_error_responses = make_error_responses(
+    {
+        401: "JWT missing, expired, or invalid",
+        422: "Invalid knowledge-gap input",
+    }
+)
 
 
 async def _get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -41,7 +48,11 @@ class ResolveGapRequest(BaseModel):
         return stripped
 
 
-@router.get("/knowledge-gaps", summary="List recorded knowledge gaps")
+@router.get(
+    "/knowledge-gaps",
+    summary="List recorded knowledge gaps",
+    responses=_error_responses(401, 422),
+)
 async def get_knowledge_gaps(
     days: int = Query(default=7, ge=1, le=90, description="Lookback window in days"),
     limit: int = Query(default=20, ge=1, le=100, description="Max gap groups to return"),
@@ -57,7 +68,11 @@ async def get_knowledge_gaps(
     return {"days": days, "total": len(gaps), "gaps": gaps}
 
 
-@router.post("/knowledge-gaps/resolve", summary="Mark a knowledge gap resolved")
+@router.post(
+    "/knowledge-gaps/resolve",
+    summary="Mark a knowledge gap resolved",
+    responses=_error_responses(401, 422),
+)
 async def resolve_knowledge_gap(
     request: ResolveGapRequest,
     db: AsyncSession = Depends(_get_db),

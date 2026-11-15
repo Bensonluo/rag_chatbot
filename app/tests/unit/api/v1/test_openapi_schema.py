@@ -81,6 +81,25 @@ def test_operations_document_their_error_codes() -> None:
     assert "404" in update["responses"]  # missing session must not surface as 500-only
 
 
+def test_every_api_operation_documents_error_codes() -> None:
+    """No /api/v1 operation ships without at least one documented error code."""
+    undocumented = []
+    for path, path_item in _schema()["paths"].items():
+        if not path.startswith("/api/v1/") or path.endswith("/health"):
+            continue  # app-level routes and health checks answer 200 with detail
+        for method, operation in path_item.items():
+            if not isinstance(operation, dict):
+                continue
+            error_codes = {
+                code
+                for code in operation.get("responses", {})
+                if code.isdigit() and int(code) >= 400
+            }
+            if not error_codes:
+                undocumented.append(f"{method.upper()} {path}")
+    assert not undocumented, f"operations without documented errors: {sorted(undocumented)}"
+
+
 def test_setup_openapi_is_idempotent_per_app() -> None:
     app = FastAPI(title="t", version="0")
     setup_openapi(app)

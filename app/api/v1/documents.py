@@ -20,6 +20,7 @@ from app.api.deps import get_current_active_user
 from app.api.deps.authorization import require_kb_writer
 from app.api.deps.private_response import PrivateAPIRoute
 from app.api.deps.publication import get_publication_guard
+from app.api.v1.openapi import make_error_responses
 from app.config.settings import get_settings
 from app.core.exceptions import ConflictError, NotFoundError, ValidationError
 from app.models.database.document import Document, DocumentVersion
@@ -35,6 +36,20 @@ from app.services.retrieval.qdrant_client import QdrantClient
 from app.services.retrieval.vector_base import VectorSearchRequest
 
 router = APIRouter(prefix="/documents", tags=["documents"], route_class=PrivateAPIRoute)
+_error_responses = make_error_responses(
+    {
+        401: "JWT missing, expired, or invalid",
+        403: "Knowledge-base writer role required",
+        400: "Unsupported file type",
+        404: "Document or version not found",
+        409: "Conflicting document operation",
+        413: "Document exceeds the configured upload limit",
+        422: "Invalid document input or metadata",
+        500: "Document operation failed",
+        503: "Published knowledge temporarily unavailable",
+    }
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -235,6 +250,7 @@ def _api_error(exc: Exception) -> HTTPException:
     response_model=DocumentUploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Upload a text document for ingestion",
+    responses=_error_responses(401, 403, 413, 422, 500, 503),
 )
 async def upload_document_text(
     request: DocumentUploadRequest,
@@ -267,6 +283,7 @@ async def upload_document_text(
     response_model=DocumentUploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Upload a document file for ingestion",
+    responses=_error_responses(400, 401, 403, 413, 422, 500, 503),
 )
 async def upload_document_file(
     file: UploadFile = File(...),
@@ -318,7 +335,11 @@ async def upload_document_file(
         raise _api_error(exc) from exc
 
 
-@router.get("", summary="List knowledge documents")
+@router.get(
+    "",
+    summary="List knowledge documents",
+    responses=_error_responses(401, 403, 422),
+)
 async def list_documents(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=100),
@@ -333,6 +354,7 @@ async def list_documents(
     "/versions/{version_id}",
     response_model=DocumentUploadResponse,
     summary="Get a document version's status",
+    responses=_error_responses(401, 403, 404, 422, 500, 503),
 )
 async def get_version(
     version_id: str,
@@ -351,6 +373,7 @@ async def get_version(
     response_model=DocumentUploadResponse,
     status_code=202,
     summary="Retry a failed ingestion",
+    responses=_error_responses(401, 403, 404, 422, 500, 503),
 )
 async def retry_version(
     version_id: str,
@@ -364,7 +387,11 @@ async def retry_version(
         raise _api_error(exc) from exc
 
 
-@router.get("/versions/{version_id}/source", summary="Download a version's original source")
+@router.get(
+    "/versions/{version_id}/source",
+    summary="Download a version's original source",
+    responses=_error_responses(401, 403, 404, 422, 500, 503),
+)
 async def download_source(
     version_id: str,
     current_user: User = Depends(get_document_manager),
@@ -386,7 +413,11 @@ async def download_source(
         raise _api_error(exc) from exc
 
 
-@router.get("/versions/{version_id}/text", summary="Download a version's normalized text")
+@router.get(
+    "/versions/{version_id}/text",
+    summary="Download a version's normalized text",
+    responses=_error_responses(401, 403, 404, 422, 500, 503),
+)
 async def download_normalized_text(
     version_id: str,
     current_user: User = Depends(get_document_manager),
@@ -413,6 +444,7 @@ async def download_normalized_text(
     "/{document_id}/versions",
     response_model=list[DocumentUploadResponse],
     summary="List a document's versions",
+    responses=_error_responses(401, 403, 404, 422, 500, 503),
 )
 async def list_versions(
     document_id: str,
@@ -427,7 +459,10 @@ async def list_versions(
 
 
 @router.post(
-    "/search", response_model=SearchResponse, summary="Hybrid search over the knowledge base"
+    "/search",
+    response_model=SearchResponse,
+    summary="Hybrid search over the knowledge base",
+    responses=_error_responses(401, 422, 500, 503),
 )
 async def search_documents(
     request: SearchRequest,
@@ -465,7 +500,10 @@ async def search_documents(
 
 
 @router.delete(
-    "/{document_id}", response_model=DeleteResponse, summary="Delete a knowledge document"
+    "/{document_id}",
+    response_model=DeleteResponse,
+    summary="Delete a knowledge document",
+    responses=_error_responses(401, 403, 404, 422, 500, 503),
 )
 async def delete_document(
     document_id: str,

@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   missing session surfaced as 500 (service `NotFoundError` uncaught) — now
   404, pinned by an integration regression test, and the schema contract
   test now pins error sets on the chat/feedback/sessions operations too.
+- Error-response documentation completed across the whole API: documents
+  (10), handoff (9), commerce admin (11), graph (6), analytics (2), and
+  auth (4) declare their real raise paths the same way — upload limits
+  (413), file types (400), KB-writer/admin gates (403), taxonomy conflicts
+  (409), graph store outages (503). A completeness contract test now fails
+  the suite if any `/api/v1` operation (health probes aside) ships without
+  at least one documented error code.
 
 ## [0.4.2] - 2026-11-15
 
