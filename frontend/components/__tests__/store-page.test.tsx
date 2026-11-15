@@ -26,10 +26,10 @@ test('keeps the trust, service and hard-bounds sections', () => {
 });
 
 test('hard bounds carry the current measured baseline, not stale counts', () => {
-  expect(html).toContain('4,148');
+  expect(html).toContain('4,170');
   expect(html).toContain('93.71%');
+  expect(html).not.toContain('4,148');
   expect(html).not.toContain('4,146');
-  expect(html).not.toContain('4,099');
 });
 
 test('every engineering link points at the repository, never the portfolio', () => {
@@ -46,7 +46,16 @@ test('footer states the demo boundary and the repo as home', () => {
 
 test('the live chat panel is embedded with its dark scope', () => {
   expect(html).toContain('Agent Store · AI 店员');
-  expect(html).toContain('● online');
+});
+
+test('the status line follows the connection probe, never a hardcoded online', () => {
+  // Static render happens before any probe resolves, so the shipped HTML
+  // shows the honest "checking" state in both locales — a hardcoded
+  // "● online" badge that lies when the API is down must not return.
+  expect(html).toContain('● 连接中…');
+  expect(html).toContain('● checking…');
+  expect(html).not.toContain('● online');
+  expect(html).not.toContain('● 在线');
 });
 
 test('page content sits inside a main landmark for assistive tech', () => {
@@ -93,5 +102,5 @@ function shape(value: unknown): string {
 test('zh and en copy trees are structurally identical', () => {
   expect(shape(storeCopy.en)).toBe(shape(storeCopy.zh));
   expect(storeCopy.en.hero.sub).toBe('Shopping × support, one agent you can trust');
-  expect(storeCopy.en.bounds.items[0].v).toBe('4,148');
+  expect(storeCopy.en.bounds.items[0].v).toBe('4,170');
 });

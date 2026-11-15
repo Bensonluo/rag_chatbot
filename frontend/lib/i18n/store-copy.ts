@@ -11,6 +11,7 @@
  * (`{ t, b }` = text + bold); everything else is plain strings. */
 
 import type { Locale } from './context';
+import type { ChatApiStatus } from '../chat-display';
 
 export interface CopySegment {
   t: string;
@@ -44,6 +45,9 @@ export interface StoreCopy {
     p: string;
     chatHead: string;
     caption: string;
+    /** Live connection status — mirrors the island's health probe, never a
+     * hardcoded "online". */
+    status: Record<ChatApiStatus, string>;
   };
   trust: {
     h: string;
@@ -115,6 +119,7 @@ const zh: StoreCopy = {
     p: '游客身份即开即用。说一句「送女友一副降噪耳机，预算 400 内」，看它怎么把事情办完——每一步都停下来等你点头。',
     chatHead: 'Agent Store · AI 店员',
     caption: '真实界面 · 无脚本 — 触发后每个确认点都由你决定',
+    status: { checking: '连接中…', online: '在线', offline: '暂不可用' },
   },
   trust: {
     h: '为什么敢让它碰钱',
@@ -174,7 +179,7 @@ const zh: StoreCopy = {
   bounds: {
     h: '边界写在代码里，不写在文案里',
     items: [
-      { v: '4,148', k: 'tests · 93.71% coverage' },
+      { v: '4,170', k: 'tests · 93.71% coverage' },
       { v: '≤ 5', k: 'typed SKU / 每轮候选' },
       { v: '20 / 30', k: 'steps / LLM calls 上限' },
       { v: '300s', k: '报价有效期 TTL' },
@@ -242,6 +247,7 @@ const en: StoreCopy = {
     p: 'Guest access, ready on the first message. Say “noise-cancelling earbuds as a gift, under ¥400” and watch it get things done — pausing for your nod at every step.',
     chatHead: 'Agent Store · AI clerk',
     caption: 'Real interface · unscripted — every confirmation point is yours to decide',
+    status: { checking: 'checking…', online: 'online', offline: 'unavailable' },
   },
   trust: {
     h: 'Why it is safe to let it touch money',
@@ -303,7 +309,7 @@ const en: StoreCopy = {
   bounds: {
     h: 'The bounds live in code, not in copy',
     items: [
-      { v: '4,148', k: 'tests · 93.71% coverage' },
+      { v: '4,170', k: 'tests · 93.71% coverage' },
       { v: '≤ 5', k: 'typed SKUs / candidates per turn' },
       { v: '20 / 30', k: 'steps / LLM-call caps' },
       { v: '300s', k: 'quote validity TTL' },

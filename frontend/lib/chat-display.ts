@@ -10,6 +10,9 @@
 
 import type { TraceEvent } from "./api";
 
+/** The chat island's real connection state, from its health probe. */
+export type ChatApiStatus = "checking" | "online" | "offline";
+
 /** Machine channels that may appear in assistant replies. */
 const DATA_CHANNEL_TAGS = [
   "catalog_data",

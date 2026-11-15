@@ -10,9 +10,10 @@
  * 0.207 on non-zh first visits). The server-exported `page.tsx` keeps the
  * metadata and shells out to this. */
 
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { ChatErrorBoundary } from "@/components/ChatErrorBoundary";
 import { ChatInterfaceUpdated } from "@/components/ChatInterfaceUpdated";
+import { type ChatApiStatus } from "@/lib/chat-display";
 import { LOCALE_BOOTSTRAP, useLanguage, type Locale } from "@/lib/i18n/context";
 import {
   storeCopy,
@@ -63,6 +64,9 @@ function Bi({
 
 export function StoreLanding() {
   const { setLocale } = useLanguage();
+  // The chat island lifts its health-probe verdict here; the header badge
+  // renders the real state instead of a hardcoded "online".
+  const [chatStatus, setChatStatus] = useState<ChatApiStatus>("checking");
 
   return (
     <div className={styles.root}>
@@ -221,11 +225,13 @@ export function StoreLanding() {
                   </>
                 )}
               </Bi>
-              <div className={`${styles.status} ${styles.mono}`}>● online</div>
+              <Bi as="div" className={`${styles.status} ${styles.mono}`}>
+                {(copy) => `● ${copy.demo.status[chatStatus]}`}
+              </Bi>
             </div>
             <div className={`${styles.livePad} dark`}>
               <ChatErrorBoundary>
-                <ChatInterfaceUpdated />
+                <ChatInterfaceUpdated onApiStatusChange={setChatStatus} />
               </ChatErrorBoundary>
             </div>
           </div>

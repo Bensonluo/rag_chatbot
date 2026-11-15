@@ -4,6 +4,7 @@ import { ChatInterfaceUpdated } from "@/components/ChatInterfaceUpdated";
 import { LanguageProvider } from "@/lib/i18n/context";
 import { type SourceCitation, type TraceEvent } from "@/lib/api";
 import { GuestApi as ApiClient } from "@/lib/guest-api";
+import { type ChatApiStatus } from "@/lib/chat-display";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -594,4 +595,36 @@ test("an expired visitor ignores a late speech callback instead of restoring pri
   ).toBe("");
   expect(container.textContent).not.toContain("LATE PRIVATE SPEECH");
   expect(stream).toHaveBeenCalledTimes(1);
+});
+
+async function mountWithStatusLift(
+  onStatus: (status: ChatApiStatus) => void,
+) {
+  localStorage.setItem("portfolio-locale", "zh");
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <LanguageProvider>
+        <ChatInterfaceUpdated onApiStatusChange={onStatus} />
+      </LanguageProvider>,
+    );
+  });
+}
+
+test("a healthy probe settles the lifted status on online after checking", async () => {
+  const statuses: ChatApiStatus[] = [];
+  await mountWithStatusLift((status) => statuses.push(status));
+  // The mount-time "checking" is reported before the probe resolves, so a
+  // host header can render the honest transitional state, then "online".
+  expect(statuses[0]).toBe("checking");
+  expect(statuses[statuses.length - 1]).toBe("online");
+});
+
+test("a failing probe reports offline to the host page", async () => {
+  const statuses: ChatApiStatus[] = [];
+  jest
+    .mocked(ApiClient.healthCheck)
+    .mockRejectedValue(new Error("health unavailable"));
+  await mountWithStatusLift((status) => statuses.push(status));
+  expect(statuses[statuses.length - 1]).toBe("offline");
 });

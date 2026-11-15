@@ -37,6 +37,7 @@ import {
   stripDataChannels,
   turnStatusKeyFor,
   turnStatusPhrase,
+  type ChatApiStatus,
   type TurnStatusKey,
 } from "@/lib/chat-display";
 import { SourceCitations } from "./SourceCitations";
@@ -278,8 +279,12 @@ function isFeedbackEligible(
 
 export function ChatInterfaceUpdated({
   showExecutionChain = false,
+  onApiStatusChange,
 }: {
   showExecutionChain?: boolean;
+  /** Reports the live health-probe result upward — the landing header's
+   * status line renders the real state instead of a hardcoded "online". */
+  onApiStatusChange?: (status: ChatApiStatus) => void;
 }) {
   const { locale } = useLanguage();
   const isEn = locale === "en";
@@ -298,9 +303,12 @@ export function ChatInterfaceUpdated({
   // Live agent status derived from trace events; null hides the line.
   // Visible step status keeps a 30s tool-calling turn from feeling frozen.
   const [turnStatusKey, setTurnStatusKey] = useState<TurnStatusKey | null>(null);
-  const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline">(
-    "checking",
-  );
+  const [apiStatus, setApiStatus] = useState<ChatApiStatus>("checking");
+  // Lift the probe verdict to the host page (the landing header's status
+  // line) — it renders the real state instead of a hardcoded "online".
+  useEffect(() => {
+    onApiStatusChange?.(apiStatus);
+  }, [apiStatus, onApiStatusChange]);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceDraftNotice, setVoiceDraftNotice] = useState(false);
   const [guest, setGuest] = useState<GuestIdentity | null>(null);

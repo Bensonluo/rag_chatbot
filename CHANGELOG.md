@@ -130,6 +130,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The storefront's chat status badge was hardcoded `● online` — it claimed
+  the API was up even while it was down, in English, on a bilingual page.
+  The chat island already probed real health every 30s (`apiStatus`
+  checking/online/offline); that verdict is now lifted to the landing
+  header via an `onApiStatusChange` callback and rendered bilingually
+  through the locale trees. Static HTML honestly ships `● 连接中…` /
+  `● checking…`; pinned by a static-render honesty test and two runtime
+  lift tests (healthy→online, failing→offline). The hard-bounds baseline
+  row was refreshed to the measured suite (4,170 tests · 93.71%) in the
+  same honesty pass.
 - The frontend Docker image no longer crashes `next build` when built
   without build args: `ARG NEXT_PUBLIC_SITE_URL=""` set the variable to
   an empty string, which Next.js treats as a value (so the code's `??`
