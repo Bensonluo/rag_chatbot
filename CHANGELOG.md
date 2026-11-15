@@ -71,6 +71,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   array, not handler prose. A schema contract test pins that every
   documented non-422 error code declares a JSON body referencing
   `ErrorDetail`.
+- Landing-page accessibility round driven by a Lighthouse audit of the live
+  store (a11y 0.94): the page now has a `<main>` landmark (pinned by the
+  store-page contract test), the muted-text token `--ink-faint` darkens one
+  notch to slate-600 (7:1 on the light panels; it drove all 13 flagged
+  contrast failures), and the `--primary` token now carries actual Indigo 600
+  instead of the mislabeled Indigo 400 value (white-on-primary ≈ 6.3:1,
+  fixing the CTA button).
 
 ## [0.4.2] - 2026-11-15
 

@@ -66,6 +66,7 @@ export function StoreLanding() {
         </div>
       </nav>
 
+      <main>
       <header className={styles.hero}>
         <div className={styles.gridMotif} aria-hidden>
           {MOTIF_CELLS.map((cell) => (
@@ -237,6 +238,7 @@ export function StoreLanding() {
           </div>
         </div>
       </section>
+      </main>
 
       <footer className={styles.footEl}>
         <div className={styles.wrap}>

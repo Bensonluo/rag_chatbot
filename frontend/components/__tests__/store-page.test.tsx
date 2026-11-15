@@ -48,6 +48,10 @@ test('the live chat panel is embedded with its dark scope', () => {
   expect(html).toContain('● online');
 });
 
+test('page content sits inside a main landmark for assistive tech', () => {
+  expect(html).toContain('<main');
+});
+
 test('a language toggle is rendered in the nav', () => {
   expect(html).toContain('<button');
   expect(html).toContain('EN');
