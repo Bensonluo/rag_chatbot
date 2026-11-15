@@ -121,6 +121,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fails the suite when any README local image reference points at a file
   that does not exist — screenshots are binary assets, so a rename or a
   missed `git add` would otherwise ship a broken image silently.
+- The README's MCP example client (`examples/mcp_shopping_client.py`) is now
+  rot-pinned: a test launches the real MCP server as a subprocess on an
+  ephemeral port and drives the example's own `run()` through the complete
+  purchase journey over the wire (search → cart → quote → order →
+  idempotent replay → sandbox payment). An SDK rename, schema change, or
+  moved flag now fails the suite instead of shipping a broken demo.
 
 ### Fixed
 
