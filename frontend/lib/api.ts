@@ -51,7 +51,11 @@ export type ChatStreamErrorKind =
 
 // Only fixed diagnostics cross the transport/UI boundary; never response bodies.
 export class ChatStreamError extends Error {
-  constructor(readonly kind: ChatStreamErrorKind, readonly status?: number) {
+  constructor(
+    readonly kind: ChatStreamErrorKind,
+    readonly status?: number,
+    readonly retryAfterSeconds?: number
+  ) {
     const messages: Record<ChatStreamErrorKind, string> = {
       http: `Chat request failed (HTTP ${status ?? 'unknown'}).`,
       network: 'Unable to connect to the chat service.',
@@ -63,6 +67,13 @@ export class ChatStreamError extends Error {
     super(messages[kind]);
     this.name = 'ChatStreamError';
   }
+}
+
+// The 429 budget response carries the window as a fixed header diagnostic;
+// surface the concrete wait instead of vague advice when the server states it.
+export function retryAfterFrom(response: Response): number | undefined {
+  const seconds = Number(response.headers.get('Retry-After'));
+  return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : undefined;
 }
 
 function parseTraceEvent(value: unknown): TraceEvent | null {
@@ -244,7 +255,7 @@ export class ApiClient {
     }
     if (!response.ok) {
       try { await response.body?.cancel(); } catch { /* preserve the HTTP status */ }
-      throw new ChatStreamError('http', response.status);
+      throw new ChatStreamError('http', response.status, retryAfterFrom(response));
     }
     if (response.status === 204 && options.method === 'DELETE') return undefined as T;
     try {
@@ -325,7 +336,7 @@ export class ApiClient {
       try { await response.body?.cancel(); } catch { /* preserve the request failure */ }
       throw response.ok
         ? new ChatStreamError('invalid_response')
-        : new ChatStreamError('http', response.status);
+        : new ChatStreamError('http', response.status, retryAfterFrom(response));
     }
     const reader = response.body?.getReader();
     if (!reader) throw new ChatStreamError('invalid_response');

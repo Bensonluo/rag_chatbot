@@ -1,4 +1,4 @@
-import { API_ENDPOINTS, ApiClient, ChatStreamError, parseSourceCitations, type ChatCompletion, type ChatHistoryResponse, type ChatMessage, type SourceCitation, type TraceEvent } from './api';
+import { API_ENDPOINTS, ApiClient, ChatStreamError, parseSourceCitations, retryAfterFrom, type ChatCompletion, type ChatHistoryResponse, type ChatMessage, type SourceCitation, type TraceEvent } from './api';
 
 export const GUEST_EXPIRED = 'rag-guest-expired';
 const BASE = `${API_ENDPOINTS.CHAT.slice(0, -'/chat'.length)}/guest`;
@@ -32,7 +32,7 @@ export class GuestApi {
     try { response = await fetch(`${BASE}${path}`, { ...init, credentials: 'include', cache: 'no-store', signal, headers: HEADERS }); }
     catch { throw new ChatStreamError(signal?.aborted ? 'aborted' : 'network'); }
     if (signal?.aborted) { void response.body?.cancel().catch(() => {}); throw new ChatStreamError('aborted'); }
-    if (!response.ok) { void response.body?.cancel().catch(() => {}); if (response.status === 401 && scope) expired(scope); throw new ChatStreamError('http', response.status); }
+    if (!response.ok) { void response.body?.cancel().catch(() => {}); if (response.status === 401 && scope) expired(scope); throw new ChatStreamError('http', response.status, retryAfterFrom(response)); }
     if (response.status === 204) return null;
     try { const result: unknown = await response.json(); if (signal?.aborted) throw new ChatStreamError('aborted'); return result; }
     catch (error) { if (error instanceof ChatStreamError) throw error; return invalid(); }

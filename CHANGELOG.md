@@ -40,6 +40,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   over), and 503 (service unavailable) to their own bilingual copy instead
   of a generic "could not finish" message, with a guest-chat test pinning
   the handoff-lock and outage wording.
+- A rate-limited chat turn now names the server-stated wait: the transport
+  reads the `Retry-After` header the chat budget limiter already sends and
+  the failure copy shows "try again in Ns" (bilingual) instead of vague
+  advice — pinned by a guest-chat test with a controlled 429 response.
 
 ## [0.4.2] - 2026-11-15
 

@@ -189,6 +189,16 @@ test('handoff lock and provider outage explain themselves instead of a generic f
   expect(container.textContent).toContain('The service is temporarily unavailable.');
 });
 
+test('a chat budget rejection names the server-stated wait instead of vague advice', async () => {
+  historyRows = [];
+  override = url => url.pathname.endsWith('/chat/stream')
+    ? ({ ok: false, status: 429, headers: { get: (name: string) => (name === 'Retry-After' ? '42' : 'application/json') } } as unknown as Response)
+    : undefined;
+  await mount(); await send('再来一单');
+  expect(container.textContent).toContain('try again in 42s');
+  expect(container.textContent).not.toContain('Wait before sending another request');
+});
+
 test('a reply without a server completion stays unconfirmed instead of claiming receipt', async () => {
   historyRows = [];
   override = url => url.pathname.endsWith('/chat/stream') ? streamText('模拟订单已创建：mock-order-two · 待付款 · ¥205.00') : undefined;
