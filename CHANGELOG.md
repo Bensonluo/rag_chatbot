@@ -44,6 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads the `Retry-After` header the chat budget limiter already sends and
   the failure copy shows "try again in Ns" (bilingual) instead of vague
   advice — pinned by a guest-chat test with a controlled 429 response.
+- README Quick Start opens with a Requirements block derived from the actual
+  stack: Compose v2 + loopback-only port map (API `8000–8003`, Postgres 5432,
+  Redis 6379, Qdrant 6333/6334, Neo4j 7474/7687, monitoring adds 9090/3001),
+  one-LLM-key minimum (GLM default), the two embedding paths (GLM-key API
+  embeddings vs. keyless local BGE-M3 needing the 6 GB+ torch extra), and the
+  `cp .env.example` footgun warning — mirrored condensed in the Chinese
+  quickstart.
 
 ## [0.4.2] - 2026-11-15
 
