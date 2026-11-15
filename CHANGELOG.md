@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The commerce MCP server's agent-facing surface is now English-first
+  bilingual: all 8 tool descriptions, the server instructions, the 4
+  elicitation confirmations, and the module-authored user-facing errors
+  lead with English and keep the Chinese mirror (the internal GLM agent
+  reads both). Shared parameter aliases (`owner_user_id`, id, query) now
+  carry schema descriptions too. A handshake-level test pins every tool
+  description as EN-lead + zh-mirror so the surface cannot drift back to
+  zh-only.
 - The demo's most-read response models (`ChatResponse`,
   `FeedbackResponse`) now ship hand-written OpenAPI examples too, so
   `/docs` shows a realistic commerce-agent reply — answer copy, intent,

@@ -77,6 +77,25 @@ async def test_handshake_lists_the_documented_tool_surface(mcp) -> None:
     assert tools == EXPECTED_TOOLS
 
 
+async def test_tool_descriptions_are_english_first_bilingual(mcp) -> None:
+    """Tool descriptions are the prompts agent clients read to pick tools,
+    and the storefront's audience is global: every description leads with
+    English and keeps a Chinese mirror line (the internal GLM agent reads
+    both). Pinned so the surface cannot silently drift back to zh-only."""
+    async with Client(mcp) as client:
+        result = await client.list_tools()
+    assert result.tools, "server exposes no tools"
+    for tool in result.tools:
+        assert tool.description, f"{tool.name} ships no description"
+        lead = tool.description[0]
+        assert lead.isascii() and lead.isalpha(), (
+            f"{tool.name} description must lead with an English word"
+        )
+        assert any("一" <= ch <= "鿿" for ch in tool.description), (
+            f"{tool.name} description must keep a Chinese mirror line"
+        )
+
+
 async def test_every_tool_carries_safety_annotations(mcp) -> None:
     """Read tools declare readOnly; writes declare replay-safety (and
     update_cart its whole-replace semantics) so agent clients can gate

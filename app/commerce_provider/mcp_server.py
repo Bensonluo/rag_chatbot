@@ -87,9 +87,18 @@ MAX_REQUEST_KEY_LENGTH = 128
 # Annotated argument aliases. They must stay module-level: the SDK evaluates
 # string annotations (``from __future__ import annotations``) against module
 # globals, so function-local aliases would fail signature evaluation.
-OwnerParam = Annotated[int, Field(ge=1)]
-IdParam = Annotated[str, Field(min_length=1, max_length=64)]
-QueryParam = Annotated[str, Field(max_length=500)]
+OwnerParam = Annotated[
+    int, Field(ge=1, description="Owning user id — every fact is scoped to this actor")
+]
+IdParam = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=64,
+        description="Domain id of the target object (cart, quote, order, payment, SKU)",
+    ),
+]
+QueryParam = Annotated[str, Field(max_length=500, description="Open-language search text")]
 
 
 class CommerceMcpSettings(BaseSettings):
@@ -185,13 +194,18 @@ def _accepted(confirmation: ElicitationResult[WriteConfirmation]) -> bool:
 
 def _refuse(confirmation: ElicitationResult[WriteConfirmation]) -> ToolError:
     action = confirmation.action
-    return ToolError(f"user_declined: 用户拒绝了该写操作（{action}），未执行任何变更")
+    return ToolError(
+        f"user_declined: the user declined this write ({action}); nothing was "
+        f"changed. 用户拒绝了该写操作（{action}），未执行任何变更"
+    )
 
 
 def _provider_error(exc: ProviderError) -> ToolError:
     if isinstance(exc, ProviderUnknownError):
         return ToolError(
-            f"[{exc.code}] 操作结果未确认：请用完全相同的参数重试同一工具，"
+            f"[{exc.code}] Outcome unconfirmed: retry the same tool with "
+            "identical arguments — the idempotency key replays the original "
+            "result, nothing is charged twice. 操作结果未确认：请用完全相同的参数重试同一工具，"
             "幂等键会回放原结果，不会重复扣款"
         )
     return ToolError(f"[{exc.code}] {exc.message}")
@@ -282,9 +296,14 @@ def create_mcp_server(
         "commerce-provider",
         title="Internal Virtual Commerce Provider (MCP)",
         instructions=(
-            "内部虚拟电商服务：只读工具直接调用；写工具（update_cart / prepare_quote / "
-            "create_order / sandbox_pay）会先向用户请求确认，拒绝即中止。所有写操作幂等，"
-            "结果未确认时用相同参数重试即可回放原结果。"
+            "Internal virtual commerce provider. Read tools answer directly; "
+            "write tools (update_cart / prepare_quote / create_order / "
+            "sandbox_pay) ask the user for confirmation first, and declining "
+            "aborts with no changes. Every write is idempotent: when a result "
+            "is unconfirmed, retrying with identical arguments replays the "
+            "original outcome. "
+            "内部虚拟电商服务：只读工具直接调用；写工具会先请求用户确认，拒绝即中止；"
+            "所有写操作幂等，结果未确认时用相同参数重试即可回放原结果。"
         ),
         lifespan=lifespan,
         token_verifier=verifier,
@@ -309,11 +328,19 @@ def create_mcp_server(
         ids = {item.strip() for item in raw}
         ids.discard("")
         if not ids:
-            raise ToolError("[invalid_request] category_ids 参数无效")
+            raise ToolError(
+                "[invalid_request] category_ids is empty after trimming. category_ids 参数无效"
+            )
         if len(ids) > MAX_CATEGORY_FILTER_IDS:
-            raise ToolError("[invalid_request] category_ids 数量超出上限")
+            raise ToolError(
+                f"[invalid_request] category_ids exceeds the {MAX_CATEGORY_FILTER_IDS}-id limit. "
+                "category_ids 数量超出上限"
+            )
         if any(len(item) > MAX_CATEGORY_ID_LENGTH for item in ids):
-            raise ToolError("[invalid_request] category_ids 内容无效")
+            raise ToolError(
+                f"[invalid_request] category_ids entries exceed {MAX_CATEGORY_ID_LENGTH} chars. "
+                "category_ids 内容无效"
+            )
         return ids
 
     # --- read tools -----------------------------------------------------------
@@ -331,7 +358,8 @@ def create_mcp_server(
         sort: CommerceSort = "relevance",
         filters: CatalogFilters | None = None,
     ) -> CatalogPage:
-        """按开放语言搜索商品目录，返回一页商品（最多 5 条）。"""
+        """Search the product catalog by open-language query; returns one page (max 5 items).
+        按开放语言搜索商品目录，返回一页商品（最多 5 条）。"""
         try:
             return await _core_from(ctx).search_products(
                 owner_user_id,
@@ -349,7 +377,8 @@ def create_mcp_server(
         annotations=ToolAnnotations(readOnlyHint=True),
     )
     async def get_product(sku_id: IdParam, owner_user_id: OwnerParam, ctx: Context) -> CatalogItem:
-        """读取单个 SKU 的权威商品事实（价格、属性、库存）。"""
+        """Read one SKU's authoritative facts (price, attributes, stock).
+        读取单个 SKU 的权威商品事实（价格、属性、库存）。"""
         try:
             return await _core_from(ctx).get_product(owner_user_id, sku_id)
         except ProviderError as exc:
@@ -364,7 +393,9 @@ def create_mcp_server(
         ctx: Context,
         category_ids: list[str] | None = None,
     ) -> CatalogTaxonomy:
-        """读取权威类目体系（id/名称/属性与可选值），可按 id 过滤。"""
+        """Read the authoritative category taxonomy (ids, names, attributes and
+        their allowed values), optionally filtered by id.
+        读取权威类目体系（id/名称/属性与可选值），可按 id 过滤。"""
         try:
             return await _core_from(ctx).catalog_categories(
                 owner_user_id, category_ids=_category_ids(category_ids)
@@ -381,7 +412,9 @@ def create_mcp_server(
         owner_user_id: OwnerParam,
         ctx: Context,
     ) -> CatalogDiscovery:
-        """一次调用完成开场定位：完整权威类目 + 该查询的前 3 条商品。"""
+        """One-call orientation: the full authoritative category set plus the
+        top 3 products for this query.
+        一次调用完成开场定位：完整权威类目 + 该查询的前 3 条商品。"""
         core_ = _core_from(ctx)
         try:
             categories = await core_.catalog_categories(owner_user_id)
@@ -407,10 +440,13 @@ def create_mcp_server(
         cart_id: IdParam | None = None,
         expected_cart_version: Annotated[int, Field(ge=1)] | None = None,
         confirmation: Annotated[
-            ElicitationResult[WriteConfirmation], Resolve(_ask("确认提交购物车变更？"))
+            ElicitationResult[WriteConfirmation],
+            Resolve(_ask("Confirm this cart change? 确认提交购物车变更？")),
         ] = None,  # type: ignore[assignment]
     ) -> CartSnapshot:
-        """整体替换购物车明细（写操作，需用户确认；同参数重试幂等回放）。"""
+        """Replace the whole cart line set (write: asks the user to confirm;
+        identical retries replay the original result).
+        整体替换购物车明细（写操作，需用户确认；同参数重试幂等回放）。"""
         if not _accepted(confirmation):
             raise _refuse(confirmation)
         try:
@@ -434,10 +470,17 @@ def create_mcp_server(
         expected_cart_version: Annotated[int, Field(ge=1)],
         ctx: Context,
         confirmation: Annotated[
-            ElicitationResult[WriteConfirmation], Resolve(_ask("确认结算当前购物车并生成报价？"))
+            ElicitationResult[WriteConfirmation],
+            Resolve(
+                _ask(
+                    "Confirm checking out this cart and preparing a quote? 确认结算当前购物车并生成报价？"
+                )
+            ),
         ] = None,  # type: ignore[assignment]
     ) -> QuoteSnapshot:
-        """对购物车当前版本生成报价（写操作，需用户确认；报价有有效期）。"""
+        """Quote the cart's current version (write: asks the user to confirm;
+        quotes have an expiry).
+        对购物车当前版本生成报价（写操作，需用户确认；报价有有效期）。"""
         if not _accepted(confirmation):
             raise _refuse(confirmation)
         try:
@@ -461,10 +504,13 @@ def create_mcp_server(
         quote_id: IdParam,
         ctx: Context,
         confirmation: Annotated[
-            ElicitationResult[WriteConfirmation], Resolve(_ask("确认依据该报价创建订单？"))
+            ElicitationResult[WriteConfirmation],
+            Resolve(_ask("Confirm creating an order from this quote? 确认依据该报价创建订单？")),
         ] = None,  # type: ignore[assignment]
     ) -> OrderSnapshot:
-        """将报价落为订单（写操作，需用户确认；同报价重试幂等回放）。"""
+        """Turn a quote into an order (write: asks the user to confirm;
+        same-quote retries replay).
+        将报价落为订单（写操作，需用户确认；同报价重试幂等回放）。"""
         if not _accepted(confirmation):
             raise _refuse(confirmation)
         try:
@@ -484,18 +530,25 @@ def create_mcp_server(
         payment_id: IdParam | None = None,
         order_id: IdParam | None = None,
         confirmation: Annotated[
-            ElicitationResult[WriteConfirmation], Resolve(_ask("确认在沙箱中支付该订单？"))
+            ElicitationResult[WriteConfirmation],
+            Resolve(_ask("Confirm sandbox-paying this order? 确认在沙箱中支付该订单？")),
         ] = None,  # type: ignore[assignment]
     ) -> PaymentSnapshot:
-        """沙箱支付（写操作，需用户确认）。
+        """Sandbox-pay an order (write: asks the user to confirm).
 
-        传 ``payment_id`` 支付既有支付单；传 ``order_id`` 时先为订单开支付单
-        再支付（两步各自幂等）。两个参数必须恰好提供一个。
+        Pass ``payment_id`` to pay an existing payment, or ``order_id`` to open
+        one for the order first and then pay it (each step idempotent).
+        Provide exactly one of the two.
+        沙箱支付（写操作，需用户确认）。传 ``payment_id`` 支付既有支付单；传
+        ``order_id`` 时先为订单开支付单再支付（两步各自幂等）。两个参数必须恰好提供一个。
         """
         if not _accepted(confirmation):
             raise _refuse(confirmation)
         if (payment_id is None) == (order_id is None):
-            raise ToolError("[invalid_request] payment_id 与 order_id 必须恰好提供一个")
+            raise ToolError(
+                "[invalid_request] provide exactly one of payment_id or order_id. "
+                "payment_id 与 order_id 必须恰好提供一个"
+            )
         core_ = _core_from(ctx)
         try:
             target = payment_id
