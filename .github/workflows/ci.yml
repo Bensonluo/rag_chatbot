@@ -240,7 +240,9 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-      - name: Unit tests (141-test chat battery)
+      # Step names describe what runs, never how many — counts in prose
+      # rot silently (this said "141-test" while the suite was 158).
+      - name: Unit tests (frontend jest suite)
         working-directory: frontend
         run: npm test -- --ci
 
