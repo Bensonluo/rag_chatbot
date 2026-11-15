@@ -56,6 +56,9 @@ test('the status line follows the connection probe, never a hardcoded online', (
   expect(html).toContain('● checking…');
   expect(html).not.toContain('● online');
   expect(html).not.toContain('● 在线');
+  // W3C ARIA22: the badge is a polite live region so screen readers hear
+  // the probe verdict change without needing focus on it.
+  expect(html).toMatch(/<div[^>]*role="status">●/);
 });
 
 test('page content sits inside a main landmark for assistive tech', () => {

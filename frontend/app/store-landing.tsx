@@ -44,18 +44,22 @@ function Segments({ parts }: { parts: CopySegment[] }) {
 function Bi({
   as: Tag = "span",
   className,
+  role,
   children,
 }: {
   as?: "span" | "div" | "h2" | "p";
   className?: string;
+  /** Passed to BOTH locale trees — the CSS-hidden one is excluded from the
+   * accessibility tree, so `role="status"` live regions fire once. */
+  role?: "status" | "alert";
   children: (copy: StoreCopy, locale: Locale) => ReactNode;
 }) {
   return (
     <>
-      <Tag data-locale="zh" lang="zh-CN" className={className}>
+      <Tag data-locale="zh" lang="zh-CN" className={className} role={role}>
         {children(storeCopy.zh, "zh")}
       </Tag>
-      <Tag data-locale="en" lang="en" className={className}>
+      <Tag data-locale="en" lang="en" className={className} role={role}>
         {children(storeCopy.en, "en")}
       </Tag>
     </>
@@ -225,7 +229,13 @@ export function StoreLanding() {
                   </>
                 )}
               </Bi>
-              <Bi as="div" className={`${styles.status} ${styles.mono}`}>
+              {/* role=status (implicit aria-live=polite, W3C ARIA22) so
+               * screen readers hear the probe verdict change. */}
+              <Bi
+                as="div"
+                role="status"
+                className={`${styles.status} ${styles.mono}`}
+              >
                 {(copy) => `● ${copy.demo.status[chatStatus]}`}
               </Bi>
             </div>

@@ -137,7 +137,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   header via an `onApiStatusChange` callback and rendered bilingually
   through the locale trees. Static HTML honestly ships `● 连接中…` /
   `● checking…`; pinned by a static-render honesty test and two runtime
-  lift tests (healthy→online, failing→offline). The hard-bounds baseline
+  lift tests (healthy→online, failing→offline). The badge is also a
+  `role="status"` live region (W3C ARIA22), so screen readers hear the
+  verdict change without focus on it. The hard-bounds baseline
   row was refreshed to the measured suite (4,170 tests · 93.71%) in the
   same honesty pass.
 - The frontend Docker image no longer crashes `next build` when built
