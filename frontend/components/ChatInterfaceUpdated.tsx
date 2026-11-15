@@ -1118,24 +1118,38 @@ export function ChatInterfaceUpdated({
                     )}
                     {message.role === "assistant" &&
                       message.status === "failed" && (
-                        <p
-                          role="alert"
-                          className="mt-2 text-xs text-red-600 dark:text-red-400"
-                        >
-                          {message.failure === "rate_limit" &&
-                          message.retryAfter ? (
-                            isEn
-                              ? `Too many requests — try again in ${message.retryAfter}s.`
-                              : `请求过于频繁，请 ${message.retryAfter} 秒后再试。`
-                          ) : (
-                            FAILURE_TEXT[isEn ? "en" : "zh"][
-                              message.failure ?? "unknown"
-                            ]
-                          )}{" "}
-                          {isEn
-                            ? "Business processing status is unconfirmed. No automatic retry was made. Verify the status before resubmitting."
-                            : "业务处理状态尚未确认，本次未自动重试。请先核实处理状态，再决定是否重新提交。"}
-                        </p>
+                        <div>
+                          <p
+                            role="alert"
+                            className="mt-2 text-xs text-red-600 dark:text-red-400"
+                          >
+                            {message.failure === "rate_limit" &&
+                            message.retryAfter ? (
+                              isEn
+                                ? `Too many requests — try again in ${message.retryAfter}s.`
+                                : `请求过于频繁，请 ${message.retryAfter} 秒后再试。`
+                            ) : (
+                              FAILURE_TEXT[isEn ? "en" : "zh"][
+                                message.failure ?? "unknown"
+                              ]
+                            )}{" "}
+                            {isEn
+                              ? "Business processing status is unconfirmed. No automatic retry was made. Verify the status before resubmitting."
+                              : "业务处理状态尚未确认，本次未自动重试。请先核实处理状态，再决定是否重新提交。"}
+                          </p>
+                          {message.failure === "conflict" && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="mt-1"
+                              onClick={restartGuest}
+                            >
+                              {isEn
+                                ? "Refresh conversation"
+                                : "刷新会话"}
+                            </Button>
+                          )}
+                        </div>
                       )}
                     {isFeedbackEligible(message) && (
                       <div className="mt-2">

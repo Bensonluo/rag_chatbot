@@ -57,6 +57,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   match `pyproject.toml`'s `requires-python` — a new service port fails CI
   until the README names it, and a removed mapping fails CI until the README
   drops it.
+- A changed-conversation rejection (409) now offers a "Refresh conversation"
+  button instead of text-only advice: clicking it re-runs the visitor
+  allocation (bootstrap reuse returns the current session without rotating
+  the identity) and re-reads history, so the client heals the stale session
+  key in one tap — pinned by a guest-chat test driving the 409, the refresh,
+  and the re-synced server state.
 
 ## [0.4.2] - 2026-11-15
 

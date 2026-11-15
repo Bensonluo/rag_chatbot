@@ -199,6 +199,22 @@ test('a chat budget rejection names the server-stated wait instead of vague advi
   expect(container.textContent).not.toContain('Wait before sending another request');
 });
 
+test('a changed-conversation rejection offers a refresh that re-syncs server state', async () => {
+  historyRows = [];
+  override = url => url.pathname.endsWith('/chat/stream')
+    ? ({ ok: false, status: 409, headers: { get: () => 'application/json' } } as unknown as Response)
+    : undefined;
+  await mount(); await send('继续买');
+  expect(container.textContent).toContain('changed while you were away');
+  // The recovery is explicit: the button re-runs the mount-time allocation
+  // (bootstrap reuse returns the current session key) and re-reads history.
+  historyRows = [{ role: 'assistant', content: 'Server state after refresh', message_id: 77, status: 'completed' }];
+  await click('Refresh conversation');
+  expect(calls('/api/v1/guest/bootstrap')).toHaveLength(2);
+  expect(calls('/api/v1/guest/history')).toHaveLength(2);
+  expect(container.textContent).toContain('Server state after refresh');
+});
+
 test('a reply without a server completion stays unconfirmed instead of claiming receipt', async () => {
   historyRows = [];
   override = url => url.pathname.endsWith('/chat/stream') ? streamText('模拟订单已创建：mock-order-two · 待付款 · ¥205.00') : undefined;
