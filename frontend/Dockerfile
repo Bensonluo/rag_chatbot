@@ -7,9 +7,11 @@
 FROM node:22-alpine AS build
 ARG BASE_PATH=""
 ENV NEXT_PUBLIC_BASE_PATH=${BASE_PATH}
-# Baked into robots.txt / sitemap.xml / JSON-LD at build time; without it
-# they advertise http://localhost:3000.
-ARG NEXT_PUBLIC_SITE_URL=""
+# Baked into robots.txt / sitemap.xml / JSON-LD at build time; the default
+# matches the code's unset fallback (http://localhost:3000). Must never
+# default to "" — Next.js treats a set-but-empty env as a value, and
+# new URL("") crashes the static export at page-data collection.
+ARG NEXT_PUBLIC_SITE_URL="http://localhost:3000"
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
 WORKDIR /app
 COPY package.json package-lock.json* ./

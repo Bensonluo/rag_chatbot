@@ -7,7 +7,9 @@ export const dynamic = "force-static";
  * (plus the sitemap pointer) removes ambiguity for search and AI crawlers
  * alike; nothing on this demo store is secret. */
 export default function robots(): MetadataRoute.Robots {
-  const site = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  // `||` (not `??`): a set-but-empty env var must mean "unset" here, or the
+  // sitemap URL degenerates to "" + "/sitemap.xml".
+  const site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
   const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
   return {
     rules: [{ userAgent: "*", allow: "/" }],

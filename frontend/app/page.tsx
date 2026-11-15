@@ -3,8 +3,10 @@ import pkg from "../package.json";
 import { StoreLanding } from "./store-landing";
 
 export const metadata: Metadata = {
+  // `||` (not `??`): a set-but-empty env var must mean "unset" — new URL("")
+  // crashes the static export at page-data collection.
   metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"
+    process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"
   ),
   title: "Agent Store — 可托付的购物 Agent · 智能客服",
   description:
@@ -30,7 +32,7 @@ const jsonLd = {
   softwareVersion: pkg.version,
   description:
     "An open-source agent you can trust with money: agentic commerce with quotes before orders, idempotent payments and exactly-once price alerts, on an engine that also delivers cited RAG customer service. Simulated commerce — no real charges.",
-  url: `${process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"}${
+  url: `${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}${
     process.env.NEXT_PUBLIC_BASE_PATH ?? ""
   }/`,
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },

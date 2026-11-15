@@ -7,7 +7,9 @@ export const dynamic = "force-static";
  * is the only indexable URL. NEXT_PUBLIC_SITE_URL / NEXT_PUBLIC_BASE_PATH
  * are the same build-time knobs next.config.mjs uses for the mount point. */
 export default function sitemap(): MetadataRoute.Sitemap {
-  const site = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  // `||` (not `??`): a set-but-empty env var must mean "unset" here, or the
+  // index URL degenerates to a path-only string.
+  const site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
   const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
   return [
     {

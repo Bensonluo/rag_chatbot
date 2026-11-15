@@ -116,6 +116,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of the mislabeled Indigo 400 value (white-on-primary ≈ 6.3:1,
   fixing the CTA button).
 
+### Fixed
+
+- The frontend Docker image no longer crashes `next build` when built
+  without build args: `ARG NEXT_PUBLIC_SITE_URL=""` set the variable to
+  an empty string, which Next.js treats as a value (so the code's `??`
+  fallback never fired and `new URL("")` failed page-data collection).
+  Every arg-less build since the ARG was introduced was broken — server
+  deploys only worked because they pass the real URL. The ARG now
+  defaults to the code's own fallback (`http://localhost:3000`), and all
+  four SITE_URL reads use `||` so a set-but-empty env means "unset".
+  Caught by the new CI docker-images job on its first run.
+
 ## [0.4.2] - 2026-11-15
 
 ### Added
