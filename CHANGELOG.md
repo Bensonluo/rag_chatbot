@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (409), graph store outages (503). A completeness contract test now fails
   the suite if any `/api/v1` operation (health probes aside) ships without
   at least one documented error code.
+- The bundled frontend now speaks the API's full error taxonomy: chat and
+  feedback failures map 409 (conversation changed), 423 (human agent took
+  over), and 503 (service unavailable) to their own bilingual copy instead
+  of a generic "could not finish" message, with a guest-chat test pinning
+  the handoff-lock and outage wording.
 
 ## [0.4.2] - 2026-11-15
 

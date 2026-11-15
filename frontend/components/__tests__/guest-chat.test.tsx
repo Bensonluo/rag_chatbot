@@ -176,6 +176,19 @@ test('restored purchase history renders as plain chat text and never issues comm
   expect(calls('/api/v1/guest/history')).toHaveLength(1);
 });
 
+test('handoff lock and provider outage explain themselves instead of a generic failure', async () => {
+  historyRows = []; let status = 423;
+  const streamFailure = (): Response =>
+    ({ ok: false, status, headers: { get: () => 'application/json' } } as unknown as Response);
+  override = url => url.pathname.endsWith('/chat/stream') ? streamFailure() : undefined;
+  await mount(); await send('买点东西');
+  expect(container.textContent).toContain('A human agent is handling this conversation.');
+  expect(container.textContent).not.toContain('The service could not finish the reply.');
+  status = 503;
+  await send('再试试');
+  expect(container.textContent).toContain('The service is temporarily unavailable.');
+});
+
 test('a reply without a server completion stays unconfirmed instead of claiming receipt', async () => {
   historyRows = [];
   override = url => url.pathname.endsWith('/chat/stream') ? streamText('模拟订单已创建：mock-order-two · 待付款 · ¥205.00') : undefined;

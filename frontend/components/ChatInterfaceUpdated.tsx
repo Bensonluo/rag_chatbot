@@ -61,8 +61,11 @@ type FailureReason =
   | "authentication"
   | "forbidden"
   | "session"
+  | "conflict"
+  | "human"
   | "rate_limit"
   | "server"
+  | "unavailable"
   | "network"
   | "interrupted"
   | "invalid"
@@ -159,7 +162,10 @@ const FAILURE_TEXT: Record<"en" | "zh", Record<FailureReason, string>> = {
     authentication: "Authentication failed. Sign in to continue.",
     forbidden: "You do not have permission to access this conversation.",
     session: "This conversation is unavailable.",
+    conflict: "This conversation changed while you were away. Refresh it before continuing.",
+    human: "A human agent is handling this conversation.",
     rate_limit: "Too many requests. Wait before sending another request.",
+    unavailable: "The service is temporarily unavailable. Try again shortly.",
     server: "The service could not finish the reply.",
     network: "The network connection was interrupted.",
     interrupted: "The reply was interrupted before it finished.",
@@ -172,7 +178,10 @@ const FAILURE_TEXT: Record<"en" | "zh", Record<FailureReason, string>> = {
     authentication: "身份验证失败，请登录后继续。",
     forbidden: "您无权访问此会话。",
     session: "当前会话不可用。",
+    conflict: "会话状态已变化，请刷新后继续。",
+    human: "人工客服正在处理本会话。",
     rate_limit: "请求过于频繁，请稍后再发送请求。",
+    unavailable: "服务暂时不可用，请稍后再试。",
     server: "服务未能完成回复。",
     network: "网络连接中断。",
     interrupted: "回复在完成前中断。",
@@ -190,7 +199,10 @@ function failureReason(error: unknown): FailureReason {
     if (status === 401) return "authentication";
     if (status === 403) return "forbidden";
     if (status === 404) return "session";
+    if (status === 409) return "conflict";
+    if (status === 423) return "human";
     if (status === 429) return "rate_limit";
+    if (status === 503) return "unavailable";
     return "server";
   }
   switch (error.kind) {
@@ -217,7 +229,10 @@ const FEEDBACK_FAILURE_TEXT: Record<
     authentication: "Your visitor session expired. Start again before rating.",
     forbidden: "You do not have permission to rate this reply.",
     session: "This reply is unavailable for feedback.",
+    conflict: "This conversation changed. Refresh before rating.",
+    human: "A human agent took over this conversation.",
     rate_limit: "Too many feedback requests. Try again later.",
+    unavailable: "Rating is temporarily unavailable. Try again shortly.",
     server: "Feedback could not be saved. Try again.",
     network:
       "Feedback was not confirmed. Check your connection before trying again.",
@@ -230,7 +245,10 @@ const FEEDBACK_FAILURE_TEXT: Record<
     authentication: "访客会话已失效，请重新开始后评价。",
     forbidden: "您无权评价这条回复。",
     session: "当前回复无法提交评价。",
+    conflict: "会话状态已变化，请刷新后再评价。",
+    human: "人工客服已接管本会话。",
     rate_limit: "评价请求过于频繁，请稍后再试。",
+    unavailable: "评价功能暂时不可用，请稍后再试。",
     server: "评价未能保存，请重试。",
     network: "尚未确认评价已保存，请检查连接后重试。",
     interrupted: "评价提交中断，请重试。",
