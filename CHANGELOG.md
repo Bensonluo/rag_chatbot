@@ -51,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   embeddings vs. keyless local BGE-M3 needing the 6 GB+ torch extra), and the
   `cp .env.example` footgun warning — mirrored condensed in the Chinese
   quickstart.
+- The Requirements block is now pinned by docs-hygiene contract tests: the
+  documented port set must equal the host ports `docker-compose.yml` actually
+  publishes (range-expanded on both sides), and the stated Python floor must
+  match `pyproject.toml`'s `requires-python` — a new service port fails CI
+  until the README names it, and a removed mapping fails CI until the README
+  drops it.
 
 ## [0.4.2] - 2026-11-15
 
