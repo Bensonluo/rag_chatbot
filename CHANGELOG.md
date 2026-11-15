@@ -135,6 +135,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The storefront no longer reflows for non-Chinese first visits: the
+  static export used to render the zh tree and swap to the visitor's
+  locale during hydration, visibly shifting the hero (Lighthouse CLS
+  0.207, mobile). Both locale trees now ship in the HTML behind a CSS
+  gate on `<html data-locale>`, pinned before first paint by a
+  parse-blocking bootstrap (stored preference, else system locale) —
+  Lighthouse CLS on a cold en-US visit drops to 0 while the visitor
+  still gets their language at first paint.
 - The landing page's hard-bounds strip showed a stale test baseline
   (4,146 / 93.66%); it now carries the current measured numbers
   (4,148 / 93.71%), pinned by the page contract test.

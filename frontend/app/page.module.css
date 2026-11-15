@@ -33,6 +33,22 @@
   font-family: "SF Mono", ui-monospace, Menlo, monospace;
 }
 
+/* ---------- bilingual zero-shift copy ---------- */
+/* Both locale trees ship in the static HTML; the parse-blocking bootstrap
+ * script in store-landing.tsx pins html[data-locale] before first paint
+ * (stored preference, else system locale), so the visitor's tree is the
+ * one that paints — no hydration-time language swap, no layout shift.
+ * With no JS (no attribute) the zh tree shows, matching the server
+ * render. display:none also drops the hidden tree from the a11y tree
+ * and tab order. */
+html:not([data-locale='en']) [data-locale='en'] {
+  display: none;
+}
+
+html[data-locale='en'] [data-locale='zh'] {
+  display: none;
+}
+
 .wrap {
   max-width: 1120px;
   margin: 0 auto;

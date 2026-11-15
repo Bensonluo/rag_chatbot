@@ -44,11 +44,30 @@ function subscribeLocale(onChange: () => void) {
 
 const serverLocale = (): Locale => 'zh';
 
+/** Pre-paint locale bootstrap, inlined into the landing page. The static
+ * export ships both locale trees; this runs during parse — before first
+ * paint — to pin <html data-locale> so CSS shows the visitor's tree from
+ * the very first paint: no post-hydration language swap, no layout shift
+ * (the single-tree design cost CLS 0.207 on non-zh first visits). */
+export const LOCALE_BOOTSTRAP = [
+  '(function(){try{',
+  `var s=localStorage.getItem('${STORAGE_KEY}');`,
+  "var l=(s==='en'||s==='zh')?s:",
+  "((navigator.languages&&navigator.languages[0])||navigator.language||'')",
+  ".toLowerCase().indexOf('zh')===0?'zh':'en';",
+  'var d=document.documentElement;',
+  "d.dataset.locale=l;d.lang=l==='zh'?'zh-CN':'en';",
+  '}catch(e){}})();',
+].join('');
+
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const locale = useSyncExternalStore(subscribeLocale, readLocale, serverLocale);
 
   useEffect(() => {
     document.documentElement.lang = locale === 'zh' ? 'zh-CN' : 'en';
+    // Keep the CSS locale gate (both-trees landing) in lockstep with the
+    // context — covers toggles even when browser storage is blocked.
+    document.documentElement.dataset.locale = locale;
   }, [locale]);
 
   const setLocale = useCallback((newLocale: Locale) => {

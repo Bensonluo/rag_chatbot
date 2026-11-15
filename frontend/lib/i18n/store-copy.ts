@@ -1,10 +1,11 @@
 /** Bilingual copy for the Agent Store landing page.
  *
- * The page follows the visitor's locale (see `lib/i18n/context.tsx`) with a
- * manual EN / 中文 toggle in the nav. `zh` is the server-rendered default
- * (static export renders one HTML); the client hydrates to the stored or
- * system locale. Keep both trees structurally identical — the page test
- * asserts key parity so a missing translation fails the suite.
+ * Both trees are rendered into the static HTML and gated by CSS on
+ * html[data-locale] (pinned before first paint by the bootstrap in
+ * `lib/i18n/context.tsx`; manual EN / 中文 toggle in the nav). This keeps
+ * first paint in the visitor's locale with zero hydration swap. Keep both
+ * trees structurally identical — the page test asserts key parity so a
+ * missing translation fails the suite.
  *
  * Rich paragraphs with inline emphasis are stored as segment arrays
  * (`{ t, b }` = text + bold); everything else is plain strings. */

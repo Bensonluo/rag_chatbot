@@ -1,8 +1,9 @@
 /** Store page contract: the adapted branding page keeps its section structure
  * and points every "engineering" link at the repository, never back at the
  * author's portfolio detail page (the decoupling contract of 2026-11-14).
- * The page renders the zh tree on the server (static export) and follows the
- * visitor's locale on the client — the copy contract covers both trees. */
+ * The page ships BOTH locale trees in the static HTML; a pre-paint script
+ * pins html[data-locale] and CSS gates the trees, so the visitor's locale
+ * paints first with zero hydration swap — the copy contract covers both. */
 import { renderToStaticMarkup } from 'react-dom/server.node';
 import StorePage from '@/app/page';
 import { storeCopy } from '@/lib/i18n/store-copy';
@@ -50,6 +51,19 @@ test('the live chat panel is embedded with its dark scope', () => {
 
 test('page content sits inside a main landmark for assistive tech', () => {
   expect(html).toContain('<main');
+});
+
+test('both locale trees ship in the static HTML for a zero-shift paint', () => {
+  // The single-tree design swapped zh→en during hydration and shifted the
+  // hero (CLS 0.207 for non-zh first visits); the fix is structural and
+  // must not regress to swapping copy after paint.
+  expect(html).toContain('data-locale="zh"');
+  expect(html).toContain('data-locale="en"');
+  expect(html).toContain(storeCopy.en.hero.sub);
+  expect(html).toContain(storeCopy.zh.hero.sub);
+  // The parse-blocking bootstrap that pins <html data-locale> pre-paint.
+  expect(html).toContain('portfolio-locale');
+  expect(html).toContain('dataset.locale');
 });
 
 test('a language toggle is rendered in the nav', () => {
