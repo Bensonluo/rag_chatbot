@@ -114,6 +114,7 @@ from app.services.dialogue.multi_intent import (
     policy_denies,
     policy_fields,
     pop_queued,
+    pop_resumable_frame,
     terminate_queue,
 )
 from app.services.dialogue.query_rewriter import condense_for_retrieval
@@ -137,6 +138,7 @@ from app.services.retrieval.metrics import (
 from app.services.slot_filling.slot_types import (
     extract_slots_for_frame,
     extract_slots_from_message,
+    find_order_ids,
     get_missing_slots,
     get_next_prompt,
     is_order_reference_only,
@@ -151,6 +153,25 @@ _ADMISSION_CLARIFY: dict[str, dict[str, str]] = {
     "clarify_alternative": CLARIFY_WRITE_ALTERNATIVE,
     "clarify_degraded": CLARIFY_WRITE_DEGRADED,
 }
+
+
+def _queue_discarded_notice(discarded: list[str], language: str) -> str:
+    """Visible acknowledgment when a failure also cancels queued requests.
+
+    Invariant 9 (docs/design/multi-intent-queueing.md) requires discarded
+    work to be visible rather than silently lost; a failed action clears
+    the queue built in the same turn, so the user must be told.
+    """
+    if not discarded:
+        return ""
+    omitted = "; ".join(item for item in discarded if item)
+    if language == LANG_EN:
+        return (
+            "\n\nThese queued requests were also cancelled because this one "
+            f"did not complete; please send them again: {omitted}"
+        )
+    return f"\n\n当前请求未能完成，以下排队的请求也一并取消，请重新发送：{omitted}"
+
 
 # Deterministic evidence-gap copy (review 2026-09-26, #6): a knowledge
 # question with an empty KB slice must not fall through to free LLM
@@ -381,12 +402,27 @@ class NodeFactory:
 
     async def prepare_requests_node(self, state: DialogueState) -> dict[str, Any]:
         """Discover compound requests before any cache/slot short circuit."""
+        message = state.get("message", "")
+        # A bare order reference answering an active slot prompt is never a
+        # compound request: running multi detection here would add a
+        # light-tier LLM round-trip to the hottest mid-collection path that
+        # the pre-multi graph never paid. An empty detection keeps
+        # route_after_cache on the legacy should_skip_intent behavior.
+        # is_order_reference_only alone also matches single free-text words
+        # ("damaged"), so require an actual order reference in the message.
+        if (
+            state.get("pending_slots")
+            and state.get("intent") in TASK_INTENTS
+            and not state.get("task_executed")
+            and not state.get("pending_confirmation")
+            and is_order_reference_only(message)
+            and find_order_ids(message)
+        ):
+            return {"multi_intent_original_message": message}
         return {
-            "request_detection": await self._detect_requests(
-                state.get("message", ""), multi_only=True, state=state
-            ),
+            "request_detection": await self._detect_requests(message, multi_only=True, state=state),
             # Guardrails may have sanitized the input before this node.
-            "multi_intent_original_message": state.get("message", ""),
+            "multi_intent_original_message": message,
         }
 
     @traced_stage("cs.cache")
@@ -2547,9 +2583,15 @@ class NodeFactory:
                     and settings.CONFIRMATION_TTL_SECONDS > 0
                     and time.time() - staged_at > settings.CONFIRMATION_TTL_SECONDS
                 ):
+                    expired_discard = [
+                        item.get("query") or item.get("intent", "")
+                        for item in state.get("state_stack") or []
+                        if item.get("queued_from") == "multi_intent"
+                    ]
                     return {
                         "pending_confirmation": None,
-                        "response": CONFIRMATION_EXPIRED[_turn_lang(state)],
+                        "response": CONFIRMATION_EXPIRED[_turn_lang(state)]
+                        + _queue_discarded_notice(expired_discard, _turn_lang(state)),
                         **terminate_queue(state),
                     }
                 # Execute the staged irreversible action with the
@@ -2606,21 +2648,24 @@ class NodeFactory:
                 updates.update(generated)
                 return updates
 
+            # A bare affirmative resumes interrupted work only; queued
+            # requests are dispatched by the completion boundary, never
+            # acknowledged-and-consumed here (see pop_resumable_frame).
             state_stack = list(state.get("state_stack") or [])
-            if state_stack:
-                restored = state_stack.pop()
-                display = INTENT_DISPLAY_NAMES.get(restored.get("intent", ""), "")
+            resumed, state_stack = pop_resumable_frame(state_stack)
+            if resumed is not None:
+                display = INTENT_DISPLAY_NAMES.get(resumed.get("intent", ""), "")
                 return {
                     "response": f"好的，继续为您处理{display}。"
                     if display
                     else "好的，继续为您处理。",
                     "state_stack": state_stack,
-                    "intent": restored.get("intent", ""),
-                    **policy_fields(restored),
-                    "active_request_id": restored.get("request_id", ""),
-                    "active_request_query": restored.get("query", ""),
-                    "filled_slots": restored.get("filled_slots", {}),
-                    "pending_slots": restored.get("pending_slots", []),
+                    "intent": resumed.get("intent", ""),
+                    **policy_fields(resumed),
+                    "active_request_id": resumed.get("request_id", ""),
+                    "active_request_query": resumed.get("query", ""),
+                    "filled_slots": resumed.get("filled_slots", {}),
+                    "pending_slots": resumed.get("pending_slots", []),
                     # Restored tasks were suspended pre-execution; clear
                     # any stale flag from the previous turn (see the
                     # handle_switch resume note).
@@ -2722,7 +2767,13 @@ class NodeFactory:
             "task_executed": status not in {"not_started"},
             "tool_result": dict(result.data),
         }
+        queued_discarded: list[str] = []
         if status != "completed" and not updates["pending_confirmation"]:
+            queued_discarded = [
+                item.get("query") or item.get("intent", "")
+                for item in state.get("state_stack") or []
+                if item.get("queued_from") == "multi_intent"
+            ]
             updates.update(terminate_queue(state))
         if status == "completed":
             result_data = dict(result.data)
@@ -2758,7 +2809,9 @@ class NodeFactory:
             context=context,
         )
         if response is not None:
-            updates["response"] = response
+            updates["response"] = response + _queue_discarded_notice(
+                queued_discarded, _turn_lang(state)
+            )
             return updates
         tool_state: DialogueState = {
             **state,
@@ -2774,6 +2827,10 @@ class NodeFactory:
             tool_intent, state.get("message", ""), updates["tool_result"], tool_state, config
         )
         updates.update(generated)
+        if queued_discarded:
+            updates["response"] = (updates.get("response") or "") + _queue_discarded_notice(
+                queued_discarded, _turn_lang(state)
+            )
         return updates
 
     async def _recall_user_facts(self, state: DialogueState | None) -> list[str]:

@@ -1,7 +1,14 @@
 """Serial request queue invariants, independent of classifier implementation."""
 
+from typing import Any
+
 from app.models.enums.intent import Intent
-from app.services.dialogue.multi_intent import discard_queue, enqueue_requests, pop_queued
+from app.services.dialogue.multi_intent import (
+    discard_queue,
+    enqueue_requests,
+    pop_queued,
+    pop_resumable_frame,
+)
 from app.services.intent.base import CoDetectedIntent, IntentDetection, IntentResult
 
 
@@ -63,3 +70,26 @@ def test_queue_discard_preserves_interruption_stack() -> None:
     assert discard_queue({"state_stack": [interrupted, {"queued_from": "multi_intent"}]}) == {
         "state_stack": [interrupted]
     }
+
+
+def test_pop_resumable_frame_skips_queued_entries() -> None:
+    interrupted = {"intent": "complaint", "filled_slots": {"order_id": "ORD1001"}}
+    stack: list[dict[str, Any]] = [
+        {"intent": "query_order", "queued_from": "multi_intent", "query": "q1"},
+        interrupted,
+        {"intent": "track_shipping", "queued_from": "multi_intent", "query": "q2"},
+    ]
+    frame, remaining = pop_resumable_frame(stack)
+    assert frame is interrupted
+    assert all(item.get("queued_from") == "multi_intent" for item in remaining)
+    assert len(remaining) == 2
+
+
+def test_pop_resumable_frame_never_consumes_queue_only_stack() -> None:
+    stack = [
+        {"intent": "query_order", "queued_from": "multi_intent", "query": "q1"},
+        {"intent": "track_shipping", "queued_from": "multi_intent", "query": "q2"},
+    ]
+    frame, remaining = pop_resumable_frame(stack)
+    assert frame is None
+    assert remaining == stack

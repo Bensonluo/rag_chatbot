@@ -93,6 +93,9 @@ async def test_independent_requests_keep_original_subspans(
         "不要退款",
         "暂时不要退货",
         "Maybe refund order A later",
+        "不用退款订单A了，帮我看下物流",
+        "无需退款，只查物流",
+        "There is no need to refund order A",
         'He said "refund order A"',
         "Explain the phrase 'return my shoes'",
         "如果可以，明天再退款",
@@ -493,6 +496,9 @@ async def test_ordinary_nonrequests_are_guarded_by_both_detectors(clause: str) -
         "Please refund order ORD1001 because damaged",
         "Can you refund order ORD1001 because damaged?",
         "I am asking for a refund for ORD1001 because damaged",
+        "特别想退款订单A",
+        "别人帮我下的订单A要退款",
+        "级别最高的会员也想退款订单B",
     ],
 )
 async def test_legitimate_refund_requests_survive_shared_guards(query: str) -> None:
@@ -642,6 +648,17 @@ def test_find_order_ids_returns_every_instance_in_order() -> None:
     ]
     assert find_order_ids("ORD1001 和 ORD1002 都要退款") == ["ORD1001", "ORD1002"]
     assert find_order_ids("refund ORD1001") == ["ORD1001"]
+
+
+def test_bare_quantity_after_order_word_is_not_an_order_entity() -> None:
+    # "order 3 items" captures "3": a quantity must not expand the
+    # request into a second confirmation-gated write frame.
+    assert find_order_ids("order 3 items and refund ORD1001") == ["ORD1001"]
+    assert find_order_ids("I want to return order 12") == []
+    # Purely numeric ids stay valid when long enough to be ids, and the
+    # explicit 订单号 marker keeps accepting any form.
+    assert find_order_ids("订单 12345 怎么退款") == ["12345"]
+    assert find_order_ids("订单号 3 的退款进度") == ["3"]
 
 
 @pytest.mark.asyncio

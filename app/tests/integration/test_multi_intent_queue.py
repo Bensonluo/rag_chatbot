@@ -12,7 +12,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from app.models.enums.intent import Intent
 from app.services.dialogue.graph import build_dialogue_graph
-from app.services.dialogue.tools import ToolDefinition, ToolRegistry
+from app.services.dialogue.tools import ToolDefinition, ToolRegistry, ToolResult
 from app.services.intent.base import (
     CoDetectedIntent,
     IntentDetection,
@@ -584,3 +584,94 @@ async def test_multi_stream_runs_claim_and_pii_gates_before_publishing(first_int
     assert "30天" not in result["response"]
     assert "[REDACTED]" in result["response"]
     assert not result["citations"]  # replaced claims cannot keep old evidence
+
+
+class SlotAnswerDetector(IntentDetector):
+    """Stable single refund request that counts multi-detection preflights."""
+
+    def __init__(self) -> None:
+        self.multi_calls = 0
+
+    async def detect_multi(
+        self, query: str, context: dict[str, Any] | None = None
+    ) -> IntentDetection:
+        self.multi_calls += 1
+        return IntentDetection(
+            primary=IntentResult(Intent.REFUND, 0.95),
+            primary_query="refund because damaged",
+        )
+
+    async def detect_with_confidence(
+        self, query: str, context: dict[str, Any] | None = None
+    ) -> IntentResult:
+        return IntentResult(Intent.REFUND, 0.95)
+
+    async def detect(self, query: str, context: dict[str, Any] | None = None) -> Intent:
+        return Intent.REFUND
+
+
+@pytest.mark.asyncio
+async def test_bare_order_slot_answer_skips_multi_detection_preflight() -> None:
+    detector = SlotAnswerDetector()
+    graph, calls, _, _ = setup_graph(intent_detector=detector)
+    first = await invoke(graph, "refund because damaged", thread="slot-preflight")
+    assert first["pending_slots"]  # waiting for the order id
+    assert detector.multi_calls == 1
+    second = await invoke(graph, "ORD1001", thread="slot-preflight")
+    # A bare order reference is definitionally not a compound request:
+    # no detector call on the slot-answer hot path, and the answer still
+    # binds and stages the refund exactly as before.
+    assert detector.multi_calls == 1
+    assert second["pending_confirmation"]["args"]["order_id"] == "ORD1001"
+    assert not calls
+
+
+@pytest.mark.asyncio
+async def test_mixed_slot_answer_still_runs_multi_detection() -> None:
+    detector = SlotAnswerDetector()
+    graph, _, _, _ = setup_graph(intent_detector=detector)
+    await invoke(graph, "refund because damaged", thread="slot-preflight-mixed")
+    assert detector.multi_calls == 1
+    await invoke(graph, "ORD1001 顺便帮我查一下物流", thread="slot-preflight-mixed")
+    assert detector.multi_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_failed_action_visibly_cancels_queued_requests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A durable execution conflict (not a business rejection, which lets
+    # the chain continue) terminates the request chain; the discard must
+    # be visible instead of silent (invariant 9).
+    registry = ToolRegistry(action_ledger=Mock())
+    for intent in ("refund", "return"):
+        registry.register(
+            ToolDefinition(
+                name=intent,
+                intent=intent,
+                description=intent,
+                required_slots=["order_id"],
+                handler=lambda args: {},
+                requires_confirmation=True,
+            )
+        )
+    execute = AsyncMock(return_value=ToolResult(False, {}, execution_status="conflict"))
+    monkeypatch.setattr(registry, "execute", execute)
+    graph = build_dialogue_graph(
+        intent_detector=Detector(
+            ("refund", "refund order ORD1001 because damaged"),
+            ("return", "return order ORD1002 because defective"),
+        ),
+        slot_filler=None,
+        tool_registry=registry,
+        retrieval_pipeline={},
+        llm_service=None,
+        checkpointer=MemorySaver(),
+    )
+    staged = await invoke(graph)
+    assert staged["pending_confirmation"]
+    failed = await invoke(graph, "yes")
+    assert execute.await_count == 1  # the queued return was never dispatched
+    assert failed["state_stack"] == []
+    assert "return order ORD1002 because defective" in failed["response"]
+    assert "please send them again" in failed["response"]

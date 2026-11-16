@@ -240,6 +240,22 @@ def pop_queued(stack: list[dict[str, Any]]) -> tuple[dict[str, Any] | None, list
     return None, list(stack)
 
 
+def pop_resumable_frame(
+    stack: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """Resume interrupted work only; a bare affirmative never eats a queue entry.
+
+    Queue entries are dispatched exclusively by the completion boundary
+    (FIFO). Popping one here would acknowledge a request without serving
+    it, so the most recent non-queue frame is restored instead and queued
+    work stays untouched.
+    """
+    for index in range(len(stack) - 1, -1, -1):
+        if stack[index].get("queued_from") != "multi_intent":
+            return stack[index], [*stack[:index], *stack[index + 1 :]]
+    return None, list(stack)
+
+
 def enqueue_requests(state: DialogueState, detection: Any) -> dict[str, Any]:
     """Append at most two requests in detector order; report every overflow.
 

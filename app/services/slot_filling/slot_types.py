@@ -243,6 +243,20 @@ def extract_slots_from_message(
     return extracted
 
 
+def _plausible_bare_order_id(value: str) -> bool:
+    """Reject quantity/ordinal captures from the bare 'order X' pattern.
+
+    "order 3 items" captures "3": a positional count is not an order
+    reference, yet shared-target expansion would mint a second
+    confirmation-gated frame from it. A bare capture must mix letters
+    with digits, or be at least four digits for purely numeric ids;
+    the explicit 订单号 marker pattern keeps accepting any form.
+    """
+    if any(char.isalpha() for char in value):
+        return any(char.isdigit() for char in value)
+    return len(value) >= 4
+
+
 def find_order_ids(message: str) -> list[str]:
     """Return every distinct order reference in the message, in order.
 
@@ -250,15 +264,18 @@ def find_order_ids(message: str) -> list[str]:
     request frame per target instead of silently keeping only the first.
     """
     seen: list[str] = []
-    for pattern in (
-        r"订单号[：:]?\s*([A-Za-z0-9]+)",
-        r"(?:order|订单)\s*(?:no\.?|number|#)?\s*([A-Za-z0-9]*\d[A-Za-z0-9]*)",
-        r"(?<![A-Za-z0-9])([A-Za-z]+\d{3,}[A-Za-z0-9]*)(?![A-Za-z0-9])",
+    for pattern, bare in (
+        (r"订单号[：:]?\s*([A-Za-z0-9]+)", False),
+        (r"(?:order|订单)\s*(?:no\.?|number|#)?\s*([A-Za-z0-9]*\d[A-Za-z0-9]*)", True),
+        (r"(?<![A-Za-z0-9])([A-Za-z]+\d{3,}[A-Za-z0-9]*)(?![A-Za-z0-9])", False),
     ):
         for match in re.finditer(pattern, message, re.IGNORECASE):
             value = match.group(1)
-            if value and value not in seen:
-                seen.append(value)
+            if not value or value in seen:
+                continue
+            if bare and not _plausible_bare_order_id(value):
+                continue
+            seen.append(value)
     return seen
 
 

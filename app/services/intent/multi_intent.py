@@ -31,8 +31,13 @@ _BLOCKED = re.compile(
     r"\b(?:do\s+not|don't|dont|never|not\s+now|maybe|later|tomorrow|if|"
     r"not\s+(?:asking|requesting|seeking|wanting|looking|going|planning|interested)\b|"
     r"unless|provided\s+(?:that|it)|assuming|on\s+condition\s+that|"
-    r"not\s+(?:to\s+)?(?:refund|return|cancel)|no\s+(?:refund|return))\b|"
-    r"不要|不想|不需要|别|暂时|稍后|以后|明天|如果|先不|再说",
+    r"not\s+(?:to\s+)?(?:refund|return|cancel)|no\s+(?:refund|return)|"
+    r"no\s+need(?:\s+to)?)\b|"
+    # 别 only as a prohibitive imperative ("别退款/别再退/别帮我退");
+    # 特别/级别/区别/别人 embed the character without negating anything.
+    r"不要|不想|不需要|无需|不用|不必|甭|"
+    r"别(?=[再要退换取消办做投申给帮跟])|"
+    r"暂时|稍后|以后|明天|如果|先不|再说",
     re.IGNORECASE,
 )
 
