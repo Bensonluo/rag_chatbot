@@ -1,0 +1,578 @@
+[
+  {
+    "id": "mi-01",
+    "combo": "task_rag",
+    "query": "我要退货，另外运费怎么算",
+    "expect_requests": [
+      {
+        "intent": "return",
+        "query": "我要退货"
+      },
+      {
+        "intent": "faq",
+        "query": "运费怎么算"
+      }
+    ]
+  },
+  {
+    "id": "mi-02",
+    "combo": "task_rag",
+    "query": "帮我退款，另外保修期多久",
+    "expect_requests": [
+      {
+        "intent": "refund",
+        "query": "帮我退款"
+      },
+      {
+        "intent": "policy",
+        "query": "保修期多久"
+      }
+    ]
+  },
+  {
+    "id": "mi-03",
+    "combo": "task_rag",
+    "query": "查一下我的订单，另外怎么开发票",
+    "expect_requests": [
+      {
+        "intent": "query_order",
+        "query": "查一下我的订单"
+      },
+      {
+        "intent": "faq",
+        "query": "怎么开发票"
+      }
+    ]
+  },
+  {
+    "id": "mi-04",
+    "combo": "task_rag",
+    "query": "物流到哪了？另外退货政策是什么",
+    "expect_requests": [
+      {
+        "intent": "track_shipping",
+        "query": "物流到哪了"
+      },
+      {
+        "intent": "policy",
+        "query": "退货政策是什么"
+      }
+    ]
+  },
+  {
+    "id": "mi-05",
+    "combo": "task_rag",
+    "query": "我要投诉，另外运费怎么算",
+    "expect_requests": [
+      {
+        "intent": "complaint",
+        "query": "我要投诉"
+      },
+      {
+        "intent": "faq",
+        "query": "运费怎么算"
+      }
+    ]
+  },
+  {
+    "id": "mi-06",
+    "combo": "task_rag",
+    "query": "我要退货，另外怎么修改收货地址",
+    "expect_requests": [
+      {
+        "intent": "return",
+        "query": "我要退货"
+      },
+      {
+        "intent": "faq",
+        "query": "怎么修改收货地址"
+      }
+    ]
+  },
+  {
+    "id": "mi-07",
+    "combo": "task_task",
+    "query": "帮我退款，另外查一下我的订单",
+    "expect_requests": [
+      {
+        "intent": "refund",
+        "query": "帮我退款"
+      },
+      {
+        "intent": "query_order",
+        "query": "查一下我的订单"
+      }
+    ]
+  },
+  {
+    "id": "mi-08",
+    "combo": "task_task",
+    "query": "我要退货，另外物流到哪了",
+    "expect_requests": [
+      {
+        "intent": "return",
+        "query": "我要退货"
+      },
+      {
+        "intent": "track_shipping",
+        "query": "物流到哪了"
+      }
+    ]
+  },
+  {
+    "id": "mi-09",
+    "combo": "task_task",
+    "query": "查一下我的订单，另外我要投诉",
+    "expect_requests": [
+      {
+        "intent": "query_order",
+        "query": "查一下我的订单"
+      },
+      {
+        "intent": "complaint",
+        "query": "我要投诉"
+      }
+    ]
+  },
+  {
+    "id": "mi-10",
+    "combo": "task_task",
+    "query": "帮我退款，另外物流到哪了",
+    "expect_requests": [
+      {
+        "intent": "refund",
+        "query": "帮我退款"
+      },
+      {
+        "intent": "track_shipping",
+        "query": "物流到哪了"
+      }
+    ]
+  },
+  {
+    "id": "mi-11",
+    "combo": "task_task",
+    "query": "我要退货，另外我要投诉",
+    "expect_requests": [
+      {
+        "intent": "return",
+        "query": "我要退货"
+      },
+      {
+        "intent": "complaint",
+        "query": "我要投诉"
+      }
+    ]
+  },
+  {
+    "id": "mi-12",
+    "combo": "task_task",
+    "query": "我的订单状态是什么，另外快递单号给我一下",
+    "expect_requests": [
+      {
+        "intent": "query_order",
+        "query": "我的订单状态是什么"
+      },
+      {
+        "intent": "track_shipping",
+        "query": "快递单号给我一下"
+      }
+    ]
+  },
+  {
+    "id": "mi-13",
+    "combo": "same_label",
+    "query": "退款订单 A001，另外退款订单 B002",
+    "expect_requests": [
+      {
+        "intent": "refund",
+        "query": "退款订单 A001"
+      },
+      {
+        "intent": "refund",
+        "query": "退款订单 B002"
+      }
+    ]
+  },
+  {
+    "id": "mi-14",
+    "combo": "same_label",
+    "query": "查订单 A001，另外查订单 B002",
+    "expect_requests": [
+      {
+        "intent": "query_order",
+        "query": "查订单 A001"
+      },
+      {
+        "intent": "query_order",
+        "query": "查订单 B002"
+      }
+    ]
+  },
+  {
+    "id": "mi-15",
+    "combo": "same_label",
+    "query": "我要退货订单 A001，另外我要退货订单 B002",
+    "expect_requests": [
+      {
+        "intent": "return",
+        "query": "我要退货订单 A001"
+      },
+      {
+        "intent": "return",
+        "query": "我要退货订单 B002"
+      }
+    ]
+  },
+  {
+    "id": "mi-16",
+    "combo": "same_label",
+    "query": "运费怎么算，另外如何开发票",
+    "expect_requests": [
+      {
+        "intent": "faq",
+        "query": "运费怎么算"
+      },
+      {
+        "intent": "faq",
+        "query": "如何开发票"
+      }
+    ]
+  },
+  {
+    "id": "mi-17",
+    "combo": "same_label",
+    "query": "保修期多久，另外退货政策是什么",
+    "expect_requests": [
+      {
+        "intent": "policy",
+        "query": "保修期多久"
+      },
+      {
+        "intent": "policy",
+        "query": "退货政策是什么"
+      }
+    ]
+  },
+  {
+    "id": "mi-18",
+    "combo": "same_label",
+    "query": "物流 A001 到哪了，另外物流 B002 到哪了",
+    "expect_requests": [
+      {
+        "intent": "track_shipping",
+        "query": "物流 A001 到哪了"
+      },
+      {
+        "intent": "track_shipping",
+        "query": "物流 B002 到哪了"
+      }
+    ]
+  },
+  {
+    "id": "mi-19",
+    "combo": "rag_rag",
+    "query": "退货政策是什么，另外运费怎么算",
+    "expect_requests": [
+      {
+        "intent": "policy",
+        "query": "退货政策是什么"
+      },
+      {
+        "intent": "faq",
+        "query": "运费怎么算"
+      }
+    ]
+  },
+  {
+    "id": "mi-20",
+    "combo": "rag_rag",
+    "query": "如何开发票，另外保修期多久",
+    "expect_requests": [
+      {
+        "intent": "faq",
+        "query": "如何开发票"
+      },
+      {
+        "intent": "policy",
+        "query": "保修期多久"
+      }
+    ]
+  },
+  {
+    "id": "mi-21",
+    "combo": "rag_rag",
+    "query": "保修期多久，另外怎么修改收货地址",
+    "expect_requests": [
+      {
+        "intent": "policy",
+        "query": "保修期多久"
+      },
+      {
+        "intent": "faq",
+        "query": "怎么修改收货地址"
+      }
+    ]
+  },
+  {
+    "id": "mi-22",
+    "combo": "rag_rag",
+    "query": "优惠券用不了是为什么，另外退货政策是什么",
+    "expect_requests": [
+      {
+        "intent": "faq",
+        "query": "优惠券用不了是为什么"
+      },
+      {
+        "intent": "policy",
+        "query": "退货政策是什么"
+      }
+    ]
+  },
+  {
+    "id": "mi-23",
+    "combo": "english_mixed",
+    "query": "refund order A001, also track my package",
+    "expect_requests": [
+      {
+        "intent": "refund",
+        "query": "refund order A001"
+      },
+      {
+        "intent": "track_shipping",
+        "query": "track my package"
+      }
+    ]
+  },
+  {
+    "id": "mi-24",
+    "combo": "english_mixed",
+    "query": "track my parcel, also file a complaint",
+    "expect_requests": [
+      {
+        "intent": "track_shipping",
+        "query": "track my parcel"
+      },
+      {
+        "intent": "complaint",
+        "query": "file a complaint"
+      }
+    ]
+  },
+  {
+    "id": "mi-25",
+    "combo": "english_mixed",
+    "query": "refund order A001, also refund order B002",
+    "expect_requests": [
+      {
+        "intent": "refund",
+        "query": "refund order A001"
+      },
+      {
+        "intent": "refund",
+        "query": "refund order B002"
+      }
+    ]
+  },
+  {
+    "id": "mi-26",
+    "combo": "english_mixed",
+    "query": "refund please, also 我要退货",
+    "expect_requests": [
+      {
+        "intent": "refund",
+        "query": "refund please"
+      },
+      {
+        "intent": "return",
+        "query": "我要退货"
+      }
+    ]
+  },
+  {
+    "id": "mi-27",
+    "combo": "three_requests",
+    "query": "帮我退款，另外查一下我的订单，另外物流到哪了",
+    "expect_requests": [
+      {
+        "intent": "refund",
+        "query": "帮我退款"
+      },
+      {
+        "intent": "query_order",
+        "query": "查一下我的订单"
+      },
+      {
+        "intent": "track_shipping",
+        "query": "物流到哪了"
+      }
+    ]
+  },
+  {
+    "id": "mi-28",
+    "combo": "three_requests",
+    "query": "如何开发票，另外保修期多久，另外运费怎么算",
+    "expect_requests": [
+      {
+        "intent": "faq",
+        "query": "如何开发票"
+      },
+      {
+        "intent": "policy",
+        "query": "保修期多久"
+      },
+      {
+        "intent": "faq",
+        "query": "运费怎么算"
+      }
+    ]
+  },
+  {
+    "id": "mi-29",
+    "combo": "three_requests",
+    "query": "退款订单 A001，另外退款订单 B002，另外退款订单 C003",
+    "expect_requests": [
+      {
+        "intent": "refund",
+        "query": "退款订单 A001"
+      },
+      {
+        "intent": "refund",
+        "query": "退款订单 B002"
+      },
+      {
+        "intent": "refund",
+        "query": "退款订单 C003"
+      }
+    ]
+  },
+  {
+    "id": "mi-30",
+    "combo": "three_requests",
+    "query": "我要退货，另外退货政策是什么，另外如何开发票",
+    "expect_requests": [
+      {
+        "intent": "return",
+        "query": "我要退货"
+      },
+      {
+        "intent": "policy",
+        "query": "退货政策是什么"
+      },
+      {
+        "intent": "faq",
+        "query": "如何开发票"
+      }
+    ]
+  },
+  {
+    "id": "mi-31",
+    "combo": "single_control",
+    "query": "退货政策是什么",
+    "expect_requests": [
+      {
+        "intent": "policy",
+        "query": "退货政策是什么"
+      }
+    ]
+  },
+  {
+    "id": "mi-32",
+    "combo": "single_control",
+    "query": "怎么退货",
+    "expect_requests": [
+      {
+        "intent": "faq",
+        "query": "怎么退货"
+      }
+    ]
+  },
+  {
+    "id": "mi-33",
+    "combo": "single_control",
+    "query": "如何退款",
+    "expect_requests": [
+      {
+        "intent": "faq",
+        "query": "如何退款"
+      }
+    ]
+  },
+  {
+    "id": "mi-34",
+    "combo": "single_control",
+    "query": "保修期多久",
+    "expect_requests": [
+      {
+        "intent": "policy",
+        "query": "保修期多久"
+      }
+    ]
+  },
+  {
+    "id": "mi-35",
+    "combo": "single_control",
+    "query": "退款到账需要多久",
+    "expect_requests": [
+      {
+        "intent": "faq",
+        "query": "退款到账需要多久"
+      }
+    ]
+  },
+  {
+    "id": "mi-36",
+    "combo": "single_control",
+    "query": "运费怎么算",
+    "expect_requests": [
+      {
+        "intent": "faq",
+        "query": "运费怎么算"
+      }
+    ]
+  },
+  {
+    "id": "mi-37",
+    "combo": "single_control",
+    "query": "我要退货",
+    "expect_requests": [
+      {
+        "intent": "return",
+        "query": "我要退货"
+      }
+    ]
+  },
+  {
+    "id": "mi-38",
+    "combo": "single_control",
+    "query": "帮我退款",
+    "expect_requests": [
+      {
+        "intent": "refund",
+        "query": "帮我退款"
+      }
+    ]
+  },
+  {
+    "id": "mi-39",
+    "combo": "single_control",
+    "query": "查一下我的订单",
+    "expect_requests": [
+      {
+        "intent": "query_order",
+        "query": "查一下我的订单"
+      }
+    ]
+  },
+  {
+    "id": "mi-40",
+    "combo": "single_control",
+    "query": "物流到哪了",
+    "expect_requests": [
+      {
+        "intent": "track_shipping",
+        "query": "物流到哪了"
+      }
+    ]
+  }
+]

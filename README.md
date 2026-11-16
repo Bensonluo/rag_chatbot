@@ -169,6 +169,26 @@ A user says *"I want a refund"*. Here's what happens:
                       resume on next turn)
 ```
 
+### Multiple requests in one message
+
+A compound message is decomposed into **request-scoped source spans**, not
+just a bag of labels. Two refunds for different orders remain two requests.
+Requests reuse the task stack with separate FIFO queue entries; no parallel
+write branches or shared confirmation are introduced.
+
+- Completed reads and knowledge requests advance automatically in the same turn.
+- Missing slots or a staged write pause the queue. One confirmation resolves
+  one action; a subsequent write asks for its own confirmation.
+- Each request keeps its own input and slots. Cancel, deny and handoff stop
+  queued work, and overflow is reported instead of silently discarded.
+- Compound replies are buffered, checked and aggregated with their source
+  snapshots. They are excluded from shared answer caches.
+
+Run the keyless, synthetic detection comparison with
+`python scripts/run_multi_intent_eval.py --json report.json`.
+[Design and verification](docs/design/multi-intent-queueing.md) distinguish
+classification scores from graph-level execution tests.
+
 ### Intent Switch & Resume — the killer feature
 
 ```

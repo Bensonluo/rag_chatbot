@@ -14,6 +14,7 @@ token streaming (see ChatService.process_message_stream).
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import math
 import re
@@ -98,6 +99,14 @@ from app.services.dialogue.i18n import (
     RETRIEVAL_DEGRADED,
     detect_language,
 )
+from app.services.dialogue.multi_intent import (
+    aggregate_outputs,
+    discard_queue,
+    enqueue_requests,
+    pack_detection,
+    pop_queued,
+    terminate_queue,
+)
 from app.services.dialogue.query_rewriter import condense_for_retrieval
 from app.services.dialogue.state import DialogueState
 from app.services.facts.metrics import CLAIM_CHECKS, CLAIM_VIOLATIONS
@@ -108,6 +117,7 @@ from app.services.handoff.service import (
     REASON_EXPLICIT,
     REASON_REFUND_THRESHOLD,
 )
+from app.services.intent.base import IntentResult
 from app.services.intent.rule_based import looks_like_handoff
 from app.services.observability.pipeline_tracer import traced_stage
 from app.services.observability.trace_events import TraceEvent, emit_trace
@@ -351,6 +361,16 @@ class NodeFactory:
 
         return {}
 
+    async def prepare_requests_node(self, state: DialogueState) -> dict[str, Any]:
+        """Discover compound requests before any cache/slot short circuit."""
+        return {
+            "request_detection": await self._detect_requests(
+                state.get("message", ""), multi_only=True, state=state
+            ),
+            # Guardrails may have sanitized the input before this node.
+            "multi_intent_original_message": state.get("message", ""),
+        }
+
     @traced_stage("cs.cache")
     async def answer_cache_lookup_node(
         self, state: DialogueState, config: Optional[RunnableConfig] = None
@@ -414,116 +434,148 @@ class NodeFactory:
         emit_trace("cs.intent", intent=updates.get("intent"), confidence=updates.get("confidence"))
         return updates
 
-    async def _detect_intent_logic(self, state: DialogueState) -> dict[str, Any]:
-        """Detect user intent from the current message.
+    async def _detect_requests(
+        self, message: str, *, multi_only: bool = False, state: DialogueState | None = None
+    ) -> dict[str, Any]:
+        """Accept legacy detectors and unconfigured AsyncMock multi methods.
 
-        Priority logic:
-        1. Handoff / cancel / emotion escalation override everything
-        2. Confirm/deny resolving a staged action become meta intents
-        3. An affirmative with a suspended task resumes it; "unknown"
-           never resumes — unrecognized input is answered, not hijacked
-        4. A non-executed task intent captures slot answers and
-           affirmatives; an executed task is terminal and captures
-           nothing (see ``task_executed`` in state.py)
+        Multi detection is preflighted before cache/slot early exits. Its
+        primitive snapshot is consumed once by the normal intent node.
         """
+        method = getattr(self._intent_detector, "detect_multi", None)
+        if callable(method) and inspect.iscoroutinefunction(method):
+            if state is not None and "context" in inspect.signature(method).parameters:
+                detection = await method(
+                    message,
+                    context={
+                        "current_intent": state.get("intent", ""),
+                        "filled_slots": state.get("filled_slots") or {},
+                        "pending_slots": state.get("pending_slots") or [],
+                        "task_executed": state.get("task_executed", False),
+                    },
+                )
+            else:
+                detection = await method(message)
+            if isinstance(getattr(detection, "primary", None), IntentResult) and isinstance(
+                getattr(detection, "co_detected", None), list
+            ):
+                return pack_detection(detection)
+        if multi_only:
+            return {}
+        result = await self._intent_detector.detect_with_confidence(message)
+        return {
+            "intent": result.intent.value,
+            "confidence": result.confidence,
+            "primary_query": "",
+            "co_detected": [],
+        }
+
+    async def _detect_intent_logic(self, state: DialogueState) -> dict[str, Any]:
+        """Overrides win; active slot answers precede FIFO co-requests."""
         message = state.get("message", "")
         prev_intent = state.get("intent")
+        detection = state.get("request_detection") or await self._detect_requests(
+            message, state=state
+        )
+        detected_intent = detection["intent"]
+        confidence = detection["confidence"]
+        # A compound override vetoes scheduling even if a detector left it
+        # secondary. Never run an earlier read and then reveal a hidden write.
+        for override in ("handoff", "cancel", "deny"):
+            if detected_intent == override or any(
+                item["intent"] == override for item in detection["co_detected"]
+            ):
+                detected_intent = override
+                break
+        base = {"intent": detected_intent, "prev_intent": prev_intent, "confidence": confidence}
 
-        result = await self._intent_detector.detect_with_confidence(message)
-        detected_intent = result.intent.value
-        confidence = result.confidence
+        if detected_intent in {"handoff", "cancel", "deny"}:
+            base.update(discard_queue(state))
+            base["multi_intent_stop"] = True
+            if detected_intent == "handoff":
+                base["handoff_reason"] = REASON_EXPLICIT
+            # Denial must not resume an interrupted or hidden queued task.
+            if (
+                detected_intent != "deny"
+                or state.get("pending_confirmation")
+                or state.get("multi_intent_turn")
+                or detection["co_detected"]
+            ):
+                return base
 
-        # An explicit human-agent request outranks everything, including
-        # cancel — “不要了，给我转人工” means the user is abandoning the
-        # task AND asking for a person; only the handoff answers that.
-        if detected_intent == "handoff":
-            return {
-                "intent": "handoff",
-                "prev_intent": prev_intent,
-                "confidence": confidence,
-                "handoff_reason": REASON_EXPLICIT,
-            }
-
-        # Cancel wins over everything else — user wants out.
-        if detected_intent == "cancel":
-            return {
-                "intent": "cancel",
-                "prev_intent": prev_intent,
-                "confidence": confidence,
-            }
-
-        # Negative-emotion escalation outranks task resume: an angry user
-        # mid-task must reach a human, not another slot prompt. (It does
-        # NOT outrank cancel — “算了，太失望了” is the user leaving.)
         emotion = assess_emotion(message)
         if emotion.should_escalate:
             return {
+                **base,
+                **discard_queue(state),
                 "intent": "handoff",
-                "prev_intent": prev_intent,
-                "confidence": confidence,
                 "handoff_reason": REASON_EMOTION,
+                "multi_intent_stop": True,
             }
 
-        # A confirm/deny answering a staged irreversible action must resolve
-        # to the meta intent (which executes or discards the staged action);
-        # preserving the task intent here would re-enter the gate forever.
         if detected_intent in ("confirm", "deny") and state.get("pending_confirmation"):
-            return {
-                "intent": detected_intent,
-                "prev_intent": prev_intent,
-                "confidence": confidence,
-            }
+            return {**base, **enqueue_requests(state, detection)}
 
-        # Resume: an affirmative (confirm/deny/cancel) with a task
-        # suspended on the stack sets intent to that task so slot
-        # collection continues. "unknown" deliberately does NOT resume —
-        # an unrecognized message (e.g. an off-domain question) must be
-        # answered, not silently folded back into the suspended task.
-        if detected_intent in META_INTENTS:
-            state_stack = state.get("state_stack") or []
-            if state_stack:
-                suspended_intent = state_stack[-1].get("intent", "")
-                if suspended_intent in TASK_INTENTS:
-                    return {
-                        "intent": suspended_intent,
-                        "prev_intent": prev_intent,
-                        "confidence": confidence,
-                    }
+        # Interrupted tasks are LIFO; queued requests are never resumed by
+        # an affirmative. Only the completion boundary dispatches them.
+        if detected_intent in META_INTENTS and detected_intent != "deny":
+            suspended = [
+                item
+                for item in state.get("state_stack") or []
+                if item.get("queued_from") != "multi_intent"
+            ]
+            if suspended and suspended[-1].get("intent") in TASK_INTENTS:
+                return {**base, "intent": suspended[-1]["intent"]}
 
-        # If prev is a task intent, check if message provides slot values.
-        # An executed task is terminal: it no longer captures follow-ups
-        # (slot answers, affirmatives, unknowns) — a "好的" landing after
-        # a completed refund must never re-enter and re-stage it.
-        if prev_intent and prev_intent in TASK_INTENTS and not state.get("task_executed"):
+        # An answer to the active slot can be one piece of a mixed turn,
+        # even when a new FAQ/task scored as primary. Never extract slots
+        # from the complete compound text in that case.
+        primary_query = detection["primary_query"] or message
+        active = (
+            bool(prev_intent) and prev_intent in TASK_INTENTS and not state.get("task_executed")
+        )
+        if active and prev_intent is not None and not state.get("pending_confirmation"):
             existing = dict(state.get("filled_slots") or {})
-            merged = extract_slots_from_message(prev_intent, message, existing)
-            if len(merged) > len(existing):
-                return {
-                    "intent": prev_intent,
-                    "prev_intent": prev_intent,
-                    "confidence": confidence,
-                }
-
-            # Confirm/deny after a task preserves the task intent
+            pieces = [
+                {"intent": detected_intent, "query": primary_query, "confidence": confidence},
+                *detection["co_detected"],
+            ]
+            for index, piece in enumerate(pieces):
+                query = piece["query"]
+                if not query:
+                    continue
+                incoming = extract_slots_from_message(prev_intent, query, {})
+                if (
+                    existing.get("order_id")
+                    and incoming.get("order_id")
+                    and incoming["order_id"] != existing["order_id"]
+                ):
+                    # A new order's explicit request is not a slot answer
+                    # for the active order, even when its reason is usable.
+                    continue
+                merged = extract_slots_from_message(prev_intent, query, existing)
+                if len(merged) > len(existing):
+                    reordered = {
+                        "intent": prev_intent,
+                        "confidence": confidence,
+                        "primary_query": query,
+                        "co_detected": [item for n, item in enumerate(pieces) if n != index],
+                    }
+                    return {
+                        **base,
+                        **enqueue_requests(state, reordered),
+                        "intent": prev_intent,
+                        **({"message": query} if detection["co_detected"] else {}),
+                    }
             if detected_intent in META_INTENTS:
-                return {
-                    "intent": prev_intent,
-                    "prev_intent": prev_intent,
-                    "confidence": confidence,
-                }
-
-            # Unknown after a task with pending slots → user is answering a prompt
+                return {**base, "intent": prev_intent}
             if detected_intent == "unknown" and state.get("pending_slots"):
-                return {
-                    "intent": prev_intent,
-                    "prev_intent": prev_intent,
-                    "confidence": confidence,
-                }
+                return {**base, **enqueue_requests(state, detection), "intent": prev_intent}
 
         return {
-            "intent": detected_intent,
-            "prev_intent": prev_intent,
-            "confidence": confidence,
+            **base,
+            **enqueue_requests(state, detection),
+            **({"message": primary_query} if state.get("multi_intent_turn") else {}),
         }
 
     async def handle_switch_node(self, state: DialogueState) -> dict[str, Any]:
@@ -535,9 +587,33 @@ class NodeFactory:
         """
         intent = state.get("intent", "")
         prev_intent = state.get("prev_intent")
+        incoming = extract_slots_from_message(intent, state.get("message", ""), {})
+        existing = state.get("filled_slots") or {}
+        different_order = bool(
+            intent in TASK_INTENTS
+            and intent == prev_intent
+            and existing.get("order_id")
+            and incoming.get("order_id")
+            and incoming["order_id"] != existing["order_id"]
+        )
+
+        # A completed same-kind request is not the new compound primary.
+        if (
+            state.get("multi_intent_turn")
+            and intent in TASK_INTENTS
+            and intent == prev_intent
+            and state.get("task_executed")
+        ):
+            return {
+                "filled_slots": {},
+                "pending_slots": [],
+                "slot_prompt": "",
+                "pending_confirmation": None,
+                "task_executed": False,
+            }
 
         # No previous context or same intent — nothing to do.
-        if prev_intent is None or intent == prev_intent:
+        if prev_intent is None or (intent == prev_intent and not different_order):
             return {}
 
         # Meta intents never trigger a switch.
@@ -550,13 +626,40 @@ class NodeFactory:
         # else (greeting, chitchat, policy, handoff, unknown) would only
         # pollute the resume hint with an entry nothing can resume.
         if prev_intent not in TASK_INTENTS:
+            # A queued request's interrupted predecessor retains its own
+            # identity while an unrelated FAQ/direct answer is served.
+            if state.get("multi_intent_turn"):
+                stack = list(state.get("state_stack") or [])
+                for index in range(len(stack) - 1, -1, -1):
+                    item = stack[index]
+                    if (
+                        item.get("queued_from") != "multi_intent"
+                        and item.get("request_id")
+                        and item.get("intent") == intent
+                    ):
+                        restored = stack.pop(index)
+                        return {
+                            "state_stack": stack,
+                            "filled_slots": restored.get("filled_slots", {}),
+                            "pending_slots": restored.get("pending_slots", []),
+                            "active_request_id": restored["request_id"],
+                            "active_request_query": restored.get("query", ""),
+                            "task_executed": False,
+                            "pending_confirmation": None,
+                        }
             return {}
 
         state_stack: list[dict[str, Any]] = list(state.get("state_stack") or [])
 
         # Check if the user is returning to a previously suspended task.
-        if intent in TASK_INTENTS:
+        # A different entity is a new request, not an invitation to resume
+        # another frame merely because its intent label matches.
+        if intent in TASK_INTENTS and not different_order:
             for idx, suspended in enumerate(state_stack):
+                # Multi-intent queue items advance only at a terminal
+                # boundary, not through the task-switch resume scan.
+                if suspended.get("queued_from") == "multi_intent":
+                    continue
                 if suspended.get("intent") == intent:
                     # Resume: pop and restore.
                     restored = state_stack.pop(idx)
@@ -593,6 +696,10 @@ class NodeFactory:
             "filled_slots": state.get("filled_slots", {}),
             "pending_slots": state.get("pending_slots", []),
         }
+        if state.get("active_request_id"):
+            suspended.update(
+                request_id=state["active_request_id"], query=state.get("active_request_query", "")
+            )
         state_stack.append(suspended)
 
         return {
@@ -1097,6 +1204,8 @@ class NodeFactory:
         """Read/write eligibility for cross-session L0 and L1 answers."""
         if (
             state.get("shared_cache_blocked")
+            or state.get("multi_intent_turn")
+            or (state.get("request_detection") or {}).get("co_detected")
             or state.get("user_id")
             or state.get("blocked")
             or state.get("personalized")
@@ -1437,6 +1546,10 @@ class NodeFactory:
             cache_state["shared_cache_blocked"] = True
         if cache_state.get("shared_cache_blocked"):
             response["shared_cache_blocked"] = True
+        if state.get("multi_intent_turn"):
+            # Buffered multi-request streaming uses generate(), not the
+            # token-level StreamClaimGate; retain its claim checks here.
+            response = self._gate_claims(response, message=message, check_actions=True)
         # Output guardrail (review 2026-09-26, #4): the direct tier's
         # fresh generations pass the same output check as every other
         # LLM branch — PII is redacted before the answer leaves the
@@ -1734,6 +1847,9 @@ class NodeFactory:
                 and business_tool is not None
                 and any(entry.get("tool") == business_tool.name for entry in result.tool_trace)
             )
+            if state.get("multi_intent_turn"):
+                # Context-gathering helper calls are not task completion.
+                updates["task_executed"] = business_ran
             # Turn-boundary invariant: a staged irreversible action owns
             # the next turn, so pending_slots must be EMPTY whenever a
             # confirmation is pending. The slot-prompt skip branch
@@ -1787,6 +1903,136 @@ class NodeFactory:
         _emit_response(updates["response"], config)
         return updates
 
+    async def finish_subrequest_node(
+        self, state: DialogueState, config: Optional[RunnableConfig] = None
+    ) -> dict[str, Any]:
+        """Advance only completed work, then publish one guarded aggregate.
+
+        Every terminal serving path joins here, including FAQ, agent and
+        confirmation staging. Slot/confirmation boundaries preserve FIFO
+        work; override/handoff boundaries discard it without dispatch.
+        """
+        if not state.get("multi_intent_turn"):
+            return {}
+        outputs = list(state.get("multi_intent_outputs") or [])
+        outputs.append(
+            {
+                "response": state.get("response", ""),
+                "sources": state.get("sources") or [],
+                "citations": state.get("citations") or [],
+                "executed_tools": state.get("executed_tools") or [],
+                "retrieved_docs": state.get("retrieved_docs") or [],
+                "retrieval_ran": state.get("retrieval_ran", False),
+                "retrieval_degraded": state.get("retrieval_degraded", False),
+                "action_execution": state.get("action_execution") or {},
+            }
+        )
+        intent = state.get("intent", "")
+        stop = bool(
+            state.get("multi_intent_stop") or intent == "handoff" or state.get("handoff_outcome")
+        )
+        waiting = bool(
+            state.get("pending_confirmation")
+            or state.get("pending_slots")
+            or (intent in TASK_INTENTS and not state.get("task_executed"))
+            or any(
+                item.get("request_id") and item.get("queued_from") != "multi_intent"
+                for item in state.get("state_stack") or []
+            )
+        )
+        action = state.get("action_execution") or {}
+        completed = not (
+            stop
+            or waiting
+            or intent in META_INTENTS
+            or (action and action.get("status") != "completed")
+        )
+        stack = state.get("state_stack") or []
+        if stop:
+            stack = discard_queue(state).get("state_stack", stack)
+        next_request, remaining = pop_queued(stack) if completed else (None, stack)
+        if next_request is not None:
+            updates: dict[str, Any] = {
+                "state_stack": remaining,
+                "multi_intent_outputs": outputs,
+                "multi_intent_next": True,
+                "intent": next_request["intent"],
+                "prev_intent": intent,
+                "confidence": next_request.get("confidence", 0.0),
+                "message": next_request["query"],
+                "active_request_id": next_request["request_id"],
+                "active_request_query": next_request["query"],
+                "filled_slots": dict(next_request.get("filled_slots") or {}),
+                "pending_slots": list(next_request.get("pending_slots") or []),
+                "pending_confirmation": None,
+                "task_executed": False,
+                "slot_prompt": "",
+                "tool_result": {},
+                "tool_name": "",
+                "executed_tools": [],
+                "action_execution": {},
+                "retrieved_docs": [],
+                "sources": [],
+                "citations": [],
+                "retrieval_ran": False,
+                "retrieval_degraded": False,
+                "response": "",
+                "route": "",
+                "route_after_agent": "",
+                "route_after_faq": "",
+                "route_after_cache": "",
+                "request_detection": {},
+                "shared_cache_blocked": True,
+            }
+            if state.get("tool_result") or state.get("executed_tools"):
+                updates["last_tool_execution"] = {
+                    "turn_id": state.get("turn_id", ""),
+                    "tool_result": state.get("tool_result") or {},
+                    "executed_tools": state.get("executed_tools") or [],
+                }
+            emit_trace(
+                "cs.multi_intent",
+                action="advance",
+                request_id=next_request["request_id"],
+                intent=next_request["intent"],
+            )
+            return updates
+
+        final = aggregate_outputs(outputs)
+        overflow = state.get("multi_intent_overflow") or []
+        if overflow:
+            omitted = "; ".join(overflow)
+            notice = (
+                f"These requests were not queued (queue limit: 2); please send them separately: {omitted}"
+                if _turn_lang(state) == LANG_EN
+                else f"以下请求未加入队列（最多排队2项），请单独发送：{omitted}"
+            )
+            final["response"] += "\n\n" + notice
+        if self._guardrail_service is not None:
+            check = self._guardrail_service.check_output(final["response"])
+            if check.was_blocked:
+                final.update(response=GUARDRAIL_OUTPUT_BLOCKED[_turn_lang(state)], citations=[])
+            elif check.sanitized_content and check.sanitized_content != final["response"]:
+                final.update(response=check.sanitized_content, citations=[])
+        final.update(
+            {
+                "state_stack": remaining,
+                "multi_intent_next": False,
+                "multi_intent_outputs": outputs,
+                "shared_cache_blocked": True,
+                "message": state.get("multi_intent_original_message", state.get("message", "")),
+            }
+        )
+        if completed or stop:
+            final.update(active_request_id="", active_request_query="")
+        _emit_response(final["response"], config)
+        return final
+
+    @staticmethod
+    def route_after_subrequest(state: DialogueState) -> str:
+        """Only the scheduler can enter another subrequest in this invocation."""
+        return "next" if state.get("multi_intent_next") else "done"
+
     @staticmethod
     def route_after_agent(state: DialogueState) -> str:
         """End the turn after a successful agent run; fall back to the
@@ -1814,6 +2060,13 @@ class NodeFactory:
         post-guardrail branching (the intent-skip logic)."""
         if state.get("route_after_cache") == "hit":
             return "hit"
+        detection = state.get("request_detection") or {}
+        if detection.get("co_detected"):
+            return "full"
+        if detection and detection.get("intent") not in {state.get("intent"), "unknown", "confirm"}:
+            return "full"
+        if assess_emotion(state.get("message", "")).should_escalate:
+            return "full"
         return NodeFactory.should_skip_intent(state)
 
     # ── Conditional edges ────────────────────────────────────────────────────
@@ -2126,6 +2379,7 @@ class NodeFactory:
                     return {
                         "pending_confirmation": None,
                         "response": CONFIRMATION_EXPIRED[_turn_lang(state)],
+                        **terminate_queue(state),
                     }
                 # Execute the staged irreversible action with the
                 # caller's identity so ownership checks apply.
@@ -2290,6 +2544,8 @@ class NodeFactory:
             "task_executed": status not in {"not_started"},
             "tool_result": dict(result.data),
         }
+        if status != "completed" and not updates["pending_confirmation"]:
+            updates.update(terminate_queue(state))
         if status == "completed":
             result_data = dict(result.data)
             if not result.success:
@@ -2718,7 +2974,9 @@ def _safe_json(obj: Any) -> str:
 
 def _maybe_append_resume_hint(response: str, state: DialogueState) -> str:
     """Append a hint about a suspended task if one exists on the stack."""
-    state_stack = state.get("state_stack")
+    state_stack = [
+        item for item in state.get("state_stack") or [] if item.get("queued_from") != "multi_intent"
+    ]
     if state_stack:
         suspended = state_stack[-1]
         suspended_intent = suspended.get("intent", "")

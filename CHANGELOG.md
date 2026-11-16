@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Serial multi-request dialogue handling with source-grounded subqueries,
+  request-isolated slots, FIFO advancement, per-action confirmations, explicit
+  overflow and guarded response aggregation. Includes offline detection
+  comparison, cancellation/continuation regressions and compiled-graph tests.
+
 - The commerce MCP server's agent-facing surface is now English-first
   bilingual: all 8 tool descriptions, the server instructions, the 4
   elicitation confirmations, and the module-authored user-facing errors

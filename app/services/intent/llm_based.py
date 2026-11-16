@@ -11,7 +11,12 @@ from typing import Any
 
 from app.core.exceptions import ExternalServiceError
 from app.models.enums.intent import Intent
-from app.services.intent.base import IntentDetector, IntentResult
+from app.services.intent.base import (
+    CoDetectedIntent,
+    IntentDetection,
+    IntentDetector,
+    IntentResult,
+)
 from app.services.llm.base import LLMMessage, LLMServiceBase
 
 # Reasoning-capable GLM models (the deployment serves glm-5.3-flash)
@@ -21,6 +26,13 @@ from app.services.llm.base import LLMMessage, LLMServiceBase
 # degrading every low-rule-confidence query to unknown/0.0. The answer
 # is one word, but the budget must cover the reasoning preamble.
 _INTENT_MAX_TOKENS = 200
+
+# The multi-intent verdict carries a primary label plus up to a few
+# co-occurring labels in JSON — still far below the reasoning-preamble
+# budget problem that fixed this constant, but the JSON envelope adds
+# tokens on top of the single-word answer.
+_MULTI_INTENT_MAX_TOKENS = 1200
+_MULTI_RESPONSE_MAX_CHARS = 16000
 
 
 class LLMIntentDetector(IntentDetector):
@@ -86,6 +98,217 @@ class LLMIntentDetector(IntentDetector):
                 service="LLM Intent Detection",
                 message=f"Failed to detect intent: {str(e)}",
             ) from e
+
+    async def detect_multi(
+        self,
+        query: str,
+        context: dict[str, Any] | None = None,
+    ) -> IntentDetection:
+        """Use a separate request-scoped JSON protocol; legacy prompts stay unchanged.
+
+        Invalid model output abstains atomically, without recovering executable
+        labels from substrings or making a second, less constrained model call.
+        """
+        # Existing custom intent legs may override only the original
+        # single-result contract. Preserve that extension point rather
+        # than bypassing it with a new provider call. A subclass can opt
+        # into decomposition explicitly by overriding detect_multi too.
+        if type(self).detect_with_confidence is not LLMIntentDetector.detect_with_confidence:
+            return await IntentDetector.detect_multi(self, query, context)
+        if not query or not query.strip():
+            return IntentDetection(primary=IntentResult(Intent.UNKNOWN, 0.0))
+
+        messages = [
+            LLMMessage(role="system", content=self._build_multi_intent_system_prompt()),
+            LLMMessage(
+                role="user",
+                content="Conversation context (reference only):\n"
+                + json.dumps(context or {}, ensure_ascii=False, default=str)
+                + f"\n\nNew query: {query}\n\nReturn the request-scoped JSON object.",
+            ),
+        ]
+        try:
+            response = await self.llm_service.generate(
+                messages=messages,
+                max_tokens=_MULTI_INTENT_MAX_TOKENS,
+                temperature=0.0,
+            )
+            from app.services.llm.reasoning_filter import strip_reasoning
+
+            content = response.content
+            if len(content) <= _MULTI_RESPONSE_MAX_CHARS:
+                content = strip_reasoning(content)
+            return self._parse_multi_response(content, query)
+        except ExternalServiceError:
+            raise
+        except Exception as e:
+            raise ExternalServiceError(
+                service="LLM Multi-Intent Detection",
+                message=f"Failed to detect intents: {str(e)}",
+            ) from e
+
+    def _build_multi_intent_system_prompt(self) -> str:
+        labels = ", ".join(intent.value for intent in Intent)
+        return (
+            self._build_system_prompt()
+            + f"""
+
+For this request, replace the single-label output rule with this strict protocol.
+Allowed labels: {labels}.
+Return ONLY JSON, with exactly these fields:
+{{"primary": "refund", "confidence": 0.9, "primary_query": "Refund order A",
+  "co_detected": [{{"intent": "refund", "confidence": 0.8, "query": "refund order B"}}]}}
+Each entry is an INDEPENDENT user request, not a competing label or topic keyword.
+Every query must be a nonempty VERBATIM contiguous subspan of the new query;
+never copy tasks from conversation context. Use disjoint spans. Preserve case.
+For an unsegmented single request primary_query may be empty (whole input).
+A repeated label with different entities/clauses is still a distinct request.
+Never turn a return policy or how-to question into an executable refund/return.
+Ignore quoted, negated, hypothetical, deferred, and superseded/corrected requests.
+A correction replaces the earlier request rather than adding to it.
+Use handoff as primary for an explicit human request; otherwise source order.
+Use general_knowledge for unrelated world questions; preserve the other labels.
+Confidence must be a finite JSON number between 0 and 1, never a string.
+Do not truncate requests. If uncertain, use primary unknown, confidence 0,
+primary_query empty, co_detected [].
+"""
+        )
+
+    def _parse_multi_response(self, response: str, query: str = "") -> IntentDetection:
+        """Validate the whole bounded JSON object and all source spans atomically."""
+        from app.services.intent.multi_intent import (
+            has_unquoted_action,
+            is_blocked_request,
+            is_informational_action,
+            request_ranges,
+            visible_text,
+        )
+
+        def invalid() -> IntentDetection:
+            return IntentDetection(
+                primary=IntentResult(
+                    Intent.UNKNOWN, 0.0, {"method": "llm", "invalid_response": True}
+                )
+            )
+
+        def unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            result: dict[str, Any] = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("Duplicate JSON key")
+                result[key] = value
+            return result
+
+        def confidence(value: Any) -> float:
+            if type(value) not in (int, float) or not 0 <= value <= 1:
+                raise ValueError("Confidence must be a finite number in [0, 1]")
+            return float(value)
+
+        occupied: list[tuple[int, int]] = []
+        safe_ranges = request_ranges(query)
+        executable = {
+            Intent.REFUND,
+            Intent.RETURN,
+            Intent.QUERY_ORDER,
+            Intent.TRACK_SHIPPING,
+            Intent.COMPLAINT,
+            Intent.HANDOFF,
+            Intent.CANCEL,
+            Intent.CONFIRM,
+        }
+
+        def anchor(span: Any, intent: Intent) -> str:
+            if not isinstance(span, str) or not span.strip():
+                raise ValueError("Missing request span")
+            start = query.find(span)
+            while start >= 0:
+                end = start + len(span)
+                if all(end <= left or start >= right for left, right in occupied):
+                    if intent in executable:
+                        # Do not let a clipped positive substring escape the
+                        # negation/quotation/correction of its owning clause.
+                        allowed = False
+                        for left, right in safe_ranges:
+                            clause = query[left:right]
+                            if (
+                                not left <= start < end <= right
+                                or is_blocked_request(clause)
+                                or not has_unquoted_action(clause)
+                            ):
+                                continue
+                            if intent in {
+                                Intent.REFUND,
+                                Intent.RETURN,
+                                Intent.CANCEL,
+                            } and is_informational_action(clause):
+                                continue
+                            offset = start - left
+                            visible = visible_text(clause)[offset : offset + len(span)]
+                            if visible.strip():
+                                allowed = True
+                                break
+                        if not allowed:
+                            start = query.find(span, start + 1)
+                            continue
+                    occupied.append((start, end))
+                    return span
+                start = query.find(span, start + 1)
+            raise ValueError("Unanchored or overlapping request span")
+
+        try:
+            if len(response) > _MULTI_RESPONSE_MAX_CHARS:
+                return invalid()
+            data = json.loads(response, object_pairs_hook=unique_keys)
+            if not isinstance(data, dict) or set(data) != {
+                "primary",
+                "confidence",
+                "primary_query",
+                "co_detected",
+            }:
+                return invalid()
+            primary = Intent(data["primary"])
+            score = confidence(data["confidence"])
+            co = data["co_detected"]
+            if not isinstance(co, list):
+                return invalid()
+            if primary is Intent.UNKNOWN:
+                if score != 0 or co or data["primary_query"] != "":
+                    return invalid()
+                return IntentDetection(primary=IntentResult(Intent.UNKNOWN, 0.0, {"method": "llm"}))
+            primary_query = data["primary_query"]
+            if primary_query == "" and not co:
+                anchor(query, primary)
+            else:
+                anchor(primary_query, primary)
+            # Retain the actual validated occurrence, not query.find(span):
+            # repeated text may first occur in a blocked or occupied clause.
+            entries = [(primary, score, primary_query, occupied[-1][0])]
+            for item in co:
+                if not isinstance(item, dict) or set(item) != {"intent", "confidence", "query"}:
+                    return invalid()
+                intent = Intent(item["intent"])
+                if intent is Intent.UNKNOWN:
+                    return invalid()
+                item_score = confidence(item["confidence"])
+                span = anchor(item["query"], intent)
+                entries.append((intent, item_score, span, occupied[-1][0]))
+            entries.sort(key=lambda entry: entry[3])
+            # Handoff is the only priority override; other requests retain
+            # source order, including different orders sharing one label.
+            primary_index = next(
+                (index for index, entry in enumerate(entries) if entry[0] is Intent.HANDOFF), 0
+            )
+            primary, score, primary_query, _ = entries.pop(primary_index)
+            return IntentDetection(
+                primary=IntentResult(primary, score, {"method": "llm"}),
+                primary_query=primary_query,
+                co_detected=[
+                    CoDetectedIntent(intent, item_score, "llm", span)
+                    for intent, item_score, span, _ in entries
+                ],
+            )
+        except (ValueError, TypeError, KeyError, RecursionError):
+            return invalid()
 
     def _build_system_prompt(self) -> str:
         if self.prompt_template:

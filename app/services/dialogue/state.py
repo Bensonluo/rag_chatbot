@@ -66,6 +66,15 @@ class TurnState(TypedDict, total=False):
     # L0/L1 must still check their history provider before replaying.
     shared_cache_blocked: bool
 
+    # Serial scheduling is turn-local; queued requests themselves are durable.
+    request_detection: dict[str, Any]
+    multi_intent_turn: bool
+    multi_intent_original_message: str
+    multi_intent_outputs: list[dict[str, Any]]
+    multi_intent_overflow: list[str]
+    multi_intent_next: bool
+    multi_intent_stop: bool
+
 
 class DialogueState(TurnState, total=False):
     """
@@ -110,6 +119,8 @@ class DialogueState(TurnState, total=False):
 
     # Intent switch stack (manually managed, not a reducer)
     state_stack: list[dict[str, Any]]
+    active_request_id: str
+    active_request_query: str
 
 
 def begin_turn(state: DialogueState) -> DialogueState:
@@ -145,6 +156,16 @@ def begin_turn(state: DialogueState) -> DialogueState:
         "blocked_reason": "",
         "personalized": False,
         "shared_cache_blocked": False,
+        "request_detection": {},
+        "multi_intent_turn": bool(state.get("active_request_id"))
+        or any(
+            item.get("queued_from") == "multi_intent" for item in state.get("state_stack") or []
+        ),
+        "multi_intent_original_message": state.get("message", ""),
+        "multi_intent_outputs": [],
+        "multi_intent_overflow": [],
+        "multi_intent_next": False,
+        "multi_intent_stop": False,
     }
     if state.get("tool_result") or state.get("executed_tools"):
         updates["last_tool_execution"] = {

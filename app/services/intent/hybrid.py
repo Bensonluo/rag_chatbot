@@ -8,7 +8,11 @@ from typing import Any
 
 from app.core.exceptions import ExternalServiceError
 from app.models.enums.intent import Intent
-from app.services.intent.base import IntentDetector, IntentResult
+from app.services.intent.base import (
+    IntentDetection,
+    IntentDetector,
+    IntentResult,
+)
 from app.services.intent.llm_based import LLMIntentDetector
 from app.services.intent.rule_based import RuleBasedIntentDetector
 
@@ -138,3 +142,48 @@ class HybridIntentDetector(IntentDetector):
                 **(llm_result.metadata or {}),
             },
         )
+
+    async def detect_multi(
+        self,
+        query: str,
+        context: dict[str, Any] | None = None,
+    ) -> IntentDetection:
+        """Arbitrate complete request-scoped verdicts, never union lexical labels.
+
+        A strong primary does not short-circuit a plausibly mixed message.
+        On invalid output or service outage, retain the conservative rule
+        verdict, including its original request spans.
+        """
+        from app.services.intent.multi_intent import plausible_mixed_request
+
+        rules = await self.rule_based.detect_multi(query, context)
+
+        def annotate(detection: IntentDetection, **metadata: Any) -> IntentDetection:
+            primary = detection.primary
+            return IntentDetection(
+                primary=IntentResult(
+                    primary.intent, primary.confidence, {**(primary.metadata or {}), **metadata}
+                ),
+                primary_query=detection.primary_query,
+                co_detected=detection.co_detected,
+            )
+
+        if rules.primary.confidence >= self.confidence_threshold and not plausible_mixed_request(
+            query
+        ):
+            return annotate(rules, method="rule_based", threshold=self.confidence_threshold)
+        try:
+            llm = await self.llm_based.detect_multi(query, context)
+        except ExternalServiceError:
+            return annotate(rules, method="rule_based", fallback="llm_unavailable")
+
+        if (llm.primary.metadata or {}).get("invalid_response"):
+            return annotate(rules, method="rule_based", fallback="llm_invalid_response")
+        mixed_upgrade = (
+            plausible_mixed_request(query)
+            and bool(llm.co_detected)
+            and llm.primary.confidence >= self.confidence_threshold
+        )
+        if llm.primary.confidence < rules.primary.confidence and not mixed_upgrade:
+            return annotate(rules, method="rule_based", fallback="llm_below_rule_confidence")
+        return annotate(llm, method="llm_fallback", rule_confidence=rules.primary.confidence)

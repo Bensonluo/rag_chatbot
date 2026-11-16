@@ -11,6 +11,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
@@ -117,21 +118,41 @@ def build_dialogue_graph(
 
     graph = StateGraph(DialogueState)
 
+    # Buffer multi-request turns until each sub-answer has passed its
+    # normal claim/PII gates. Single-request token streaming is unchanged.
+    def serving_node(node: Callable[..., Awaitable[dict[str, Any]]]) -> Callable[..., Any]:
+        async def serve(state: DialogueState, config: RunnableConfig) -> dict[str, Any]:
+            if state.get("multi_intent_turn"):
+                config = {
+                    **config,
+                    "configurable": {
+                        **(config.get("configurable") or {}),
+                        "stream_queue": None,
+                        "streamed_response": False,
+                        "generation_evidence_replaced": False,
+                    },
+                }
+            return await node(state, config)
+
+        return serve
+
     # ── Nodes ────────────────────────────────────────────────────────────────
     graph.add_node("begin_turn", begin_turn)
     graph.add_node("guardrail", factory.guardrail_node)
+    graph.add_node("prepare_requests", factory.prepare_requests_node)
     graph.add_node("answer_cache", factory.answer_cache_lookup_node)
     graph.add_node("detect_intent", factory.detect_intent_node)
     graph.add_node("handle_switch", factory.handle_switch_node)
     graph.add_node("route_intent", factory.route_intent_node)
     graph.add_node("collect_slots", factory.collect_slots_node)
-    graph.add_node("execute_tool", factory.execute_tool_node)
+    graph.add_node("execute_tool", serving_node(factory.execute_tool_node))
     graph.add_node("rag_lookup", factory.rag_lookup_node)
-    graph.add_node("generate_response", factory.generate_response_node)
-    graph.add_node("direct_response", factory.direct_response_node)
-    graph.add_node("handle_handoff", factory.handle_handoff_node)
-    graph.add_node("handle_agent", factory.handle_agent_node)
-    graph.add_node("faq_lookup", factory.faq_lookup_node)
+    graph.add_node("generate_response", serving_node(factory.generate_response_node))
+    graph.add_node("direct_response", serving_node(factory.direct_response_node))
+    graph.add_node("handle_handoff", serving_node(factory.handle_handoff_node))
+    graph.add_node("handle_agent", serving_node(factory.handle_agent_node))
+    graph.add_node("faq_lookup", serving_node(factory.faq_lookup_node))
+    graph.add_node("finish_subrequest", factory.finish_subrequest_node)
 
     # ── Fixed edges ──────────────────────────────────────────────────────────
     graph.add_edge(START, "begin_turn")
@@ -145,15 +166,13 @@ def build_dialogue_graph(
         factory.route_after_guardrail,
         {
             "blocked": END,
-            "continue": "answer_cache",
+            "continue": "prepare_requests",
         },
     )
 
-    # After guardrail: the L0 answer-cache lookup. A hit ends the turn
-    # with the replayed (and re-gated) answer; a miss runs the intent
-    # pipeline, including the slot-prompt skip branch. When no cache is
-    # wired the lookup node is a pure pass-through, so topology and
-    # behavior are identical to running should_skip_intent directly.
+    # Multi-request discovery precedes L0 replay and slot-prompt shortcuts:
+    # a cached partial answer must never hide another independent request.
+    # Single-request cache hits still end here after normal output checks.
     graph.add_conditional_edges(
         "answer_cache",
         factory.route_after_cache,
@@ -164,6 +183,7 @@ def build_dialogue_graph(
         },
     )
 
+    graph.add_edge("prepare_requests", "answer_cache")
     graph.add_edge("detect_intent", "handle_switch")
     graph.add_edge("handle_switch", "route_intent")
 
@@ -183,13 +203,13 @@ def build_dialogue_graph(
         },
     )
 
-    # FAQ fast path: a curated hit ends the turn; a miss (or unwired
-    # service) falls through to the full RAG pipeline unchanged.
+    # FAQ hits and successful agent runs join the same completion boundary
+    # as generated answers. Misses/fallbacks retain their existing pipeline.
     graph.add_conditional_edges(
         "faq_lookup",
         factory.route_after_faq,
         {
-            "hit": END,
+            "hit": "finish_subrequest",
             "miss": "rag_lookup",
         },
     )
@@ -201,7 +221,7 @@ def build_dialogue_graph(
         "handle_agent",
         factory.route_after_agent,
         {
-            "agent_done": END,
+            "agent_done": "finish_subrequest",
             "agent_fallback": "collect_slots",
         },
     )
@@ -216,23 +236,27 @@ def build_dialogue_graph(
         },
     )
 
-    # After tool execution: irreversible tools stage the action and emit a
-    # fixed confirmation question (straight to END, no LLM rewording);
-    # everything else flows into response generation.
+    # Irreversible tools stage a fixed confirmation question without LLM
+    # rewording. The completion boundary pauses instead of dispatching more.
     graph.add_conditional_edges(
         "execute_tool",
         factory.after_execute_tool,
         {
-            "confirm": END,
+            "confirm": "finish_subrequest",
             "done": "generate_response",
         },
     )
 
     # ── Terminal edges ───────────────────────────────────────────────────────
     graph.add_edge("rag_lookup", "generate_response")
-    graph.add_edge("direct_response", END)
-    graph.add_edge("generate_response", END)
-    graph.add_edge("handle_handoff", END)
+    graph.add_edge("direct_response", "finish_subrequest")
+    graph.add_edge("generate_response", "finish_subrequest")
+    graph.add_edge("handle_handoff", "finish_subrequest")
+    graph.add_conditional_edges(
+        "finish_subrequest",
+        factory.route_after_subrequest,
+        {"next": "route_intent", "done": END},
+    )
 
     # ── Compile with the requested checkpointing backend ─────────────────────
     compiled = graph.compile(

@@ -7,8 +7,8 @@ Fast, lightweight intent detection for customer service scenarios.
 import re
 from typing import Any
 
-from app.models.enums.intent import Intent
-from app.services.intent.base import IntentDetector, IntentResult
+from app.models.enums.intent import TASK_INTENTS, Intent
+from app.services.intent.base import CoDetectedIntent, IntentDetection, IntentDetector, IntentResult
 
 # Human-handoff vocabulary, shared by the detector's HANDOFF arm and the
 # dialogue graph's intent-skip gate (should_skip_intent): a turn matching
@@ -416,14 +416,12 @@ class RuleBasedIntentDetector(IntentDetector):
         result = await self.detect_with_confidence(query, context)
         return result.intent
 
-    async def detect_with_confidence(
-        self,
-        query: str,
-        context: dict[str, Any] | None = None,  # noqa: ARG002  # IntentDetector base signature conformance
-    ) -> IntentResult:
-        if not query or not query.strip():
-            return IntentResult(intent=Intent.UNKNOWN, confidence=0.0)
+    def _score_all(self, query: str) -> tuple[dict[Intent, float], list[dict[str, Any]]]:
+        """Score every intent against the query.
 
+        Used by the single-intent classifier, including when a multi-request
+        message is classified one independent clause at a time.
+        """
         normalized_query = self._normalize_query(query)
         scores: dict[Intent, float] = dict.fromkeys(Intent, 0.0)
         matched_rules: list[dict[str, Any]] = []
@@ -455,6 +453,18 @@ class RuleBasedIntentDetector(IntentDetector):
                                 }
                             )
 
+        return scores, matched_rules
+
+    async def detect_with_confidence(
+        self,
+        query: str,
+        context: dict[str, Any] | None = None,  # noqa: ARG002  # IntentDetector base signature conformance
+    ) -> IntentResult:
+        if not query or not query.strip():
+            return IntentResult(intent=Intent.UNKNOWN, confidence=0.0)
+
+        scores, matched_rules = self._score_all(query)
+
         max_intent = Intent.UNKNOWN
         max_score = 0.0
 
@@ -474,6 +484,92 @@ class RuleBasedIntentDetector(IntentDetector):
             }
             if matched_rules
             else None,
+        )
+
+    async def detect_multi(
+        self,
+        query: str,
+        context: dict[str, Any] | None = None,
+    ) -> IntentDetection:
+        """Classify independent source clauses, never keyword runners-up.
+
+        Keep source order (except explicit handoff priority), retain same-label
+        requests, and leave truncation to the queue owner. Legacy single-intent
+        scoring and its public API remain unchanged.
+        """
+        from app.services.intent.multi_intent import (
+            is_blocked_request,
+            is_informational_action,
+            request_spans,
+            visible_text,
+        )
+
+        spans = request_spans(query)
+        found: list[tuple[IntentResult, str]] = []
+        suppressed = 0
+        unresolved = 0
+        for span in spans:
+            if is_blocked_request(span):
+                suppressed += 1
+                continue
+            result = await self.detect_with_confidence(visible_text(span), context)
+            if result.intent in {
+                Intent.REFUND,
+                Intent.RETURN,
+                Intent.CANCEL,
+            } and is_informational_action(span):
+                # Multi-request safety is separate from legacy keyword scoring.
+                # An action definition/how-to remains a knowledge request.
+                result = IntentResult(Intent.FAQ, result.confidence, result.metadata)
+            if result.intent is Intent.UNKNOWN:
+                unresolved += 1
+                # Unknown text can be the answer to a pending slot. Keep
+                # it as its own source span for the dialogue owner to bind;
+                # never relabel it as a new executable task here.
+                active_slot_answer = bool(
+                    context
+                    and context.get("current_intent") in TASK_INTENTS
+                    and context.get("pending_slots")
+                    and not context.get("task_executed")
+                )
+                if not active_slot_answer:
+                    continue
+            found.append((result, span))
+
+        if not found:
+            return IntentDetection(
+                primary=IntentResult(
+                    intent=Intent.UNKNOWN,
+                    confidence=0.0,
+                    metadata={
+                        "method": "rule_based",
+                        "suppressed_segments": suppressed,
+                        "unresolved_segments": unresolved,
+                    },
+                )
+            )
+
+        primary_index = next(
+            (index for index, (result, _) in enumerate(found) if result.intent is Intent.HANDOFF), 0
+        )
+        primary, primary_span = found.pop(primary_index)
+        primary = IntentResult(
+            primary.intent,
+            primary.confidence,
+            {
+                **(primary.metadata or {}),
+                "method": "rule_based",
+                "suppressed_segments": suppressed,
+                "unresolved_segments": unresolved,
+            },
+        )
+        return IntentDetection(
+            primary=primary,
+            primary_query=primary_span if primary_span != query.strip() else "",
+            co_detected=[
+                CoDetectedIntent(result.intent, result.confidence, "rule_based", span)
+                for result, span in found
+            ],
         )
 
     @staticmethod
