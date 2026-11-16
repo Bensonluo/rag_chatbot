@@ -7,9 +7,25 @@ Provides abstract classes and data structures for intent classifiers.
 from abc import ABC, abstractmethod
 from collections.abc import Coroutine
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any
 
 from app.models.enums.intent import Intent
+
+
+class SpeechAct(str, Enum):
+    """What the user is DOING with a clause, not which business it mentions.
+
+    Admission (task creation) consumes this; detection alone must not
+    mint executable tasks from history mentions, advice questions or
+    mutually exclusive alternatives.
+    """
+
+    ACTION = "action"  # a current request to execute
+    INFORMATIONAL = "informational"  # policy/definition/how-to question
+    HISTORICAL = "historical"  # statement about something already done
+    CONDITIONAL = "conditional"  # action offered under an unverified condition
+    ALTERNATIVE = "alternative"  # "A or B, which one" consultation
 
 
 @dataclass
@@ -41,6 +57,8 @@ class CoDetectedIntent:
     confidence: float = 0.0
     method: str = "rule_based"
     query: str = ""
+    speech_act: str = SpeechAct.ACTION
+    entity_index: int = 0
 
 
 @dataclass
@@ -60,6 +78,8 @@ class IntentDetection:
     primary: IntentResult
     co_detected: list[CoDetectedIntent] = field(default_factory=list)
     primary_query: str = ""
+    speech_act: str = SpeechAct.ACTION
+    entity_index: int = 0
 
 
 class IntentDetector(ABC):

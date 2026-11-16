@@ -20,7 +20,7 @@ import math
 import re
 import time
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import uuid4
 
 if TYPE_CHECKING:
@@ -76,6 +76,10 @@ from app.services.dialogue.funnel_metrics import (
     record_funnel_layer,
 )
 from app.services.dialogue.i18n import (
+    CLARIFY_WRITE_ALTERNATIVE,
+    CLARIFY_WRITE_CONDITION,
+    CLARIFY_WRITE_DEGRADED,
+    CLARIFY_WRITE_HISTORY,
     CONFIRMATION_ACTION_NAMES,
     CONFIRMATION_ASK,
     CONFIRMATION_DETAIL_EMPTY,
@@ -96,6 +100,7 @@ from app.services.dialogue.i18n import (
     LANG_EN,
     LANG_ZH,
     NO_EVIDENCE,
+    POLICY_REFUSED,
     RETRIEVAL_DEGRADED,
     detect_language,
 )
@@ -103,7 +108,11 @@ from app.services.dialogue.multi_intent import (
     aggregate_outputs,
     discard_queue,
     enqueue_requests,
+    make_request_policy,
+    normalize_admission,
     pack_detection,
+    policy_denies,
+    policy_fields,
     pop_queued,
     terminate_queue,
 )
@@ -126,6 +135,7 @@ from app.services.retrieval.metrics import (
     RETRIEVAL_FILTERED_SEARCHES,
 )
 from app.services.slot_filling.slot_types import (
+    extract_slots_for_frame,
     extract_slots_from_message,
     get_missing_slots,
     get_next_prompt,
@@ -133,6 +143,14 @@ from app.services.slot_filling.slot_types import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Fixed admission clarifications keyed by admit_request verdicts.
+_ADMISSION_CLARIFY: dict[str, dict[str, str]] = {
+    "clarify_history": CLARIFY_WRITE_HISTORY,
+    "clarify_condition": CLARIFY_WRITE_CONDITION,
+    "clarify_alternative": CLARIFY_WRITE_ALTERNATIVE,
+    "clarify_degraded": CLARIFY_WRITE_DEGRADED,
+}
 
 # Deterministic evidence-gap copy (review 2026-09-26, #6): a knowledge
 # question with an empty KB slice must not fall through to free LLM
@@ -477,17 +495,56 @@ class NodeFactory:
         detection = state.get("request_detection") or await self._detect_requests(
             message, state=state
         )
+        detection = normalize_admission(detection, message)
         detected_intent = detection["intent"]
         confidence = detection["confidence"]
-        # A compound override vetoes scheduling even if a detector left it
-        # secondary. Never run an earlier read and then reveal a hidden write.
+        # Apply current control requests before interpreting a confirmation
+        # as permission to run a previously proposed read.
         for override in ("handoff", "cancel", "deny"):
-            if detected_intent == override or any(
-                item["intent"] == override for item in detection["co_detected"]
+            if (
+                detected_intent == override and detection.get("admission_verdict") == "task"
+            ) or any(
+                item["intent"] == override and not item.get("admission_verdict")
+                for item in detection["co_detected"]
             ):
                 detected_intent = override
                 break
-        base = {"intent": detected_intent, "prev_intent": prev_intent, "confidence": confidence}
+        pending_read = state.get("pending_admission_request") or {}
+        authorized_read = False
+        if pending_read and detected_intent == "confirm":
+            if time.time() - pending_read.get("staged_at", 0.0) > 300:
+                return self._admission_prompt(state, "clarify_condition", "", 0)
+            # Reuse evidence only for extracting the order. It must not be
+            # sent to an unrestricted agent or fill a previous write task.
+            detection = {
+                **detection,
+                "intent": "query_order",
+                "confidence": 1.0,
+                "primary_query": pending_read["query"],
+                "speech_act": "action",
+                "entity_index": pending_read.get("entity_index", 0),
+            }
+            detected_intent, confidence = "query_order", 1.0
+            authorized_read = True
+        elif (
+            detected_intent not in {"handoff", "cancel", "deny"}
+            and detection.get("admission_verdict", "task") != "task"
+        ):
+            return self._admission_prompt(
+                state,
+                detection["admission_verdict"],
+                detection["primary_query"],
+                detection.get("entity_index", 0),
+            )
+        base: dict[str, Any] = {
+            "intent": detected_intent,
+            "prev_intent": prev_intent,
+            "confidence": confidence,
+            "request_detection": detection,
+            "pending_admission_request": None,
+            # Routing installs this only after handle_switch snapshots the old owner.
+            "admission_read_grant": pending_read if authorized_read else None,
+        }
 
         if detected_intent in {"handoff", "cancel", "deny"}:
             base.update(discard_queue(state))
@@ -534,14 +591,31 @@ class NodeFactory:
         active = (
             bool(prev_intent) and prev_intent in TASK_INTENTS and not state.get("task_executed")
         )
-        if active and prev_intent is not None and not state.get("pending_confirmation"):
+        if (
+            active
+            and prev_intent is not None
+            and not state.get("pending_confirmation")
+            and not authorized_read
+        ):
             existing = dict(state.get("filled_slots") or {})
             pieces = [
-                {"intent": detected_intent, "query": primary_query, "confidence": confidence},
+                {
+                    "intent": detected_intent,
+                    "query": primary_query,
+                    "confidence": confidence,
+                    "speech_act": detection.get("speech_act", "action"),
+                    "entity_index": detection.get("entity_index", 0),
+                },
                 *detection["co_detected"],
             ]
             for index, piece in enumerate(pieces):
                 query = piece["query"]
+                if piece.get("admission_verdict") or piece.get("speech_act", "action") != "action":
+                    continue
+                if piece["intent"] not in {prev_intent, "unknown"} and not is_order_reference_only(
+                    query
+                ):
+                    continue
                 if not query:
                     continue
                 incoming = extract_slots_from_message(prev_intent, query, {})
@@ -578,151 +652,159 @@ class NodeFactory:
             **({"message": primary_query} if state.get("multi_intent_turn") else {}),
         }
 
-    async def handle_switch_node(self, state: DialogueState) -> dict[str, Any]:
-        """Detect and handle intent switching.
+    def _admission_prompt(
+        self, state: DialogueState, verdict: str, query: str, entity_index: int
+    ) -> dict[str, Any]:
+        """Serve fixed copy without creating or overwriting an active task."""
+        return {
+            "intent": state.get("intent", "unknown"),
+            "admission_clarify": True,
+            "slot_prompt": _ADMISSION_CLARIFY[verdict][_turn_lang(state)],
+            "shared_cache_blocked": True,
+            "pending_admission_request": {
+                "query": query,
+                "entity_index": entity_index,
+                "staged_at": time.time(),
+            }
+            if verdict == "clarify_condition" and query
+            else None,
+        }
 
-        When the user changes to a new task intent the current task state
-        is pushed onto a stack so it can be resumed later.  If the user
-        returns to a suspended task it is popped and restored.
-        """
+    @staticmethod
+    def _policy_refusal(state: DialogueState) -> dict[str, Any]:
+        """A fixed response ends dispatch without erasing the blocked owning frame."""
+        response = POLICY_REFUSED[_turn_lang(state)]
+        return {
+            "response": response,
+            "slot_prompt": response,
+            "admission_clarify": True,
+            "pending_confirmation": None,
+            "pending_admission_request": None,
+            "task_executed": False,
+            "shared_cache_blocked": True,
+            "multi_intent_stop": True,
+            "route_after_agent": "agent_done",
+        }
+
+    async def handle_switch_node(self, state: DialogueState) -> dict[str, Any]:
+        """Snapshot and restore task progress and permission as one frame."""
+        if state.get("admission_clarify"):
+            return {}
         intent = state.get("intent", "")
-        prev_intent = state.get("prev_intent")
+        previous = state.get("prev_intent")
+        if intent in META_INTENTS:
+            return {}
         incoming = extract_slots_from_message(intent, state.get("message", ""), {})
         existing = state.get("filled_slots") or {}
+        new_grant = bool(state.get("admission_read_grant"))
         different_order = bool(
-            intent in TASK_INTENTS
-            and intent == prev_intent
+            intent == previous
+            and intent in TASK_INTENTS
             and existing.get("order_id")
             and incoming.get("order_id")
             and incoming["order_id"] != existing["order_id"]
         )
-
-        # A completed same-kind request is not the new compound primary.
-        if (
-            state.get("multi_intent_turn")
-            and intent in TASK_INTENTS
-            and intent == prev_intent
-            and state.get("task_executed")
-        ):
-            return {
-                "filled_slots": {},
-                "pending_slots": [],
-                "slot_prompt": "",
-                "pending_confirmation": None,
-                "task_executed": False,
-            }
-
-        # No previous context or same intent — nothing to do.
-        if prev_intent is None or (intent == prev_intent and not different_order):
+        same_task = intent == previous and not different_order and not new_grant
+        if same_task and not state.get("task_executed"):
+            return {}
+        if previous is None:
             return {}
 
-        # Meta intents never trigger a switch.
-        if intent in META_INTENTS:
-            return {}
-
-        # Only in-flight tasks are suspendable. The stack exists to hold
-        # tasks a later "继续" can resume (see the resume check in
-        # _detect_intent_logic and the pop scan below); pushing anything
-        # else (greeting, chitchat, policy, handoff, unknown) would only
-        # pollute the resume hint with an entry nothing can resume.
-        if prev_intent not in TASK_INTENTS:
-            # A queued request's interrupted predecessor retains its own
-            # identity while an unrelated FAQ/direct answer is served.
-            if state.get("multi_intent_turn"):
-                stack = list(state.get("state_stack") or [])
-                for index in range(len(stack) - 1, -1, -1):
-                    item = stack[index]
-                    if (
-                        item.get("queued_from") != "multi_intent"
-                        and item.get("request_id")
-                        and item.get("intent") == intent
-                    ):
-                        restored = stack.pop(index)
-                        return {
-                            "state_stack": stack,
-                            "filled_slots": restored.get("filled_slots", {}),
-                            "pending_slots": restored.get("pending_slots", []),
-                            "active_request_id": restored["request_id"],
-                            "active_request_query": restored.get("query", ""),
-                            "task_executed": False,
-                            "pending_confirmation": None,
-                        }
-            return {}
-
-        state_stack: list[dict[str, Any]] = list(state.get("state_stack") or [])
-
-        # Check if the user is returning to a previously suspended task.
-        # A different entity is a new request, not an invitation to resume
-        # another frame merely because its intent label matches.
-        if intent in TASK_INTENTS and not different_order:
-            for idx, suspended in enumerate(state_stack):
-                # Multi-intent queue items advance only at a terminal
-                # boundary, not through the task-switch resume scan.
-                if suspended.get("queued_from") == "multi_intent":
+        stack = list(state.get("state_stack") or [])
+        restored: dict[str, Any] | None = None
+        if intent in TASK_INTENTS and not different_order and not new_grant and not same_task:
+            for index in range(len(stack) - 1, -1, -1):
+                item = stack[index]
+                if item.get("queued_from") == "multi_intent" or item.get("intent") != intent:
                     continue
-                if suspended.get("intent") == intent:
-                    # Resume: pop and restore.
-                    restored = state_stack.pop(idx)
-                    return {
-                        "state_stack": state_stack,
-                        "filled_slots": restored.get("filled_slots", {}),
-                        "pending_slots": restored.get("pending_slots", []),
-                        # Anything restored here was suspended before it
-                        # executed (executed tasks are never pushed), so a
-                        # stale flag from the just-finished task must not
-                        # leak into the resumed one.
-                        "task_executed": False,
-                    }
+                target = (item.get("filled_slots") or {}).get("order_id")
+                if incoming.get("order_id") and target and incoming["order_id"] != target:
+                    continue
+                restored = stack.pop(index)
+                break
 
-        # An executed task is terminal — never suspended, never resumable.
-        # Resuming a task whose tool already ran could only re-run it
-        # (risking a second irreversible action) or re-ask a dead
-        # confirmation. The flag consumes exactly one switch.
-        if state.get("task_executed"):
-            return {
-                "filled_slots": {},
-                "pending_slots": [],
-                "slot_prompt": "",
-                "task_executed": False,
-                "pending_confirmation": None,
+        if previous in TASK_INTENTS and not state.get("task_executed"):
+            suspended = {
+                "intent": previous,
+                "filled_slots": dict(existing),
+                "pending_slots": list(state.get("pending_slots") or []),
+                **policy_fields(state),
             }
+            if state.get("active_request_id"):
+                policy = state.get("request_policy") or {}
+                suspended.update(
+                    request_id=policy.get("request_id") or state["active_request_id"],
+                    query=state.get("active_request_query", ""),
+                )
+            stack.append(suspended)
 
-        # Suspend the current task. Its staged (unconfirmed) action is
-        # discarded with it: a later bare "好的" must never execute a
-        # refund the user walked away from. Resuming the task re-stages
-        # and re-asks — the safe direction.
-        suspended = {
-            "intent": prev_intent,
-            "filled_slots": state.get("filled_slots", {}),
-            "pending_slots": state.get("pending_slots", []),
-        }
-        if state.get("active_request_id"):
-            suspended.update(
-                request_id=state["active_request_id"], query=state.get("active_request_query", "")
-            )
-        state_stack.append(suspended)
-
-        return {
-            "state_stack": state_stack,
+        updates: dict[str, Any] = {
+            "state_stack": stack,
             "filled_slots": {},
             "pending_slots": [],
             "slot_prompt": "",
-            "task_executed": False,
             "pending_confirmation": None,
+            "task_executed": False,
+            "request_policy": None,
+            "request_policy_required": False,
         }
+        if restored is not None:
+            updates.update(
+                filled_slots=restored.get("filled_slots", {}),
+                pending_slots=restored.get("pending_slots", []),
+                active_request_id=restored.get("request_id", ""),
+                active_request_query=restored.get("query", ""),
+                **policy_fields(restored),
+            )
+        elif state.get("active_request_id") and previous in TASK_INTENTS and not same_task:
+            # The interrupted frame retains its identity; the new task gets another.
+            updates["active_request_id"] = uuid4().hex
+            updates["active_request_query"] = state.get("message", "")
+        if stack == list(state.get("state_stack") or []):
+            updates.pop("state_stack", None)
+        return updates
 
     async def route_intent_node(self, state: DialogueState) -> dict[str, Any]:
         """Determine the processing route based on the detected intent."""
+        if state.get("admission_clarify"):
+            return {"route": "meta"}
         intent = state.get("intent", "")
 
+        updates: dict[str, Any] = {}
+        grant = state.get("admission_read_grant")
+        if intent in TASK_INTENTS and grant:
+            policy = make_request_policy(state, read_only=True)
+            policy["target_order_id"] = extract_slots_for_frame(
+                "query_order", grant["query"], {}, grant.get("entity_index", 0)
+            ).get("order_id")
+            updates.update(
+                request_policy=policy, request_policy_required=True, admission_read_grant=None
+            )
+        elif (
+            intent in TASK_INTENTS
+            and state.get("request_policy") is None
+            and state.get("request_policy_required", False) is False
+            and state.get("request_detection")
+        ):
+            updates.update(request_policy=make_request_policy(state), request_policy_required=True)
+        current = cast(DialogueState, {**state, **updates})
+        if intent in TASK_INTENTS and policy_denies(
+            current, intent, state.get("filled_slots") or {}
+        ):
+            return {**updates, **self._policy_refusal(state), "route": "meta"}
+        if (
+            intent == "query_order"
+            and (current.get("request_policy") or {}).get("mode") == "read_only"
+        ):
+            return {**updates, "route": "task"}
         if intent in TASK_INTENTS:
             # Agent mode: task intents go through the function-calling
             # loop instead of the slot pipeline. The agent node falls
             # back to the slot pipeline when the provider lacks tool
             # support, so availability never depends on agent mode.
             if self._agent_service is not None:
-                return {"route": "agent"}
-            return {"route": "task"}
+                return {**updates, "route": "agent"}
+            return {**updates, "route": "task"}
         if intent in RAG_INTENTS:
             return {"route": "rag"}
         if intent in DIRECT_INTENTS:
@@ -747,14 +829,20 @@ class NodeFactory:
     async def collect_slots_node(self, state: DialogueState) -> dict[str, Any]:
         """Extract slot values from the user message and merge with existing.
 
-        Falls back to treating the entire message as the value for the
-        first missing required slot when regex extraction finds nothing new.
+        Falls back to treating the entire message as the value for
+        the first missing required slot when regex extraction finds nothing new.
         """
+        # Admission clarifications already own the turn's fixed copy; slot
+        # re-extraction here would overwrite the prompt with a task prompt.
+        if state.get("admission_clarify"):
+            return {}
         intent = state.get("intent", "")
         message = state.get("message", "")
         filled_slots: dict[str, Any] = dict(state.get("filled_slots") or {})
 
-        merged = extract_slots_from_message(intent, message, filled_slots)
+        merged = extract_slots_for_frame(
+            intent, message, filled_slots, state.get("entity_index", 0)
+        )
 
         # LLM pass: when regex found nothing new during an active
         # collection, let the LLM pull free-form answers into slots
@@ -782,6 +870,10 @@ class NodeFactory:
             and state.get("pending_slots")
             and len(message.strip()) > 1
             and len(message.strip()) < 30
+            and not (
+                (state.get("request_policy") or {}).get("mode") == "read_only"
+                and (state.get("request_detection") or {}).get("intent") in META_INTENTS
+            )
             and not any(
                 kw in message
                 for kw in (
@@ -842,8 +934,20 @@ class NodeFactory:
         pending = get_missing_slots(intent, merged)
         next_prompt = get_next_prompt(intent, merged, lang=_turn_lang(state))
 
+        if policy_denies(state, intent, merged):
+            return {**self._policy_refusal(state), "pending_slots": ["order_id"]}
+        policy = state.get("request_policy")
+        policy_update: dict[str, Any] = {}
+        if (
+            policy
+            and policy.get("mode") == "read_only"
+            and not policy.get("target_order_id")
+            and merged.get("order_id")
+        ):
+            policy_update["request_policy"] = {**policy, "target_order_id": merged["order_id"]}
         emit_trace("cs.slots", filled_slots=merged, pending_slots=pending)
         return {
+            **policy_update,
             "filled_slots": merged,
             "pending_slots": pending,
             "slot_prompt": next_prompt or "",
@@ -869,6 +973,8 @@ class NodeFactory:
         intent = state.get("intent", "")
         filled_slots = state.get("filled_slots") or {}
         user_id = state.get("user_id")
+        if policy_denies(state, intent, filled_slots, executing=True):
+            return self._policy_refusal(state)
 
         tool = self._tool_registry.get_tool_for_intent(intent)
 
@@ -1215,6 +1321,11 @@ class NodeFactory:
             or state.get("state_stack")
             or state.get("task_executed")
             or state.get("pending_refund_review")
+            or state.get("pending_admission_request")
+            or (
+                (state.get("request_detection") or {}).get("speech_act", "action") != "action"
+                and (state.get("request_detection") or {}).get("intent") not in RAG_INTENTS
+            )
         ):
             return False
         if self._history_provider is None:
@@ -1417,6 +1528,9 @@ class NodeFactory:
 
         intent = state.get("intent", "")
         message = state.get("message", "")
+
+        if state.get("admission_clarify"):
+            return {"response": state.get("slot_prompt", "")}
 
         # Case 2: meta intent (cancel/confirm/deny) — handle before slot prompt
         if intent in META_INTENTS:
@@ -1748,6 +1862,12 @@ class NodeFactory:
         if state.get("blocked"):
             return {"route_after_agent": "agent_done"}
 
+        if policy_denies(
+            state, state.get("intent", ""), state.get("filled_slots") or {}, agent=True
+        ):
+            refused = self._policy_refusal(state)
+            _emit_response(refused["response"], config)
+            return refused
         if self._agent_service is None:
             AGENT_LOOP_OUTCOMES.labels(outcome=OUTCOME_FALLBACK).inc()
             return {"route_after_agent": "agent_fallback"}
@@ -1912,8 +2032,23 @@ class NodeFactory:
         confirmation staging. Slot/confirmation boundaries preserve FIFO
         work; override/handoff boundaries discard it without dispatch.
         """
+        task_finished = bool(
+            state.get("intent") in TASK_INTENTS
+            and state.get("task_executed")
+            and not state.get("pending_confirmation")
+        )
+        clear_policy = task_finished or state.get("intent") in {"cancel", "deny", "handoff"}
+        cleanup: dict[str, Any] = (
+            {
+                "request_policy": None,
+                "request_policy_required": False,
+                "pending_admission_request": None,
+            }
+            if clear_policy
+            else {}
+        )
         if not state.get("multi_intent_turn"):
-            return {}
+            return cleanup
         outputs = list(state.get("multi_intent_outputs") or [])
         outputs.append(
             {
@@ -1932,7 +2067,8 @@ class NodeFactory:
             state.get("multi_intent_stop") or intent == "handoff" or state.get("handoff_outcome")
         )
         waiting = bool(
-            state.get("pending_confirmation")
+            state.get("admission_clarify")
+            or state.get("pending_confirmation")
             or state.get("pending_slots")
             or (intent in TASK_INTENTS and not state.get("task_executed"))
             or any(
@@ -1947,6 +2083,10 @@ class NodeFactory:
             or intent in META_INTENTS
             or (action and action.get("status") != "completed")
         )
+        if completed:
+            cleanup.update(
+                request_policy=None, request_policy_required=False, pending_admission_request=None
+            )
         stack = state.get("state_stack") or []
         if stop:
             stack = discard_queue(state).get("state_stack", stack)
@@ -1957,11 +2097,15 @@ class NodeFactory:
                 "multi_intent_outputs": outputs,
                 "multi_intent_next": True,
                 "intent": next_request["intent"],
+                **policy_fields(next_request),
+                "pending_admission_request": None,
+                "admission_read_grant": None,
                 "prev_intent": intent,
                 "confidence": next_request.get("confidence", 0.0),
                 "message": next_request["query"],
                 "active_request_id": next_request["request_id"],
                 "active_request_query": next_request["query"],
+                "entity_index": next_request.get("entity_index", 0),
                 "filled_slots": dict(next_request.get("filled_slots") or {}),
                 "pending_slots": list(next_request.get("pending_slots") or []),
                 "pending_confirmation": None,
@@ -1990,6 +2134,15 @@ class NodeFactory:
                     "tool_result": state.get("tool_result") or {},
                     "executed_tools": state.get("executed_tools") or [],
                 }
+            if next_request.get("admission_verdict"):
+                updates.update(
+                    self._admission_prompt(
+                        state,
+                        next_request["admission_verdict"],
+                        next_request["query"],
+                        next_request.get("entity_index", 0),
+                    )
+                )
             emit_trace(
                 "cs.multi_intent",
                 action="advance",
@@ -1999,6 +2152,7 @@ class NodeFactory:
             return updates
 
         final = aggregate_outputs(outputs)
+        final.update(cleanup)
         overflow = state.get("multi_intent_overflow") or []
         if overflow:
             omitted = "; ".join(overflow)
@@ -2061,6 +2215,11 @@ class NodeFactory:
         if state.get("route_after_cache") == "hit":
             return "hit"
         detection = state.get("request_detection") or {}
+        if (
+            state.get("pending_admission_request")
+            or detection.get("speech_act", "action") != "action"
+        ):
+            return "full"
         if detection.get("co_detected"):
             return "full"
         if detection and detection.get("intent") not in {state.get("intent"), "unknown", "confirm"}:
@@ -2324,6 +2483,15 @@ class NodeFactory:
         """
         intent = state.get("intent", "")
 
+        pending = state.get("pending_confirmation")
+        if (
+            intent == "confirm"
+            and pending
+            and policy_denies(
+                state, pending.get("intent", ""), pending.get("args") or {}, executing=True
+            )
+        ):
+            return self._policy_refusal(state)
         if (
             intent in {"confirm", "cancel", "deny"}
             and state.get("pending_confirmation")
@@ -2342,6 +2510,9 @@ class NodeFactory:
                     "response": "已取消当前操作。返回到之前的任务。",
                     "state_stack": state_stack,
                     "intent": restored.get("intent", ""),
+                    **policy_fields(restored),
+                    "active_request_id": restored.get("request_id", ""),
+                    "active_request_query": restored.get("query", ""),
                     "filled_slots": restored.get("filled_slots", {}),
                     "pending_slots": restored.get("pending_slots", []),
                     "pending_confirmation": None,
@@ -2445,6 +2616,9 @@ class NodeFactory:
                     else "好的，继续为您处理。",
                     "state_stack": state_stack,
                     "intent": restored.get("intent", ""),
+                    **policy_fields(restored),
+                    "active_request_id": restored.get("request_id", ""),
+                    "active_request_query": restored.get("query", ""),
                     "filled_slots": restored.get("filled_slots", {}),
                     "pending_slots": restored.get("pending_slots", []),
                     # Restored tasks were suspended pre-execution; clear
@@ -2479,6 +2653,10 @@ class NodeFactory:
         if state.get("blocked"):
             return {"response": GUARDRAIL_INPUT_BLOCKED[_turn_lang(state)]}
         tool_intent = pending.get("intent", "")
+        if intent == "confirm" and policy_denies(
+            state, tool_intent, pending.get("args") or {}, executing=True
+        ):
+            return self._policy_refusal(state)
         args = pending.get("args")
         tool = (
             self._tool_registry.get_tool_for_intent(tool_intent)

@@ -176,6 +176,17 @@ just a bag of labels. Two refunds for different orders remain two requests.
 Requests reuse the task stack with separate FIFO queue entries; no parallel
 write branches or shared confirmation are introduced.
 
+Request admission separates current actions from historical mentions,
+consultation, alternative choices and conditional writes before task creation.
+One action over multiple orders retains separate entity ownership and separate
+confirmations. Conditional writes offer a read-only status check first; a model
+outage tightens write admission instead of making rule fallback an execution
+permission. The offline report includes both detection and compiled-lifecycle
+challenge metrics; see [the design](docs/design/multi-intent-queueing.md).
+Read-only prerequisite permissions belong to the task and survive interruption
+and resumption; checks at tool boundaries prevent a resumed query from becoming
+a write or donating its permission to the next request.
+
 - Completed reads and knowledge requests advance automatically in the same turn.
 - Missing slots or a staged write pause the queue. One confirmation resolves
   one action; a subsequent write asks for its own confirmation.

@@ -12,8 +12,10 @@ from app.models.enums.intent import Intent
 from app.services.intent.base import IntentDetection, IntentDetector, IntentResult
 from app.services.intent.hybrid import HybridIntentDetector
 from app.services.intent.llm_based import LLMIntentDetector
+from app.services.intent.multi_intent import classify_speech_act
 from app.services.intent.rule_based import RuleBasedIntentDetector
 from app.services.llm.base import LLMServiceBase
+from app.services.slot_filling.slot_types import find_order_ids
 
 
 def model(content: str) -> Mock:
@@ -467,9 +469,14 @@ async def test_explicit_connectors_correction_and_lowercase_sentence(
 async def test_ordinary_nonrequests_are_guarded_by_both_detectors(clause: str) -> None:
     query = clause + "; what is your policy?"
     rule = await RuleBasedIntentDetector().detect_multi(query)
+    write_intents = {Intent.REFUND, Intent.RETURN, Intent.CANCEL}
+    frames = [(rule.primary.intent, rule.speech_act)] + [
+        (item.intent, item.speech_act) for item in rule.co_detected
+    ]
+    # A conditional clause may keep its write frame for admission (B3), but
+    # it must never be presented as a current action request.
     assert all(
-        intent not in {Intent.REFUND, Intent.RETURN, Intent.CANCEL}
-        for intent, _ in requests(rule, query)
+        speech_act == "conditional" for intent, speech_act in frames if intent in write_intents
     )
     assert any(intent is Intent.POLICY for intent, _ in requests(rule, query))
     # A clipped action mention must inherit the owning clause's guards too.
@@ -583,3 +590,387 @@ async def test_llm_promotes_explicit_handoff_from_secondary() -> None:
         (Intent.QUERY_ORDER, "Check order B"),
     ]
     assert result.primary.confidence == 0.7
+
+
+# ---------------------------------------------------------------------------
+# Speech-act classification (admission layer P1)
+# ---------------------------------------------------------------------------
+
+
+class TestClassifySpeechAct:
+    @pytest.mark.parametrize(
+        ("text", "expected"),
+        [
+            ("I already returned order ORD1001 because damaged", "historical"),
+            ("我已经退过订单 ORD1001 了", "historical"),
+            ("I refunded ORD1001 last week", "historical"),
+            ("我已经申请过退款了", "historical"),
+            ("Should I return or refund order ORD1001 because damaged?", "alternative"),
+            ("退货还是换货哪个更划算", "alternative"),
+            ("If the item is damaged, refund order ORD1001", "conditional"),
+            ("如果符合条件就退款 ORD1001", "conditional"),
+            ("What is your return policy?", "informational"),
+            ("退款政策是什么", "informational"),
+            ("Refund order ORD1001 because damaged", "action"),
+            ("帮我退款 ORD1001", "action"),
+            ("Track my package ORD1002", "action"),
+        ],
+    )
+    def test_classify_speech_act(self, text: str, expected: str) -> None:
+        assert classify_speech_act(text) == expected
+
+
+@pytest.mark.asyncio
+async def test_detection_carries_speech_act() -> None:
+    result = await RuleBasedIntentDetector().detect_multi(
+        "I already returned order ORD1001 because damaged; what is your return policy?"
+    )
+    assert result.speech_act == "historical"
+    acts = {item.query: item.speech_act for item in result.co_detected}
+    assert acts.get("what is your return policy?") == "informational"
+
+
+# ---------------------------------------------------------------------------
+# Shared-target expansion (admission layer P2)
+# ---------------------------------------------------------------------------
+
+
+def test_find_order_ids_returns_every_instance_in_order() -> None:
+    assert find_order_ids("Refund orders ORD1001 and ORD1002 because damaged") == [
+        "ORD1001",
+        "ORD1002",
+    ]
+    assert find_order_ids("ORD1001 和 ORD1002 都要退款") == ["ORD1001", "ORD1002"]
+    assert find_order_ids("refund ORD1001") == ["ORD1001"]
+
+
+@pytest.mark.asyncio
+async def test_shared_verb_two_orders_expand_to_two_frames() -> None:
+    query = "Refund orders ORD1001 and ORD1002 because damaged"
+    result = await RuleBasedIntentDetector().detect_multi(query)
+    frames = [(result.primary.intent.value, result.entity_index)] + [
+        (item.intent.value, item.entity_index) for item in result.co_detected
+    ]
+    assert frames == [("refund", 0), ("refund", 1)]
+
+
+# ---------------------------------------------------------------------------
+# LLM speech-act passthrough (admission layer P3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_llm_historical_frame_anchored_in_blocked_clause() -> None:
+    query = "I already returned order ORD1001 because damaged; what is your return policy?"
+    content = json.dumps(
+        {
+            "primary": "return",
+            "confidence": 0.9,
+            "primary_query": "I already returned order ORD1001 because damaged",
+            "speech_act": "historical",
+            "co_detected": [
+                {
+                    "intent": "policy",
+                    "confidence": 0.9,
+                    "query": "what is your return policy?",
+                    "speech_act": "informational",
+                }
+            ],
+        }
+    )
+    result = await LLMIntentDetector(model(content)).detect_multi(query)
+    assert result.primary.intent is Intent.RETURN
+    assert result.speech_act == "historical"
+    assert result.co_detected[0].speech_act == "informational"
+
+
+@pytest.mark.asyncio
+async def test_llm_action_frame_expands_shared_orders() -> None:
+    query = "Refund orders ORD1001 and ORD1002 because damaged"
+    content = json.dumps(
+        {
+            "primary": "refund",
+            "confidence": 0.9,
+            "primary_query": query,
+            "co_detected": [],
+        }
+    )
+    result = await LLMIntentDetector(model(content)).detect_multi(query)
+    assert result.entity_index == 0
+    assert [(item.intent.value, item.entity_index) for item in result.co_detected] == [
+        ("refund", 1)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_llm_invalid_speech_act_rejects_whole_verdict() -> None:
+    content = json.dumps(
+        {
+            "primary": "refund",
+            "confidence": 0.9,
+            "primary_query": "refund order A",
+            "speech_act": "wishful-thinking",
+            "co_detected": [],
+        }
+    )
+    result = await LLMIntentDetector(model(content)).detect_multi("refund order A")
+    assert result.primary.intent is Intent.UNKNOWN
+    assert (result.primary.metadata or {}).get("invalid_response") is True
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ("退款是什么意思", "informational"),
+        ("解释一下退货的含义", "informational"),
+        ("取消是什么含义", "informational"),
+        ("The email mentions a return for ORD1001", "informational"),
+        ("客服说订单 ORD1001 可以退款", "informational"),
+        ("Refund order ORD1001 that I bought last week", "action"),
+        ("Please return the item I received yesterday", "action"),
+        ("Refund ORD1001; I already have the receipt", "action"),
+        ("我上周买的订单 ORD1001，请退款", "action"),
+        ("我已经收到货了，请退款 ORD1001", "action"),
+        ("If ORD1001 has already shipped, refund it", "conditional"),
+        ("如果订单已经发货，请退款 ORD1001", "conditional"),
+        ("I tracked order ORD1001 last week", "historical"),
+        ("I already checked order ORD1001", "historical"),
+        ("我上周查过物流，还没到", "historical"),
+    ],
+)
+def test_admission_speech_act_depends_on_request_not_incidental_time(
+    query: str, expected: str
+) -> None:
+    assert classify_speech_act(query) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query",
+    [
+        "退款是什么意思",
+        "退货的含义是什么",
+        "The email mentions a return for ORD1001; I never asked for it",
+        "The agent suggested a refund for ORD1001",
+    ],
+)
+async def test_definitions_and_unquoted_reports_never_become_current_writes(query: str) -> None:
+    result = await RuleBasedIntentDetector().detect_multi(query)
+    frames = [(result.primary.intent, result.speech_act)] + [
+        (item.intent, item.speech_act) for item in result.co_detected
+    ]
+    assert all(
+        act != "action"
+        for intent, act in frames
+        if intent in {Intent.REFUND, Intent.RETURN, Intent.CANCEL}
+    )
+    assert result.speech_act == "informational"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query",
+    [
+        "Do not refund order ORD1001; just track it",
+        "Do not refund order ORD1001; track orders ORD1002 and ORD1003",
+        "Track orders ORD1001 and ORD1002",
+        "Track packages ORD1001 and ORD1002",
+        "Track my parcels ORD1001 and ORD1002",
+        "Check orders ORD1001 and ORD1002",
+    ],
+)
+async def test_tracking_and_order_plurals_keep_read_tasks(query: str) -> None:
+    result = await RuleBasedIntentDetector().detect_multi(query)
+    expected = Intent.QUERY_ORDER if query.startswith("Check") else Intent.TRACK_SHIPPING
+    count = 1 if query.endswith("track it") else 2
+    assert [intent for intent, _ in requests(result, query)] == [expected] * count
+    assert [result.entity_index, *(item.entity_index for item in result.co_detected)] == list(
+        range(count)
+    )
+    assert result.speech_act == "action"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ["policy", "faq", "complaint", "handoff", "cancel"])
+async def test_shared_entities_expand_only_order_bound_tasks(intent: str) -> None:
+    query = {
+        "policy": "Return policy for ORD1001 and ORD1002",
+        "faq": "What do ORD1001 and ORD1002 mean?",
+        "complaint": "File a complaint about ORD1001 and ORD1002",
+        "handoff": "Connect me to a human about ORD1001 and ORD1002",
+        "cancel": "Cancel ORD1001 and ORD1002",
+    }[intent]
+    rule = await RuleBasedIntentDetector().detect_multi(query)
+    llm = await LLMIntentDetector(model(verdict(intent, query))).detect_multi(query)
+    assert rule.co_detected == []
+    assert llm.co_detected == []
+    assert llm.primary.intent.value == intent
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize(
+    "query,span",
+    [
+        ("I already returned order ORD1001", "returned order ORD1001"),
+        ("I refunded order ORD1001 last week", "refunded order ORD1001"),
+        ("I already checked order ORD1001", "checked order ORD1001"),
+        ("If ORD1001 has already shipped, refund it", "refund it"),
+        ("If a refund is possible, refund ORD1001", "refund ORD1001"),
+        ("如果可以退款，请退款 ORD1001", "退款 ORD1001"),
+        ("The email mentions a return for ORD1001", "return for ORD1001"),
+        ("退款是什么意思", "退款"),
+    ],
+)
+async def test_model_action_cannot_escape_nonaction_owner_clause(
+    query: str, span: str, explicit: bool
+) -> None:
+    data = json.loads(verdict("query_order" if "checked" in span else "refund", span))
+    if explicit:
+        data["speech_act"] = "action"
+    result = await LLMIntentDetector(model(json.dumps(data))).detect_multi(query)
+    # Legacy labels may safely inherit the non-action classification. An
+    # explicitly declared action must never override the source evidence.
+    assert result.primary.intent is Intent.UNKNOWN or result.speech_act != "action"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["primary", "secondary", "unknown"])
+@pytest.mark.parametrize("bad_label", [None, [], {}, ["action"], 1, True, "execute"])
+async def test_all_malformed_speech_act_labels_fail_closed(field: str, bad_label: Any) -> None:
+    query = "Refund order A; return my shoes"
+    data = json.loads(
+        verdict(
+            "unknown" if field == "unknown" else "refund",
+            "" if field == "unknown" else "Refund order A",
+            []
+            if field == "unknown"
+            else [{"intent": "return", "confidence": 0.8, "query": "return my shoes"}],
+        )
+    )
+    if field == "unknown":
+        data["confidence"] = 0
+    if field == "secondary":
+        data["co_detected"][0]["speech_act"] = bad_label
+    else:
+        data["speech_act"] = bad_label
+    result = await LLMIntentDetector(model(json.dumps(data))).detect_multi(query)
+    assert result.primary.intent is Intent.UNKNOWN
+    assert (result.primary.metadata or {}).get("invalid_response") is True
+    assert not result.co_detected
+
+
+def test_llm_prompt_has_one_model_frame_per_shared_span() -> None:
+    prompt = LLMIntentDetector(model(""))._build_multi_intent_system_prompt()
+    assert "one entry per order" not in prompt
+    assert "one entry for the entire shared span" in prompt
+    assert "parser" in prompt and "expands" in prompt
+
+
+@pytest.mark.asyncio
+async def test_model_duplicate_shared_span_is_rejected_not_expanded_twice() -> None:
+    query = "Refund orders ORD1001 and ORD1002 because damaged"
+    content = verdict("refund", query, [{"intent": "refund", "confidence": 0.8, "query": query}])
+    result = await LLMIntentDetector(model(content)).detect_multi(query)
+    assert result.primary.intent is Intent.UNKNOWN
+    assert not result.co_detected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("explicit", [False, True])
+async def test_optional_speech_act_compatibility_preserves_conditional_history_and_shared_reads(
+    explicit: bool,
+) -> None:
+    spans = [
+        ("refund", "If ORD1001 has already shipped, refund it", "conditional"),
+        ("track_shipping", "I tracked ORD1002 last week", "historical"),
+        ("track_shipping", "Track orders ORD1003 and ORD1004", "action"),
+    ]
+    data = json.loads(
+        verdict(
+            spans[0][0],
+            spans[0][1],
+            [{"intent": intent, "query": span, "confidence": 0.8} for intent, span, _ in spans[1:]],
+        )
+    )
+    if explicit:
+        data["speech_act"] = spans[0][2]
+        for item, (_, _, act) in zip(data["co_detected"], spans[1:], strict=True):
+            item["speech_act"] = act
+    query = "; ".join(span for _, span, _ in spans)
+    result = await LLMIntentDetector(model(json.dumps(data))).detect_multi(query)
+    assert result.speech_act == "conditional"
+    assert [(item.speech_act, item.entity_index) for item in result.co_detected] == [
+        ("historical", 0),
+        ("action", 0),
+        ("action", 1),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query",
+    [
+        "如果符合条件，请退款 ORD1001",
+        "If a refund is possible, refund ORD1001",
+        "如果订单已经发货，请退款 ORD1001",
+    ],
+)
+async def test_rule_condition_owns_consequent_and_retains_conditional_marker(query: str) -> None:
+    result = await RuleBasedIntentDetector().detect_multi(query)
+    assert result.primary.intent is Intent.REFUND
+    assert result.speech_act == "conditional"
+    assert (result.primary_query or query) == query
+    assert not result.co_detected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ("Refund ORD1001 that I bought last week", "action"),
+        ("Refund my already returned item ORD1001", "action"),
+        ("If ORD1001 was already returned, refund it", "conditional"),
+        ("I received a refund for ORD1001 last week", "historical"),
+        ("My return for ORD1001 was processed yesterday", "historical"),
+        ("I asked for a refund for ORD1001 last week", "historical"),
+    ],
+)
+async def test_task_history_and_current_request_chronology_in_both_detectors(
+    query: str, expected: str
+) -> None:
+    assert classify_speech_act(query) == expected
+    rule = await RuleBasedIntentDetector().detect_multi(query)
+    assert rule.speech_act == expected
+    llm = await LLMIntentDetector(model(verdict("refund", query))).detect_multi(query)
+    assert llm.primary.intent is Intent.REFUND
+    assert llm.speech_act == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("intent", ["refund", "return", "query_order", "track_shipping"])
+async def test_llm_whole_input_shared_expansion_keeps_secondary_source_evidence(
+    intent: str,
+) -> None:
+    query = {
+        "refund": "Refund orders ORD1001 and ORD1002",
+        "return": "Return orders ORD1001 and ORD1002",
+        "query_order": "Check orders ORD1001 and ORD1002",
+        "track_shipping": "Track orders ORD1001 and ORD1002",
+    }[intent]
+    result = await LLMIntentDetector(model(verdict(intent, ""))).detect_multi(query)
+    assert result.primary.intent.value == intent
+    assert len(result.co_detected) == 1
+    assert result.co_detected[0].query == query
+    assert result.co_detected[0].entity_index == 1
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "I want a refund for the item I already returned",
+        "I need a refund for ORD1001 that I returned last week",
+    ],
+)
+def test_current_noun_form_request_is_not_history(query: str) -> None:
+    assert classify_speech_act(query) == "action"

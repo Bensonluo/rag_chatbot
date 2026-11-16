@@ -8,6 +8,32 @@ from app.services.intent.rule_based import RuleBasedIntentDetector
 from app.tests.integration.test_multi_intent_queue import invoke, setup_graph
 
 
+@pytest.mark.parametrize("fallback", [False, True])
+async def test_hybrid_annotation_preserves_primary_admission_semantics(fallback: bool) -> None:
+    from unittest.mock import AsyncMock, Mock, patch
+
+    from app.core.exceptions import ExternalServiceError
+    from app.models.enums.intent import Intent
+    from app.services.intent.base import IntentDetection, IntentResult
+    from app.services.intent.hybrid import HybridIntentDetector
+
+    rule = RuleBasedIntentDetector()
+    detection = IntentDetection(
+        primary=IntentResult(Intent.REFUND, 0.8),
+        primary_query="source",
+        speech_act="conditional",
+        entity_index=1,
+    )
+    llm = Mock()
+    llm.detect_multi = AsyncMock(side_effect=ExternalServiceError(service="llm", message="outage"))
+    with patch.object(rule, "detect_multi", AsyncMock(return_value=detection)):
+        result = await HybridIntentDetector(
+            rule, llm, confidence_threshold=0.9 if fallback else 0.7
+        ).detect_multi("source")
+    assert result.speech_act == "conditional"
+    assert result.entity_index == 1
+
+
 async def test_legacy_llm_subclass_keeps_custom_single_intent_contract() -> None:
     from typing import Any
     from unittest.mock import Mock
@@ -166,3 +192,115 @@ async def test_expiry_terminates_chain_before_unrelated_faq() -> None:
     unrelated = await invoke(graph, "what is your return policy?")
     assert not unrelated["pending_confirmation"]
     assert not calls
+
+
+async def test_real_shared_verb_two_orders_both_confirmed() -> None:
+    graph, calls, _, _ = setup_graph(intent_detector=RuleBasedIntentDetector())
+    staged = await invoke(graph, "Refund orders ORD1001 and ORD1002 because damaged")
+    assert staged["pending_confirmation"]["args"]["order_id"] == "ORD1001"
+    second = await invoke(graph, "yes")
+    assert second["pending_confirmation"]["args"]["order_id"] == "ORD1002"
+    done = await invoke(graph, "yes")
+    assert [args["order_id"] for _, args in calls] == ["ORD1001", "ORD1002"]
+    assert not done["pending_confirmation"] and not done["state_stack"]
+
+
+async def test_real_historical_plus_policy_answers_policy_without_task() -> None:
+    graph, calls, faq, _ = setup_graph(intent_detector=RuleBasedIntentDetector())
+    result = await invoke(
+        graph,
+        "I already returned order ORD1001 because damaged; what is your return policy?",
+    )
+    assert not result.get("pending_confirmation")
+    assert not calls
+    assert result["intent"] == "policy"
+
+
+async def test_real_pure_history_asks_clarification_instead_of_staging() -> None:
+    graph, calls, _, _ = setup_graph(intent_detector=RuleBasedIntentDetector())
+    result = await invoke(graph, "I already returned order ORD1001 because damaged.")
+    assert not result.get("pending_confirmation")
+    assert not calls
+    assert "check its status" in result["response"] or "查询" in result["response"]
+
+
+async def test_real_alternative_consultation_never_stages_a_write() -> None:
+    graph, calls, _, _ = setup_graph(intent_detector=RuleBasedIntentDetector())
+    result = await invoke(graph, "Should I return or refund order ORD1001 because damaged?")
+    assert not result.get("pending_confirmation")
+    assert not calls
+    assert result["intent"] not in {"refund", "return"}
+    assert result["admission_clarify"]
+
+
+async def test_real_conditional_write_offers_verification_first() -> None:
+    graph, calls, _, _ = setup_graph(intent_detector=RuleBasedIntentDetector())
+    result = await invoke(graph, "If the item is damaged, refund order ORD1001 because defective")
+    assert not result.get("pending_confirmation")
+    assert not calls
+    assert "verify" in result["response"] or "核实" in result["response"]
+
+
+async def test_real_llm_outage_historical_never_stages_a_degraded_write() -> None:
+    from unittest.mock import AsyncMock, Mock
+
+    from app.core.exceptions import ExternalServiceError
+    from app.services.intent.hybrid import HybridIntentDetector
+    from app.services.intent.llm_based import LLMIntentDetector
+
+    service = Mock(spec=["generate"])
+    service.generate = AsyncMock(
+        side_effect=ExternalServiceError(service="llm", message="simulated outage")
+    )
+    detector = HybridIntentDetector(
+        RuleBasedIntentDetector(), LLMIntentDetector(service), confidence_threshold=0.7
+    )
+    graph, calls, _, _ = setup_graph(intent_detector=detector)
+    result = await invoke(
+        graph,
+        "I already returned order ORD1001 because damaged; what is your return policy?",
+    )
+    assert not result.get("pending_confirmation")
+    assert not calls
+
+
+async def test_real_llm_outage_explicit_imperative_refund_still_stages() -> None:
+    from unittest.mock import AsyncMock, Mock
+
+    from app.core.exceptions import ExternalServiceError
+    from app.services.intent.hybrid import HybridIntentDetector
+    from app.services.intent.llm_based import LLMIntentDetector
+
+    service = Mock(spec=["generate"])
+    service.generate = AsyncMock(
+        side_effect=ExternalServiceError(service="llm", message="simulated outage")
+    )
+    detector = HybridIntentDetector(
+        RuleBasedIntentDetector(), LLMIntentDetector(service), confidence_threshold=0.7
+    )
+    graph, calls, _, _ = setup_graph(intent_detector=detector)
+    staged = await invoke(graph, "Please refund order ORD1001 because damaged")
+    assert staged["pending_confirmation"]["args"]["order_id"] == "ORD1001"
+    await invoke(graph, "yes")
+    assert [args["order_id"] for _, args in calls] == ["ORD1001"]
+
+
+async def test_real_llm_outage_vague_write_demands_restatement() -> None:
+    from unittest.mock import AsyncMock, Mock
+
+    from app.core.exceptions import ExternalServiceError
+    from app.services.intent.hybrid import HybridIntentDetector
+    from app.services.intent.llm_based import LLMIntentDetector
+
+    service = Mock(spec=["generate"])
+    service.generate = AsyncMock(
+        side_effect=ExternalServiceError(service="llm", message="simulated outage")
+    )
+    detector = HybridIntentDetector(
+        RuleBasedIntentDetector(), LLMIntentDetector(service), confidence_threshold=0.7
+    )
+    graph, calls, _, _ = setup_graph(intent_detector=detector)
+    result = await invoke(graph, "a refund for ORD1001 would be great")
+    assert not result.get("pending_confirmation")
+    assert not calls
+    assert "restate" in result["response"] or "重述" in result["response"]

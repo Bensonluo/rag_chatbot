@@ -74,6 +74,15 @@ class TurnState(TypedDict, total=False):
     multi_intent_overflow: list[str]
     multi_intent_next: bool
     multi_intent_stop: bool
+    # Which order instance inside the active request's source span this
+    # frame owns (shared-target expansion): slot extraction binds the
+    # entity_index-th order reference, not always the first.
+    entity_index: int
+    # Set when admission turned the turn into a fixed clarification copy;
+    # collect_slots must not re-extract and overwrite that prompt.
+    # A proposed read grant is consumed by routing after the old task is snapshotted.
+    admission_read_grant: dict[str, Any] | None
+    admission_clarify: bool
 
 
 class DialogueState(TurnState, total=False):
@@ -109,6 +118,12 @@ class DialogueState(TurnState, total=False):
     # Set while an irreversible tool is staged awaiting explicit user
     # confirmation: {"intent": ..., "args": {...}}
     pending_confirmation: dict[str, Any] | None
+    # A short-lived proposal to run an order-status READ after a condition
+    # clarification. Never stores authority to execute the original write.
+    pending_admission_request: dict[str, Any] | None
+    # Durable, task-owned authority. A new frame with a missing payload fails closed.
+    request_policy: dict[str, Any] | None
+    request_policy_required: bool
     # True from the turn a task's tool actually ran (direct execution,
     # confirm-resolved staging, or an agent tool call) until the next
     # intent switch consumes it. An executed task is terminal: it is
@@ -166,6 +181,9 @@ def begin_turn(state: DialogueState) -> DialogueState:
         "multi_intent_overflow": [],
         "multi_intent_next": False,
         "multi_intent_stop": False,
+        "admission_clarify": False,
+        "admission_read_grant": None,
+        "entity_index": 0,
     }
     if state.get("tool_result") or state.get("executed_tools"):
         updates["last_tool_execution"] = {

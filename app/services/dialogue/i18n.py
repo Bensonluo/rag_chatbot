@@ -98,6 +98,45 @@ GUARDRAIL_INPUT_BLOCKED: dict[str, str] = {
     LANG_EN: "Sorry, your message didn't pass our safety check. Please rephrase your question.",
 }
 
+# Admission clarifications (fixed copy, never LLM-reworded — same doctrine
+# as the confirmation gate: a write task must not be created from a history
+# mention, an unverified condition, an alternative consultation, or a
+# degraded-detection guess, and the user must be told why they are being
+# asked instead of silently dropped).
+POLICY_REFUSED: dict[str, str] = {
+    LANG_ZH: "当前任务的授权不允许此操作。未执行任何更改，请重新明确您的请求。",
+    LANG_EN: "This task's permission does not allow that operation. No changes were made; please state your request again.",
+}
+
+CLARIFY_WRITE_HISTORY: dict[str, str] = {
+    LANG_ZH: "您提到之前已经办理过这项业务。是想查询它的进度，还是需要再办理一次？请确认。",
+    LANG_EN: (
+        "You mentioned this was already done. Would you like to check its status, "
+        "or start a new one? Please confirm."
+    ),
+}
+CLARIFY_WRITE_CONDITION: dict[str, str] = {
+    LANG_ZH: "这个请求需要先核实条件是否满足。我先帮您查询订单当前状态，可以吗？",
+    LANG_EN: (
+        "This request depends on a condition I should verify first. "
+        "Shall I check the order's current status?"
+    ),
+}
+CLARIFY_WRITE_ALTERNATIVE: dict[str, str] = {
+    LANG_ZH: "您似乎在比较不同方案。请告诉我更看重什么（速度、金额、保留商品），或直接说明要办理哪一项。",
+    LANG_EN: (
+        "It sounds like you are comparing options. Tell me what matters most "
+        "(speed, amount, keeping the item), or state which one to proceed with."
+    ),
+}
+CLARIFY_WRITE_DEGRADED: dict[str, str] = {
+    LANG_ZH: "当前识别服务受限，为避免误操作，请您明确重述请求（例如「请退款订单 ORD1001」）再办理。",
+    LANG_EN: (
+        "Detection is degraded right now. To stay safe, please restate the request "
+        'explicitly (e.g. "please refund order ORD1001") before I proceed.'
+    ),
+}
+
 GUARDRAIL_OUTPUT_BLOCKED: dict[str, str] = {
     LANG_ZH: "抱歉，该回复未能通过安全检查，请重新提问。",
     LANG_EN: "Sorry, that reply didn't pass our safety check. Please ask differently.",

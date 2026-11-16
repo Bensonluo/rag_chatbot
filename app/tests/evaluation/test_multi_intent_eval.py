@@ -72,3 +72,22 @@ def test_loader_rejects_duplicate_ids_and_unanchored_queries(tmp_path: Path) -> 
     path.write_text(json.dumps([item, item]))
     with pytest.raises(ValueError, match="duplicate"):
         load_cases(path)
+
+
+@pytest.mark.parametrize("intent", [[], {}, 1, None, True])
+def test_golden_loader_malformed_intent_types_fail_closed(tmp_path: Path, intent: object) -> None:
+    path = tmp_path / "cases.json"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "bad-type",
+                    "query": "refund A",
+                    "combo": "single",
+                    "expect_requests": [{"intent": intent, "query": "refund A"}],
+                }
+            ]
+        )
+    )
+    with pytest.raises(ValueError, match="intent"):
+        load_cases(path)

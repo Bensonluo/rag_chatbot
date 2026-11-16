@@ -256,6 +256,7 @@ testpaths = [
     "app/tests/unit/test_multi_intent_queue.py",
     "app/tests/integration/test_multi_intent_queue.py",
     "app/tests/integration/test_multi_intent_real_detection.py",
+    "app/tests/integration/test_request_admission_lifecycle.py",
     "app/tests/unit/test_pyproject_deps.py",
     "app/tests/unit/test_dependency_lock.py",
     "app/tests/unit/test_docs_hygiene.py",

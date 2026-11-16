@@ -165,6 +165,8 @@ class HybridIntentDetector(IntentDetector):
                     primary.intent, primary.confidence, {**(primary.metadata or {}), **metadata}
                 ),
                 primary_query=detection.primary_query,
+                speech_act=detection.speech_act,
+                entity_index=detection.entity_index,
                 co_detected=detection.co_detected,
             )
 

@@ -243,6 +243,42 @@ def extract_slots_from_message(
     return extracted
 
 
+def find_order_ids(message: str) -> list[str]:
+    """Return every distinct order reference in the message, in order.
+
+    Shared-target expansion ("refund orders A and B") uses this to build one
+    request frame per target instead of silently keeping only the first.
+    """
+    seen: list[str] = []
+    for pattern in (
+        r"订单号[：:]?\s*([A-Za-z0-9]+)",
+        r"(?:order|订单)\s*(?:no\.?|number|#)?\s*([A-Za-z0-9]*\d[A-Za-z0-9]*)",
+        r"(?<![A-Za-z0-9])([A-Za-z]+\d{3,}[A-Za-z0-9]*)(?![A-Za-z0-9])",
+    ):
+        for match in re.finditer(pattern, message, re.IGNORECASE):
+            value = match.group(1)
+            if value and value not in seen:
+                seen.append(value)
+    return seen
+
+
+def extract_slots_for_frame(
+    intent: str, message: str, existing: dict[str, Any], entity_index: int = 0
+) -> dict[str, Any]:
+    """Extract slots for one request frame of a possibly shared span.
+
+    Shared-target expansion binds each frame to the entity_index-th order
+    reference in the span, so the second frame ("refund orders A and B")
+    never inherits the first frame's order.
+    """
+    extracted = extract_slots_from_message(intent, message, existing)
+    if entity_index:
+        orders = find_order_ids(message)
+        if len(orders) > entity_index and "order_id" in extracted:
+            extracted["order_id"] = orders[entity_index]
+    return extracted
+
+
 def slot_accepts_value(intent: str, slot_name: str, value: str) -> bool:
     """Admission check for the whole-message fallback (collect_slots_node).
 

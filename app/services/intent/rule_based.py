@@ -131,6 +131,7 @@ class RuleBasedIntentDetector(IntentDetector):
                         "到哪了",
                         "配送",
                         "shipping",
+                        "track",
                         "发货",
                         "运单",
                         "快递单号",
@@ -149,7 +150,7 @@ class RuleBasedIntentDetector(IntentDetector):
                     # keeps that semantics.
                     "patterns": [
                         r"\bwhere\s+is\s+my\s+(?:package|parcel|shipment|delivery)\b",
-                        r"\btrack\s+(?:my\s+|the\s+)?(?:package|parcel|shipment)\b",
+                        r"\btrack\s+(?:my\s+|the\s+)?(?:packages?|parcels?|shipments?|orders?|it|them)\b",
                         r"\b(?:has|did)\s+(?:my\s+)?(?:package|parcel|shipment)\s+"
                         r"(?:arrived|been\s+delivered|shipped|come\s+yet)\b",
                     ],
@@ -498,29 +499,40 @@ class RuleBasedIntentDetector(IntentDetector):
         scoring and its public API remain unchanged.
         """
         from app.services.intent.multi_intent import (
+            classify_speech_act,
             is_blocked_request,
-            is_informational_action,
             request_spans,
+            shared_target_count,
             visible_text,
         )
 
         spans = request_spans(query)
-        found: list[tuple[IntentResult, str]] = []
+        found: list[tuple[IntentResult, str, str, int]] = []
         suppressed = 0
         unresolved = 0
         for span in spans:
-            if is_blocked_request(span):
+            act = classify_speech_act(span)
+            # A conditional clause carries an action the user wants only if
+            # a condition holds: keep the frame tagged for admission instead
+            # of silently dropping the request (B3). Negations, deferrals
+            # and quoted mentions remain suppressed.
+            if is_blocked_request(span) and act != "conditional":
                 suppressed += 1
                 continue
             result = await self.detect_with_confidence(visible_text(span), context)
-            if result.intent in {
-                Intent.REFUND,
-                Intent.RETURN,
-                Intent.CANCEL,
-            } and is_informational_action(span):
+            if (
+                result.intent
+                in {
+                    Intent.REFUND,
+                    Intent.RETURN,
+                    Intent.CANCEL,
+                }
+                and act == "informational"
+            ):
                 # Multi-request safety is separate from legacy keyword scoring.
                 # An action definition/how-to remains a knowledge request.
                 result = IntentResult(Intent.FAQ, result.confidence, result.metadata)
+                act = "informational"
             if result.intent is Intent.UNKNOWN:
                 unresolved += 1
                 # Unknown text can be the answer to a pending slot. Keep
@@ -534,7 +546,10 @@ class RuleBasedIntentDetector(IntentDetector):
                 )
                 if not active_slot_answer:
                     continue
-            found.append((result, span))
+            found.extend(
+                (result, span, act, index)
+                for index in range(shared_target_count(result.intent, span, act))
+            )
 
         if not found:
             return IntentDetection(
@@ -546,13 +561,19 @@ class RuleBasedIntentDetector(IntentDetector):
                         "suppressed_segments": suppressed,
                         "unresolved_segments": unresolved,
                     },
-                )
+                ),
+                speech_act="action",
             )
 
         primary_index = next(
-            (index for index, (result, _) in enumerate(found) if result.intent is Intent.HANDOFF), 0
+            (
+                index
+                for index, (result, _, _, _) in enumerate(found)
+                if result.intent is Intent.HANDOFF
+            ),
+            0,
         )
-        primary, primary_span = found.pop(primary_index)
+        primary, primary_span, primary_act, primary_entity = found.pop(primary_index)
         primary = IntentResult(
             primary.intent,
             primary.confidence,
@@ -566,9 +587,18 @@ class RuleBasedIntentDetector(IntentDetector):
         return IntentDetection(
             primary=primary,
             primary_query=primary_span if primary_span != query.strip() else "",
+            speech_act=primary_act,
+            entity_index=primary_entity,
             co_detected=[
-                CoDetectedIntent(result.intent, result.confidence, "rule_based", span)
-                for result, span in found
+                CoDetectedIntent(
+                    result.intent,
+                    result.confidence,
+                    "rule_based",
+                    span,
+                    speech_act=act,
+                    entity_index=entity_index,
+                )
+                for result, span, act, entity_index in found
             ],
         )
 

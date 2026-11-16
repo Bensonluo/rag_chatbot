@@ -157,14 +157,27 @@ For this request, replace the single-label output rule with this strict protocol
 Allowed labels: {labels}.
 Return ONLY JSON, with exactly these fields:
 {{"primary": "refund", "confidence": 0.9, "primary_query": "Refund order A",
-  "co_detected": [{{"intent": "refund", "confidence": 0.8, "query": "refund order B"}}]}}
+  "speech_act": "action",
+  "co_detected": [{{"intent": "refund", "confidence": 0.8, "query": "refund order B", "speech_act": "action"}}]}}
 Each entry is an INDEPENDENT user request, not a competing label or topic keyword.
 Every query must be a nonempty VERBATIM contiguous subspan of the new query;
 never copy tasks from conversation context. Use disjoint spans. Preserve case.
+Include the whole owning clause: never clip away its condition or history.
+speech_act is one of: action (execute now), informational (policy/how-to
+question), historical (something already done, e.g. "I already returned
+ORD1001"), conditional (action wanted only if a condition holds),
+alternative (asking which option is better, e.g. "should I return or
+refund"). Never mark a current request as historical/alternative.
+When one action applies to several orders ("refund orders A and B"),
+return one entry for the entire shared span; the parser expands it once into
+per-order frames. Never repeat that span in co_detected.
 For an unsegmented single request primary_query may be empty (whole input).
 A repeated label with different entities/clauses is still a distinct request.
 Never turn a return policy or how-to question into an executable refund/return.
-Ignore quoted, negated, hypothetical, deferred, and superseded/corrected requests.
+Ignore quoted, negated, deferred, and superseded/corrected requests.
+Keep conditional and historical clauses with their non-action speech_act.
+Unquoted third-party reports ("The email mentions a return") are informational,
+not instructions. Definitions ("退款是什么意思") are informational too.
 A correction replaces the earlier request rather than adding to it.
 Use handoff as primary for an explicit human request; otherwise source order.
 Use general_knowledge for unrelated world questions; preserve the other labels.
@@ -177,12 +190,22 @@ primary_query empty, co_detected [].
     def _parse_multi_response(self, response: str, query: str = "") -> IntentDetection:
         """Validate the whole bounded JSON object and all source spans atomically."""
         from app.services.intent.multi_intent import (
+            classify_speech_act,
             has_unquoted_action,
             is_blocked_request,
             is_informational_action,
             request_ranges,
+            shared_target_count,
             visible_text,
         )
+
+        valid_speech_acts = {
+            "action",
+            "informational",
+            "historical",
+            "conditional",
+            "alternative",
+        }
 
         def invalid() -> IntentDetection:
             return IntentDetection(
@@ -190,6 +213,16 @@ primary_query empty, co_detected [].
                     Intent.UNKNOWN, 0.0, {"method": "llm", "invalid_response": True}
                 )
             )
+
+        def speech_act_of(item: dict[str, Any], span: str) -> str:
+            # Missing is legacy-compatible; explicit null, containers and
+            # unknown strings reject the entire verdict, including unknown.
+            if "speech_act" not in item:
+                return classify_speech_act(span)
+            value = item["speech_act"]
+            if not isinstance(value, str) or value not in valid_speech_acts:
+                raise ValueError("Invalid speech_act")
+            return value
 
         def unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             result: dict[str, Any] = {}
@@ -217,14 +250,14 @@ primary_query empty, co_detected [].
             Intent.CONFIRM,
         }
 
-        def anchor(span: Any, intent: Intent) -> str:
+        def anchor(span: Any, intent: Intent, act: str = "action") -> str:
             if not isinstance(span, str) or not span.strip():
                 raise ValueError("Missing request span")
             start = query.find(span)
             while start >= 0:
                 end = start + len(span)
                 if all(end <= left or start >= right for left, right in occupied):
-                    if intent in executable:
+                    if intent in executable and act == "action":
                         # Do not let a clipped positive substring escape the
                         # negation/quotation/correction of its owning clause.
                         allowed = False
@@ -233,6 +266,7 @@ primary_query empty, co_detected [].
                             if (
                                 not left <= start < end <= right
                                 or is_blocked_request(clause)
+                                or classify_speech_act(clause) != "action"
                                 or not has_unquoted_action(clause)
                             ):
                                 continue
@@ -259,10 +293,16 @@ primary_query empty, co_detected [].
             if len(response) > _MULTI_RESPONSE_MAX_CHARS:
                 return invalid()
             data = json.loads(response, object_pairs_hook=unique_keys)
-            if not isinstance(data, dict) or set(data) != {
+            if not isinstance(data, dict) or not {
                 "primary",
                 "confidence",
                 "primary_query",
+                "co_detected",
+            } <= set(data) <= {
+                "primary",
+                "confidence",
+                "primary_query",
+                "speech_act",
                 "co_detected",
             }:
                 return invalid()
@@ -271,40 +311,69 @@ primary_query empty, co_detected [].
             co = data["co_detected"]
             if not isinstance(co, list):
                 return invalid()
+            primary_query = data["primary_query"]
+            if not isinstance(primary_query, str):
+                return invalid()
+            primary_act = speech_act_of(data, primary_query or query)
             if primary is Intent.UNKNOWN:
-                if score != 0 or co or data["primary_query"] != "":
+                if score != 0 or co or primary_query != "":
                     return invalid()
                 return IntentDetection(primary=IntentResult(Intent.UNKNOWN, 0.0, {"method": "llm"}))
-            primary_query = data["primary_query"]
             if primary_query == "" and not co:
-                anchor(query, primary)
+                anchor(query, primary, primary_act)
             else:
-                anchor(primary_query, primary)
+                anchor(primary_query, primary, primary_act)
             # Retain the actual validated occurrence, not query.find(span):
             # repeated text may first occur in a blocked or occupied clause.
-            entries = [(primary, score, primary_query, occupied[-1][0])]
+            entries: list[tuple[Intent, float, str, int, str]] = [
+                (primary, score, primary_query, occupied[-1][0], primary_act)
+            ]
             for item in co:
-                if not isinstance(item, dict) or set(item) != {"intent", "confidence", "query"}:
+                if not isinstance(item, dict) or not {
+                    "intent",
+                    "confidence",
+                    "query",
+                } <= set(item) <= {"intent", "confidence", "query", "speech_act"}:
                     return invalid()
                 intent = Intent(item["intent"])
                 if intent is Intent.UNKNOWN:
                     return invalid()
                 item_score = confidence(item["confidence"])
-                span = anchor(item["query"], intent)
-                entries.append((intent, item_score, span, occupied[-1][0]))
-            entries.sort(key=lambda entry: entry[3])
+                if not isinstance(item["query"], str):
+                    return invalid()
+                item_act = speech_act_of(item, item["query"])
+                span = anchor(item["query"], intent, item_act)
+                entries.append((intent, item_score, span, occupied[-1][0], item_act))
+            # One action over several orders is N frames sharing one span.
+            expanded: list[tuple[Intent, float, str, int, str, int]] = []
+            for intent, item_score, span, offset, act in entries:
+                for entity_index in range(shared_target_count(intent, span or query, act)):
+                    expanded.append((intent, item_score, span, offset, act, entity_index))
+            expanded.sort(key=lambda entry: entry[3])
             # Handoff is the only priority override; other requests retain
             # source order, including different orders sharing one label.
             primary_index = next(
-                (index for index, entry in enumerate(entries) if entry[0] is Intent.HANDOFF), 0
+                (index for index, entry in enumerate(expanded) if entry[0] is Intent.HANDOFF),
+                0,
             )
-            primary, score, primary_query, _ = entries.pop(primary_index)
+            primary, score, primary_query, _, primary_act, primary_entity = expanded.pop(
+                primary_index
+            )
             return IntentDetection(
                 primary=IntentResult(primary, score, {"method": "llm"}),
                 primary_query=primary_query,
+                speech_act=primary_act,
+                entity_index=primary_entity,
                 co_detected=[
-                    CoDetectedIntent(intent, item_score, "llm", span)
-                    for intent, item_score, span, _ in entries
+                    CoDetectedIntent(
+                        intent,
+                        item_score,
+                        "llm",
+                        span or query,
+                        speech_act=act,
+                        entity_index=entity_index,
+                    )
+                    for intent, item_score, span, _, act, entity_index in expanded
                 ],
             )
         except (ValueError, TypeError, KeyError, RecursionError):

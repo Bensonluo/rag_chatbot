@@ -68,10 +68,12 @@ jobs:
       - name: Run tests with coverage gate
         run: pytest
 
-      - name: Report offline multi-intent detection
+      - name: Report offline multi-intent detection and admission safety
+        if: always()
         run: python scripts/run_multi_intent_eval.py --json multi-intent-report.json
 
       - name: Upload multi-intent report
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: multi-intent-report

@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   request-isolated slots, FIFO advancement, per-action confirmations, explicit
   overflow and guarded response aggregation. Includes offline detection
   comparison, cancellation/continuation regressions and compiled-graph tests.
+- Request admission distinguishes current actions from history, consultation,
+  alternatives and conditional writes before slots, routing and scheduling.
+  Shared order targets retain separate entity ownership and confirmations;
+  fallback writes require explicit requests. Includes an offline 32-case
+  admission/lifecycle challenge report and a fail-closed CI safety gate.
+- Task-owned query permissions survive interruption and checkpoint recovery,
+  with explicit intent/user/target checks before staging, execution and
+  confirmation. Conditional query proposals are consumed once; subsequent
+  requests do not inherit earlier permissions or stale query markers.
 
 - The commerce MCP server's agent-facing surface is now English-first
   bilingual: all 8 tool descriptions, the server instructions, the 4

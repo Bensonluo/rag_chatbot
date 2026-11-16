@@ -1,0 +1,522 @@
+[
+  {
+    "id": "neg-hist-1",
+    "category": "historical",
+    "query": "I already returned order ORD1001 because damaged; what is your return policy?",
+    "forbidden_writes": [
+      "return"
+    ],
+    "expected_tasks": [
+      "policy"
+    ],
+    "expected_requests": [
+      {
+        "intent": "policy",
+        "query": "what is your return policy?"
+      }
+    ],
+    "expected_outcome": "requests",
+    "clarification_expected": false,
+    "language": "en"
+  },
+  {
+    "id": "neg-hist-2",
+    "category": "historical",
+    "query": "我已经退过订单 ORD1001 了，退货政策是什么",
+    "forbidden_writes": [
+      "return"
+    ],
+    "expected_tasks": [
+      "policy"
+    ],
+    "expected_requests": [
+      {
+        "intent": "policy",
+        "query": "退货政策是什么"
+      }
+    ],
+    "expected_outcome": "requests",
+    "clarification_expected": false,
+    "language": "zh"
+  },
+  {
+    "id": "neg-hist-3",
+    "category": "historical",
+    "query": "I refunded ORD1001 last week and never got the money",
+    "forbidden_writes": [
+      "refund"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "en"
+  },
+  {
+    "id": "neg-hist-4",
+    "category": "historical",
+    "query": "上周已经退款了，钱还没到",
+    "forbidden_writes": [
+      "refund"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "zh"
+  },
+  {
+    "id": "neg-hist-5",
+    "category": "historical",
+    "query": "I have already cancelled order ORD1001",
+    "forbidden_writes": [
+      "cancel"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "en"
+  },
+  {
+    "id": "neg-hist-6",
+    "category": "historical",
+    "query": "订单 ORD1001 已经取消了，怎么还在扣款",
+    "forbidden_writes": [
+      "cancel"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "zh"
+  },
+  {
+    "id": "neg-hist-7",
+    "category": "historical",
+    "query": "We exchanged ORD1001 last month; now the replacement is broken too",
+    "forbidden_writes": [
+      "return"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "en"
+  },
+  {
+    "id": "neg-hist-8",
+    "category": "historical",
+    "query": "已经换过货了，现在新的又坏了",
+    "forbidden_writes": [
+      "return"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "zh"
+  },
+  {
+    "id": "neg-neg-1",
+    "category": "negation",
+    "query": "Do not refund order ORD1001; just track it",
+    "forbidden_writes": [
+      "refund"
+    ],
+    "expected_tasks": [
+      "track_shipping"
+    ],
+    "expected_requests": [
+      {
+        "intent": "track_shipping",
+        "query": "just track it",
+        "order_id": "ORD1001"
+      }
+    ],
+    "expected_outcome": "requests",
+    "clarification_expected": false,
+    "language": "en"
+  },
+  {
+    "id": "neg-neg-2",
+    "category": "negation",
+    "query": "不要退款 ORD1001，帮我查物流 ORD1002",
+    "forbidden_writes": [
+      "refund"
+    ],
+    "expected_tasks": [
+      "track_shipping"
+    ],
+    "expected_requests": [
+      {
+        "intent": "track_shipping",
+        "query": "帮我查物流 ORD1002",
+        "order_id": "ORD1002"
+      }
+    ],
+    "expected_outcome": "requests",
+    "clarification_expected": false,
+    "language": "zh"
+  },
+  {
+    "id": "neg-neg-3",
+    "category": "negation",
+    "query": "Don't cancel my order ORD1001",
+    "forbidden_writes": [
+      "cancel"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "en"
+  },
+  {
+    "id": "neg-neg-4",
+    "category": "negation",
+    "query": "先不用退货，我再想想",
+    "forbidden_writes": [
+      "return"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "zh"
+  },
+  {
+    "id": "neg-cond-1",
+    "category": "conditional",
+    "query": "If the item is damaged, refund order ORD1001",
+    "forbidden_writes": [
+      "refund"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "en"
+  },
+  {
+    "id": "neg-cond-2",
+    "category": "conditional",
+    "query": "如果符合条件就退款订单 ORD1001",
+    "forbidden_writes": [
+      "refund"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "zh"
+  },
+  {
+    "id": "neg-cond-3",
+    "category": "conditional",
+    "query": "Refund order ORD1001 unless it has already shipped",
+    "forbidden_writes": [
+      "refund"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "en"
+  },
+  {
+    "id": "neg-cond-4",
+    "category": "conditional",
+    "query": "要是三天内到不了就退货 ORD1002",
+    "forbidden_writes": [
+      "return"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "zh"
+  },
+  {
+    "id": "neg-alt-1",
+    "category": "alternative",
+    "query": "Should I return or refund order ORD1001 because damaged?",
+    "forbidden_writes": [
+      "refund",
+      "return"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "en"
+  },
+  {
+    "id": "neg-alt-2",
+    "category": "alternative",
+    "query": "退货还是退款哪个更划算",
+    "forbidden_writes": [
+      "refund",
+      "return"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "zh"
+  },
+  {
+    "id": "neg-alt-3",
+    "category": "alternative",
+    "query": "Which is better for ORD1001, a return or an exchange?",
+    "forbidden_writes": [
+      "return"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "en"
+  },
+  {
+    "id": "neg-alt-4",
+    "category": "alternative",
+    "query": "换货还是取消订单 ORD1001，帮我参谋一下",
+    "forbidden_writes": [
+      "cancel",
+      "return"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "zh"
+  },
+  {
+    "id": "neg-quo-1",
+    "category": "quoted",
+    "query": "He said \"refund order ORD1001\" but I disagree; what is the policy?",
+    "forbidden_writes": [
+      "refund"
+    ],
+    "expected_tasks": [
+      "policy"
+    ],
+    "expected_requests": [
+      {
+        "intent": "policy",
+        "query": "what is the policy?"
+      }
+    ],
+    "expected_outcome": "requests",
+    "clarification_expected": false,
+    "language": "en"
+  },
+  {
+    "id": "neg-quo-2",
+    "category": "quoted",
+    "query": "客服说要给我退款 ORD1001，我不要这个方案",
+    "forbidden_writes": [
+      "refund"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "zh"
+  },
+  {
+    "id": "neg-quo-3",
+    "category": "quoted",
+    "query": "The email mentions a return for ORD1001; I never asked for it",
+    "forbidden_writes": [
+      "return"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "en"
+  },
+  {
+    "id": "neg-quo-4",
+    "category": "quoted",
+    "query": "朋友建议我退款 ORD1001，你觉得呢",
+    "forbidden_writes": [
+      "refund"
+    ],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "no_business_action",
+    "clarification_expected": true,
+    "language": "zh"
+  },
+  {
+    "id": "neg-inf-1",
+    "category": "consultation",
+    "query": "What does refund order mean?",
+    "forbidden_writes": [
+      "refund"
+    ],
+    "expected_tasks": [
+      "faq"
+    ],
+    "expected_requests": [
+      {
+        "intent": "faq",
+        "query": "What does refund order mean?"
+      }
+    ],
+    "expected_outcome": "requests",
+    "clarification_expected": false,
+    "language": "en"
+  },
+  {
+    "id": "neg-inf-2",
+    "category": "consultation",
+    "query": "退款是什么意思",
+    "forbidden_writes": [
+      "refund"
+    ],
+    "expected_tasks": [
+      "faq"
+    ],
+    "expected_requests": [
+      {
+        "intent": "faq",
+        "query": "退款是什么意思"
+      }
+    ],
+    "expected_outcome": "requests",
+    "clarification_expected": false,
+    "language": "zh"
+  },
+  {
+    "id": "neg-inf-3",
+    "category": "consultation",
+    "query": "How do I return an item I bought last week?",
+    "forbidden_writes": [
+      "return"
+    ],
+    "expected_tasks": [
+      "faq"
+    ],
+    "expected_requests": [
+      {
+        "intent": "faq",
+        "query": "How do I return an item I bought last week?"
+      }
+    ],
+    "expected_outcome": "requests",
+    "clarification_expected": false,
+    "language": "en"
+  },
+  {
+    "id": "neg-inf-4",
+    "category": "consultation",
+    "query": "退货政策是什么",
+    "forbidden_writes": [
+      "return"
+    ],
+    "expected_tasks": [
+      "policy"
+    ],
+    "expected_requests": [
+      {
+        "intent": "policy",
+        "query": "退货政策是什么"
+      }
+    ],
+    "expected_outcome": "requests",
+    "clarification_expected": false,
+    "language": "zh"
+  },
+  {
+    "id": "neg-shr-1",
+    "category": "shared",
+    "query": "Refund orders ORD1001 and ORD1002 because damaged",
+    "forbidden_writes": [],
+    "expected_tasks": [
+      "refund",
+      "refund"
+    ],
+    "expected_requests": [
+      {
+        "intent": "refund",
+        "query": "Refund orders ORD1001 and ORD1002 because damaged",
+        "order_id": "ORD1001"
+      },
+      {
+        "intent": "refund",
+        "query": "Refund orders ORD1001 and ORD1002 because damaged",
+        "order_id": "ORD1002"
+      }
+    ],
+    "expected_outcome": "requests",
+    "clarification_expected": false,
+    "language": "en"
+  },
+  {
+    "id": "neg-shr-2",
+    "category": "shared",
+    "query": "ORD1001 和 ORD1002 都要退款",
+    "forbidden_writes": [],
+    "expected_tasks": [
+      "refund",
+      "refund"
+    ],
+    "expected_requests": [
+      {
+        "intent": "refund",
+        "query": "ORD1001 和 ORD1002 都要退款",
+        "order_id": "ORD1001"
+      },
+      {
+        "intent": "refund",
+        "query": "ORD1001 和 ORD1002 都要退款",
+        "order_id": "ORD1002"
+      }
+    ],
+    "expected_outcome": "requests",
+    "clarification_expected": true,
+    "language": "zh",
+    "semantics_note": "Both refund targets requested, but refund reason is absent; slot clarification is necessary. Recovery probe supplies no invented reason."
+  },
+  {
+    "id": "neg-shr-3",
+    "category": "shared",
+    "query": "Cancel orders ORD1001 and ORD1002",
+    "forbidden_writes": [],
+    "expected_tasks": [],
+    "expected_requests": [],
+    "expected_outcome": "cancel_conversation",
+    "clarification_expected": false,
+    "language": "en",
+    "semantics_note": "Intent.CANCEL cancels dialogue work; order cancellation tools are unsupported. No order writes expected."
+  },
+  {
+    "id": "neg-shr-4",
+    "category": "shared",
+    "query": "Track packages ORD1001 and ORD1002",
+    "forbidden_writes": [],
+    "expected_tasks": [
+      "track_shipping",
+      "track_shipping"
+    ],
+    "expected_requests": [
+      {
+        "intent": "track_shipping",
+        "query": "Track packages ORD1001 and ORD1002",
+        "order_id": "ORD1001"
+      },
+      {
+        "intent": "track_shipping",
+        "query": "Track packages ORD1001 and ORD1002",
+        "order_id": "ORD1002"
+      }
+    ],
+    "expected_outcome": "requests",
+    "clarification_expected": false,
+    "language": "en"
+  }
+]
